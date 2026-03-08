@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -796,9 +797,14 @@ func unlinkCmd() *cobra.Command {
 
 func serveCmd() *cobra.Command {
 	var scopes []string
+	var transport, addr string
 	cmd := &cobra.Command{
 		Use:   "serve",
-		Short: "Start the MCP server over stdio",
+		Short: "Start the MCP server (stdio or HTTP)",
+		Long: `Start the Scribe MCP server.
+
+  stdio (default): reads/writes JSON-RPC over stdin/stdout.
+  http:            starts a Streamable HTTP server on --addr.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s := mustStore()
 			defer s.Close()
@@ -807,10 +813,20 @@ func serveCmd() *cobra.Command {
 				homeScopes = detectScopes()
 			}
 			srv := mcp.NewServer(s, homeScopes)
+			if transport == "http" {
+				handler := sdkmcp.NewStreamableHTTPHandler(
+					func(r *http.Request) *sdkmcp.Server { return srv },
+					nil,
+				)
+				fmt.Fprintf(os.Stderr, "scribe: listening on %s\n", addr)
+				return http.ListenAndServe(addr, handler)
+			}
 			return srv.Run(context.Background(), &sdkmcp.StdioTransport{})
 		},
 	}
 	cmd.Flags().StringSliceVar(&scopes, "scope", nil, "home scopes (repeatable)")
+	cmd.Flags().StringVar(&transport, "transport", envOr("SCRIBE_TRANSPORT", "stdio"), "transport type: stdio, http ($SCRIBE_TRANSPORT)")
+	cmd.Flags().StringVar(&addr, "addr", envOr("SCRIBE_ADDR", ":8080"), "listen address for http transport ($SCRIBE_ADDR)")
 	return cmd
 }
 
