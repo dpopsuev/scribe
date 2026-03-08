@@ -122,6 +122,11 @@ func NewServer(s store.Store, homeScopes []string) *sdkmcp.Server {
 		Description: "Query Locus for codebase context related to a governance artifact. Returns architecture components, cycles, and API surface data matching the artifact's scope.",
 	}, noOut(h.handleContextMesh))
 
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name:        "detect_overlaps",
+		Description: "Find active artifacts that share component labels (project:path format), indicating potential scope conflicts between contracts.",
+	}, noOut(h.handleDetectOverlaps))
+
 	return srv
 }
 
@@ -486,6 +491,26 @@ func (h *handler) handleContextMesh(ctx context.Context, _ *sdkmcp.CallToolReque
 
 	data, _ := json.MarshalIndent(result, "", "  ")
 	return text(string(data)), nil, nil
+}
+
+func (h *handler) handleDetectOverlaps(ctx context.Context, _ *sdkmcp.CallToolRequest, in protocol.OverlapInput) (*sdkmcp.CallToolResult, any, error) {
+	report, err := h.proto.DetectOverlaps(ctx, in)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(report.Overlaps) == 0 {
+		return text(fmt.Sprintf("No overlaps found across %d %s artifacts.", report.TotalScanned, in.Status)), nil, nil
+	}
+	var b strings.Builder
+	for _, o := range report.Overlaps {
+		fmt.Fprintf(&b, "%s\n", o.Label)
+		for _, a := range o.Artifacts {
+			fmt.Fprintf(&b, "  %-16s %s\n", a.ID, a.Title)
+		}
+		b.WriteString("\n")
+	}
+	fmt.Fprintf(&b, "%d overlap(s) across %d artifacts", report.TotalOverlaps, report.TotalScanned)
+	return text(b.String()), nil, nil
 }
 
 // --- rendering helpers ---

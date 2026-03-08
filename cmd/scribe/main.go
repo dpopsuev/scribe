@@ -51,6 +51,7 @@ func main() {
 		linkCmd(),
 		unlinkCmd(),
 		contextCmd(),
+		overlapsCmd(),
 		serveCmd(),
 		reseedCmd(),
 		seedCmd(),
@@ -845,6 +846,48 @@ Set LOCUS_URL to override the endpoint.`,
 		},
 	}
 	cmd.Flags().StringVar(&path, "path", "", "repository path to scan (overrides artifact scope)")
+	return cmd
+}
+
+// --- overlaps ---
+
+func overlapsCmd() *cobra.Command {
+	var project, kind, status, format string
+	cmd := &cobra.Command{
+		Use:   "overlaps",
+		Short: "Detect artifacts sharing component labels (scope conflicts)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p, close := mustProto()
+			defer close()
+			in := protocol.OverlapInput{Kind: kind, Status: status, Project: project}
+			report, err := p.DetectOverlaps(context.Background(), in)
+			if err != nil {
+				return err
+			}
+			if format == "json" {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(report)
+			}
+			if len(report.Overlaps) == 0 {
+				fmt.Printf("No overlaps found across %d artifacts.\n", report.TotalScanned)
+				return nil
+			}
+			for _, o := range report.Overlaps {
+				fmt.Printf("%s\n", o.Label)
+				for _, a := range o.Artifacts {
+					fmt.Printf("  %-16s %s\n", a.ID, a.Title)
+				}
+				fmt.Println()
+			}
+			fmt.Printf("%d overlap(s) across %d artifacts\n", report.TotalOverlaps, report.TotalScanned)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&project, "project", "", "filter by project prefix")
+	cmd.Flags().StringVar(&kind, "kind", "contract", "artifact kind to scan")
+	cmd.Flags().StringVar(&status, "status", "active", "artifact status to scan")
+	cmd.Flags().StringVar(&format, "format", "text", "output format (text, json)")
 	return cmd
 }
 

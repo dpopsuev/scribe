@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -282,6 +284,16 @@ func (p *Protocol) setStatus(ctx context.Context, art *model.Artifact, status st
 		for _, ch := range children {
 			if ch.Status != "archived" {
 				return Result{ID: art.ID, Error: fmt.Sprintf("cannot archive %s: child %s is %s (use archive_artifact with cascade)", art.ID, ch.ID, ch.Status)}
+			}
+		}
+	}
+
+	if status == "active" && art.Kind == "contract" && os.Getenv("SCRIBE_GATE_REQUIRE_COMPONENT_LABELS") == "true" {
+		if sec := triggerSection(art); sec != "" && !hasComponentLabels(art.Labels) {
+			return Result{
+				ID: art.ID,
+				Error: fmt.Sprintf("Gate: require_component_labels\n\n  %s has a %q section but no component labels.\n\n  Add labels declaring which components this contract touches:\n    scribe set %s labels \"project:path/to/component, ...\"\n\n  To skip this gate, remove the section or set SCRIBE_GATE_REQUIRE_COMPONENT_LABELS=false.",
+					art.ID, sec, art.ID),
 			}
 		}
 	}
@@ -730,6 +742,121 @@ func (p *Protocol) DrainCleanup(ctx context.Context, path string) (int, error) {
 		paths[i] = e.Path
 	}
 	return lifecycle.DrainCleanup(paths)
+}
+
+// --- Component label gate ---
+
+var triggerSections = map[string]bool{
+	"specification": true,
+	"feature":       true,
+	"bugfix":        true,
+	"arch":          true,
+}
+
+func triggerSection(art *model.Artifact) string {
+	for _, sec := range art.Sections {
+		if triggerSections[sec.Name] {
+			return sec.Name
+		}
+	}
+	return ""
+}
+
+// --- Component labels ---
+
+var componentLabelRe = regexp.MustCompile(`^[a-z][a-z0-9_-]*:.+/.+$`)
+
+func IsComponentLabel(s string) bool {
+	return componentLabelRe.MatchString(strings.TrimSpace(s))
+}
+
+func hasComponentLabels(labels []string) bool {
+	for _, l := range labels {
+		if IsComponentLabel(l) {
+			return true
+		}
+	}
+	return false
+}
+
+func extractComponentLabels(labels []string, projectPrefix string) []string {
+	var out []string
+	for _, l := range labels {
+		l = strings.TrimSpace(l)
+		if !IsComponentLabel(l) {
+			continue
+		}
+		if projectPrefix != "" && !strings.HasPrefix(l, projectPrefix+":") {
+			continue
+		}
+		out = append(out, l)
+	}
+	return out
+}
+
+// --- Overlap detection ---
+
+type ArtifactRef struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
+type OverlapEntry struct {
+	Label     string        `json:"label"`
+	Artifacts []ArtifactRef `json:"artifacts"`
+}
+
+type OverlapReport struct {
+	Overlaps      []OverlapEntry `json:"overlaps"`
+	TotalOverlaps int            `json:"total_overlaps"`
+	TotalScanned  int            `json:"total_artifacts_scanned"`
+}
+
+type OverlapInput struct {
+	Kind    string `json:"kind,omitempty"`
+	Status  string `json:"status,omitempty"`
+	Project string `json:"project,omitempty"`
+}
+
+func (p *Protocol) DetectOverlaps(ctx context.Context, in OverlapInput) (*OverlapReport, error) {
+	kind := in.Kind
+	if kind == "" {
+		kind = "contract"
+	}
+	status := in.Status
+	if status == "" {
+		status = "active"
+	}
+
+	f := model.Filter{Kind: kind, Status: status}
+	if len(p.scopes) > 0 {
+		f.Scopes = p.scopes
+	}
+	arts, err := p.store.List(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+
+	index := map[string][]ArtifactRef{}
+	for _, art := range arts {
+		labels := extractComponentLabels(art.Labels, in.Project)
+		for _, l := range labels {
+			index[l] = append(index[l], ArtifactRef{ID: art.ID, Title: art.Title})
+		}
+	}
+
+	report := &OverlapReport{TotalScanned: len(arts)}
+	for label, refs := range index {
+		if len(refs) < 2 {
+			continue
+		}
+		report.Overlaps = append(report.Overlaps, OverlapEntry{Label: label, Artifacts: refs})
+	}
+	sort.Slice(report.Overlaps, func(i, j int) bool {
+		return report.Overlaps[i].Label < report.Overlaps[j].Label
+	})
+	report.TotalOverlaps = len(report.Overlaps)
+	return report, nil
 }
 
 // --- helpers ---
