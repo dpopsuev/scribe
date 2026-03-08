@@ -19,7 +19,12 @@ import (
 func NewServer(s store.Store, homeScopes []string) *sdkmcp.Server {
 	srv := sdkmcp.NewServer(
 		&sdkmcp.Implementation{Name: "scribe", Version: "0.2.0"},
-		nil,
+		&sdkmcp.ServerOptions{
+			Instructions: "Scribe is a lean governance artifact store with native DAG support. " +
+				"Use it to create, query, and manage structured artifacts (contracts, specs, sprints, rules, goals) " +
+				"with parent-child trees, dependency edges, named text sections, and lifecycle status tracking. " +
+				"Start with motd for context, then list_artifacts or search_artifacts to explore.",
+		},
 	)
 	h := &handler{proto: protocol.New(s, nil, homeScopes)}
 
