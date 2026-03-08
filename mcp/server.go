@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dpopsuev/scribe/mcpclient"
 	"github.com/dpopsuev/scribe/model"
 	"github.com/dpopsuev/scribe/protocol"
 	"github.com/dpopsuev/scribe/render"
@@ -26,7 +27,10 @@ func NewServer(s store.Store, homeScopes []string) *sdkmcp.Server {
 				"Start with motd for context, then list_artifacts or search_artifacts to explore.",
 		},
 	)
-	h := &handler{proto: protocol.New(s, nil, homeScopes)}
+	h := &handler{
+		proto: protocol.New(s, nil, homeScopes),
+		locus: mcpclient.New(mcpclient.DefaultLocusURL()),
+	}
 
 	sdkmcp.AddTool(srv, &sdkmcp.Tool{
 		Name:        "create_artifact",
@@ -113,11 +117,17 @@ func NewServer(s store.Store, homeScopes []string) *sdkmcp.Server {
 		Description: "Remove a directed relationship between artifacts.",
 	}, noOut(h.handleUnlink))
 
+	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+		Name:        "context_mesh",
+		Description: "Query Locus for codebase context related to a governance artifact. Returns architecture components, cycles, and API surface data matching the artifact's scope.",
+	}, noOut(h.handleContextMesh))
+
 	return srv
 }
 
 type handler struct {
 	proto *protocol.Protocol
+	locus *mcpclient.LocusClient
 }
 
 // --- handlers (thin wrappers) ---
@@ -419,6 +429,63 @@ func (h *handler) handleUnlink(ctx context.Context, _ *sdkmcp.CallToolRequest, i
 		}
 	}
 	return text(strings.Join(lines, "\n")), nil, nil
+}
+
+// --- CON-318: context mesh ---
+
+type contextMeshInput struct {
+	ID   string `json:"id"`
+	Path string `json:"path,omitempty"`
+}
+
+func (h *handler) handleContextMesh(ctx context.Context, _ *sdkmcp.CallToolRequest, in contextMeshInput) (*sdkmcp.CallToolResult, any, error) {
+	art, err := h.proto.GetArtifact(ctx, in.ID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("get artifact %s: %w", in.ID, err)
+	}
+
+	path := in.Path
+	if path == "" {
+		path = art.Scope
+	}
+	if path == "" {
+		return nil, nil, fmt.Errorf("no path or scope on artifact %s to scan", in.ID)
+	}
+
+	type meshResult struct {
+		ArtifactID string          `json:"artifact_id"`
+		Title      string          `json:"title"`
+		Scope      string          `json:"scope"`
+		Scan       json.RawMessage `json:"scan,omitempty"`
+		Cycles     json.RawMessage `json:"cycles,omitempty"`
+		Surface    json.RawMessage `json:"api_surface,omitempty"`
+		Error      string          `json:"error,omitempty"`
+	}
+
+	result := meshResult{
+		ArtifactID: art.ID,
+		Title:      art.Title,
+		Scope:      path,
+	}
+
+	scanData, err := h.locus.ScanProject(ctx, path)
+	if err != nil {
+		result.Error = fmt.Sprintf("locus scan_project: %v", err)
+	} else {
+		result.Scan = scanData
+	}
+
+	if result.Error == "" {
+		if cycles, err := h.locus.GetCycles(ctx, path); err == nil {
+			result.Cycles = cycles
+		}
+		if surface, err := h.locus.GetAPISurface(ctx, path); err == nil {
+			result.Surface = surface
+		}
+	}
+
+	data, _ := json.MarshalIndent(result, "", "  ")
+	return text(string(data)), nil, nil
 }
 
 // --- rendering helpers ---
