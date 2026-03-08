@@ -7,7 +7,7 @@ Lean governance artifact store with native DAG support. Manages contracts, specs
 ```bash
 docker run -d --name scribe \
   -p 8080:8080 \
-  -v scribe-data:/root/.scribe \
+  -v scribe-data:/data \
   quay.io/dpopsuev/scribe
 ```
 
@@ -50,7 +50,7 @@ scribe serve --transport http         # HTTP on :8080
 
 | Variable | Default | Description |
 |---|---|---|
-| `SCRIBE_DB` | `~/.scribe/scribe.sqlite` | Database path |
+| `SCRIBE_DB` | `/data/scribe.sqlite` (container) `~/.scribe/scribe.sqlite` (binary) | Database path |
 | `SCRIBE_TRANSPORT` | `stdio` | Transport: `stdio`, `http` |
 | `SCRIBE_ADDR` | `:8080` | Listen address (http only) |
 

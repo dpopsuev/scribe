@@ -7,7 +7,9 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /scribe ./cmd/scribe
 
 FROM scratch
 COPY --from=build /scribe /scribe
+ENV SCRIBE_DB=/data/scribe.sqlite
 ENV SCRIBE_TRANSPORT=http
 ENV SCRIBE_ADDR=:8080
+VOLUME /data
 EXPOSE 8080
 ENTRYPOINT ["/scribe", "serve"]
