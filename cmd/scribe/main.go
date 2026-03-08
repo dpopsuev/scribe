@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/dpopsuev/scribe/mcp"
+	"github.com/dpopsuev/scribe/mcpclient"
 	"github.com/dpopsuev/scribe/model"
 	"github.com/dpopsuev/scribe/protocol"
 	"github.com/dpopsuev/scribe/render"
@@ -49,6 +50,7 @@ func main() {
 		inventoryCmd(),
 		linkCmd(),
 		unlinkCmd(),
+		contextCmd(),
 		serveCmd(),
 		reseedCmd(),
 		seedCmd(),
@@ -791,6 +793,59 @@ func unlinkCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// --- context ---
+
+func contextCmd() *cobra.Command {
+	var path string
+	cmd := &cobra.Command{
+		Use:   "context <ID>",
+		Short: "Query Locus for codebase context related to an artifact",
+		Long: `Read an artifact's scope and labels, call Locus scan_project,
+and return architecture context relevant to the artifact.
+
+Requires Locus to be running (default: http://localhost:8081/).
+Set LOCUS_URL to override the endpoint.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p, close := mustProto()
+			defer close()
+			art, err := p.GetArtifact(context.Background(), args[0])
+			if err != nil {
+				return err
+			}
+			scanPath := path
+			if scanPath == "" {
+				scanPath = art.Scope
+			}
+			if scanPath == "" {
+				return fmt.Errorf("no --path and no scope on artifact %s", args[0])
+			}
+
+			locus := mcpclient.New(mcpclient.DefaultLocusURL())
+			defer locus.Close()
+
+			ctx := context.Background()
+			scanData, err := locus.ScanProject(ctx, scanPath)
+			if err != nil {
+				return fmt.Errorf("locus scan_project: %w", err)
+			}
+			fmt.Printf("# Context for %s: %s\n\n", art.ID, art.Title)
+			fmt.Printf("Scope: %s\n\n", scanPath)
+			fmt.Printf("## Architecture Scan\n\n```json\n%s\n```\n", string(scanData))
+
+			if cycles, err := locus.GetCycles(ctx, scanPath); err == nil {
+				fmt.Printf("\n## Cycles\n\n```json\n%s\n```\n", string(cycles))
+			}
+			if surface, err := locus.GetAPISurface(ctx, scanPath); err == nil {
+				fmt.Printf("\n## API Surface\n\n```json\n%s\n```\n", string(surface))
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&path, "path", "", "repository path to scan (overrides artifact scope)")
+	return cmd
 }
 
 // --- serve ---
