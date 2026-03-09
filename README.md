@@ -75,6 +75,43 @@ Scribe solves this by giving agents a structured, persistent memory they can rea
 | **Goal** | The north-star artifact for a scope. Setting a goal auto-creates a root delivery epic and archives any previous goal. |
 | **Sprint** | A time-boxed container. Child contracts are the work items. Tree views show progress at a glance. |
 
+### Example Artifact Graph
+
+```mermaid
+graph TD
+    GOAL-2026-001["GOAL-2026-001\nShip v1.0\n(current)"]
+
+    EPIC-2026-001["EPIC-2026-001\nv1.0 Delivery\n(active)"]
+    EPIC-2026-001 -.->|justifies| GOAL-2026-001
+
+    SPR-2026-001["SPR-2026-001\nSprint 1: Foundation\n(active)"]
+    SPR-2026-001 -->|parent_of| EPIC-2026-001
+
+    SPR-2026-002["SPR-2026-002\nSprint 2: Hardening\n(draft)"]
+    SPR-2026-002 -->|parent_of| EPIC-2026-001
+
+    CON-2026-001["CON-2026-001\nAdd authentication\n(complete)"]
+    CON-2026-001 -->|parent_of| SPR-2026-001
+
+    CON-2026-002["CON-2026-002\nAdd rate limiting\n(active)"]
+    CON-2026-002 -->|parent_of| SPR-2026-001
+    CON-2026-002 -.->|depends_on| CON-2026-001
+
+    CON-2026-003["CON-2026-003\nAdd audit logging\n(draft)"]
+    CON-2026-003 -->|parent_of| SPR-2026-001
+    CON-2026-003 -.->|depends_on| CON-2026-001
+
+    CON-2026-004["CON-2026-004\nLoad testing\n(draft)"]
+    CON-2026-004 -->|parent_of| SPR-2026-002
+    CON-2026-004 -.->|depends_on| CON-2026-002
+
+    CON-2026-005["CON-2026-005\nSecurity review\n(draft)"]
+    CON-2026-005 -->|parent_of| SPR-2026-002
+    CON-2026-005 -.->|depends_on| CON-2026-003
+```
+
+Solid arrows are `parent_of` edges (tree structure). Dashed arrows are `depends_on` edges (sequencing). The agent walks this graph to find what to work on next: the highest-priority unblocked contract whose dependencies are all complete.
+
 ## Workflow
 
 In the intended mode of operation, **the agent does all of this for you**. You describe what you want in natural language -- "plan a sprint for auth and rate limiting" -- and the agent calls the Scribe MCP tools to create goals, sprints, contracts, sections, and status updates on your behalf. The CLI examples below show what's happening under the hood; you shouldn't need to run them manually.
@@ -212,16 +249,16 @@ graph TD
 
 ### Packages
 
-| Package | Role | Fan-in | Fan-out |
-|---|---|---|---|
-| `cmd/scribe` | CLI entry point. Every MCP tool has a CLI equivalent. | 0 | 6 |
-| `mcp` | MCP server. Thin handlers that delegate to `protocol`. | 1 | 5 |
-| `protocol` | All business logic. Both CLI and MCP are wrappers around this. | 2 | 3 |
-| `model` | Data model: `Artifact`, `Section`, `Edge`, `Filter`, `Schema`. | 6 | 0 |
-| `store` | Persistence interface + SQLite implementation. | 4 | 1 |
-| `lifecycle` | Guards (archived=readonly, delete-requires-archived), archive with cascade, vacuum. | 1 | 2 |
-| `render` | Markdown and table formatters for CLI and MCP output. | 2 | 1 |
-| `mcpclient` | Optional client for cross-tool communication (e.g. querying Locus). | 2 | 0 |
+| Package | Role |
+|---|---|
+| `cmd/scribe` | CLI entry point. Every MCP tool has a CLI equivalent. |
+| `mcp` | MCP server. Thin handlers that delegate to `protocol`. |
+| `protocol` | All business logic. Both CLI and MCP are wrappers around this. |
+| `model` | Data model: `Artifact`, `Section`, `Edge`, `Filter`, `Schema`. |
+| `store` | Persistence interface + SQLite implementation. |
+| `lifecycle` | Guards (archived=readonly, delete-requires-archived), archive with cascade, vacuum. |
+| `render` | Markdown and table formatters for CLI and MCP output. |
+| `mcpclient` | Optional client for cross-tool communication (e.g. querying Locus). |
 
 ### Storage
 
