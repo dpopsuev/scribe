@@ -19,7 +19,7 @@ import (
 // NewServer creates an MCP server exposing Scribe tools over the given store.
 func NewServer(s store.Store, homeScopes []string) *sdkmcp.Server {
 	srv := sdkmcp.NewServer(
-		&sdkmcp.Implementation{Name: "scribe", Version: "0.2.0"},
+		&sdkmcp.Implementation{Name: "scribe", Version: "0.1.0"},
 		&sdkmcp.ServerOptions{
 			Instructions: "Scribe is a lean governance artifact store with native DAG support. " +
 				"Use it to create, query, and manage structured artifacts (contracts, specs, sprints, rules, goals) " +
