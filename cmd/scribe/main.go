@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dpopsuev/scribe/config"
 	"github.com/dpopsuev/scribe/mcp"
 	"github.com/dpopsuev/scribe/mcpclient"
 	"github.com/dpopsuev/scribe/model"
@@ -24,14 +25,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var dbPath string
+var (
+	dbPath     string
+	configPath string
+)
 
 func main() {
 	root := &cobra.Command{
 		Use:   "scribe",
 		Short: "Lean artifact store with native DAG support",
 	}
-	root.PersistentFlags().StringVar(&dbPath, "db", envOr("SCRIBE_DB", store.DefaultSQLitePath()), "database path")
+	root.PersistentFlags().StringVar(&dbPath, "db", "", "database path (overrides config file and $SCRIBE_DB)")
+	root.PersistentFlags().StringVar(&configPath, "config", "", "config file path (default: ./scribe.yaml or ~/.scribe/scribe.yaml)")
 
 	root.AddCommand(
 		createCmd(),
@@ -62,17 +67,31 @@ func main() {
 	}
 }
 
+func mustConfig() *config.Config {
+	cfg, err := config.Resolve(configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: load config: %v\n", err)
+		os.Exit(1)
+	}
+	if dbPath != "" {
+		cfg.DB = dbPath
+	}
+	return cfg
+}
+
 func mustProto() (*protocol.Protocol, func()) {
-	s, err := store.OpenSQLite(dbPath)
+	cfg := mustConfig()
+	s, err := store.OpenSQLite(cfg.DB)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: open store: %v\n", err)
 		os.Exit(1)
 	}
-	return protocol.New(s, nil, nil), func() { s.Close() }
+	return protocol.New(s, cfg.Schema, nil), func() { s.Close() }
 }
 
 func mustStore() *store.SQLiteStore {
-	s, err := store.OpenSQLite(dbPath)
+	cfg := mustConfig()
+	s, err := store.OpenSQLite(cfg.DB)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: open store: %v\n", err)
 		os.Exit(1)
@@ -904,27 +923,44 @@ func serveCmd() *cobra.Command {
   stdio (default): reads/writes JSON-RPC over stdin/stdout.
   http:            starts a Streamable HTTP server on --addr.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			s := mustStore()
+			cfg := mustConfig()
+			s, err := store.OpenSQLite(cfg.DB)
+			if err != nil {
+				return fmt.Errorf("open store: %w", err)
+			}
 			defer s.Close()
+
+			t := cfg.Transport
+			if cmd.Flags().Changed("transport") {
+				t = transport
+			}
+			a := cfg.Addr
+			if cmd.Flags().Changed("addr") {
+				a = addr
+			}
 			homeScopes := scopes
+			if len(homeScopes) == 0 {
+				homeScopes = cfg.Scopes
+			}
 			if len(homeScopes) == 0 {
 				homeScopes = detectScopes()
 			}
+
 			srv := mcp.NewServer(s, homeScopes)
-			if transport == "http" {
+			if t == "http" {
 				handler := sdkmcp.NewStreamableHTTPHandler(
 					func(r *http.Request) *sdkmcp.Server { return srv },
 					nil,
 				)
-				fmt.Fprintf(os.Stderr, "scribe: listening on %s\n", addr)
-				return http.ListenAndServe(addr, handler)
+				fmt.Fprintf(os.Stderr, "scribe: listening on %s\n", a)
+				return http.ListenAndServe(a, handler)
 			}
 			return srv.Run(context.Background(), &sdkmcp.StdioTransport{})
 		},
 	}
 	cmd.Flags().StringSliceVar(&scopes, "scope", nil, "home scopes (repeatable)")
-	cmd.Flags().StringVar(&transport, "transport", envOr("SCRIBE_TRANSPORT", "stdio"), "transport type: stdio, http ($SCRIBE_TRANSPORT)")
-	cmd.Flags().StringVar(&addr, "addr", envOr("SCRIBE_ADDR", ":8080"), "listen address for http transport ($SCRIBE_ADDR)")
+	cmd.Flags().StringVar(&transport, "transport", "stdio", "transport type: stdio, http")
+	cmd.Flags().StringVar(&addr, "addr", ":8080", "listen address for http transport")
 	return cmd
 }
 
