@@ -55,8 +55,12 @@ CREATE TABLE IF NOT EXISTS sequences (
 );
 `
 
-// DefaultSQLitePath returns ~/.scribe/scribe.sqlite.
+// DefaultSQLitePath returns the default database path.
+// Resolution: $SCRIBE_ROOT/scribe.sqlite > ~/.scribe/scribe.sqlite.
 func DefaultSQLitePath() string {
+	if root := os.Getenv("SCRIBE_ROOT"); root != "" {
+		return filepath.Join(root, "scribe.sqlite")
+	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".scribe", "scribe.sqlite")
 }

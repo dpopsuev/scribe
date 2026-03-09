@@ -349,7 +349,7 @@ schema:
     auto_activate_next_draft_sprint: true
 ```
 
-**Resolution order:** `--config` flag > `$SCRIBE_CONFIG` > `./scribe.yaml` > `~/.scribe/scribe.yaml` > built-in defaults.
+**Resolution order:** `--config` flag > `$SCRIBE_CONFIG` > `./scribe.yaml` > `$SCRIBE_ROOT/scribe.yaml` > `~/.scribe/scribe.yaml` > built-in defaults.
 
 **Override chain:** CLI flags > environment variables > config file > defaults.
 
@@ -367,10 +367,11 @@ podman run -d --name scribe \
 
 | Variable | Default | Description |
 |---|---|---|
-| `SCRIBE_DB` | `~/.scribe/scribe.sqlite` (binary), `/data/scribe.sqlite` (container) | Database path |
+| `SCRIBE_ROOT` | `~/.scribe` | Storage root; sets default DB and config paths |
+| `SCRIBE_DB` | `$SCRIBE_ROOT/scribe.sqlite` | Database path (overrides `SCRIBE_ROOT`) |
 | `SCRIBE_TRANSPORT` | `stdio` | Transport: `stdio` or `http` |
 | `SCRIBE_ADDR` | `:8080` | Listen address (HTTP transport only) |
-| `SCRIBE_CONFIG` | `./scribe.yaml` or `~/.scribe/scribe.yaml` | Path to config file (first found wins) |
+| `SCRIBE_CONFIG` | `./scribe.yaml` or `$SCRIBE_ROOT/scribe.yaml` | Path to config file (first found wins) |
 
 ## License
 
