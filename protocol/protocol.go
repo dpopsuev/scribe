@@ -60,7 +60,7 @@ func New(s store.Store, schema *model.Schema, scopes []string) *Protocol {
 }
 
 func (p *Protocol) Schema() *model.Schema { return p.schema }
-func (p *Protocol) Store() store.Store     { return p.store }
+func (p *Protocol) Store() store.Store    { return p.store }
 
 // --- CRUD ---
 
@@ -690,11 +690,11 @@ func (p *Protocol) Motd(ctx context.Context) (*MotdResult, error) {
 // --- Inventory ---
 
 type InventoryResult struct {
-	Total         int                `json:"total"`
-	ByKind        map[string]int     `json:"by_kind"`
-	ByStatus      map[string]int     `json:"by_status"`
-	ActiveSprints []*model.Artifact  `json:"active_sprints,omitempty"`
-	Goals         []*model.Artifact  `json:"goals,omitempty"`
+	Total         int               `json:"total"`
+	ByKind        map[string]int    `json:"by_kind"`
+	ByStatus      map[string]int    `json:"by_status"`
+	ActiveSprints []*model.Artifact `json:"active_sprints,omitempty"`
+	Goals         []*model.Artifact `json:"goals,omitempty"`
 }
 
 func (p *Protocol) Inventory(ctx context.Context) (*InventoryResult, error) {
