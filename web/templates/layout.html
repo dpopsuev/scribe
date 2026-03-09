@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}} — Scribe</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <style>
+    :root {
+      --pico-font-size: 15px;
+    }
+    nav { margin-bottom: 1rem; }
+    .badge {
+      display: inline-block;
+      padding: 0.15em 0.5em;
+      border-radius: 4px;
+      font-size: 0.8em;
+      font-weight: 600;
+    }
+    .badge-draft     { background: #e2e8f0; color: #475569; }
+    .badge-active    { background: #dbeafe; color: #1e40af; }
+    .badge-complete  { background: #dcfce7; color: #166534; }
+    .badge-archived  { background: #f1f5f9; color: #94a3b8; }
+    .badge-current   { background: #fef3c7; color: #92400e; }
+    .meta-table td:first-child { font-weight: 600; width: 140px; }
+    .section-block { margin-top: 1.5rem; }
+    .section-block h3 { border-bottom: 1px solid var(--pico-muted-border-color); padding-bottom: 0.3rem; }
+    .tree-list { list-style: none; padding-left: 1.2rem; }
+    .tree-list li::before { content: "├─ "; font-family: monospace; color: var(--pico-muted-color); }
+    .tree-list li:last-child::before { content: "└─ "; }
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+    .stat-card { text-align: center; padding: 1rem; border-radius: 8px; background: var(--pico-card-background-color); border: 1px solid var(--pico-muted-border-color); }
+    .stat-card .number { font-size: 2rem; font-weight: 700; }
+    .stat-card .label { font-size: 0.85rem; color: var(--pico-muted-color); }
+  </style>
+</head>
+<body>
+  <nav class="container-fluid">
+    <ul>
+      <li><a href="/"><strong>Scribe</strong></a></li>
+    </ul>
+    <ul>
+      <li><a href="/artifacts">Artifacts</a></li>
+      <li><a href="/search">Search</a></li>
+    </ul>
+  </nav>
+  <main class="container">
+    {{template "content" .}}
+  </main>
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
+  </script>
+</body>
+</html>

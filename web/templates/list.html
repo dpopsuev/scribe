@@ -1,0 +1,32 @@
+{{define "content"}}
+<h1>Artifacts</h1>
+
+<form method="get" action="/artifacts" role="group">
+  <input type="text" name="kind" placeholder="kind" value="{{.Filter.Kind}}">
+  <input type="text" name="scope" placeholder="scope" value="{{.Filter.Scope}}">
+  <input type="text" name="status" placeholder="status" value="{{.Filter.Status}}">
+  <button type="submit">Filter</button>
+</form>
+
+{{if .Artifacts}}
+<table>
+  <thead>
+    <tr><th>ID</th><th>Kind</th><th>Scope</th><th>Status</th><th>Title</th><th>Tree</th></tr>
+  </thead>
+  <tbody>
+    {{range .Artifacts}}
+    <tr>
+      <td><a href="/artifacts/{{.ID}}">{{.ID}}</a></td>
+      <td>{{.Kind}}</td>
+      <td>{{.Scope}}</td>
+      <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
+      <td>{{.Title}}</td>
+      <td><a href="/tree/{{.ID}}">tree</a></td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<p>No artifacts found.</p>
+{{end}}
+{{end}}

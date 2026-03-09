@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dpopsuev/scribe/directive"
 	"github.com/dpopsuev/scribe/mcpclient"
 	"github.com/dpopsuev/scribe/model"
 	"github.com/dpopsuev/scribe/protocol"
@@ -17,7 +18,8 @@ import (
 )
 
 // NewServer creates an MCP server exposing Scribe tools over the given store.
-func NewServer(s store.Store, homeScopes []string) *sdkmcp.Server {
+// Returns both the server and a directive registry for CLI introspection.
+func NewServer(s store.Store, homeScopes []string) (*sdkmcp.Server, *directive.Registry) {
 	srv := sdkmcp.NewServer(
 		&sdkmcp.Implementation{Name: "scribe", Version: "0.1.0"},
 		&sdkmcp.ServerOptions{
@@ -27,107 +29,153 @@ func NewServer(s store.Store, homeScopes []string) *sdkmcp.Server {
 				"Start with motd for context, then list_artifacts or search_artifacts to explore.",
 		},
 	)
+	reg := directive.New()
 	h := &handler{
 		proto: protocol.New(s, nil, homeScopes),
 		locus: mcpclient.New(mcpclient.DefaultLocusURL()),
 	}
 
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "create_artifact",
 		Description: "Create a new governance artifact (contract, specification, rule, etc.)",
+		Keywords:    []string{"create", "new", "artifact", "contract", "sprint", "goal"},
+		Categories:  []string{"crud"},
 	}, noOut(h.handleCreate))
 
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "get_artifact",
 		Description: "Retrieve a single artifact by ID",
+		Keywords:    []string{"get", "show", "artifact", "detail"},
+		Categories:  []string{"crud"},
 	}, noOut(h.handleGet))
 
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "list_artifacts",
 		Description: "List artifacts with optional filters (kind, scope, status, parent, sprint). Supports group_by (status, scope, kind, sprint), sort (id, title, status, scope, kind, sprint), and limit.",
+		Keywords:    []string{"list", "artifacts", "filter", "query", "sprint", "scope"},
+		Categories:  []string{"crud", "query"},
 	}, noOut(h.handleList))
 
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "set_field",
 		Description: "Set a single field on an artifact. Supported fields: title, goal, scope, status, parent, priority, sprint, kind, depends_on (comma-separated), labels (comma-separated). Unknown fields are stored in the extra map.",
+		Keywords:    []string{"set", "update", "field", "status", "title"},
+		Categories:  []string{"crud"},
 	}, noOut(h.handleSetField))
 
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "search_artifacts",
 		Description: "Search artifacts by substring match across title, goal, and section text. Returns matching artifacts. Supports optional scope, kind, and status filters.",
+		Keywords:    []string{"search", "find", "query", "text"},
+		Categories:  []string{"query"},
 	}, noOut(h.handleSearch))
 
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "attach_section",
 		Description: "Add or replace a named text section on an artifact. Use for mermaid diagrams, architecture specs, notes, or any structured text attachment.",
+		Keywords:    []string{"section", "attach", "text", "note", "diagram"},
+		Categories:  []string{"crud", "sections"},
 	}, noOut(h.handleAttachSection))
 
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "get_section",
 		Description: "Retrieve a named section's text from an artifact.",
+		Keywords:    []string{"section", "get", "text"},
+		Categories:  []string{"query", "sections"},
 	}, noOut(h.handleGetSection))
 
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "contract_tree",
 		Description: "Return the parent-child tree rooted at an artifact",
+		Keywords:    []string{"tree", "hierarchy", "children", "parent"},
+		Categories:  []string{"query", "navigation"},
 	}, noOut(h.handleTree))
 
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "set_goal",
 		Description: "Set a new goal (archives any current goal for the scope) and auto-create a root delivery artifact linked via 'justifies'. Returns both the goal and its root artifact.",
+		Keywords:    []string{"goal", "set", "north star"},
+		Categories:  []string{"lifecycle"},
 	}, noOut(h.handleSetGoal))
 
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "archive_artifact",
 		Description: "Archive one or more artifacts (marks read-only). Use cascade=true to recursively archive child subtrees.",
+		Keywords:    []string{"archive", "retire", "cascade"},
+		Categories:  []string{"lifecycle"},
 	}, noOut(h.handleArchive))
 
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "vacuum",
 		Description: "Delete archived artifacts older than the specified number of days. Returns IDs of deleted artifacts.",
+		Keywords:    []string{"vacuum", "cleanup", "delete", "purge"},
+		Categories:  []string{"lifecycle", "maintenance"},
 	}, noOut(h.handleVacuum))
 
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "motd",
 		Description: "Message of the day: returns due reminders, recent notes, and the current goal. Useful at session start for context.",
+		Keywords:    []string{"motd", "context", "reminder", "goal"},
+		Categories:  []string{"query", "navigation"},
 	}, noOut(h.handleMotd))
 
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "drain_discover",
 		Description: "List .md files under a directory for agent-driven migration into Scribe. Returns file paths, directories, and sizes. The agent reads each file and creates artifacts via create_artifact / attach_section.",
+		Keywords:    []string{"drain", "discover", "migrate", "markdown"},
+		Categories:  []string{"migration"},
 	}, noOut(h.handleDrainDiscover))
 
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "drain_cleanup",
 		Description: "Delete .md files under a directory after migration is confirmed.",
+		Keywords:    []string{"drain", "cleanup", "delete", "markdown"},
+		Categories:  []string{"migration"},
 	}, noOut(h.handleDrainCleanup))
 
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "inventory",
 		Description: "Return a dashboard summary: total artifacts, counts by kind and status, active sprints, and current goals.",
+		Keywords:    []string{"inventory", "dashboard", "summary", "stats"},
+		Categories:  []string{"query", "navigation"},
 	}, noOut(h.handleInventory))
 
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "link_artifacts",
 		Description: "Add a directed relationship between artifacts. Supported relations: parent_of, depends_on, justifies, implements, documents, satisfies.",
+		Keywords:    []string{"link", "relation", "edge", "depends", "parent"},
+		Categories:  []string{"crud", "graph"},
 	}, noOut(h.handleLink))
 
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "unlink_artifacts",
 		Description: "Remove a directed relationship between artifacts.",
+		Keywords:    []string{"unlink", "remove", "relation", "edge"},
+		Categories:  []string{"crud", "graph"},
 	}, noOut(h.handleUnlink))
 
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "context_mesh",
 		Description: "Query Locus for codebase context related to a governance artifact. Returns architecture components, cycles, and API surface data matching the artifact's scope.",
+		Keywords:    []string{"context", "mesh", "locus", "architecture", "scan"},
+		Categories:  []string{"integration"},
 	}, noOut(h.handleContextMesh))
 
-	sdkmcp.AddTool(srv, &sdkmcp.Tool{
+	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "detect_overlaps",
 		Description: "Find active artifacts that share component labels (project:path format), indicating potential scope conflicts between contracts.",
+		Keywords:    []string{"overlap", "conflict", "label", "component"},
+		Categories:  []string{"query", "governance"},
 	}, noOut(h.handleDetectOverlaps))
 
-	return srv
+	return srv, reg
+}
+
+// ToolRegistry returns a populated directive registry without requiring
+// a database connection. Useful for CLI introspection (scribe tools).
+func ToolRegistry() *directive.Registry {
+	_, reg := NewServer(nil, nil)
+	return reg
 }
 
 type handler struct {

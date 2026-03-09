@@ -1,0 +1,26 @@
+{{define "content"}}
+<h1>{{.Artifact.Title}}</h1>
+
+<table class="meta-table">
+  <tr><td>ID</td><td>{{.Artifact.ID}}</td></tr>
+  <tr><td>Kind</td><td>{{.Artifact.Kind}}</td></tr>
+  <tr><td>Scope</td><td>{{.Artifact.Scope}}</td></tr>
+  <tr><td>Status</td><td><span class="badge badge-{{.Artifact.Status}}">{{.Artifact.Status}}</span></td></tr>
+  {{if .Artifact.Parent}}<tr><td>Parent</td><td><a href="/artifacts/{{.Artifact.Parent}}">{{.Artifact.Parent}}</a></td></tr>{{end}}
+  {{if .Artifact.Sprint}}<tr><td>Sprint</td><td><a href="/artifacts/{{.Artifact.Sprint}}">{{.Artifact.Sprint}}</a></td></tr>{{end}}
+  {{if .Artifact.Goal}}<tr><td>Goal</td><td>{{.Artifact.Goal}}</td></tr>{{end}}
+  {{if .Artifact.DependsOn}}<tr><td>Depends On</td><td>{{range .Artifact.DependsOn}}<a href="/artifacts/{{.}}">{{.}}</a> {{end}}</td></tr>{{end}}
+  {{if .Artifact.Labels}}<tr><td>Labels</td><td>{{range .Artifact.Labels}}<span class="badge">{{.}}</span> {{end}}</td></tr>{{end}}
+  <tr><td>Created</td><td>{{.Artifact.CreatedAt.Format "2006-01-02 15:04"}}</td></tr>
+  <tr><td>Updated</td><td>{{.Artifact.UpdatedAt.Format "2006-01-02 15:04"}}</td></tr>
+</table>
+
+<p><a href="/tree/{{.Artifact.ID}}">View tree</a></p>
+
+{{range .Artifact.Sections}}
+<div class="section-block">
+  <h3>{{.Name}}</h3>
+  <div>{{renderMarkdown .Text}}</div>
+</div>
+{{end}}
+{{end}}

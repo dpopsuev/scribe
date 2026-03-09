@@ -1,0 +1,22 @@
+{{define "content"}}
+<h1>Tree: {{.Root.ID}}</h1>
+<p><a href="/artifacts/{{.Root.ID}}">Back to artifact</a></p>
+{{template "treeNode" .Root}}
+{{end}}
+
+{{define "treeNode"}}
+<details open>
+  <summary>
+    <a href="/artifacts/{{.ID}}">{{.ID}}</a>
+    <span class="badge badge-{{.Status}}">{{.Status}}</span>
+    {{.Title}}
+  </summary>
+  {{if .Children}}
+  <ul class="tree-list">
+    {{range .Children}}
+    <li>{{template "treeNode" .}}</li>
+    {{end}}
+  </ul>
+  {{end}}
+</details>
+{{end}}
