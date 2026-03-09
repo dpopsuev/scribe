@@ -47,6 +47,9 @@ func Resolve(explicit string) (*Config, error) {
 		candidates = append(candidates, v)
 	}
 	candidates = append(candidates, "scribe.yaml")
+	if root := os.Getenv("SCRIBE_ROOT"); root != "" {
+		candidates = append(candidates, filepath.Join(root, "scribe.yaml"))
+	}
 	if home, err := os.UserHomeDir(); err == nil {
 		candidates = append(candidates, filepath.Join(home, ".scribe", "scribe.yaml"))
 	}
