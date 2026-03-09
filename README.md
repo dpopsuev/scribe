@@ -66,6 +66,7 @@ Scribe solves this by giving agents a structured, persistent memory they can rea
 | Concept | What it is |
 |---|---|
 | **Artifact** | The universal record. Everything is an artifact: contracts, sprints, goals, specs, tasks, bugs, notes. Each has a kind, status, scope, and auto-generated ID (e.g. `CON-2026-042`). |
+| **Contract** | The primary unit of work. A contract is a promise to deliver a specific outcome -- it carries a goal statement, design sections, acceptance criteria, and dependency edges. Think of it as a lightweight RFC or work item that an agent can read, execute against, and mark complete. |
 | **Kind** | The type of artifact. Built-in kinds: `contract`, `sprint`, `goal`, `epic`, `story`, `task`, `subtask`, `bug`, `spike`, `specification`, `rule`, `note`, `doc`, `architecture`, `batch`, `binder`. Custom kinds are accepted (open world). |
 | **Status** | Lifecycle state: `draft` &rarr; `active` &rarr; `complete` / `dismissed`. Also: `current` (goals), `open` (bugs), `promoted`, `retired`, `archived`. |
 | **Scope** | The project or repository an artifact belongs to (e.g. `locus`, `origami`). Enables multi-project planning from a single Scribe instance. |
@@ -332,7 +333,7 @@ podman run -d --name scribe \
 | `SCRIBE_DB` | `~/.scribe/scribe.sqlite` (binary), `/data/scribe.sqlite` (container) | Database path |
 | `SCRIBE_TRANSPORT` | `stdio` | Transport: `stdio` or `http` |
 | `SCRIBE_ADDR` | `:8080` | Listen address (HTTP transport only) |
-| `SCRIBE_CONFIG` | | Path to config file (overrides default resolution) |
+| `SCRIBE_CONFIG` | `./scribe.yaml` or `~/.scribe/scribe.yaml` | Path to config file (first found wins) |
 
 ## License
 
