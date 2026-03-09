@@ -1,6 +1,6 @@
 # Scribe
 
-Persistent planning memory for AI agents. Scribe is a governance artifact store that lets AI coding assistants plan, track, and recall work across sessions -- beyond the limits of a single context window.
+Persistent planning memory for AI agents. Scribe is a structured artifact store that lets AI coding assistants plan, track, and recall work across sessions -- beyond the limits of a single context window.
 
 ## Quick Start
 
