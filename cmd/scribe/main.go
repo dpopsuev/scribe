@@ -15,8 +15,10 @@ import (
 	"time"
 
 	"github.com/dpopsuev/scribe/config"
+	"github.com/dpopsuev/scribe/directive"
 	"github.com/dpopsuev/scribe/mcp"
 	"github.com/dpopsuev/scribe/mcpclient"
+	"github.com/dpopsuev/scribe/web"
 	"github.com/dpopsuev/scribe/model"
 	"github.com/dpopsuev/scribe/protocol"
 	"github.com/dpopsuev/scribe/render"
@@ -60,6 +62,8 @@ func main() {
 		serveCmd(),
 		reseedCmd(),
 		seedCmd(),
+		toolsCmd(),
+		uiCmd(),
 	)
 
 	if err := root.Execute(); err != nil {
@@ -915,13 +919,16 @@ func overlapsCmd() *cobra.Command {
 func serveCmd() *cobra.Command {
 	var scopes []string
 	var transport, addr string
+	var enableUI bool
+	var uiAddr string
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Start the MCP server (stdio or HTTP)",
 		Long: `Start the Scribe MCP server.
 
   stdio (default): reads/writes JSON-RPC over stdin/stdout.
-  http:            starts a Streamable HTTP server on --addr.`,
+  http:            starts a Streamable HTTP server on --addr.
+  --ui:            also starts a read-only web UI on --ui-addr.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg := mustConfig()
 			s, err := store.OpenSQLite(cfg.DB)
@@ -946,7 +953,19 @@ func serveCmd() *cobra.Command {
 				homeScopes = detectScopes()
 			}
 
-			srv := mcp.NewServer(s, homeScopes)
+			srv, _ := mcp.NewServer(s, homeScopes)
+
+			if enableUI {
+				proto := protocol.New(s, nil, homeScopes)
+				uiSrv := web.NewServer(proto)
+				go func() {
+					fmt.Fprintf(os.Stderr, "scribe: UI listening on %s\n", uiAddr)
+					if err := http.ListenAndServe(uiAddr, uiSrv); err != nil {
+						fmt.Fprintf(os.Stderr, "scribe: UI error: %v\n", err)
+					}
+				}()
+			}
+
 			if t == "http" {
 				handler := sdkmcp.NewStreamableHTTPHandler(
 					func(r *http.Request) *sdkmcp.Server { return srv },
@@ -961,6 +980,8 @@ func serveCmd() *cobra.Command {
 	cmd.Flags().StringSliceVar(&scopes, "scope", nil, "home scopes (repeatable)")
 	cmd.Flags().StringVar(&transport, "transport", "stdio", "transport type: stdio, http")
 	cmd.Flags().StringVar(&addr, "addr", ":8080", "listen address for http transport")
+	cmd.Flags().BoolVar(&enableUI, "ui", false, "start the read-only web UI alongside the MCP server")
+	cmd.Flags().StringVar(&uiAddr, "ui-addr", ":8082", "listen address for the web UI")
 	return cmd
 }
 
@@ -1081,4 +1102,94 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// --- tools ---
+
+func toolsCmd() *cobra.Command {
+	var category string
+	cmd := &cobra.Command{
+		Use:   "tools",
+		Short: "List all available MCP tools with descriptions",
+		Long:  "Print a table of every MCP tool Scribe exposes, with name, description, keywords, and categories. Useful for discovering what the agent can do without reading the README.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			reg := mcp.ToolRegistry()
+
+			var tools []directive.ToolMeta
+			if category != "" {
+				tools = reg.ByCategory(category)
+			} else {
+				tools = reg.List()
+			}
+
+			if len(tools) == 0 {
+				fmt.Println("No tools found.")
+				return nil
+			}
+
+			nameW, descW, kwW := 4, 11, 8
+			for _, t := range tools {
+				if len(t.Name) > nameW {
+					nameW = len(t.Name)
+				}
+				if len(t.Description) > descW {
+					descW = len(t.Description)
+				}
+				kw := strings.Join(t.Keywords, ", ")
+				if len(kw) > kwW {
+					kwW = len(kw)
+				}
+			}
+
+			fmtStr := fmt.Sprintf("%%-%ds  %%-%ds  %%-%ds  %%s\n", nameW, descW, kwW)
+			fmt.Printf(fmtStr, "NAME", "DESCRIPTION", "KEYWORDS", "CATEGORIES")
+			fmt.Printf(fmtStr,
+				strings.Repeat("-", nameW),
+				strings.Repeat("-", descW),
+				strings.Repeat("-", kwW),
+				strings.Repeat("-", 10),
+			)
+			for _, t := range tools {
+				fmt.Printf(fmtStr,
+					t.Name,
+					t.Description,
+					strings.Join(t.Keywords, ", "),
+					strings.Join(t.Categories, ", "),
+				)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&category, "category", "", "filter tools by category")
+	return cmd
+}
+
+// --- ui ---
+
+func uiCmd() *cobra.Command {
+	var addr string
+	cmd := &cobra.Command{
+		Use:   "ui",
+		Short: "Start the read-only web UI (standalone, no MCP server)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg := mustConfig()
+			s, err := store.OpenSQLite(cfg.DB)
+			if err != nil {
+				return fmt.Errorf("open store: %w", err)
+			}
+			defer s.Close()
+
+			scopes := cfg.Scopes
+			if len(scopes) == 0 {
+				scopes = detectScopes()
+			}
+			proto := protocol.New(s, cfg.Schema, scopes)
+			uiSrv := web.NewServer(proto)
+
+			fmt.Fprintf(os.Stderr, "scribe: UI listening on %s\n", addr)
+			return http.ListenAndServe(addr, uiSrv)
+		},
+	}
+	cmd.Flags().StringVar(&addr, "addr", ":8082", "listen address for the web UI")
+	return cmd
 }

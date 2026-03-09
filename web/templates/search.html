@@ -1,0 +1,29 @@
+{{define "content"}}
+<h1>Search</h1>
+
+<form method="get" action="/search" role="group">
+  <input type="search" name="q" placeholder="Search artifacts…" value="{{.Query}}" autofocus>
+  <button type="submit">Search</button>
+</form>
+
+{{if .Results}}
+<table>
+  <thead>
+    <tr><th>ID</th><th>Kind</th><th>Scope</th><th>Status</th><th>Title</th></tr>
+  </thead>
+  <tbody>
+    {{range .Results}}
+    <tr>
+      <td><a href="/artifacts/{{.ID}}">{{.ID}}</a></td>
+      <td>{{.Kind}}</td>
+      <td>{{.Scope}}</td>
+      <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
+      <td>{{.Title}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else if .Query}}
+<p>No results for "{{.Query}}".</p>
+{{end}}
+{{end}}

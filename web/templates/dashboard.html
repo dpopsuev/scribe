@@ -1,0 +1,49 @@
+{{define "content"}}
+<h1>Dashboard</h1>
+
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="number">{{.Inventory.Total}}</div>
+    <div class="label">Total Artifacts</div>
+  </div>
+  {{range $kind, $count := .Inventory.ByKind}}
+  <div class="stat-card">
+    <div class="number">{{$count}}</div>
+    <div class="label">{{$kind}}</div>
+  </div>
+  {{end}}
+</div>
+
+{{if .Inventory.Goals}}
+<h2>Current Goals</h2>
+<table>
+  <thead><tr><th>ID</th><th>Scope</th><th>Title</th></tr></thead>
+  <tbody>
+    {{range .Inventory.Goals}}
+    <tr>
+      <td><a href="/artifacts/{{.ID}}">{{.ID}}</a></td>
+      <td>{{.Scope}}</td>
+      <td>{{.Title}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}
+
+{{if .Inventory.ActiveSprints}}
+<h2>Active Sprints</h2>
+<table>
+  <thead><tr><th>ID</th><th>Scope</th><th>Title</th><th>Tree</th></tr></thead>
+  <tbody>
+    {{range .Inventory.ActiveSprints}}
+    <tr>
+      <td><a href="/artifacts/{{.ID}}">{{.ID}}</a></td>
+      <td>{{.Scope}}</td>
+      <td>{{.Title}}</td>
+      <td><a href="/tree/{{.ID}}">view</a></td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}
+{{end}}

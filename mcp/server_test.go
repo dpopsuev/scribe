@@ -74,7 +74,7 @@ func TestScopedList_HomeScopes(t *testing.T) {
 	s := openStore(t)
 	seedArtifacts(t, s)
 
-	srv := scribemcp.NewServer(s, []string{"origami", "mos"})
+	srv, _ := scribemcp.NewServer(s, []string{"origami", "mos"})
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "list_artifacts", map[string]any{
@@ -96,7 +96,7 @@ func TestScopedList_ExplicitScope(t *testing.T) {
 	s := openStore(t)
 	seedArtifacts(t, s)
 
-	srv := scribemcp.NewServer(s, []string{"origami"})
+	srv, _ := scribemcp.NewServer(s, []string{"origami"})
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "list_artifacts", map[string]any{
@@ -116,7 +116,7 @@ func TestScopedCreate_DefaultScope(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 
-	srv := scribemcp.NewServer(s, []string{"origami"})
+	srv, _ := scribemcp.NewServer(s, []string{"origami"})
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "create_artifact", map[string]any{
@@ -145,7 +145,7 @@ func TestScopedList_HomeScoped_KindFilter(t *testing.T) {
 	s := openStore(t)
 	seedArtifacts(t, s)
 
-	srv := scribemcp.NewServer(s, []string{"mos"})
+	srv, _ := scribemcp.NewServer(s, []string{"mos"})
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "list_artifacts", map[string]any{
@@ -165,7 +165,7 @@ func TestCrossScopeGet(t *testing.T) {
 	s := openStore(t)
 	seedArtifacts(t, s)
 
-	srv := scribemcp.NewServer(s, []string{"mos"})
+	srv, _ := scribemcp.NewServer(s, []string{"mos"})
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "get_artifact", map[string]any{
@@ -181,7 +181,7 @@ func TestNoHomeScopes_ShowsAll(t *testing.T) {
 	s := openStore(t)
 	seedArtifacts(t, s)
 
-	srv := scribemcp.NewServer(s, nil)
+	srv, _ := scribemcp.NewServer(s, nil)
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "list_artifacts", map[string]any{
