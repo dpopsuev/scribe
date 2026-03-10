@@ -22,6 +22,29 @@ type Vocabulary struct {
 	Kinds []string `yaml:"kinds"`
 }
 
+// Defaults holds tunable numeric parameters with sane zero-value fallbacks.
+type Defaults struct {
+	VacuumDays        int `yaml:"vacuum_days"`         // default: 90
+	DashboardStale    int `yaml:"dashboard_stale"`     // default: 30
+	DashboardStaleCap int `yaml:"dashboard_stale_cap"` // default: 10
+	MotdRecentHours   int `yaml:"motd_recent_hours"`   // default: 48
+	TreeMaxDepth      int `yaml:"tree_max_depth"`      // default: 10
+}
+
+// OrDefault returns the value if non-zero, otherwise the fallback.
+func orDefault(val, fallback int) int {
+	if val > 0 {
+		return val
+	}
+	return fallback
+}
+
+func (d Defaults) GetVacuumDays() int        { return orDefault(d.VacuumDays, 90) }
+func (d Defaults) GetDashboardStale() int    { return orDefault(d.DashboardStale, 30) }
+func (d Defaults) GetDashboardStaleCap() int { return orDefault(d.DashboardStaleCap, 10) }
+func (d Defaults) GetMotdRecentHours() int   { return orDefault(d.MotdRecentHours, 48) }
+func (d Defaults) GetTreeMaxDepth() int      { return orDefault(d.TreeMaxDepth, 10) }
+
 // Config is the top-level configuration loaded from scribe.yaml.
 type Config struct {
 	DB               string              `yaml:"db"`
@@ -35,6 +58,7 @@ type Config struct {
 	ScopeKeys        map[string]string   `yaml:"scope_keys"`
 	KindCodes        map[string]string   `yaml:"kind_codes"`
 	MutableCreatedAt *bool               `yaml:"mutable_created_at"`
+	Defaults         Defaults            `yaml:"defaults,omitempty"`
 }
 
 // Load reads a config file from path and returns a merged Config.
@@ -115,6 +139,7 @@ func (c *Config) ProtocolIDConfig() protocol.IDConfig {
 		ScopeKeys:        c.ScopeKeys,
 		KindCodes:        c.KindCodes,
 		MutableCreatedAt: c.IsMutableCreatedAt(),
+		Defaults:         c.Defaults,
 	}
 }
 
