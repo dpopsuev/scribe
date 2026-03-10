@@ -19,25 +19,25 @@ import (
 
 // NewServer creates an MCP server exposing Scribe tools over the given store.
 // Returns both the server and a directive registry for CLI introspection.
-func NewServer(s store.Store, homeScopes []string) (*sdkmcp.Server, *directive.Registry) {
+func NewServer(s store.Store, homeScopes, vocab []string) (*sdkmcp.Server, *directive.Registry) {
 	srv := sdkmcp.NewServer(
-		&sdkmcp.Implementation{Name: "scribe", Version: "0.1.0"},
+		&sdkmcp.Implementation{Name: "scribe", Version: "0.1.1"},
 		&sdkmcp.ServerOptions{
-			Instructions: "Scribe is a lean governance artifact store with native DAG support. " +
-				"Use it to create, query, and manage structured artifacts (contracts, specs, sprints, rules, goals) " +
-				"with parent-child trees, dependency edges, named text sections, and lifecycle status tracking. " +
-				"Start with motd for context, then list_artifacts or search_artifacts to explore.",
+		Instructions: "Scribe is a lean governance artifact store with native DAG support. " +
+			"Use it to create, query, and manage structured artifacts (tasks, specs, sprints, goals, bugs) " +
+			"with parent-child trees, dependency edges, named text sections, and lifecycle status tracking. " +
+			"Start with motd for context, then list_artifacts or search_artifacts to explore.",
 		},
 	)
 	reg := directive.New()
 	h := &handler{
-		proto: protocol.New(s, nil, homeScopes),
+		proto: protocol.New(s, nil, homeScopes, vocab),
 		locus: mcpclient.New(mcpclient.DefaultLocusURL()),
 	}
 
 	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "create_artifact",
-		Description: "Create a new governance artifact (contract, specification, rule, etc.)",
+		Description: "Create a new governance artifact (task, spec, goal, sprint, bug)",
 		Keywords:    []string{"create", "new", "artifact", "contract", "sprint", "goal"},
 		Categories:  []string{"crud"},
 	}, noOut(h.handleCreate))
@@ -163,10 +163,38 @@ func NewServer(s store.Store, homeScopes []string) (*sdkmcp.Server, *directive.R
 
 	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "detect_overlaps",
-		Description: "Find active artifacts that share component labels (project:path format), indicating potential scope conflicts between contracts.",
+		Description: "Find active artifacts that share component labels (project:path format), indicating potential scope conflicts between tasks.",
 		Keywords:    []string{"overlap", "conflict", "label", "component"},
 		Categories:  []string{"query", "governance"},
 	}, noOut(h.handleDetectOverlaps))
+
+	directive.AddTool(reg, srv, directive.ToolMeta{
+		Name:        "detect_orphans",
+		Description: "Find tasks without implements links to specs/bugs, and specs/bugs without tasks implementing them. Warns about missing relationships.",
+		Keywords:    []string{"orphan", "lint", "unlinked", "implements", "spec", "bug"},
+		Categories:  []string{"query", "governance"},
+	}, noOut(h.handleDetectOrphans))
+
+	directive.AddTool(reg, srv, directive.ToolMeta{
+		Name:        "vocab_list",
+		Description: "List registered artifact kinds in the vocabulary.",
+		Keywords:    []string{"vocab", "kind", "list", "vocabulary"},
+		Categories:  []string{"vocabulary"},
+	}, noOut(h.handleVocabList))
+
+	directive.AddTool(reg, srv, directive.ToolMeta{
+		Name:        "vocab_add",
+		Description: "Register a new artifact kind. Returns error if already registered.",
+		Keywords:    []string{"vocab", "kind", "add", "register"},
+		Categories:  []string{"vocabulary"},
+	}, noOut(h.handleVocabAdd))
+
+	directive.AddTool(reg, srv, directive.ToolMeta{
+		Name:        "vocab_remove",
+		Description: "Remove an artifact kind (only if no artifacts use it).",
+		Keywords:    []string{"vocab", "kind", "remove", "delete"},
+		Categories:  []string{"vocabulary"},
+	}, noOut(h.handleVocabRemove))
 
 	return srv, reg
 }
@@ -174,7 +202,7 @@ func NewServer(s store.Store, homeScopes []string) (*sdkmcp.Server, *directive.R
 // ToolRegistry returns a populated directive registry without requiring
 // a database connection. Useful for CLI introspection (scribe tools).
 func ToolRegistry() *directive.Registry {
-	_, reg := NewServer(nil, nil)
+	_, reg := NewServer(nil, nil, nil)
 	return reg
 }
 
@@ -300,8 +328,9 @@ func (h *handler) handleTree(ctx context.Context, _ *sdkmcp.CallToolRequest, in 
 	if err != nil {
 		return nil, nil, err
 	}
+	showScope := countDistinctScopes(tree) > 1
 	var b strings.Builder
-	renderTree(tree, "", true, &b)
+	renderTree(tree, "", true, showScope, &b)
 	return text(b.String()), nil, nil
 }
 
@@ -561,9 +590,67 @@ func (h *handler) handleDetectOverlaps(ctx context.Context, _ *sdkmcp.CallToolRe
 	return text(b.String()), nil, nil
 }
 
+// --- orphan handler ---
+
+func (h *handler) handleDetectOrphans(ctx context.Context, _ *sdkmcp.CallToolRequest, in protocol.OrphanInput) (*sdkmcp.CallToolResult, any, error) {
+	report, err := h.proto.DetectOrphans(ctx, in)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(report.Orphans) == 0 {
+		return text(fmt.Sprintf("No orphans found across %d artifacts.", report.TotalScanned)), nil, nil
+	}
+	var b strings.Builder
+	for _, o := range report.Orphans {
+		fmt.Fprintf(&b, "%-16s %-5s [%s] %s\n  → %s\n\n", o.ID, o.Kind, o.Status, o.Title, o.Reason)
+	}
+	fmt.Fprintf(&b, "%d orphan(s) across %d artifacts", report.TotalOrphans, report.TotalScanned)
+	return text(b.String()), nil, nil
+}
+
+// --- vocab handlers ---
+
+func (h *handler) handleVocabList(_ context.Context, _ *sdkmcp.CallToolRequest, _ struct{}) (*sdkmcp.CallToolResult, any, error) {
+	kinds := h.proto.VocabList()
+	return text(strings.Join(kinds, "\n")), nil, nil
+}
+
+type vocabKindInput struct {
+	Kind string `json:"kind"`
+}
+
+func (h *handler) handleVocabAdd(_ context.Context, _ *sdkmcp.CallToolRequest, in vocabKindInput) (*sdkmcp.CallToolResult, any, error) {
+	if err := h.proto.VocabAdd(in.Kind); err != nil {
+		return nil, nil, err
+	}
+	return text(fmt.Sprintf("registered kind %q", in.Kind)), nil, nil
+}
+
+func (h *handler) handleVocabRemove(ctx context.Context, _ *sdkmcp.CallToolRequest, in vocabKindInput) (*sdkmcp.CallToolResult, any, error) {
+	if err := h.proto.VocabRemove(ctx, in.Kind); err != nil {
+		return nil, nil, err
+	}
+	return text(fmt.Sprintf("removed kind %q", in.Kind)), nil, nil
+}
+
 // --- rendering helpers ---
 
-func renderTree(node *protocol.TreeNode, prefix string, last bool, b *strings.Builder) {
+func countDistinctScopes(node *protocol.TreeNode) int {
+	scopes := map[string]struct{}{}
+	var walk func(n *protocol.TreeNode)
+	walk = func(n *protocol.TreeNode) {
+		if n.Scope != "" {
+			scopes[n.Scope] = struct{}{}
+		}
+		for _, ch := range n.Children {
+			walk(ch)
+		}
+	}
+	walk(node)
+	return len(scopes)
+}
+
+func renderTree(node *protocol.TreeNode, prefix string, last, showScope bool, b *strings.Builder) {
 	connector := "├── "
 	if last {
 		connector = "└── "
@@ -571,7 +658,11 @@ func renderTree(node *protocol.TreeNode, prefix string, last bool, b *strings.Bu
 	if prefix == "" {
 		connector = ""
 	}
-	fmt.Fprintf(b, "%s%s%s [%s] %s\n", prefix, connector, node.ID, node.Status, node.Title)
+	scopeLabel := ""
+	if showScope && node.Scope != "" {
+		scopeLabel = fmt.Sprintf(" [%s]", node.Scope)
+	}
+	fmt.Fprintf(b, "%s%s%s%s [%s] %s\n", prefix, connector, node.ID, scopeLabel, node.Status, node.Title)
 	cp := prefix
 	if prefix != "" {
 		if last {
@@ -581,7 +672,7 @@ func renderTree(node *protocol.TreeNode, prefix string, last bool, b *strings.Bu
 		}
 	}
 	for i, ch := range node.Children {
-		renderTree(ch, cp, i == len(node.Children)-1, b)
+		renderTree(ch, cp, i == len(node.Children)-1, showScope, b)
 	}
 }
 

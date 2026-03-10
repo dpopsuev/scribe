@@ -59,11 +59,13 @@ func main() {
 		unlinkCmd(),
 		contextCmd(),
 		overlapsCmd(),
+		orphansCmd(),
 		serveCmd(),
 		reseedCmd(),
 		seedCmd(),
 		toolsCmd(),
 		uiCmd(),
+		vocabCmd(),
 	)
 
 	if err := root.Execute(); err != nil {
@@ -90,7 +92,11 @@ func mustProto() (*protocol.Protocol, func()) {
 		fmt.Fprintf(os.Stderr, "error: open store: %v\n", err)
 		os.Exit(1)
 	}
-	return protocol.New(s, cfg.Schema, nil), func() { s.Close() }
+	var vocab []string
+	if cfg.Vocabulary != nil {
+		vocab = cfg.Vocabulary.Kinds
+	}
+	return protocol.New(s, cfg.Schema, nil, vocab), func() { s.Close() }
 }
 
 func mustStore() *store.SQLiteStore {
@@ -138,7 +144,7 @@ func createCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&in.Kind, "kind", "contract", "artifact kind")
+	cmd.Flags().StringVar(&in.Kind, "kind", "task", "artifact kind")
 	cmd.Flags().StringVar(&in.Title, "title", "", "artifact title")
 	cmd.Flags().StringVar(&in.Scope, "scope", "", "owning repository")
 	cmd.Flags().StringVar(&in.Goal, "goal", "", "goal statement")
@@ -504,7 +510,7 @@ func goalCmd() *cobra.Command {
 	var in protocol.SetGoalInput
 	setGoalCmd := &cobra.Command{
 		Use:   "set <title>",
-		Short: "Set the current goal (retires any previous, creates a root epic)",
+		Short: "Set the current goal (retires any previous, creates a root delivery artifact)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, close := mustProto()
@@ -523,7 +529,7 @@ func goalCmd() *cobra.Command {
 		},
 	}
 	setGoalCmd.Flags().StringVar(&in.Scope, "scope", "", "scope for the goal")
-	setGoalCmd.Flags().StringVar(&in.Kind, "kind", "epic", "kind for the root delivery artifact")
+	setGoalCmd.Flags().StringVar(&in.Kind, "kind", "goal", "kind for the root delivery artifact")
 
 	showGoalCmd := &cobra.Command{
 		Use:   "show",
@@ -908,8 +914,45 @@ func overlapsCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&project, "project", "", "filter by project prefix")
-	cmd.Flags().StringVar(&kind, "kind", "contract", "artifact kind to scan")
+	cmd.Flags().StringVar(&kind, "kind", "task", "artifact kind to scan")
 	cmd.Flags().StringVar(&status, "status", "active", "artifact status to scan")
+	cmd.Flags().StringVar(&format, "format", "text", "output format (text, json)")
+	return cmd
+}
+
+// --- orphans ---
+
+func orphansCmd() *cobra.Command {
+	var scope, status, format string
+	cmd := &cobra.Command{
+		Use:   "orphans",
+		Short: "Detect tasks without specs/bugs, and specs/bugs without tasks",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p, close := mustProto()
+			defer close()
+			in := protocol.OrphanInput{Scope: scope, Status: status}
+			report, err := p.DetectOrphans(context.Background(), in)
+			if err != nil {
+				return err
+			}
+			if format == "json" {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(report)
+			}
+			if len(report.Orphans) == 0 {
+				fmt.Printf("No orphans found across %d artifacts.\n", report.TotalScanned)
+				return nil
+			}
+			for _, o := range report.Orphans {
+				fmt.Printf("%-16s %-5s [%s] %s\n  → %s\n\n", o.ID, o.Kind, o.Status, o.Title, o.Reason)
+			}
+			fmt.Printf("%d orphan(s) across %d artifacts\n", report.TotalOrphans, report.TotalScanned)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&scope, "scope", "", "filter by scope")
+	cmd.Flags().StringVar(&status, "status", "", "filter by status (default: non-terminal)")
 	cmd.Flags().StringVar(&format, "format", "text", "output format (text, json)")
 	return cmd
 }
@@ -953,10 +996,14 @@ func serveCmd() *cobra.Command {
 				homeScopes = detectScopes()
 			}
 
-			srv, _ := mcp.NewServer(s, homeScopes)
+			var vocabKinds []string
+			if cfg.Vocabulary != nil {
+				vocabKinds = cfg.Vocabulary.Kinds
+			}
+			srv, _ := mcp.NewServer(s, homeScopes, vocabKinds)
 
 			if enableUI {
-				proto := protocol.New(s, nil, homeScopes)
+				proto := protocol.New(s, nil, homeScopes, nil)
 				uiSrv := web.NewServer(proto)
 				go func() {
 					fmt.Fprintf(os.Stderr, "scribe: UI listening on %s\n", uiAddr)
@@ -1076,6 +1123,112 @@ func seedCmd() *cobra.Command {
 	}
 }
 
+// --- vocab ---
+
+func vocabCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "vocab",
+		Short: "Manage the enforced kind vocabulary",
+	}
+
+	listVocabCmd := &cobra.Command{
+		Use:   "list",
+		Short: "Show registered artifact kinds",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p, close := mustProto()
+			defer close()
+			for _, k := range p.VocabList() {
+				fmt.Println(k)
+			}
+			return nil
+		},
+	}
+
+	addVocabCmd := &cobra.Command{
+		Use:   "add <kind>",
+		Short: "Register a new artifact kind",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p, close := mustProto()
+			defer close()
+			if err := p.VocabAdd(args[0]); err != nil {
+				return err
+			}
+			cfg := mustConfig()
+			if err := persistVocab(cfg, p.Vocab()); err != nil {
+				return err
+			}
+			fmt.Printf("registered kind %q\n", args[0])
+			return nil
+		},
+	}
+
+	removeVocabCmd := &cobra.Command{
+		Use:   "remove <kind>",
+		Short: "Remove an artifact kind (only if unused)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p, close := mustProto()
+			defer close()
+			if err := p.VocabRemove(context.Background(), args[0]); err != nil {
+				return err
+			}
+			cfg := mustConfig()
+			if err := persistVocab(cfg, p.Vocab()); err != nil {
+				return err
+			}
+			fmt.Printf("removed kind %q\n", args[0])
+			return nil
+		},
+	}
+
+	var dryRun bool
+	migrateVocabCmd := &cobra.Command{
+		Use:   "migrate",
+		Short: "Rewrite artifact kinds using the canonical absorption table",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p, close := mustProto()
+			defer close()
+			result, err := p.VocabMigrate(context.Background(), dryRun)
+			if err != nil {
+				return err
+			}
+			if dryRun {
+				fmt.Println("DRY RUN (no changes written)")
+			}
+			if len(result.Rewrites) == 0 && result.Archived == 0 {
+				fmt.Println("nothing to migrate")
+				return nil
+			}
+			keys := make([]string, 0, len(result.Rewrites))
+			for k := range result.Rewrites {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				fmt.Printf("  %s: %d\n", k, result.Rewrites[k])
+			}
+			if result.Archived > 0 {
+				fmt.Printf("  rule → archived: %d\n", result.Archived)
+			}
+			fmt.Printf("total: %d artifacts affected\n", result.Total)
+			return nil
+		},
+	}
+	migrateVocabCmd.Flags().BoolVar(&dryRun, "dry-run", true, "preview changes without writing (use --dry-run=false to commit)")
+
+	cmd.AddCommand(listVocabCmd, addVocabCmd, removeVocabCmd, migrateVocabCmd)
+	return cmd
+}
+
+func persistVocab(cfg *config.Config, vocab []string) error {
+	if cfg.Vocabulary == nil {
+		cfg.Vocabulary = &config.Vocabulary{}
+	}
+	cfg.Vocabulary.Kinds = vocab
+	return config.Save(cfg)
+}
+
 // --- sort helper ---
 
 func sortArts(arts []*model.Artifact, field string) {
@@ -1183,7 +1336,7 @@ func uiCmd() *cobra.Command {
 			if len(scopes) == 0 {
 				scopes = detectScopes()
 			}
-			proto := protocol.New(s, cfg.Schema, scopes)
+			proto := protocol.New(s, cfg.Schema, scopes, nil)
 			uiSrv := web.NewServer(proto)
 
 			fmt.Fprintf(os.Stderr, "scribe: UI listening on %s\n", addr)

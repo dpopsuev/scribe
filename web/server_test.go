@@ -44,7 +44,7 @@ func setup(t *testing.T) *web.Server {
 		Parent: "SPR-2026-001",
 	})
 
-	proto := protocol.New(s, nil, []string{"test"})
+	proto := protocol.New(s, nil, []string{"test"}, nil)
 	return web.NewServer(proto)
 }
 
