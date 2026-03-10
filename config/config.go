@@ -7,6 +7,7 @@ import (
 	"regexp"
 
 	"github.com/dpopsuev/scribe/model"
+	"github.com/dpopsuev/scribe/protocol"
 	"github.com/dpopsuev/scribe/store"
 	"gopkg.in/yaml.v3"
 )
@@ -105,6 +106,15 @@ func (c *Config) IsMutableCreatedAt() bool {
 		return *c.MutableCreatedAt
 	}
 	return c.IDFormat == "scoped"
+}
+
+func (c *Config) ProtocolIDConfig() protocol.IDConfig {
+	return protocol.IDConfig{
+		IDFormat:         c.IDFormat,
+		ScopeKeys:        c.ScopeKeys,
+		KindCodes:        c.KindCodes,
+		MutableCreatedAt: c.IsMutableCreatedAt(),
+	}
 }
 
 func (c *Config) ValidateIDConfig() error {
