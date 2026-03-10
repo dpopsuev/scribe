@@ -30,11 +30,13 @@ type Result struct {
 
 // TreeNode is a recursive tree representation.
 type TreeNode struct {
-	ID       string      `json:"id"`
-	Status   string      `json:"status"`
-	Title    string      `json:"title"`
-	Scope    string      `json:"scope,omitempty"`
-	Children []*TreeNode `json:"children,omitempty"`
+	ID        string      `json:"id"`
+	Status    string      `json:"status"`
+	Title     string      `json:"title"`
+	Scope     string      `json:"scope,omitempty"`
+	Edge      string      `json:"edge,omitempty"`
+	Direction string      `json:"direction,omitempty"`
+	Children  []*TreeNode `json:"children,omitempty"`
 }
 
 // MotdResult is the message-of-the-day payload.
@@ -313,11 +315,11 @@ func (p *Protocol) setStatus(ctx context.Context, art *model.Artifact, status st
 		}
 	}
 
-	if status == "active" && (art.Kind == "task" || art.Kind == "contract") && os.Getenv("SCRIBE_GATE_REQUIRE_COMPONENT_LABELS") == "true" {
+	if status == "active" && art.Kind == "task" && os.Getenv("SCRIBE_GATE_REQUIRE_COMPONENT_LABELS") == "true" {
 		if sec := triggerSection(art); sec != "" && !hasComponentLabels(art.Labels) {
 			return Result{
 				ID: art.ID,
-				Error: fmt.Sprintf("Gate: require_component_labels\n\n  %s has a %q section but no component labels.\n\n  Add labels declaring which components this contract touches:\n    scribe set %s labels \"project:path/to/component, ...\"\n\n  To skip this gate, remove the section or set SCRIBE_GATE_REQUIRE_COMPONENT_LABELS=false.",
+				Error: fmt.Sprintf("Gate: require_component_labels\n\n  %s has a %q section but no component labels.\n\n  Add labels declaring which components this artifact touches:\n    scribe set %s labels \"project:path/to/component, ...\"\n\n  To skip this gate, remove the section or set SCRIBE_GATE_REQUIRE_COMPONENT_LABELS=false.",
 					art.ID, sec, art.ID),
 			}
 		}
@@ -609,12 +611,64 @@ func (p *Protocol) validRelation(rel string) bool {
 
 // --- Graph ---
 
-func (p *Protocol) ContractTree(ctx context.Context, id string) (*TreeNode, error) {
-	root, err := p.store.Get(ctx, id)
+type TreeInput struct {
+	ID        string `json:"id"`
+	Relation  string `json:"relation,omitempty"`
+	Direction string `json:"direction,omitempty"`
+	Depth     int    `json:"depth,omitempty"`
+}
+
+var validRelations = map[string]bool{
+	"parent_of": true, "depends_on": true, "justifies": true,
+	"implements": true, "documents": true, "satisfies": true, "*": true,
+}
+
+func (p *Protocol) ArtifactTree(ctx context.Context, in TreeInput) (*TreeNode, error) {
+	root, err := p.store.Get(ctx, in.ID)
 	if err != nil {
 		return nil, err
 	}
-	return p.buildTree(ctx, root), nil
+
+	rel := in.Relation
+	if rel == "" {
+		rel = "parent_of"
+	}
+	if !validRelations[rel] {
+		return nil, fmt.Errorf("unknown relation %q. Valid: parent_of, depends_on, implements, justifies, documents, satisfies, *", rel)
+	}
+
+	dir := in.Direction
+	if dir == "" {
+		dir = "outgoing"
+	}
+
+	var storeDir store.Direction
+	switch dir {
+	case "outgoing":
+		storeDir = store.Outgoing
+	case "incoming":
+		storeDir = store.Incoming
+	case "both":
+		storeDir = store.Both
+	default:
+		return nil, fmt.Errorf("unknown direction %q. Valid: outgoing, incoming, both", dir)
+	}
+
+	depth := in.Depth
+	if depth < 0 || depth > 10 {
+		depth = 10
+	}
+
+	isDefault := rel == "parent_of" && dir == "outgoing"
+
+	if isDefault {
+		return p.buildTree(ctx, root), nil
+	}
+
+	node := &TreeNode{ID: root.ID, Status: root.Status, Title: root.Title, Scope: root.Scope}
+	visited := map[string]bool{root.ID: true}
+	p.buildGraphTree(ctx, node, rel, storeDir, depth, 1, visited)
+	return node, nil
 }
 
 func (p *Protocol) buildTree(ctx context.Context, art *model.Artifact) *TreeNode {
@@ -624,6 +678,92 @@ func (p *Protocol) buildTree(ctx context.Context, art *model.Artifact) *TreeNode
 		node.Children = append(node.Children, p.buildTree(ctx, ch))
 	}
 	return node
+}
+
+func (p *Protocol) buildGraphTree(ctx context.Context, node *TreeNode, rel string, dir store.Direction, maxDepth, currentDepth int, visited map[string]bool) {
+	if maxDepth > 0 && currentDepth > maxDepth {
+		return
+	}
+
+	queryRel := rel
+	if rel == "*" {
+		queryRel = ""
+	}
+
+	edges, _ := p.store.Neighbors(ctx, node.ID, queryRel, dir)
+	for _, e := range edges {
+		targetID := e.To
+		edgeDir := "outgoing"
+		if dir == store.Incoming || (dir == store.Both && e.To == node.ID) {
+			targetID = e.From
+			edgeDir = "incoming"
+		}
+
+		if visited[targetID] {
+			continue
+		}
+		visited[targetID] = true
+
+		target, err := p.store.Get(ctx, targetID)
+		if err != nil {
+			continue
+		}
+
+		child := &TreeNode{
+			ID:        target.ID,
+			Status:    target.Status,
+			Title:     target.Title,
+			Scope:     target.Scope,
+			Edge:      e.Relation,
+			Direction: edgeDir,
+		}
+		node.Children = append(node.Children, child)
+		p.buildGraphTree(ctx, child, rel, dir, maxDepth, currentDepth+1, visited)
+	}
+}
+
+// EdgeSummary describes a resolved neighbor for get_artifact with include_edges.
+type EdgeSummary struct {
+	Relation  string `json:"relation"`
+	Direction string `json:"direction"`
+	Target    struct {
+		ID     string `json:"id"`
+		Kind   string `json:"kind"`
+		Title  string `json:"title"`
+		Status string `json:"status"`
+	} `json:"target"`
+}
+
+func (p *Protocol) GetArtifactEdges(ctx context.Context, id string) ([]EdgeSummary, error) {
+	edges, err := p.store.Neighbors(ctx, id, "", store.Both)
+	if err != nil {
+		return nil, err
+	}
+
+	var summaries []EdgeSummary
+	for _, e := range edges {
+		var s EdgeSummary
+		s.Relation = e.Relation
+		if e.From == id {
+			s.Direction = "outgoing"
+			if target, err := p.store.Get(ctx, e.To); err == nil {
+				s.Target.ID = target.ID
+				s.Target.Kind = target.Kind
+				s.Target.Title = target.Title
+				s.Target.Status = target.Status
+			}
+		} else {
+			s.Direction = "incoming"
+			if target, err := p.store.Get(ctx, e.From); err == nil {
+				s.Target.ID = target.ID
+				s.Target.Kind = target.Kind
+				s.Target.Title = target.Title
+				s.Target.Status = target.Status
+			}
+		}
+		summaries = append(summaries, s)
+	}
+	return summaries, nil
 }
 
 // --- Composite actions ---

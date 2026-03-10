@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// DrainEntry represents a discovered contract markdown file.
+// DrainEntry represents a discovered legacy markdown file.
 type DrainEntry struct {
 	Path     string `json:"path"`
 	Dir      string `json:"dir"`

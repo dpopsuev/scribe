@@ -108,7 +108,7 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	tree, err := s.proto.ContractTree(r.Context(), id)
+	tree, err := s.proto.ArtifactTree(r.Context(), protocol.TreeInput{ID: id})
 	if err != nil {
 		http.Error(w, "Artifact not found", http.StatusNotFound)
 		return

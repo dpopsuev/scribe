@@ -34,7 +34,6 @@ type Guards struct {
 // legacyPrefixes maps old kind names to their ID prefixes so existing
 // artifacts (e.g. CON-2026-307) still resolve correctly on read.
 var legacyPrefixes = map[string]string{
-	"contract":      "CON",
 	"specification": "SPEC",
 	"rule":          "RULE",
 	"need":          "NEED",
@@ -53,7 +52,6 @@ var legacyPrefixes = map[string]string{
 
 // KindAbsorption maps legacy kind names to their canonical replacements.
 var KindAbsorption = map[string]string{
-	"contract":      "task",
 	"story":         "task",
 	"feature":       "task",
 	"need":          "task",

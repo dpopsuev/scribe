@@ -26,10 +26,10 @@ func seedArtifacts(t *testing.T, s store.Store) {
 	t.Helper()
 	ctx := context.Background()
 	for _, a := range []*model.Artifact{
-		{ID: "CON-2026-001", Kind: "contract", Scope: "origami", Status: "draft", Title: "Origami A"},
-		{ID: "CON-2026-002", Kind: "contract", Scope: "origami", Status: "draft", Title: "Origami B"},
-		{ID: "CON-2026-003", Kind: "contract", Scope: "mos", Status: "draft", Title: "Mos A"},
-		{ID: "CON-2026-004", Kind: "contract", Scope: "asterisk", Status: "draft", Title: "Asterisk A"},
+		{ID: "TASK-2026-001", Kind: "task", Scope: "origami", Status: "draft", Title: "Origami A"},
+		{ID: "TASK-2026-002", Kind: "task", Scope: "origami", Status: "draft", Title: "Origami B"},
+		{ID: "TASK-2026-003", Kind: "task", Scope: "mos", Status: "draft", Title: "Mos A"},
+		{ID: "TASK-2026-004", Kind: "task", Scope: "asterisk", Status: "draft", Title: "Asterisk A"},
 	} {
 		if err := s.Put(ctx, a); err != nil {
 			t.Fatal(err)
@@ -78,7 +78,7 @@ func TestScopedList_HomeScopes(t *testing.T) {
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "list_artifacts", map[string]any{
-		"kind": "contract",
+		"kind": "task",
 	})
 
 	if !strings.Contains(text, "Origami A") {
@@ -100,7 +100,7 @@ func TestScopedList_ExplicitScope(t *testing.T) {
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "list_artifacts", map[string]any{
-		"kind":  "contract",
+		"kind":  "task",
 		"scope": "asterisk",
 	})
 
@@ -120,8 +120,8 @@ func TestScopedCreate_DefaultScope(t *testing.T) {
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "create_artifact", map[string]any{
-		"kind":  "contract",
-		"title": "Auto-scoped contract",
+		"kind":  "task",
+		"title": "Auto-scoped task",
 	})
 
 	if !strings.Contains(text, "origami") {
@@ -131,7 +131,7 @@ func TestScopedCreate_DefaultScope(t *testing.T) {
 	arts, _ := s.List(ctx, model.Filter{Scope: "origami"})
 	found := false
 	for _, a := range arts {
-		if a.Title == "Auto-scoped contract" {
+		if a.Title == "Auto-scoped task" {
 			found = true
 			break
 		}
@@ -149,12 +149,12 @@ func TestScopedList_HomeScoped_KindFilter(t *testing.T) {
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "list_artifacts", map[string]any{
-		"kind":   "contract",
+		"kind":   "task",
 		"status": "draft",
 	})
 
 	if !strings.Contains(text, "Mos A") {
-		t.Errorf("expected mos contract in scoped list, got: %s", text)
+		t.Errorf("expected mos task in scoped list, got: %s", text)
 	}
 	if strings.Contains(text, "Origami") || strings.Contains(text, "Asterisk") {
 		t.Error("list should be scoped to home scopes")
@@ -169,7 +169,7 @@ func TestCrossScopeGet(t *testing.T) {
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "get_artifact", map[string]any{
-		"id": "CON-2026-004",
+		"id": "TASK-2026-004",
 	})
 
 	if !strings.Contains(text, "Asterisk A") {
@@ -185,7 +185,7 @@ func TestNoHomeScopes_ShowsAll(t *testing.T) {
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "list_artifacts", map[string]any{
-		"kind": "contract",
+		"kind": "task",
 	})
 
 	if !strings.Contains(text, "Origami A") || !strings.Contains(text, "Mos A") || !strings.Contains(text, "Asterisk A") {
@@ -193,18 +193,18 @@ func TestNoHomeScopes_ShowsAll(t *testing.T) {
 	}
 }
 
-func TestContractTree_MixedScope_ShowsLabels(t *testing.T) {
+func TestArtifactTree_MixedScope_ShowsLabels(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 
 	_ = s.Put(ctx, &model.Artifact{ID: "SPR-1", Kind: "sprint", Scope: "origami", Status: "active", Title: "Sprint One"})
-	_ = s.Put(ctx, &model.Artifact{ID: "CON-1", Kind: "contract", Scope: "origami", Status: "draft", Title: "Origami Work", Parent: "SPR-1"})
-	_ = s.Put(ctx, &model.Artifact{ID: "CON-2", Kind: "contract", Scope: "scribe", Status: "draft", Title: "Scribe Work", Parent: "SPR-1"})
+	_ = s.Put(ctx, &model.Artifact{ID: "TASK-1", Kind: "task", Scope: "origami", Status: "draft", Title: "Origami Work", Parent: "SPR-1"})
+	_ = s.Put(ctx, &model.Artifact{ID: "TASK-2", Kind: "task", Scope: "scribe", Status: "draft", Title: "Scribe Work", Parent: "SPR-1"})
 
 	srv, _ := scribemcp.NewServer(s, nil, nil)
 	cs := connectClient(t, srv)
 
-	text := callTool(t, cs, "contract_tree", map[string]any{"id": "SPR-1"})
+	text := callTool(t, cs, "artifact_tree", map[string]any{"id": "SPR-1"})
 
 	if !strings.Contains(text, "[origami]") {
 		t.Errorf("mixed-scope tree should show [origami] label, got:\n%s", text)
@@ -214,18 +214,18 @@ func TestContractTree_MixedScope_ShowsLabels(t *testing.T) {
 	}
 }
 
-func TestContractTree_SingleScope_OmitsLabels(t *testing.T) {
+func TestArtifactTree_SingleScope_OmitsLabels(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 
 	_ = s.Put(ctx, &model.Artifact{ID: "SPR-1", Kind: "sprint", Scope: "origami", Status: "active", Title: "Sprint One"})
-	_ = s.Put(ctx, &model.Artifact{ID: "CON-1", Kind: "contract", Scope: "origami", Status: "draft", Title: "Work A", Parent: "SPR-1"})
-	_ = s.Put(ctx, &model.Artifact{ID: "CON-2", Kind: "contract", Scope: "origami", Status: "draft", Title: "Work B", Parent: "SPR-1"})
+	_ = s.Put(ctx, &model.Artifact{ID: "TASK-1", Kind: "task", Scope: "origami", Status: "draft", Title: "Work A", Parent: "SPR-1"})
+	_ = s.Put(ctx, &model.Artifact{ID: "TASK-2", Kind: "task", Scope: "origami", Status: "draft", Title: "Work B", Parent: "SPR-1"})
 
 	srv, _ := scribemcp.NewServer(s, nil, nil)
 	cs := connectClient(t, srv)
 
-	text := callTool(t, cs, "contract_tree", map[string]any{"id": "SPR-1"})
+	text := callTool(t, cs, "artifact_tree", map[string]any{"id": "SPR-1"})
 
 	if strings.Contains(text, "[origami]") {
 		t.Errorf("single-scope tree should omit scope labels, got:\n%s", text)

@@ -24,8 +24,8 @@ func setup(t *testing.T) *web.Server {
 
 	ctx := context.Background()
 	s.Put(ctx, &model.Artifact{
-		ID: "CON-2026-001", Kind: "contract", Scope: "test",
-		Status: "active", Title: "Test Contract",
+		ID: "TASK-2026-001", Kind: "task", Scope: "test",
+		Status: "active", Title: "Test Task",
 		Sections: []model.Section{
 			{Name: "design", Text: "## Overview\n\nThis is a **test** design."},
 		},
@@ -39,8 +39,8 @@ func setup(t *testing.T) *web.Server {
 		Status: "current", Title: "Test Goal",
 	})
 	s.Put(ctx, &model.Artifact{
-		ID: "CON-2026-002", Kind: "contract", Scope: "test",
-		Status: "active", Title: "Child Contract",
+		ID: "TASK-2026-002", Kind: "task", Scope: "test",
+		Status: "active", Title: "Child Task",
 		Parent: "SPR-2026-001",
 	})
 
@@ -77,8 +77,8 @@ func TestArtifactList(t *testing.T) {
 		t.Fatalf("GET /artifacts = %d, want 200", rr.Code)
 	}
 	body := rr.Body.String()
-	if !strings.Contains(body, "Test Contract") {
-		t.Error("list missing Test Contract")
+	if !strings.Contains(body, "Test Task") {
+		t.Error("list missing Test Task")
 	}
 }
 
@@ -94,21 +94,21 @@ func TestArtifactListFiltered(t *testing.T) {
 	if !strings.Contains(body, "Test Sprint") {
 		t.Error("filtered list missing sprint")
 	}
-	if strings.Contains(body, "Test Contract") {
-		t.Error("filtered list should not contain contract")
+	if strings.Contains(body, "Test Task") {
+		t.Error("filtered list should not contain task")
 	}
 }
 
 func TestArtifactDetail(t *testing.T) {
 	srv := setup(t)
 	rr := httptest.NewRecorder()
-	srv.ServeHTTP(rr, httptest.NewRequest("GET", "/artifacts/CON-2026-001", nil))
+	srv.ServeHTTP(rr, httptest.NewRequest("GET", "/artifacts/TASK-2026-001", nil))
 
 	if rr.Code != http.StatusOK {
-		t.Fatalf("GET /artifacts/CON-2026-001 = %d, want 200", rr.Code)
+		t.Fatalf("GET /artifacts/TASK-2026-001 = %d, want 200", rr.Code)
 	}
 	body := rr.Body.String()
-	if !strings.Contains(body, "Test Contract") {
+	if !strings.Contains(body, "Test Task") {
 		t.Error("detail missing title")
 	}
 	if !strings.Contains(body, "<strong>test</strong>") {
@@ -135,7 +135,7 @@ func TestTree(t *testing.T) {
 		t.Fatalf("GET /tree/SPR-2026-001 = %d, want 200", rr.Code)
 	}
 	body := rr.Body.String()
-	if !strings.Contains(body, "Child Contract") {
+	if !strings.Contains(body, "Child Task") {
 		t.Error("tree missing child")
 	}
 }
@@ -149,7 +149,7 @@ func TestSearch(t *testing.T) {
 		t.Fatalf("GET /search?q=Test = %d, want 200", rr.Code)
 	}
 	body := rr.Body.String()
-	if !strings.Contains(body, "Test Contract") {
+	if !strings.Contains(body, "Test Task") {
 		t.Error("search missing result")
 	}
 }
@@ -167,7 +167,7 @@ func TestSearchEmpty(t *testing.T) {
 func TestMethodNotAllowed(t *testing.T) {
 	srv := setup(t)
 	methods := []string{"POST", "PUT", "DELETE", "PATCH"}
-	paths := []string{"/", "/artifacts", "/artifacts/CON-2026-001", "/search"}
+	paths := []string{"/", "/artifacts", "/artifacts/TASK-2026-001", "/search"}
 
 	for _, method := range methods {
 		for _, path := range paths {
