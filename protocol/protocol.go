@@ -146,6 +146,7 @@ type ListInput struct {
 	GroupBy       string `json:"group_by,omitempty"`
 	Sort          string `json:"sort,omitempty"`
 	Limit         int    `json:"limit,omitempty"`
+	Query         string `json:"query,omitempty"`
 }
 
 func (p *Protocol) ListArtifacts(ctx context.Context, in ListInput) ([]*model.Artifact, error) {
