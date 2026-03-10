@@ -309,32 +309,6 @@ The vocabulary is enforced: unknown kinds are rejected with a hint to register t
 | `graph` | Navigate and modify artifact relationships. Actions: `tree` (hierarchy), `link` (add edge), `unlink` (remove edge). Relations: parent_of, depends_on, justifies, implements, documents, satisfies. |
 | `admin` | System administration and monitoring. Actions: `motd` (session context), `dashboard` (health/staleness), `set_goal` (north star), `vacuum` (cleanup), `detect` (orphans/overlaps). |
 
-## LLM Chatbox Examples
-
-Quick reference for what the agent sends over MCP. The Workflow section above shows full conversations.
-
-```json
-// Start a session — get goals, reminders, recent notes
-{ "tool": "admin", "arguments": { "action": "motd" } }
-
-// Create a spec and a task implementing it
-{ "tool": "artifact", "arguments": { "action": "create", "kind": "spec", "title": "OAuth2 authentication", "scope": "myproject" } }
-{ "tool": "artifact", "arguments": { "action": "create", "kind": "task", "title": "Implement OAuth2 flow", "scope": "myproject" } }
-{ "tool": "graph", "arguments": { "action": "link", "id": "TASK-2026-001", "relation": "implements", "targets": ["SPE-2026-001"] } }
-
-// Sprint board as a tree
-{ "tool": "graph", "arguments": { "action": "tree", "id": "SPR-2026-001" } }
-
-// Mark task done
-{ "tool": "artifact", "arguments": { "action": "set", "id": "TASK-2026-001", "field": "status", "value": "complete" } }
-
-// Find orphaned tasks (no spec/bug link)
-{ "tool": "admin", "arguments": { "action": "detect", "check": "all", "scope": "myproject" } }
-
-// Housekeeping dashboard
-{ "tool": "admin", "arguments": { "action": "dashboard", "stale_days": 14 } }
-```
-
 ## Configuration
 
 Scribe works with zero configuration. For customization, create a `scribe.yaml`:
