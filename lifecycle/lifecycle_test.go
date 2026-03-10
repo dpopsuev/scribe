@@ -148,7 +148,7 @@ func TestVacuum(t *testing.T) {
 	fresh := &model.Artifact{ID: "CON-2026-002", Kind: "contract", Status: "archived", Title: "fresh"}
 	s.Put(ctx, fresh)
 
-	deleted, err := lifecycle.Vacuum(ctx, s, 1*time.Second)
+	deleted, err := lifecycle.Vacuum(ctx, s, 1*time.Second, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestVacuum(t *testing.T) {
 	}
 
 	// now vacuum with 0 duration = everything goes
-	deleted, err = lifecycle.Vacuum(ctx, s, 0)
+	deleted, err = lifecycle.Vacuum(ctx, s, 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}

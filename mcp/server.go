@@ -106,6 +106,13 @@ func NewServer(s store.Store, homeScopes, vocab []string) (*sdkmcp.Server, *dire
 	}, noOut(h.handleArchive))
 
 	directive.AddTool(reg, srv, directive.ToolMeta{
+		Name:        "batch_archive",
+		Description: "Archive all artifacts matching a filter (scope, kind, status, id_prefix, exclude_kind). Use dry_run=true to preview.",
+		Keywords:    []string{"archive", "bulk", "batch", "filter"},
+		Categories:  []string{"lifecycle"},
+	}, noOut(h.handleBatchArchive))
+
+	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "vacuum",
 		Description: "Delete archived artifacts older than the specified number of days. Returns IDs of deleted artifacts.",
 		Keywords:    []string{"vacuum", "cleanup", "delete", "purge"},
@@ -139,6 +146,13 @@ func NewServer(s store.Store, homeScopes, vocab []string) (*sdkmcp.Server, *dire
 		Keywords:    []string{"inventory", "dashboard", "summary", "stats"},
 		Categories:  []string{"query", "navigation"},
 	}, noOut(h.handleInventory))
+
+	directive.AddTool(reg, srv, directive.ToolMeta{
+		Name:        "dashboard",
+		Description: "Housekeeping dashboard: storage, staleness, scope health. Returns scopes with total/active/archived/sections/edges/stale counts, DB size, and top 10 stale artifacts.",
+		Keywords:    []string{"dashboard", "df", "housekeeping", "stale", "storage"},
+		Categories:  []string{"query", "maintenance"},
+	}, noOut(h.handleDashboard))
 
 	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "link_artifacts",
@@ -369,12 +383,25 @@ func (h *handler) handleArchive(ctx context.Context, _ *sdkmcp.CallToolRequest, 
 	return text(strings.Join(lines, "\n")), nil, nil
 }
 
+func (h *handler) handleBatchArchive(ctx context.Context, _ *sdkmcp.CallToolRequest, in protocol.BulkMutationInput) (*sdkmcp.CallToolResult, any, error) {
+	res, err := h.proto.BulkArchive(ctx, in)
+	if err != nil {
+		return nil, nil, err
+	}
+	if in.DryRun {
+		return text(fmt.Sprintf("dry run: would archive %d artifacts: %v", res.Count, res.AffectedIDs)), nil, nil
+	}
+	return text(fmt.Sprintf("archived %d artifacts", res.Count)), nil, nil
+}
+
 type vacuumInput struct {
-	Days int `json:"days,omitempty"`
+	Days  int    `json:"days,omitempty"`
+	Scope string `json:"scope,omitempty"`
+	Force bool   `json:"force,omitempty"`
 }
 
 func (h *handler) handleVacuum(ctx context.Context, _ *sdkmcp.CallToolRequest, in vacuumInput) (*sdkmcp.CallToolResult, any, error) {
-	deleted, err := h.proto.Vacuum(ctx, in.Days)
+	deleted, err := h.proto.Vacuum(ctx, in.Days, in.Scope, in.Force)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -472,6 +499,23 @@ func (h *handler) handleInventory(ctx context.Context, _ *sdkmcp.CallToolRequest
 		return nil, nil, err
 	}
 	data, _ := json.MarshalIndent(inv, "", "  ")
+	return text(string(data)), nil, nil
+}
+
+type dashboardInput struct {
+	StaleDays int `json:"stale_days,omitempty"`
+}
+
+func (h *handler) handleDashboard(ctx context.Context, _ *sdkmcp.CallToolRequest, in dashboardInput) (*sdkmcp.CallToolResult, any, error) {
+	staleDays := in.StaleDays
+	if staleDays <= 0 {
+		staleDays = 30
+	}
+	report, err := h.proto.Dashboard(ctx, staleDays)
+	if err != nil {
+		return nil, nil, err
+	}
+	data, _ := json.MarshalIndent(report, "", "  ")
 	return text(string(data)), nil, nil
 }
 

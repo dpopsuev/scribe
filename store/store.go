@@ -45,3 +45,9 @@ type Store interface {
 
 	Close() error
 }
+
+// DBSizer is an optional interface for stores that can report database size.
+// SQLiteStore implements this.
+type DBSizer interface {
+	DBSizeBytes(ctx context.Context) (int64, error)
+}

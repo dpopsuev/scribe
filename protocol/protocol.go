@@ -135,20 +135,26 @@ func (p *Protocol) DeleteArtifact(ctx context.Context, id string, force bool) er
 }
 
 type ListInput struct {
-	Kind    string `json:"kind,omitempty"`
-	Scope   string `json:"scope,omitempty"`
-	Status  string `json:"status,omitempty"`
-	Parent  string `json:"parent,omitempty"`
-	Sprint  string `json:"sprint,omitempty"`
-	GroupBy string `json:"group_by,omitempty"`
-	Sort    string `json:"sort,omitempty"`
-	Limit   int    `json:"limit,omitempty"`
+	Kind          string `json:"kind,omitempty"`
+	Scope         string `json:"scope,omitempty"`
+	Status        string `json:"status,omitempty"`
+	Parent        string `json:"parent,omitempty"`
+	Sprint        string `json:"sprint,omitempty"`
+	IDPrefix      string `json:"id_prefix,omitempty"`
+	ExcludeKind   string `json:"exclude_kind,omitempty"`
+	ExcludeStatus string `json:"exclude_status,omitempty"`
+	GroupBy       string `json:"group_by,omitempty"`
+	Sort          string `json:"sort,omitempty"`
+	Limit         int    `json:"limit,omitempty"`
 }
 
 func (p *Protocol) ListArtifacts(ctx context.Context, in ListInput) ([]*model.Artifact, error) {
 	f := model.Filter{
 		Kind: in.Kind, Status: in.Status,
 		Parent: in.Parent, Sprint: in.Sprint,
+		IDPrefix: in.IDPrefix,
+		ExcludeKind: in.ExcludeKind,
+		ExcludeStatus: in.ExcludeStatus,
 	}
 	if in.Kind == "" {
 		f.ExcludeKinds = p.schema.ExcludedKinds()
@@ -702,12 +708,101 @@ func (p *Protocol) ArchiveArtifact(ctx context.Context, ids []string, cascade bo
 	return results, nil
 }
 
-func (p *Protocol) Vacuum(ctx context.Context, days int) ([]string, error) {
+// BulkMutationInput filters artifacts for bulk operations.
+type BulkMutationInput struct {
+	Scope       string `json:"scope,omitempty"`
+	Kind        string `json:"kind,omitempty"`
+	Status      string `json:"status,omitempty"`
+	IDPrefix    string `json:"id_prefix,omitempty"`
+	ExcludeKind string `json:"exclude_kind,omitempty"`
+	DryRun      bool   `json:"dry_run,omitempty"`
+}
+
+// BulkMutationResult reports affected artifacts from a bulk operation.
+type BulkMutationResult struct {
+	AffectedIDs []string `json:"affected_ids"`
+	Count       int      `json:"count"`
+	DryRun      bool     `json:"dry_run"`
+}
+
+// BulkArchive archives all artifacts matching the filter.
+func (p *Protocol) BulkArchive(ctx context.Context, in BulkMutationInput) (*BulkMutationResult, error) {
+	li := ListInput{
+		Scope: in.Scope, Kind: in.Kind, Status: in.Status,
+		IDPrefix: in.IDPrefix, ExcludeKind: in.ExcludeKind,
+	}
+	arts, err := p.ListArtifacts(ctx, li)
+	if err != nil {
+		return nil, err
+	}
+	result := &BulkMutationResult{DryRun: in.DryRun}
+	for _, art := range arts {
+		result.AffectedIDs = append(result.AffectedIDs, art.ID)
+	}
+	result.Count = len(result.AffectedIDs)
+	if in.DryRun {
+		return result, nil
+	}
+	if len(result.AffectedIDs) == 0 {
+		return result, nil
+	}
+	_, err = p.ArchiveArtifact(ctx, result.AffectedIDs, false)
+	return result, err
+}
+
+// BulkSetField sets a field on all artifacts matching the filter.
+func (p *Protocol) BulkSetField(ctx context.Context, in BulkMutationInput, field, value string) (*BulkMutationResult, error) {
+	li := ListInput{
+		Scope: in.Scope, Kind: in.Kind, Status: in.Status,
+		IDPrefix: in.IDPrefix, ExcludeKind: in.ExcludeKind,
+	}
+	arts, err := p.ListArtifacts(ctx, li)
+	if err != nil {
+		return nil, err
+	}
+	result := &BulkMutationResult{DryRun: in.DryRun}
+	for _, art := range arts {
+		result.AffectedIDs = append(result.AffectedIDs, art.ID)
+	}
+	result.Count = len(result.AffectedIDs)
+	if in.DryRun {
+		return result, nil
+	}
+	if len(result.AffectedIDs) == 0 {
+		return result, nil
+	}
+	_, err = p.SetField(ctx, result.AffectedIDs, field, value)
+	return result, err
+}
+
+func (p *Protocol) Vacuum(ctx context.Context, days int, scope string, force bool) ([]string, error) {
 	if days <= 0 {
 		days = 90
 	}
 	maxAge := time.Duration(days) * 24 * time.Hour
-	return lifecycle.Vacuum(ctx, p.store, maxAge)
+	f := model.Filter{Status: "archived"}
+	if scope != "" {
+		f.Scope = scope
+	}
+	arts, err := p.store.List(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+	cutoff := time.Now().UTC().Add(-maxAge)
+	var deleted []string
+	for _, art := range arts {
+		if !art.UpdatedAt.Before(cutoff) {
+			continue
+		}
+		if !force && p.schema.IsProtected(art.Kind) {
+			continue
+		}
+		if err := p.store.Delete(ctx, art.ID); err != nil {
+			return deleted, fmt.Errorf("vacuum %s: %w", art.ID, err)
+		}
+		deleted = append(deleted, art.ID)
+	}
+	return deleted, nil
 }
 
 func (p *Protocol) Motd(ctx context.Context) (*MotdResult, error) {
@@ -733,6 +828,84 @@ func (p *Protocol) Motd(ctx context.Context) (*MotdResult, error) {
 		} else if n.CreatedAt.After(cutoff) {
 			result.RecentNotes = append(result.RecentNotes, n)
 		}
+	}
+	return result, nil
+}
+
+// --- Dashboard ---
+
+type DashboardScope struct {
+	Scope    string `json:"scope"`
+	Total    int    `json:"total"`
+	Active   int    `json:"active"`
+	Archived int    `json:"archived"`
+	Sections int    `json:"sections"`
+	Edges    int    `json:"edges"`
+	Stale    int    `json:"stale"`
+}
+
+type DashboardResult struct {
+	Scopes      []DashboardScope  `json:"scopes"`
+	DBSizeBytes int64             `json:"db_size_bytes"`
+	StaleArts   []*model.Artifact `json:"stale_artifacts,omitempty"`
+}
+
+// Dashboard returns a housekeeping dashboard: storage, staleness, scope health.
+func (p *Protocol) Dashboard(ctx context.Context, staleDays int) (*DashboardResult, error) {
+	if staleDays <= 0 {
+		staleDays = 30
+	}
+	cutoff := time.Now().UTC().Add(-time.Duration(staleDays) * 24 * time.Hour)
+	all, err := p.store.List(ctx, model.Filter{})
+	if err != nil {
+		return nil, err
+	}
+
+	scopeMap := map[string]*DashboardScope{}
+	var staleArts []*model.Artifact
+	for _, art := range all {
+		s := art.Scope
+		if s == "" {
+			s = "(none)"
+		}
+		ds, ok := scopeMap[s]
+		if !ok {
+			ds = &DashboardScope{Scope: s}
+			scopeMap[s] = ds
+		}
+		ds.Total++
+		if art.Status == "archived" {
+			ds.Archived++
+		} else if !isTerminal(art.Status) {
+			ds.Active++
+			if art.UpdatedAt.Before(cutoff) {
+				ds.Stale++
+				staleArts = append(staleArts, art)
+			}
+		}
+		ds.Sections += len(art.Sections)
+		for _, targets := range art.Links {
+			ds.Edges += len(targets)
+		}
+	}
+
+	sort.Slice(staleArts, func(i, j int) bool {
+		return staleArts[i].UpdatedAt.Before(staleArts[j].UpdatedAt)
+	})
+	if len(staleArts) > 10 {
+		staleArts = staleArts[:10]
+	}
+
+	result := &DashboardResult{StaleArts: staleArts}
+	for _, ds := range scopeMap {
+		result.Scopes = append(result.Scopes, *ds)
+	}
+	sort.Slice(result.Scopes, func(i, j int) bool {
+		return result.Scopes[i].Total > result.Scopes[j].Total
+	})
+
+	if sizer, ok := p.store.(store.DBSizer); ok {
+		result.DBSizeBytes, _ = sizer.DBSizeBytes(ctx)
 	}
 	return result, nil
 }
