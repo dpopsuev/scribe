@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/dpopsuev/scribe/model"
 	"github.com/dpopsuev/scribe/store"
@@ -394,4 +395,119 @@ func TestSQLiteScopeFilter(t *testing.T) {
 			t.Errorf("expected 4 artifacts with no scope filter, got %d", len(arts))
 		}
 	})
+}
+
+func TestNextScopedID(t *testing.T) {
+	s := openSQLite(t)
+	ctx := context.Background()
+
+	id1, err := s.NextScopedID(ctx, "SCR", "TSK")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id1 != "SCR-TSK-1" {
+		t.Errorf("first scoped ID = %q, want SCR-TSK-1", id1)
+	}
+
+	id2, err := s.NextScopedID(ctx, "SCR", "TSK")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id2 != "SCR-TSK-2" {
+		t.Errorf("second scoped ID = %q, want SCR-TSK-2", id2)
+	}
+
+	id3, err := s.NextScopedID(ctx, "SCR", "SPC")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id3 != "SCR-SPC-1" {
+		t.Errorf("spec scoped ID = %q, want SCR-SPC-1 (independent counter)", id3)
+	}
+
+	id4, err := s.NextScopedID(ctx, "LOC", "TSK")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id4 != "LOC-TSK-1" {
+		t.Errorf("locus task ID = %q, want LOC-TSK-1 (independent scope)", id4)
+	}
+}
+
+func TestScopeKeys(t *testing.T) {
+	s := openSQLite(t)
+	ctx := context.Background()
+
+	key, _, err := s.GetScopeKey(ctx, "scribe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if key != "" {
+		t.Errorf("scope key for unknown scope = %q, want empty", key)
+	}
+
+	if err := s.SetScopeKey(ctx, "scribe", "SCR", false); err != nil {
+		t.Fatal(err)
+	}
+
+	key, auto, err := s.GetScopeKey(ctx, "scribe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if key != "SCR" {
+		t.Errorf("scope key = %q, want SCR", key)
+	}
+	if auto {
+		t.Error("auto should be false for manual key")
+	}
+
+	if err := s.SetScopeKey(ctx, "locus", "LOC", true); err != nil {
+		t.Fatal(err)
+	}
+
+	keys, err := s.ListScopeKeys(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 2 {
+		t.Errorf("expected 2 scope keys, got %d", len(keys))
+	}
+	if keys["scribe"] != "SCR" || keys["locus"] != "LOC" {
+		t.Errorf("scope keys = %v, want scribe=SCR, locus=LOC", keys)
+	}
+}
+
+func TestInsertedAtImmutable(t *testing.T) {
+	s := openSQLite(t)
+	ctx := context.Background()
+
+	art := &model.Artifact{
+		ID:     "TST-001",
+		Kind:   "task",
+		Status: "draft",
+		Title:  "Test inserted_at",
+	}
+	if err := s.Put(ctx, art); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.Get(ctx, "TST-001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.InsertedAt.IsZero() {
+		t.Error("InsertedAt should be set after Put")
+	}
+	originalInserted := got.InsertedAt
+
+	time.Sleep(10 * time.Millisecond)
+	got.Title = "Updated"
+	if err := s.Put(ctx, got); err != nil {
+		t.Fatal(err)
+	}
+
+	got2, _ := s.Get(ctx, "TST-001")
+	if !got2.InsertedAt.Equal(originalInserted) {
+		t.Errorf("InsertedAt changed on update: %v -> %v", originalInserted, got2.InsertedAt)
+	}
 }

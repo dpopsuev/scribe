@@ -11,13 +11,13 @@ Persistent planning memory for AI agents. Scribe is a structured artifact store 
 podman run -d --name scribe \
   -p 8080:8080 \
   -v scribe-data:/data \
-  quay.io/dpopsuev/scribe:0.2.1
+  quay.io/dpopsuev/scribe:0.2.2
 ```
 
 ### Binary
 
 ```bash
-go install github.com/dpopsuev/scribe/cmd/scribe@v0.2.1
+go install github.com/dpopsuev/scribe/cmd/scribe@v0.2.2
 scribe serve                   # stdio (Cursor, Claude Desktop)
 scribe serve --transport http  # Streamable HTTP on :8080
 ```
@@ -481,7 +481,7 @@ podman run -d --name scribe \
   -p 8080:8080 \
   -v scribe-data:/data \
   -v ./scribe.yaml:/data/scribe.yaml \
-  quay.io/dpopsuev/scribe:0.2.1
+  quay.io/dpopsuev/scribe:0.2.2
 ```
 
 ## Environment Variables

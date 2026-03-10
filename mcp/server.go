@@ -21,7 +21,7 @@ import (
 // Returns both the server and a directive registry for CLI introspection.
 func NewServer(s store.Store, homeScopes, vocab []string) (*sdkmcp.Server, *directive.Registry) {
 	srv := sdkmcp.NewServer(
-		&sdkmcp.Implementation{Name: "scribe", Version: "0.2.1"},
+		&sdkmcp.Implementation{Name: "scribe", Version: "0.2.2"},
 		&sdkmcp.ServerOptions{
 		Instructions: "Scribe is a lean governance artifact store with native DAG support. " +
 			"Use it to create, query, and manage structured artifacts (tasks, specs, sprints, goals, bugs) " +
@@ -31,13 +31,13 @@ func NewServer(s store.Store, homeScopes, vocab []string) (*sdkmcp.Server, *dire
 	)
 	reg := directive.New()
 	h := &handler{
-		proto: protocol.New(s, nil, homeScopes, vocab),
+		proto: protocol.New(s, nil, homeScopes, vocab, protocol.IDConfig{}),
 		locus: mcpclient.New(mcpclient.DefaultLocusURL()),
 	}
 
 	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "create_artifact",
-		Description: "Create a new governance artifact (task, spec, goal, sprint, bug)",
+		Description: "Create a new governance artifact (task, spec, goal, sprint, bug). Optionally set created_at for backdating.",
 		Keywords:    []string{"create", "new", "artifact", "sprint", "goal"},
 		Categories:  []string{"crud"},
 	}, noOut(h.handleCreate))
@@ -51,7 +51,7 @@ func NewServer(s store.Store, homeScopes, vocab []string) (*sdkmcp.Server, *dire
 
 	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "list_artifacts",
-		Description: "List artifacts with optional filters (kind, scope, status, parent, sprint, id_prefix, exclude_kind, exclude_status). Supports group_by (status, scope, kind, sprint), sort (id, title, status, scope, kind, sprint), limit, and query (substring search across title, goal, section text).",
+		Description: "List artifacts with optional filters (kind, scope, status, parent, sprint, id_prefix, exclude_kind, exclude_status). Supports group_by (status, scope, kind, sprint), sort (id, title, status, scope, kind, sprint), limit, and query (substring search across title, goal, section text). Supports temporal filters: created_after, created_before, updated_after, updated_before, inserted_after, inserted_before.",
 		Keywords:    []string{"list", "artifacts", "filter", "query", "sprint", "scope"},
 		Categories:  []string{"crud", "query"},
 	}, noOut(h.handleList))

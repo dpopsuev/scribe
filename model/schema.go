@@ -9,6 +9,7 @@ import (
 // KindDef describes a known artifact kind.
 type KindDef struct {
 	Prefix          string `json:"prefix" yaml:"prefix"`
+	Code            string `json:"code,omitempty" yaml:"code,omitempty"`
 	ExcludeFromList bool   `json:"exclude_from_list,omitempty" yaml:"exclude_from_list,omitempty"`
 	Protected       bool   `json:"protected,omitempty" yaml:"protected,omitempty"`
 }
@@ -82,6 +83,19 @@ func (s *Schema) Prefix(kind string) string {
 	return strings.ToUpper(kind)
 }
 
+// KindCode returns the 3-letter scoped-ID code for a kind.
+// Falls back to the first 3 uppercase letters of the kind name.
+func (s *Schema) KindCode(kind string) string {
+	if kd, ok := s.Kinds[kind]; ok && kd.Code != "" {
+		return kd.Code
+	}
+	upper := strings.ToUpper(kind)
+	if len(upper) >= 3 {
+		return upper[:3]
+	}
+	return upper
+}
+
 // IsProtected returns true if the kind is protected from vacuum deletion.
 func (s *Schema) IsProtected(kind string) bool {
 	if kd, ok := s.Kinds[kind]; ok {
@@ -123,12 +137,12 @@ func ValidateKind(kind string, vocab []string) error {
 func DefaultSchema() *Schema {
 	return &Schema{
 		Kinds: map[string]KindDef{
-			"goal":     {Prefix: "GOAL"},
-			"sprint":   {Prefix: "SPR"},
-			"task":     {Prefix: "TASK"},
-			"spec":     {Prefix: "SPEC", Protected: true},
-			"bug":      {Prefix: "BUG", Protected: true},
-			"decision": {Prefix: "ADR"},
+			"goal":     {Prefix: "GOAL", Code: "GOL"},
+			"sprint":   {Prefix: "SPR", Code: "SPR"},
+			"task":     {Prefix: "TASK", Code: "TSK"},
+			"spec":     {Prefix: "SPEC", Code: "SPC"},
+			"bug":      {Prefix: "BUG", Code: "BUG"},
+			"decision": {Prefix: "ADR", Code: "ADR"},
 		},
 		Statuses: []string{
 			"draft", "active", "current", "open",
