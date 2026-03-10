@@ -242,7 +242,11 @@ func (h *handler) handleCreate(ctx context.Context, _ *sdkmcp.CallToolRequest, i
 		return nil, nil, err
 	}
 	data, _ := json.MarshalIndent(art, "", "  ")
-	return text(string(data)), nil, nil
+	msg := string(data)
+	if expected := h.proto.Schema().GetExpectedSections(art.Kind); len(expected) > 0 && len(art.Sections) == 0 {
+		msg += fmt.Sprintf("\n\nSections hint: %s (use attach_section to populate)", strings.Join(expected, ", "))
+	}
+	return text(msg), nil, nil
 }
 
 type idInput struct {
@@ -477,6 +481,17 @@ func (h *handler) handleMotd(ctx context.Context, _ *sdkmcp.CallToolRequest, _ s
 		return nil, nil, err
 	}
 	var sections []string
+	if len(m.Campaigns) > 0 {
+		var lines []string
+		for _, c := range m.Campaigns {
+			prefix := ""
+			if c.Scope != "" {
+				prefix = "[" + c.Scope + "] "
+			}
+			lines = append(lines, fmt.Sprintf("  %s %s%s", c.ID, prefix, c.Title))
+		}
+		sections = append(sections, "Campaigns:\n"+strings.Join(lines, "\n"))
+	}
 	if len(m.Goals) > 0 {
 		var lines []string
 		for _, g := range m.Goals {

@@ -916,3 +916,273 @@ func TestSetField_CreatedAtNotMutable(t *testing.T) {
 		t.Error("set_field on created_at should fail when not mutable")
 	}
 }
+
+// --- Campaign tests ---
+
+func TestCampaign_CreateWithoutScope(t *testing.T) {
+	s := openStore(t)
+	p := protocol.New(s, nil, []string{"test"}, nil, protocol.IDConfig{})
+
+	art, err := p.CreateArtifact(context.Background(), protocol.CreateInput{
+		Kind:  "campaign",
+		Title: "Q2 DX Polish",
+	})
+	if err != nil {
+		t.Fatalf("expected campaign creation without scope to succeed: %v", err)
+	}
+	if art.Scope != "" {
+		t.Errorf("campaign scope should be empty, got %q", art.Scope)
+	}
+	if !strings.HasPrefix(art.ID, "CMP-") {
+		t.Errorf("campaign ID should start with CMP-, got %q", art.ID)
+	}
+}
+
+func TestCampaign_ScopedIDFallback(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	idc := protocol.IDConfig{IDFormat: "scoped"}
+	p := protocol.New(s, schema, []string{"test"}, nil, idc)
+
+	art, err := p.CreateArtifact(context.Background(), protocol.CreateInput{
+		Kind:  "campaign",
+		Title: "Scopeless with scoped format",
+	})
+	if err != nil {
+		t.Fatalf("campaign with scoped ID format should succeed: %v", err)
+	}
+	if !strings.HasPrefix(art.ID, "CMP-") {
+		t.Errorf("campaign should use prefix-based ID, got %q", art.ID)
+	}
+}
+
+func TestCampaign_InMotd(t *testing.T) {
+	s := openStore(t)
+	p := protocol.New(s, nil, []string{"test"}, nil, protocol.IDConfig{})
+
+	_, err := p.CreateArtifact(context.Background(), protocol.CreateInput{
+		Kind:   "campaign",
+		Title:  "Active Campaign",
+		Status: "active",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m, err := p.Motd(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Campaigns) != 1 {
+		t.Fatalf("expected 1 campaign in motd, got %d", len(m.Campaigns))
+	}
+	if m.Campaigns[0].Title != "Active Campaign" {
+		t.Errorf("expected campaign title 'Active Campaign', got %q", m.Campaigns[0].Title)
+	}
+}
+
+func TestCampaign_SetFieldScopeEmpty(t *testing.T) {
+	s := openStore(t)
+	p := protocol.New(s, nil, []string{"test"}, nil, protocol.IDConfig{})
+
+	art, _ := p.CreateArtifact(context.Background(), protocol.CreateInput{
+		Kind:  "campaign",
+		Title: "Test scope empty",
+	})
+
+	results, err := p.SetField(context.Background(), []string{art.ID}, "scope", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !results[0].OK {
+		t.Errorf("setting empty scope on campaign should succeed, got error: %s", results[0].Error)
+	}
+}
+
+func TestTask_SetFieldScopeEmptyFails(t *testing.T) {
+	s := openStore(t)
+	p := protocol.New(s, nil, []string{"test"}, nil, protocol.IDConfig{})
+
+	art, _ := p.CreateArtifact(context.Background(), protocol.CreateInput{
+		Kind:  "task",
+		Title: "Test scope required",
+	})
+
+	results, err := p.SetField(context.Background(), []string{art.ID}, "scope", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results[0].OK {
+		t.Error("setting empty scope on task should fail")
+	}
+}
+
+// --- Schema helper tests ---
+
+func TestSchema_IsTerminal(t *testing.T) {
+	s := model.DefaultSchema()
+	terminal := []string{"complete", "cancelled", "dismissed", "retired", "archived"}
+	for _, st := range terminal {
+		if !s.IsTerminal(st) {
+			t.Errorf("expected %q to be terminal", st)
+		}
+	}
+	nonTerminal := []string{"draft", "active", "current", "open"}
+	for _, st := range nonTerminal {
+		if s.IsTerminal(st) {
+			t.Errorf("expected %q to NOT be terminal", st)
+		}
+	}
+}
+
+func TestSchema_IsReadonly(t *testing.T) {
+	s := model.DefaultSchema()
+	if !s.IsReadonly("archived") {
+		t.Error("archived should be readonly")
+	}
+	if s.IsReadonly("active") {
+		t.Error("active should not be readonly")
+	}
+}
+
+func TestSchema_IsScopeOptional(t *testing.T) {
+	s := model.DefaultSchema()
+	if !s.IsScopeOptional("campaign") {
+		t.Error("campaign should be scope-optional")
+	}
+	if s.IsScopeOptional("task") {
+		t.Error("task should not be scope-optional")
+	}
+}
+
+func TestSchema_DefaultStatus(t *testing.T) {
+	s := model.DefaultSchema()
+	if got := s.DefaultStatus("task"); got != "draft" {
+		t.Errorf("expected default status 'draft', got %q", got)
+	}
+	if got := s.DefaultStatus("unknown_kind"); got != "draft" {
+		t.Errorf("expected fallback 'draft', got %q", got)
+	}
+}
+
+func TestSchema_ExpectedSections(t *testing.T) {
+	s := model.DefaultSchema()
+	taskSec := s.GetExpectedSections("task")
+	if len(taskSec) != 3 {
+		t.Fatalf("expected 3 sections for task, got %d", len(taskSec))
+	}
+	if taskSec[0] != "context" || taskSec[1] != "checklist" || taskSec[2] != "acceptance" {
+		t.Errorf("unexpected task sections: %v", taskSec)
+	}
+
+	goalSec := s.GetExpectedSections("goal")
+	if goalSec != nil {
+		t.Errorf("expected nil sections for goal, got %v", goalSec)
+	}
+}
+
+func TestSchema_MissingSections(t *testing.T) {
+	s := model.DefaultSchema()
+
+	have := []model.Section{
+		{Name: "context", Text: "..."},
+		{Name: "checklist", Text: "..."},
+	}
+	missing := s.MissingSections("task", have)
+	if len(missing) != 1 || missing[0] != "acceptance" {
+		t.Errorf("expected [acceptance], got %v", missing)
+	}
+
+	allPresent := append(have, model.Section{Name: "acceptance", Text: "..."})
+	missing = s.MissingSections("task", allPresent)
+	if len(missing) != 0 {
+		t.Errorf("expected no missing sections, got %v", missing)
+	}
+
+	missing = s.MissingSections("goal", nil)
+	if len(missing) != 0 {
+		t.Errorf("expected no missing sections for goal, got %v", missing)
+	}
+}
+
+func TestSchema_ValidRelation(t *testing.T) {
+	s := model.DefaultSchema()
+	if !s.ValidRelation("parent_of") {
+		t.Error("parent_of should be valid")
+	}
+	if !s.ValidRelation("*") {
+		t.Error("wildcard should be valid")
+	}
+	if s.ValidRelation("bogus") {
+		t.Error("bogus should not be valid")
+	}
+}
+
+// --- Activation guard tests ---
+
+func TestActivationGuard_BlocksMissingSections(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	schema.Guards.ActivationRequiresExpectedSections = true
+	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
+
+	art, _ := p.CreateArtifact(context.Background(), protocol.CreateInput{
+		Kind:  "task",
+		Title: "Test guard",
+	})
+
+	results, err := p.SetField(context.Background(), []string{art.ID}, "status", "active")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results[0].OK {
+		t.Error("activation should fail when expected sections are missing")
+	}
+	if !strings.Contains(results[0].Error, "missing expected sections") {
+		t.Errorf("error should mention missing sections, got: %s", results[0].Error)
+	}
+}
+
+func TestActivationGuard_AllowsWhenDisabled(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	schema.Guards.ActivationRequiresExpectedSections = false
+	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
+
+	art, _ := p.CreateArtifact(context.Background(), protocol.CreateInput{
+		Kind:  "task",
+		Title: "Test guard disabled",
+	})
+
+	results, err := p.SetField(context.Background(), []string{art.ID}, "status", "active")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !results[0].OK {
+		t.Errorf("activation should succeed when guard is disabled, got error: %s", results[0].Error)
+	}
+}
+
+func TestActivationGuard_PassesWithSections(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	schema.Guards.ActivationRequiresExpectedSections = true
+	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
+
+	art, _ := p.CreateArtifact(context.Background(), protocol.CreateInput{
+		Kind:  "task",
+		Title: "Test guard with sections",
+	})
+
+	for _, sec := range []string{"context", "checklist", "acceptance"} {
+		p.AttachSection(context.Background(), art.ID, sec, "content")
+	}
+
+	results, err := p.SetField(context.Background(), []string{art.ID}, "status", "active")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !results[0].OK {
+		t.Errorf("activation should succeed with all sections, got error: %s", results[0].Error)
+	}
+}

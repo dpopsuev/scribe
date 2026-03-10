@@ -40,16 +40,39 @@ type TreeNode struct {
 	Children  []*TreeNode `json:"children,omitempty"`
 }
 
+// DefaultsProvider supplies tunable numeric parameters (vacuum days, dashboard stale, etc.).
+// config.Defaults implements this interface.
+type DefaultsProvider interface {
+	GetVacuumDays() int
+	GetDashboardStale() int
+	GetDashboardStaleCap() int
+	GetMotdRecentHours() int
+	GetTreeMaxDepth() int
+}
+
+// defaultDefaults is used when IDConfig.Defaults is nil.
+var defaultDefaults = &staticDefaults{vacuum: 90, stale: 30, staleCap: 10, motdHours: 48, treeDepth: 10}
+
+type staticDefaults struct{ vacuum, stale, staleCap, motdHours, treeDepth int }
+
+func (d *staticDefaults) GetVacuumDays() int         { return d.vacuum }
+func (d *staticDefaults) GetDashboardStale() int    { return d.stale }
+func (d *staticDefaults) GetDashboardStaleCap() int { return d.staleCap }
+func (d *staticDefaults) GetMotdRecentHours() int   { return d.motdHours }
+func (d *staticDefaults) GetTreeMaxDepth() int      { return d.treeDepth }
+
 // IDConfig configures scoped ID generation, key resolution, and field mutability.
 type IDConfig struct {
 	IDFormat         string
 	ScopeKeys        map[string]string
 	KindCodes        map[string]string
 	MutableCreatedAt bool
+	Defaults         DefaultsProvider
 }
 
 // MotdResult is the message-of-the-day payload.
 type MotdResult struct {
+	Campaigns    []*model.Artifact `json:"campaigns,omitempty"`
 	Goals        []*model.Artifact `json:"goals,omitempty"`
 	DueReminders []*model.Artifact `json:"due_reminders,omitempty"`
 	RecentNotes  []*model.Artifact `json:"recent_notes,omitempty"`
@@ -66,6 +89,7 @@ type Protocol struct {
 	scopeKeys        map[string]string
 	kindCodes        map[string]string
 	mutableCreatedAt bool
+	defaults         DefaultsProvider
 }
 
 // New creates a Protocol with the given store, schema, home scopes,
@@ -79,6 +103,11 @@ func New(s store.Store, schema *model.Schema, scopes, vocab []string, idc IDConf
 	p.scopeKeys = idc.ScopeKeys
 	p.kindCodes = idc.KindCodes
 	p.mutableCreatedAt = idc.MutableCreatedAt
+	if idc.Defaults != nil {
+		p.defaults = idc.Defaults
+	} else {
+		p.defaults = defaultDefaults
+	}
 	return p
 }
 
@@ -109,20 +138,28 @@ func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*model.A
 	if err := model.ValidateKind(in.Kind, p.vocab); err != nil {
 		return nil, err
 	}
-	scope, err := p.inferScope(ctx, in.Scope, in.Parent)
+	scope, err := p.inferScope(ctx, in.Scope, in.Parent, in.Kind)
 	if err != nil {
 		return nil, err
 	}
 	var id string
 	if p.idFormat == "scoped" && in.Prefix == "" {
-		scopeKey, err := p.resolveScopeKey(ctx, scope)
-		if err != nil {
-			return nil, err
-		}
-		kindCode := p.resolveKindCode(in.Kind)
-		id, err = p.store.NextScopedID(ctx, scopeKey, kindCode)
-		if err != nil {
-			return nil, fmt.Errorf("generate scoped ID: %w", err)
+		if scope == "" {
+			prefix := p.schema.Prefix(in.Kind)
+			id, err = p.store.NextID(ctx, prefix)
+			if err != nil {
+				return nil, fmt.Errorf("generate ID: %w", err)
+			}
+		} else {
+			scopeKey, err := p.resolveScopeKey(ctx, scope)
+			if err != nil {
+				return nil, err
+			}
+			kindCode := p.resolveKindCode(in.Kind)
+			id, err = p.store.NextScopedID(ctx, scopeKey, kindCode)
+			if err != nil {
+				return nil, fmt.Errorf("generate scoped ID: %w", err)
+			}
 		}
 	} else {
 		prefix := in.Prefix
@@ -136,7 +173,7 @@ func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*model.A
 	}
 	status := in.Status
 	if status == "" {
-		status = "draft"
+		status = p.schema.DefaultStatus(in.Kind)
 	}
 	art := &model.Artifact{
 		ID: id, Kind: in.Kind, Scope: scope,
@@ -287,7 +324,7 @@ func (p *Protocol) setFieldSingle(ctx context.Context, id, field, value string) 
 		return Result{ID: id, Error: err.Error()}
 	}
 
-	if p.schema.Guards.ArchivedReadonly && art.Status == "archived" {
+	if p.schema.Guards.ArchivedReadonly && p.schema.IsReadonly(art.Status) {
 		return Result{ID: id, Error: fmt.Sprintf("%s: %s", ErrArchived, id)}
 	}
 
@@ -308,7 +345,7 @@ func (p *Protocol) setFieldSingle(ctx context.Context, id, field, value string) 
 	case "goal":
 		art.Goal = value
 	case "scope":
-		if value == "" {
+		if value == "" && !p.schema.IsScopeOptional(art.Kind) {
 			return Result{ID: id, Error: "scope cannot be empty"}
 		}
 		art.Scope = value
@@ -366,7 +403,7 @@ func (p *Protocol) setStatus(ctx context.Context, art *model.Artifact, status st
 		}
 	}
 
-	if status == "archived" {
+	if p.schema.IsReadonly(status) {
 		children, err := p.store.Children(ctx, art.ID)
 		if err != nil {
 			return Result{ID: art.ID, Error: err.Error()}
@@ -375,6 +412,15 @@ func (p *Protocol) setStatus(ctx context.Context, art *model.Artifact, status st
 			if ch.Status != "archived" {
 				return Result{ID: art.ID, Error: fmt.Sprintf("cannot archive %s: child %s is %s (use archive_artifact with cascade)", art.ID, ch.ID, ch.Status)}
 			}
+		}
+	}
+
+	if p.schema.Guards.ActivationRequiresExpectedSections && status == "active" {
+		missing := p.schema.MissingSections(art.Kind, art.Sections)
+		if len(missing) > 0 {
+			return Result{ID: art.ID, Error: fmt.Sprintf(
+				"cannot activate %s: missing expected sections: %s",
+				art.ID, strings.Join(missing, ", "))}
 		}
 	}
 
@@ -400,12 +446,12 @@ func (p *Protocol) setStatus(ctx context.Context, art *model.Artifact, status st
 			info = append(info, extra)
 		}
 	}
-	if p.schema.Guards.AutoCompleteParentOnChildrenTerminal && isTerminal(status) {
+	if p.schema.Guards.AutoCompleteParentOnChildrenTerminal && p.schema.IsTerminal(status) {
 		if extra := p.autoCompleteParent(ctx, art); extra != "" {
 			info = append(info, extra)
 		}
 	}
-	if p.schema.Guards.AutoActivateNextDraftSprint && art.Kind == "sprint" && status == "complete" {
+	if p.schema.Guards.AutoActivateNextDraftSprint && p.schema.HasAutoActivateNext(art.Kind) && status == "complete" {
 		if extra := p.autoActivateNextSprint(ctx, art); extra != "" {
 			info = append(info, extra)
 		}
@@ -459,7 +505,7 @@ func (p *Protocol) autoCompleteParent(ctx context.Context, art *model.Artifact) 
 		return ""
 	}
 	parent, err := p.store.Get(ctx, art.Parent)
-	if err != nil || isTerminal(parent.Status) {
+	if err != nil || p.schema.IsTerminal(parent.Status) {
 		return ""
 	}
 	children, err := p.store.Children(ctx, parent.ID)
@@ -467,7 +513,7 @@ func (p *Protocol) autoCompleteParent(ctx context.Context, art *model.Artifact) 
 		return ""
 	}
 	for _, ch := range children {
-		if !isTerminal(ch.Status) {
+		if !p.schema.IsTerminal(ch.Status) {
 			return ""
 		}
 	}
@@ -496,10 +542,6 @@ func (p *Protocol) autoActivateNextSprint(ctx context.Context, completed *model.
 	return fmt.Sprintf("activated %s: %s", next.ID, next.Title)
 }
 
-func isTerminal(status string) bool {
-	return status == "complete" || status == "cancelled" || status == "dismissed" || status == "retired" || status == "archived"
-}
-
 // --- Sections ---
 
 func (p *Protocol) AttachSection(ctx context.Context, id, name, text string) (bool, error) {
@@ -510,7 +552,7 @@ func (p *Protocol) AttachSection(ctx context.Context, id, name, text string) (bo
 	if err != nil {
 		return false, err
 	}
-	if p.schema.Guards.ArchivedReadonly && art.Status == "archived" {
+	if p.schema.Guards.ArchivedReadonly && p.schema.IsReadonly(art.Status) {
 		return false, fmt.Errorf("%w: %s", ErrArchived, art.ID)
 	}
 	replaced := false
@@ -581,7 +623,7 @@ func (p *Protocol) LinkArtifacts(ctx context.Context, sourceID, relation string,
 	if len(targetIDs) == 0 {
 		return nil, fmt.Errorf("at least one target ID is required")
 	}
-	if !p.validRelation(relation) {
+	if !p.schema.ValidRelation(relation) {
 		return nil, fmt.Errorf("unknown relation %q; valid: %s", relation, strings.Join(p.schema.Relations, ", "))
 	}
 
@@ -663,15 +705,6 @@ func (p *Protocol) UnlinkArtifacts(ctx context.Context, sourceID, relation strin
 	return results, nil
 }
 
-func (p *Protocol) validRelation(rel string) bool {
-	for _, r := range p.schema.Relations {
-		if r == rel {
-			return true
-		}
-	}
-	return false
-}
-
 // --- Graph ---
 
 type TreeInput struct {
@@ -679,11 +712,6 @@ type TreeInput struct {
 	Relation  string `json:"relation,omitempty"`
 	Direction string `json:"direction,omitempty"`
 	Depth     int    `json:"depth,omitempty"`
-}
-
-var validRelations = map[string]bool{
-	"parent_of": true, "depends_on": true, "justifies": true,
-	"implements": true, "documents": true, "satisfies": true, "*": true,
 }
 
 func (p *Protocol) ArtifactTree(ctx context.Context, in TreeInput) (*TreeNode, error) {
@@ -696,7 +724,7 @@ func (p *Protocol) ArtifactTree(ctx context.Context, in TreeInput) (*TreeNode, e
 	if rel == "" {
 		rel = "parent_of"
 	}
-	if !validRelations[rel] {
+	if !p.schema.ValidRelation(rel) {
 		return nil, fmt.Errorf("unknown relation %q. Valid: parent_of, depends_on, implements, justifies, documents, satisfies, *", rel)
 	}
 
@@ -717,9 +745,10 @@ func (p *Protocol) ArtifactTree(ctx context.Context, in TreeInput) (*TreeNode, e
 		return nil, fmt.Errorf("unknown direction %q. Valid: outgoing, incoming, both", dir)
 	}
 
+	maxD := p.defaults.GetTreeMaxDepth()
 	depth := in.Depth
-	if depth < 0 || depth > 10 {
-		depth = 10
+	if depth < 0 || depth > maxD {
+		depth = maxD
 	}
 
 	isDefault := rel == "parent_of" && dir == "outgoing"
@@ -831,7 +860,7 @@ func (p *Protocol) GetArtifactEdges(ctx context.Context, id string) ([]EdgeSumma
 
 // inferScope resolves an artifact's scope via cascade:
 // explicit value → parent's scope → workspace homeScope → error.
-func (p *Protocol) inferScope(ctx context.Context, explicit, parentID string) (string, error) {
+func (p *Protocol) inferScope(ctx context.Context, explicit, parentID, kind string) (string, error) {
 	if explicit != "" {
 		return explicit, nil
 	}
@@ -839,6 +868,9 @@ func (p *Protocol) inferScope(ctx context.Context, explicit, parentID string) (s
 		if parent, err := p.store.Get(ctx, parentID); err == nil && parent.Scope != "" {
 			return parent.Scope, nil
 		}
+	}
+	if p.schema.IsScopeOptional(kind) {
+		return "", nil
 	}
 	if len(p.scopes) == 1 {
 		return p.scopes[0], nil
@@ -904,7 +936,7 @@ func (p *Protocol) SetGoal(ctx context.Context, in SetGoalInput) (*SetGoalResult
 	if in.Title == "" {
 		return nil, fmt.Errorf("title is required")
 	}
-	scope, err := p.inferScope(ctx, in.Scope, "")
+	scope, err := p.inferScope(ctx, in.Scope, "", "goal")
 	if err != nil {
 		return nil, err
 	}
@@ -1038,7 +1070,7 @@ func (p *Protocol) BulkSetField(ctx context.Context, in BulkMutationInput, field
 
 func (p *Protocol) Vacuum(ctx context.Context, days int, scope string, force bool) ([]string, error) {
 	if days <= 0 {
-		days = 90
+		days = p.defaults.GetVacuumDays()
 	}
 	maxAge := time.Duration(days) * 24 * time.Hour
 	f := model.Filter{Status: "archived"}
@@ -1069,6 +1101,9 @@ func (p *Protocol) Vacuum(ctx context.Context, days int, scope string, force boo
 func (p *Protocol) Motd(ctx context.Context) (*MotdResult, error) {
 	result := &MotdResult{}
 
+	campaigns, _ := p.store.List(ctx, model.Filter{Kind: "campaign", Status: "active"})
+	result.Campaigns = campaigns
+
 	gf := model.Filter{Kind: "goal", Status: "current"}
 	if len(p.scopes) > 0 {
 		gf.Scopes = p.scopes
@@ -1082,7 +1117,7 @@ func (p *Protocol) Motd(ctx context.Context) (*MotdResult, error) {
 	}
 	notes, _ := p.store.List(ctx, nf)
 	now := time.Now().UTC()
-	cutoff := now.Add(-48 * time.Hour)
+	cutoff := now.Add(-time.Duration(p.defaults.GetMotdRecentHours()) * time.Hour)
 	for _, n := range notes {
 		if isDue(n, now) {
 			result.DueReminders = append(result.DueReminders, n)
@@ -1114,7 +1149,7 @@ type DashboardResult struct {
 // Dashboard returns a housekeeping dashboard: storage, staleness, scope health.
 func (p *Protocol) Dashboard(ctx context.Context, staleDays int) (*DashboardResult, error) {
 	if staleDays <= 0 {
-		staleDays = 30
+		staleDays = p.defaults.GetDashboardStale()
 	}
 	cutoff := time.Now().UTC().Add(-time.Duration(staleDays) * 24 * time.Hour)
 	all, err := p.store.List(ctx, model.Filter{})
@@ -1137,7 +1172,7 @@ func (p *Protocol) Dashboard(ctx context.Context, staleDays int) (*DashboardResu
 		ds.Total++
 		if art.Status == "archived" {
 			ds.Archived++
-		} else if !isTerminal(art.Status) {
+		} else if !p.schema.IsTerminal(art.Status) {
 			ds.Active++
 			if art.UpdatedAt.Before(cutoff) {
 				ds.Stale++
@@ -1153,8 +1188,9 @@ func (p *Protocol) Dashboard(ctx context.Context, staleDays int) (*DashboardResu
 	sort.Slice(staleArts, func(i, j int) bool {
 		return staleArts[i].UpdatedAt.Before(staleArts[j].UpdatedAt)
 	})
-	if len(staleArts) > 10 {
-		staleArts = staleArts[:10]
+	cap := p.defaults.GetDashboardStaleCap()
+	if len(staleArts) > cap {
+		staleArts = staleArts[:cap]
 	}
 
 	result := &DashboardResult{StaleArts: staleArts}
@@ -1386,7 +1422,7 @@ func (p *Protocol) DetectOrphans(ctx context.Context, in OrphanInput) (*OrphanRe
 		if in.Status != "" && art.Status != in.Status {
 			continue
 		}
-		if in.Status == "" && isTerminal(art.Status) {
+		if in.Status == "" && p.schema.IsTerminal(art.Status) {
 			continue
 		}
 
