@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dpopsuev/scribe/config"
@@ -1088,6 +1090,22 @@ func orphansCmd() *cobra.Command {
 
 // --- serve ---
 
+func initLogger() {
+	level := slog.LevelInfo
+	if v := os.Getenv("SCRIBE_LOG_LEVEL"); v != "" {
+		switch strings.ToLower(v) {
+		case "debug":
+			level = slog.LevelDebug
+		case "warn":
+			level = slog.LevelWarn
+		case "error":
+			level = slog.LevelError
+		}
+	}
+	handler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: level})
+	slog.SetDefault(slog.New(handler))
+}
+
 func serveCmd() *cobra.Command {
 	var scopes []string
 	var transport, addr string
@@ -1102,9 +1120,17 @@ func serveCmd() *cobra.Command {
   http:            starts a Streamable HTTP server on --addr.
   --ui:            also starts a read-only web UI on --ui-addr.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			initLogger()
 			cfg := mustConfig()
+
+			slog.Info("starting scribe",
+				"db", cfg.DB,
+				"id_format", cfg.IDFormat,
+			)
+
 			s, err := store.OpenSQLite(cfg.DB)
 			if err != nil {
+				slog.Error("failed to open store", "db", cfg.DB, "error", err)
 				return fmt.Errorf("open store: %w", err)
 			}
 			defer s.Close()
@@ -1129,27 +1155,62 @@ func serveCmd() *cobra.Command {
 			if cfg.Vocabulary != nil {
 				vocabKinds = cfg.Vocabulary.Kinds
 			}
-			srv, _ := mcp.NewServer(s, homeScopes, vocabKinds, cfg.ProtocolIDConfig())
+			idc := cfg.ProtocolIDConfig()
+
+			if ws := os.Getenv("SCRIBE_WORKSPACE"); ws != "" && cfg.Workspaces != nil {
+				if wsScopes, ok := cfg.Workspaces[ws]; ok {
+					homeScopes = wsScopes
+					slog.Info("workspace override from env", "workspace", ws, "scopes", wsScopes)
+				}
+			}
+
+			srv, _ := mcp.NewServer(s, homeScopes, vocabKinds, idc)
+
+			slog.Info("server configured",
+				"transport", t,
+				"scopes", homeScopes,
+			)
 
 			if enableUI {
-				proto := protocol.New(s, nil, homeScopes, nil, cfg.ProtocolIDConfig())
+				proto := protocol.New(s, nil, homeScopes, nil, idc)
 				uiSrv := web.NewServer(proto)
 				go func() {
-					fmt.Fprintf(os.Stderr, "scribe: UI listening on %s\n", uiAddr)
+					slog.Info("UI listening", "addr", uiAddr)
 					if err := http.ListenAndServe(uiAddr, uiSrv); err != nil {
-						fmt.Fprintf(os.Stderr, "scribe: UI error: %v\n", err)
+						slog.Error("UI server error", "error", err)
 					}
 				}()
 			}
 
 			if t == "http" {
+				var serverCache sync.Map
+				serverCache.Store("", srv)
+
 				handler := sdkmcp.NewStreamableHTTPHandler(
-					func(r *http.Request) *sdkmcp.Server { return srv },
+					func(r *http.Request) *sdkmcp.Server {
+						ws := r.URL.Query().Get("workspace")
+						if ws == "" {
+							return srv
+						}
+						if cached, ok := serverCache.Load(ws); ok {
+							return cached.(*sdkmcp.Server)
+						}
+						wsScopes, ok := cfg.Workspaces[ws]
+						if !ok {
+							slog.Warn("unknown workspace, using default", "workspace", ws)
+							return srv
+						}
+						wsSrv, _ := mcp.NewServer(s, wsScopes, vocabKinds, idc)
+						serverCache.Store(ws, wsSrv)
+						slog.Info("created workspace server", "workspace", ws, "scopes", wsScopes)
+						return wsSrv
+					},
 					nil,
 				)
-				fmt.Fprintf(os.Stderr, "scribe: listening on %s\n", a)
+				slog.Info("listening", "addr", a)
 				return http.ListenAndServe(a, handler)
 			}
+			slog.Info("serving via stdio")
 			return srv.Run(context.Background(), &sdkmcp.StdioTransport{})
 		},
 	}

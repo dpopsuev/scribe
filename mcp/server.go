@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -21,12 +22,12 @@ import (
 // Returns both the server and a directive registry for CLI introspection.
 func NewServer(s store.Store, homeScopes, vocab []string, idc protocol.IDConfig) (*sdkmcp.Server, *directive.Registry) {
 	srv := sdkmcp.NewServer(
-		&sdkmcp.Implementation{Name: "scribe", Version: "0.2.3"},
+		&sdkmcp.Implementation{Name: "scribe", Version: "0.3.0"},
 		&sdkmcp.ServerOptions{
-		Instructions: "Scribe is a lean governance artifact store with native DAG support. " +
-			"Use it to create, query, and manage structured artifacts (tasks, specs, sprints, goals, bugs) " +
-			"with parent-child trees, dependency edges, named text sections, and lifecycle status tracking. " +
-			"Start with motd for context, then list_artifacts to explore.",
+			Instructions: "Scribe is a work graph for AI agents with native DAG support. " +
+				"Use it to create, query, and manage structured artifacts (tasks, specs, sprints, goals, bugs) " +
+				"with parent-child trees, dependency edges, named text sections, and lifecycle status tracking. " +
+				"Start with admin motd for context, then artifact list to explore.",
 		},
 	)
 	reg := directive.New()
@@ -36,102 +37,32 @@ func NewServer(s store.Store, homeScopes, vocab []string, idc protocol.IDConfig)
 	}
 
 	directive.AddTool(reg, srv, directive.ToolMeta{
-		Name:        "create_artifact",
-		Description: "Create a new governance artifact (task, spec, goal, sprint, bug). Optionally set created_at for backdating.",
-		Keywords:    []string{"create", "new", "artifact", "sprint", "goal"},
-		Categories:  []string{"crud"},
-	}, noOut(h.handleCreate))
+		Name: "artifact",
+		Description: "Create, read, update, and manage work artifacts. " +
+			"Actions: create (new artifact), get (by ID), list (filter/search), set (update field), " +
+			"archive (mark read-only), attach_section (add text), get_section (read text).",
+		Keywords:   []string{"create", "get", "list", "set", "archive", "artifact", "section"},
+		Categories: []string{"crud"},
+	}, noOut(h.handleArtifact))
 
 	directive.AddTool(reg, srv, directive.ToolMeta{
-		Name:        "get_artifact",
-		Description: "Retrieve a single artifact by ID. Set include_edges=true to include resolved neighbor summaries.",
-		Keywords:    []string{"get", "show", "artifact", "detail"},
-		Categories:  []string{"crud"},
-	}, noOut(h.handleGet))
+		Name: "graph",
+		Description: "Navigate and modify artifact relationships. " +
+			"Actions: tree (parent-child hierarchy with optional relation/direction/depth), " +
+			"link (add directed relationship), unlink (remove relationship). " +
+			"Supported relations: parent_of, depends_on, justifies, implements, documents, satisfies.",
+		Keywords:   []string{"tree", "link", "unlink", "relation", "edge", "graph"},
+		Categories: []string{"query", "graph"},
+	}, noOut(h.handleGraph))
 
 	directive.AddTool(reg, srv, directive.ToolMeta{
-		Name:        "list_artifacts",
-		Description: "List artifacts with optional filters (kind, scope, status, parent, sprint, id_prefix, exclude_kind, exclude_status). Supports group_by (status, scope, kind, sprint), sort (id, title, status, scope, kind, sprint), limit, and query (substring search across title, goal, section text). Supports temporal filters: created_after, created_before, updated_after, updated_before, inserted_after, inserted_before.",
-		Keywords:    []string{"list", "artifacts", "filter", "query", "sprint", "scope"},
-		Categories:  []string{"crud", "query"},
-	}, noOut(h.handleList))
-
-	directive.AddTool(reg, srv, directive.ToolMeta{
-		Name:        "set_field",
-		Description: "Set a single field on an artifact. Supported fields: title, goal, scope, status, parent, priority, sprint, kind, depends_on (comma-separated), labels (comma-separated). Unknown fields are stored in the extra map.",
-		Keywords:    []string{"set", "update", "field", "status", "title"},
-		Categories:  []string{"crud"},
-	}, noOut(h.handleSetField))
-
-	directive.AddTool(reg, srv, directive.ToolMeta{
-		Name:        "attach_section",
-		Description: "Add or replace a named text section on an artifact. Use for mermaid diagrams, architecture specs, notes, or any structured text attachment.",
-		Keywords:    []string{"section", "attach", "text", "note", "diagram"},
-		Categories:  []string{"crud", "sections"},
-	}, noOut(h.handleAttachSection))
-
-	directive.AddTool(reg, srv, directive.ToolMeta{
-		Name:        "get_section",
-		Description: "Retrieve a named section's text from an artifact.",
-		Keywords:    []string{"section", "get", "text"},
-		Categories:  []string{"query", "sections"},
-	}, noOut(h.handleGetSection))
-
-	directive.AddTool(reg, srv, directive.ToolMeta{
-		Name:        "artifact_tree",
-		Description: "Return the parent-child tree rooted at an artifact. Supports optional relation, direction, and depth for general graph traversal.",
-		Keywords:    []string{"tree", "hierarchy", "children", "parent"},
-		Categories:  []string{"query", "navigation"},
-	}, noOut(h.handleTree))
-
-	directive.AddTool(reg, srv, directive.ToolMeta{
-		Name:        "set_goal",
-		Description: "Set a new goal (archives any current goal for the scope) and auto-create a root delivery artifact linked via 'justifies'. Returns both the goal and its root artifact.",
-		Keywords:    []string{"goal", "set", "north star"},
-		Categories:  []string{"lifecycle"},
-	}, noOut(h.handleSetGoal))
-
-	directive.AddTool(reg, srv, directive.ToolMeta{
-		Name:        "archive_artifact",
-		Description: "Archive one or more artifacts (marks read-only). Use cascade=true to recursively archive child subtrees. When no IDs given, archives all matching filter (scope, kind, status, id_prefix, exclude_kind). Use dry_run=true to preview.",
-		Keywords:    []string{"archive", "retire", "cascade"},
-		Categories:  []string{"lifecycle"},
-	}, noOut(h.handleArchive))
-
-	directive.AddTool(reg, srv, directive.ToolMeta{
-		Name:        "vacuum",
-		Description: "Delete archived artifacts older than the specified number of days. Returns IDs of deleted artifacts.",
-		Keywords:    []string{"vacuum", "cleanup", "delete", "purge"},
-		Categories:  []string{"lifecycle", "maintenance"},
-	}, noOut(h.handleVacuum))
-
-	directive.AddTool(reg, srv, directive.ToolMeta{
-		Name:        "motd",
-		Description: "Message of the day: returns due reminders, recent notes, and the current goal. Useful at session start for context.",
-		Keywords:    []string{"motd", "context", "reminder", "goal"},
-		Categories:  []string{"query", "navigation"},
-	}, noOut(h.handleMotd))
-
-	directive.AddTool(reg, srv, directive.ToolMeta{
-		Name:        "dashboard",
-		Description: "Housekeeping dashboard: storage, staleness, scope health. Returns scopes with total/active/archived/sections/edges/stale counts, DB size, and top 10 stale artifacts.",
-		Keywords:    []string{"dashboard", "df", "housekeeping", "stale", "storage"},
-		Categories:  []string{"query", "maintenance"},
-	}, noOut(h.handleDashboard))
-
-	directive.AddTool(reg, srv, directive.ToolMeta{
-		Name:        "link_artifacts",
-		Description: "Add a directed relationship between artifacts. Supported relations: parent_of, depends_on, justifies, implements, documents, satisfies. Set unlink=true to remove the relationship instead.",
-		Keywords:    []string{"link", "relation", "edge", "depends", "parent"},
-		Categories:  []string{"crud", "graph"},
-	}, noOut(h.handleLink))
-
-	directive.AddTool(reg, srv, directive.ToolMeta{
-		Name:        "detect_orphans",
-		Description: "Find tasks without implements links to specs/bugs, and specs/bugs without tasks implementing them. Warns about missing relationships. Use check=overlaps to find scope conflicts, check=all for both.",
-		Keywords:    []string{"orphan", "lint", "unlinked", "implements", "spec", "bug", "overlap", "conflict"},
-		Categories:  []string{"query", "governance"},
-	}, noOut(h.handleDetect))
+		Name: "admin",
+		Description: "System administration and monitoring. " +
+			"Actions: motd (session context with goals/reminders), dashboard (storage/staleness/health), " +
+			"set_goal (set north star), vacuum (delete old archived), detect (find orphans/overlaps).",
+		Keywords:   []string{"motd", "dashboard", "goal", "vacuum", "detect", "orphan"},
+		Categories: []string{"lifecycle", "maintenance"},
+	}, noOut(h.handleAdmin))
 
 	return srv, reg
 }
@@ -146,6 +77,161 @@ func ToolRegistry() *directive.Registry {
 type handler struct {
 	proto *protocol.Protocol
 	locus *mcpclient.LocusClient
+}
+
+// --- consolidated input types ---
+
+type artifactInput struct {
+	Action string `json:"action"`
+
+	ID    string `json:"id,omitempty"`
+	Kind  string `json:"kind,omitempty"`
+	Scope string `json:"scope,omitempty"`
+
+	Title     string              `json:"title,omitempty"`
+	Goal      string              `json:"goal,omitempty"`
+	Parent    string              `json:"parent,omitempty"`
+	Status    string              `json:"status,omitempty"`
+	DependsOn []string            `json:"depends_on,omitempty"`
+	Labels    []string            `json:"labels,omitempty"`
+	Prefix    string              `json:"prefix,omitempty"`
+	Links     map[string][]string `json:"links,omitempty"`
+	Extra     map[string]any      `json:"extra,omitempty"`
+	CreatedAt string              `json:"created_at,omitempty"`
+
+	IncludeEdges bool `json:"include_edges,omitempty"`
+
+	Sprint         string `json:"sprint,omitempty"`
+	IDPrefix       string `json:"id_prefix,omitempty"`
+	ExcludeKind    string `json:"exclude_kind,omitempty"`
+	ExcludeStatus  string `json:"exclude_status,omitempty"`
+	GroupBy        string `json:"group_by,omitempty"`
+	Sort           string `json:"sort,omitempty"`
+	Limit          int    `json:"limit,omitempty"`
+	Query          string `json:"query,omitempty"`
+	CreatedAfter   string `json:"created_after,omitempty"`
+	CreatedBefore  string `json:"created_before,omitempty"`
+	UpdatedAfter   string `json:"updated_after,omitempty"`
+	UpdatedBefore  string `json:"updated_before,omitempty"`
+	InsertedAfter  string `json:"inserted_after,omitempty"`
+	InsertedBefore string `json:"inserted_before,omitempty"`
+
+	Field string `json:"field,omitempty"`
+	Value string `json:"value,omitempty"`
+
+	IDs     []string `json:"ids,omitempty"`
+	Cascade bool     `json:"cascade,omitempty"`
+	DryRun  bool     `json:"dry_run,omitempty"`
+
+	Name string `json:"name,omitempty"`
+	Text string `json:"text,omitempty"`
+}
+
+type graphInput struct {
+	Action    string   `json:"action"`
+	ID        string   `json:"id,omitempty"`
+	Relation  string   `json:"relation,omitempty"`
+	Direction string   `json:"direction,omitempty"`
+	Depth     int      `json:"depth,omitempty"`
+	Targets   []string `json:"targets,omitempty"`
+}
+
+type adminInput struct {
+	Action string `json:"action"`
+
+	StaleDays int `json:"stale_days,omitempty"`
+
+	Title string `json:"title,omitempty"`
+	Scope string `json:"scope,omitempty"`
+	Kind  string `json:"kind,omitempty"`
+
+	Days  int  `json:"days,omitempty"`
+	Force bool `json:"force,omitempty"`
+
+	Check   string `json:"check,omitempty"`
+	Status  string `json:"status,omitempty"`
+	Project string `json:"project,omitempty"`
+}
+
+// --- dispatchers ---
+
+func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolRequest, in artifactInput) (*sdkmcp.CallToolResult, any, error) {
+	switch in.Action {
+	case "create":
+		return h.handleCreate(ctx, req, protocol.CreateInput{
+			Kind: in.Kind, Title: in.Title, Scope: in.Scope,
+			Goal: in.Goal, Parent: in.Parent, Status: in.Status,
+			DependsOn: in.DependsOn, Labels: in.Labels, Prefix: in.Prefix,
+			Links: in.Links, Extra: in.Extra, CreatedAt: in.CreatedAt,
+		})
+	case "get":
+		return h.handleGet(ctx, req, getInput{ID: in.ID, IncludeEdges: in.IncludeEdges})
+	case "list":
+		return h.handleList(ctx, req, protocol.ListInput{
+			Kind: in.Kind, Scope: in.Scope, Status: in.Status,
+			Parent: in.Parent, Sprint: in.Sprint, IDPrefix: in.IDPrefix,
+			ExcludeKind: in.ExcludeKind, ExcludeStatus: in.ExcludeStatus,
+			GroupBy: in.GroupBy, Sort: in.Sort, Limit: in.Limit, Query: in.Query,
+			CreatedAfter: in.CreatedAfter, CreatedBefore: in.CreatedBefore,
+			UpdatedAfter: in.UpdatedAfter, UpdatedBefore: in.UpdatedBefore,
+			InsertedAfter: in.InsertedAfter, InsertedBefore: in.InsertedBefore,
+		})
+	case "set":
+		return h.handleSetField(ctx, req, setFieldInput{ID: in.ID, Field: in.Field, Value: in.Value})
+	case "archive":
+		return h.handleArchive(ctx, req, archiveInput{
+			IDs: in.IDs, Cascade: in.Cascade, Scope: in.Scope,
+			Kind: in.Kind, Status: in.Status, IDPrefix: in.IDPrefix,
+			ExcludeKind: in.ExcludeKind, DryRun: in.DryRun,
+		})
+	case "attach_section":
+		return h.handleAttachSection(ctx, req, sectionInput{ID: in.ID, Name: in.Name, Text: in.Text})
+	case "get_section":
+		return h.handleGetSection(ctx, req, getSectionInput{ID: in.ID, Name: in.Name})
+	default:
+		return nil, nil, fmt.Errorf("unknown artifact action %q (valid: create, get, list, set, archive, attach_section, get_section)", in.Action)
+	}
+}
+
+func (h *handler) handleGraph(ctx context.Context, req *sdkmcp.CallToolRequest, in graphInput) (*sdkmcp.CallToolResult, any, error) {
+	switch in.Action {
+	case "tree":
+		return h.handleTree(ctx, req, protocol.TreeInput{
+			ID: in.ID, Relation: in.Relation, Direction: in.Direction, Depth: in.Depth,
+		})
+	case "link":
+		return h.handleLink(ctx, req, linkInput{
+			ID: in.ID, Relation: in.Relation, Targets: in.Targets,
+		})
+	case "unlink":
+		return h.handleLink(ctx, req, linkInput{
+			ID: in.ID, Relation: in.Relation, Targets: in.Targets, Unlink: true,
+		})
+	default:
+		return nil, nil, fmt.Errorf("unknown graph action %q (valid: tree, link, unlink)", in.Action)
+	}
+}
+
+func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, in adminInput) (*sdkmcp.CallToolResult, any, error) {
+	switch in.Action {
+	case "motd":
+		return h.handleMotd(ctx, req, struct{}{})
+	case "dashboard":
+		return h.handleDashboard(ctx, req, dashboardInput{StaleDays: in.StaleDays})
+	case "set_goal":
+		return h.handleSetGoal(ctx, req, protocol.SetGoalInput{
+			Title: in.Title, Scope: in.Scope, Kind: in.Kind,
+		})
+	case "vacuum":
+		return h.handleVacuum(ctx, req, vacuumInput{Days: in.Days, Scope: in.Scope, Force: in.Force})
+	case "detect":
+		return h.handleDetect(ctx, req, detectInput{
+			Check: in.Check, Scope: in.Scope, Status: in.Status,
+			Kind: in.Kind, Project: in.Project,
+		})
+	default:
+		return nil, nil, fmt.Errorf("unknown admin action %q (valid: motd, dashboard, set_goal, vacuum, detect)", in.Action)
+	}
 }
 
 // --- handlers (thin wrappers) ---
@@ -786,5 +872,19 @@ func text(s string) *sdkmcp.CallToolResult {
 }
 
 func noOut[In any](h func(context.Context, *sdkmcp.CallToolRequest, In) (*sdkmcp.CallToolResult, any, error)) sdkmcp.ToolHandlerFor[In, any] {
-	return h
+	return func(ctx context.Context, req *sdkmcp.CallToolRequest, in In) (*sdkmcp.CallToolResult, any, error) {
+		tool := ""
+		if req != nil {
+			tool = req.Params.Name
+		}
+		start := time.Now()
+		result, out, err := h(ctx, req, in)
+		elapsed := time.Since(start)
+		if err != nil {
+			slog.Error("tool call failed", "tool", tool, "elapsed", elapsed, "error", err)
+		} else {
+			slog.Debug("tool call", "tool", tool, "elapsed", elapsed)
+		}
+		return result, out, err
+	}
 }

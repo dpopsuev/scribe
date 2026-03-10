@@ -19,7 +19,7 @@ const (
 // Return false to stop walking.
 type WalkFn func(depth int, edge model.Edge) (cont bool)
 
-// Store is the persistence interface for all governance artifacts.
+// Store is the persistence interface for all work graph artifacts.
 type Store interface {
 	// Artifact CRUD. Put reconciles edges from Parent, DependsOn, and Links.
 	Put(ctx context.Context, art *model.Artifact) error

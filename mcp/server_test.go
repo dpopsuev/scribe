@@ -78,8 +78,9 @@ func TestScopedList_HomeScopes(t *testing.T) {
 	srv, _ := scribemcp.NewServer(s, []string{"origami", "mos"}, nil, protocol.IDConfig{})
 	cs := connectClient(t, srv)
 
-	text := callTool(t, cs, "list_artifacts", map[string]any{
-		"kind": "task",
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "list",
+		"kind":   "task",
 	})
 
 	if !strings.Contains(text, "Origami A") {
@@ -100,9 +101,10 @@ func TestScopedList_ExplicitScope(t *testing.T) {
 	srv, _ := scribemcp.NewServer(s, []string{"origami"}, nil, protocol.IDConfig{})
 	cs := connectClient(t, srv)
 
-	text := callTool(t, cs, "list_artifacts", map[string]any{
-		"kind":  "task",
-		"scope": "asterisk",
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "list",
+		"kind":   "task",
+		"scope":  "asterisk",
 	})
 
 	if !strings.Contains(text, "Asterisk A") {
@@ -120,9 +122,10 @@ func TestScopedCreate_DefaultScope(t *testing.T) {
 	srv, _ := scribemcp.NewServer(s, []string{"origami"}, nil, protocol.IDConfig{})
 	cs := connectClient(t, srv)
 
-	text := callTool(t, cs, "create_artifact", map[string]any{
-		"kind":  "task",
-		"title": "Auto-scoped task",
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "create",
+		"kind":   "task",
+		"title":  "Auto-scoped task",
 	})
 
 	if !strings.Contains(text, "origami") {
@@ -149,7 +152,8 @@ func TestScopedList_HomeScoped_KindFilter(t *testing.T) {
 	srv, _ := scribemcp.NewServer(s, []string{"mos"}, nil, protocol.IDConfig{})
 	cs := connectClient(t, srv)
 
-	text := callTool(t, cs, "list_artifacts", map[string]any{
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "list",
 		"kind":   "task",
 		"status": "draft",
 	})
@@ -169,8 +173,9 @@ func TestCrossScopeGet(t *testing.T) {
 	srv, _ := scribemcp.NewServer(s, []string{"mos"}, nil, protocol.IDConfig{})
 	cs := connectClient(t, srv)
 
-	text := callTool(t, cs, "get_artifact", map[string]any{
-		"id": "TASK-2026-004",
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "get",
+		"id":     "TASK-2026-004",
 	})
 
 	if !strings.Contains(text, "Asterisk A") {
@@ -185,8 +190,9 @@ func TestNoHomeScopes_ShowsAll(t *testing.T) {
 	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{})
 	cs := connectClient(t, srv)
 
-	text := callTool(t, cs, "list_artifacts", map[string]any{
-		"kind": "task",
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "list",
+		"kind":   "task",
 	})
 
 	if !strings.Contains(text, "Origami A") || !strings.Contains(text, "Mos A") || !strings.Contains(text, "Asterisk A") {
@@ -205,7 +211,7 @@ func TestArtifactTree_MixedScope_ShowsLabels(t *testing.T) {
 	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{})
 	cs := connectClient(t, srv)
 
-	text := callTool(t, cs, "artifact_tree", map[string]any{"id": "SPR-1"})
+	text := callTool(t, cs, "graph", map[string]any{"action": "tree", "id": "SPR-1"})
 
 	if !strings.Contains(text, "[origami]") {
 		t.Errorf("mixed-scope tree should show [origami] label, got:\n%s", text)
@@ -226,7 +232,7 @@ func TestArtifactTree_SingleScope_OmitsLabels(t *testing.T) {
 	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{})
 	cs := connectClient(t, srv)
 
-	text := callTool(t, cs, "artifact_tree", map[string]any{"id": "SPR-1"})
+	text := callTool(t, cs, "graph", map[string]any{"action": "tree", "id": "SPR-1"})
 
 	if strings.Contains(text, "[origami]") {
 		t.Errorf("single-scope tree should omit scope labels, got:\n%s", text)

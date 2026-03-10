@@ -401,7 +401,7 @@ func TestE2E_LLMRoundTrip(t *testing.T) {
 			"type": "function",
 			"function": map[string]any{
 				"name":        "create_artifact",
-				"description": "Create a new governance artifact. You MUST call this to create tasks.",
+				"description": "Create a new work artifact. You MUST call this to create tasks.",
 				"parameters": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -418,7 +418,7 @@ func TestE2E_LLMRoundTrip(t *testing.T) {
 			"type": "function",
 			"function": map[string]any{
 				"name":        "list_artifacts",
-				"description": "List governance artifacts with optional filters.",
+				"description": "List work artifacts with optional filters.",
 				"parameters": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -432,7 +432,7 @@ func TestE2E_LLMRoundTrip(t *testing.T) {
 	}
 
 	messages := []map[string]any{
-		{"role": "system", "content": "You are a project manager. Use the tools provided to manage governance artifacts. Always create artifacts when asked."},
+		{"role": "system", "content": "You are a project manager. Use the tools provided to manage work artifacts. Always create artifacts when asked."},
 		{"role": "user", "content": "Create a task titled 'LLM Integration Test' in scope 'e2e' with goal 'Verify LLM can call Scribe MCP tools'. Then list all tasks to confirm it was created."},
 	}
 

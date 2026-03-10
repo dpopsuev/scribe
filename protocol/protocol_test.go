@@ -26,7 +26,7 @@ func openStore(t *testing.T) *store.SQLiteStore {
 func newProto(t *testing.T) (*protocol.Protocol, store.Store) {
 	t.Helper()
 	s := openStore(t)
-	return protocol.New(s, nil, nil, nil, protocol.IDConfig{}), s
+	return protocol.New(s, nil, []string{"test"}, nil, protocol.IDConfig{}), s
 }
 
 func TestIsComponentLabel(t *testing.T) {
@@ -62,11 +62,11 @@ func TestDetectOverlaps_NoOverlaps(t *testing.T) {
 	ctx := context.Background()
 
 	_ = s.Put(ctx, &model.Artifact{
-		ID: "TASK-1", Kind: "task", Status: "active", Title: "A",
+		ID: "TASK-1", Kind: "task", Status: "active", Title: "A", Scope: "test",
 		Labels: []string{"locus:internal/arch"},
 	})
 	_ = s.Put(ctx, &model.Artifact{
-		ID: "TASK-2", Kind: "task", Status: "active", Title: "B",
+		ID: "TASK-2", Kind: "task", Status: "active", Title: "B", Scope: "test",
 		Labels: []string{"locus:internal/mcp"},
 	})
 
@@ -87,15 +87,15 @@ func TestDetectOverlaps_WithOverlaps(t *testing.T) {
 	ctx := context.Background()
 
 	_ = s.Put(ctx, &model.Artifact{
-		ID: "TASK-1", Kind: "task", Status: "active", Title: "Task A",
+		ID: "TASK-1", Kind: "task", Status: "active", Title: "Task A", Scope: "test",
 		Labels: []string{"locus:internal/arch", "locus:internal/mcp"},
 	})
 	_ = s.Put(ctx, &model.Artifact{
-		ID: "TASK-2", Kind: "task", Status: "active", Title: "Task B",
+		ID: "TASK-2", Kind: "task", Status: "active", Title: "Task B", Scope: "test",
 		Labels: []string{"locus:internal/arch"},
 	})
 	_ = s.Put(ctx, &model.Artifact{
-		ID: "TASK-3", Kind: "task", Status: "active", Title: "Task C",
+		ID: "TASK-3", Kind: "task", Status: "active", Title: "Task C", Scope: "test",
 		Labels: []string{"scribe:protocol/protocol.go"},
 	})
 
@@ -122,11 +122,11 @@ func TestDetectOverlaps_ProjectFilter(t *testing.T) {
 	ctx := context.Background()
 
 	_ = s.Put(ctx, &model.Artifact{
-		ID: "TASK-1", Kind: "task", Status: "active", Title: "A",
+		ID: "TASK-1", Kind: "task", Status: "active", Title: "A", Scope: "test",
 		Labels: []string{"locus:internal/arch", "scribe:mcp/server.go"},
 	})
 	_ = s.Put(ctx, &model.Artifact{
-		ID: "TASK-2", Kind: "task", Status: "active", Title: "B",
+		ID: "TASK-2", Kind: "task", Status: "active", Title: "B", Scope: "test",
 		Labels: []string{"locus:internal/arch", "scribe:mcp/server.go"},
 	})
 
@@ -411,7 +411,7 @@ func TestSetFieldDependsOn_CycleRejected(t *testing.T) {
 func newProtoWithVocab(t *testing.T, vocab []string) (*protocol.Protocol, store.Store) {
 	t.Helper()
 	s := openStore(t)
-	return protocol.New(s, nil, nil, vocab, protocol.IDConfig{}), s
+	return protocol.New(s, nil, []string{"test"}, vocab, protocol.IDConfig{}), s
 }
 
 func TestValidateKind_RejectsUnknown(t *testing.T) {
@@ -584,8 +584,8 @@ func TestDetectOrphans_TaskWithoutSpec(t *testing.T) {
 	p, s := newProto(t)
 	ctx := context.Background()
 
-	_ = s.Put(ctx, &model.Artifact{ID: "TASK-1", Kind: "task", Status: "draft", Title: "Lonely task"})
-	_ = s.Put(ctx, &model.Artifact{ID: "SPE-1", Kind: "spec", Status: "draft", Title: "Lonely spec"})
+	_ = s.Put(ctx, &model.Artifact{ID: "TASK-1", Kind: "task", Status: "draft", Title: "Lonely task", Scope: "test"})
+	_ = s.Put(ctx, &model.Artifact{ID: "SPE-1", Kind: "spec", Status: "draft", Title: "Lonely spec", Scope: "test"})
 
 	report, err := p.DetectOrphans(ctx, protocol.OrphanInput{})
 	if err != nil {
@@ -604,10 +604,10 @@ func TestDetectOrphans_LinkedTaskAndSpec(t *testing.T) {
 	ctx := context.Background()
 
 	_ = s.Put(ctx, &model.Artifact{
-		ID: "TASK-1", Kind: "task", Status: "draft", Title: "Linked task",
+		ID: "TASK-1", Kind: "task", Status: "draft", Title: "Linked task", Scope: "test",
 		Links: map[string][]string{"implements": {"SPE-1"}},
 	})
-	_ = s.Put(ctx, &model.Artifact{ID: "SPE-1", Kind: "spec", Status: "draft", Title: "Linked spec"})
+	_ = s.Put(ctx, &model.Artifact{ID: "SPE-1", Kind: "spec", Status: "draft", Title: "Linked spec", Scope: "test"})
 
 	report, err := p.DetectOrphans(ctx, protocol.OrphanInput{})
 	if err != nil {
@@ -625,8 +625,8 @@ func TestDetectOrphans_SkipsTerminal(t *testing.T) {
 	p, s := newProto(t)
 	ctx := context.Background()
 
-	_ = s.Put(ctx, &model.Artifact{ID: "TASK-1", Kind: "task", Status: "complete", Title: "Done task"})
-	_ = s.Put(ctx, &model.Artifact{ID: "SPE-1", Kind: "spec", Status: "archived", Title: "Archived spec"})
+	_ = s.Put(ctx, &model.Artifact{ID: "TASK-1", Kind: "task", Status: "complete", Title: "Done task", Scope: "test"})
+	_ = s.Put(ctx, &model.Artifact{ID: "SPE-1", Kind: "spec", Status: "archived", Title: "Archived spec", Scope: "test"})
 
 	report, err := p.DetectOrphans(ctx, protocol.OrphanInput{})
 	if err != nil {
@@ -641,7 +641,7 @@ func TestDetectOrphans_BugWithoutTask(t *testing.T) {
 	p, s := newProto(t)
 	ctx := context.Background()
 
-	_ = s.Put(ctx, &model.Artifact{ID: "BUG-1", Kind: "bug", Status: "draft", Title: "Lonely bug"})
+	_ = s.Put(ctx, &model.Artifact{ID: "BUG-1", Kind: "bug", Status: "draft", Title: "Lonely bug", Scope: "test"})
 
 	report, err := p.DetectOrphans(ctx, protocol.OrphanInput{})
 	if err != nil {
@@ -659,8 +659,8 @@ func TestDetectOrphans_IgnoresGoalsAndSprints(t *testing.T) {
 	p, s := newProto(t)
 	ctx := context.Background()
 
-	_ = s.Put(ctx, &model.Artifact{ID: "GOAL-1", Kind: "goal", Status: "current", Title: "A goal"})
-	_ = s.Put(ctx, &model.Artifact{ID: "SPR-1", Kind: "sprint", Status: "active", Title: "A sprint"})
+	_ = s.Put(ctx, &model.Artifact{ID: "GOAL-1", Kind: "goal", Status: "current", Title: "A goal", Scope: "test"})
+	_ = s.Put(ctx, &model.Artifact{ID: "SPR-1", Kind: "sprint", Status: "active", Title: "A sprint", Scope: "test"})
 
 	report, err := p.DetectOrphans(ctx, protocol.OrphanInput{})
 	if err != nil {
@@ -681,6 +681,105 @@ func TestSetGoal_CreatesSubGoal(t *testing.T) {
 	}
 	if res.Root.Kind != "goal" {
 		t.Errorf("expected root kind=goal, got %s", res.Root.Kind)
+	}
+}
+
+// --- Mandatory scope tests (SCR-SPC-17) ---
+
+func TestCreateArtifact_InfersScopeFromParent(t *testing.T) {
+	p, s := newProto(t)
+	ctx := context.Background()
+
+	_ = s.Put(ctx, &model.Artifact{ID: "SPR-1", Kind: "sprint", Status: "active", Title: "Sprint", Scope: "parentscope"})
+
+	art, err := p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind: "task", Title: "Child task", Parent: "SPR-1",
+	})
+	if err != nil {
+		t.Fatalf("should infer scope from parent: %v", err)
+	}
+	if art.Scope != "parentscope" {
+		t.Errorf("expected scope=parentscope, got %s", art.Scope)
+	}
+}
+
+func TestCreateArtifact_InfersScopeFromWorkspace(t *testing.T) {
+	p, _ := newProto(t)
+	ctx := context.Background()
+
+	art, err := p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind: "task", Title: "No scope no parent",
+	})
+	if err != nil {
+		t.Fatalf("should infer scope from single homeScope: %v", err)
+	}
+	if art.Scope != "test" {
+		t.Errorf("expected scope=test, got %s", art.Scope)
+	}
+}
+
+func TestCreateArtifact_RejectsNoScope(t *testing.T) {
+	s := openStore(t)
+	p := protocol.New(s, nil, []string{"a", "b"}, nil, protocol.IDConfig{})
+	ctx := context.Background()
+
+	_, err := p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind: "task", Title: "Ambiguous scope",
+	})
+	if err == nil {
+		t.Fatal("expected rejection when scope is empty with multiple homeScopes")
+	}
+	if !strings.Contains(err.Error(), "scope is required") {
+		t.Errorf("expected 'scope is required' error, got: %s", err.Error())
+	}
+}
+
+func TestCreateArtifact_ExplicitScopeWins(t *testing.T) {
+	p, s := newProto(t)
+	ctx := context.Background()
+
+	_ = s.Put(ctx, &model.Artifact{ID: "SPR-1", Kind: "sprint", Status: "active", Title: "Sprint", Scope: "parentscope"})
+
+	art, err := p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind: "task", Title: "Explicit", Scope: "explicit", Parent: "SPR-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if art.Scope != "explicit" {
+		t.Errorf("explicit scope should win over parent, got %s", art.Scope)
+	}
+}
+
+func TestSetField_RejectsEmptyScope(t *testing.T) {
+	p, s := newProto(t)
+	ctx := context.Background()
+
+	_ = s.Put(ctx, &model.Artifact{ID: "TASK-1", Kind: "task", Status: "draft", Title: "A", Scope: "test"})
+
+	results, err := p.SetField(ctx, []string{"TASK-1"}, "scope", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results[0].OK {
+		t.Error("expected set_field to reject empty scope")
+	}
+	if !strings.Contains(results[0].Error, "cannot be empty") {
+		t.Errorf("expected 'cannot be empty' error, got: %s", results[0].Error)
+	}
+}
+
+func TestSetGoal_RejectsNoScope(t *testing.T) {
+	s := openStore(t)
+	p := protocol.New(s, nil, []string{"a", "b"}, nil, protocol.IDConfig{})
+	ctx := context.Background()
+
+	_, err := p.SetGoal(ctx, protocol.SetGoalInput{Title: "Ambiguous"})
+	if err == nil {
+		t.Fatal("expected rejection when scope is empty with multiple homeScopes")
+	}
+	if !strings.Contains(err.Error(), "scope is required") {
+		t.Errorf("expected 'scope is required' error, got: %s", err.Error())
 	}
 }
 

@@ -109,12 +109,11 @@ func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*model.A
 	if err := model.ValidateKind(in.Kind, p.vocab); err != nil {
 		return nil, err
 	}
-	scope := in.Scope
-	if scope == "" && len(p.scopes) > 0 {
-		scope = p.scopes[0]
+	scope, err := p.inferScope(ctx, in.Scope, in.Parent)
+	if err != nil {
+		return nil, err
 	}
 	var id string
-	var err error
 	if p.idFormat == "scoped" && in.Prefix == "" {
 		scopeKey, err := p.resolveScopeKey(ctx, scope)
 		if err != nil {
@@ -309,6 +308,9 @@ func (p *Protocol) setFieldSingle(ctx context.Context, id, field, value string) 
 	case "goal":
 		art.Goal = value
 	case "scope":
+		if value == "" {
+			return Result{ID: id, Error: "scope cannot be empty"}
+		}
 		art.Scope = value
 	case "status":
 		return p.setStatus(ctx, art, value)
@@ -827,6 +829,27 @@ func (p *Protocol) GetArtifactEdges(ctx context.Context, id string) ([]EdgeSumma
 	return summaries, nil
 }
 
+// inferScope resolves an artifact's scope via cascade:
+// explicit value → parent's scope → workspace homeScope → error.
+func (p *Protocol) inferScope(ctx context.Context, explicit, parentID string) (string, error) {
+	if explicit != "" {
+		return explicit, nil
+	}
+	if parentID != "" {
+		if parent, err := p.store.Get(ctx, parentID); err == nil && parent.Scope != "" {
+			return parent.Scope, nil
+		}
+	}
+	if len(p.scopes) == 1 {
+		return p.scopes[0], nil
+	}
+	avail := "none configured"
+	if len(p.scopes) > 0 {
+		avail = strings.Join(p.scopes, ", ")
+	}
+	return "", fmt.Errorf("scope is required (available scopes: %s)", avail)
+}
+
 func (p *Protocol) resolveScopeKey(ctx context.Context, scope string) (string, error) {
 	if scope == "" {
 		return "UNK", nil
@@ -881,9 +904,9 @@ func (p *Protocol) SetGoal(ctx context.Context, in SetGoalInput) (*SetGoalResult
 	if in.Title == "" {
 		return nil, fmt.Errorf("title is required")
 	}
-	scope := in.Scope
-	if scope == "" && len(p.scopes) > 0 {
-		scope = p.scopes[0]
+	scope, err := p.inferScope(ctx, in.Scope, "")
+	if err != nil {
+		return nil, err
 	}
 
 	existing, err := p.store.List(ctx, model.Filter{Kind: "goal", Status: "current", Scope: scope})

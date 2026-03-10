@@ -24,16 +24,17 @@ type Vocabulary struct {
 
 // Config is the top-level configuration loaded from scribe.yaml.
 type Config struct {
-	DB               string            `yaml:"db"`
-	Transport        string            `yaml:"transport"`
-	Addr             string            `yaml:"addr"`
-	Scopes           []string          `yaml:"scopes"`
-	Schema           *model.Schema     `yaml:"schema"`
-	Vocabulary       *Vocabulary       `yaml:"vocabulary"`
-	IDFormat         string            `yaml:"id_format"`
-	ScopeKeys        map[string]string `yaml:"scope_keys"`
-	KindCodes        map[string]string `yaml:"kind_codes"`
-	MutableCreatedAt *bool             `yaml:"mutable_created_at"`
+	DB               string              `yaml:"db"`
+	Transport        string              `yaml:"transport"`
+	Addr             string              `yaml:"addr"`
+	Scopes           []string            `yaml:"scopes"`
+	Workspaces       map[string][]string `yaml:"workspaces,omitempty"`
+	Schema           *model.Schema       `yaml:"schema"`
+	Vocabulary       *Vocabulary         `yaml:"vocabulary"`
+	IDFormat         string              `yaml:"id_format"`
+	ScopeKeys        map[string]string   `yaml:"scope_keys"`
+	KindCodes        map[string]string   `yaml:"kind_codes"`
+	MutableCreatedAt *bool               `yaml:"mutable_created_at"`
 }
 
 // Load reads a config file from path and returns a merged Config.

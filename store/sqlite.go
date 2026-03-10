@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -88,6 +89,12 @@ type SQLiteStore struct {
 
 // OpenSQLite creates or opens a SQLite database at path with WAL mode.
 func OpenSQLite(path string) (*SQLiteStore, error) {
+	log := slog.With("component", "store", "path", path)
+
+	if info, err := os.Stat(path); err == nil && info.IsDir() {
+		return nil, fmt.Errorf("db path %s is a directory, not a file", path)
+	}
+
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("mkdir %s: %w", filepath.Dir(path), err)
 	}
@@ -102,14 +109,12 @@ func OpenSQLite(path string) (*SQLiteStore, error) {
 
 	if _, err := writer.Exec(schema); err != nil {
 		writer.Close()
+		log.Error("schema creation failed", "error", err)
 		return nil, fmt.Errorf("create schema: %w", err)
 	}
 
-	// Migrate: add inserted_at column if missing (existing DBs).
-	// Ignore error — column already exists in fresh DBs created with new schema.
 	writer.ExecContext(context.Background(),
 		"ALTER TABLE artifacts ADD COLUMN inserted_at TEXT NOT NULL DEFAULT ''")
-	// Backfill inserted_at from created_at where empty.
 	writer.ExecContext(context.Background(),
 		"UPDATE artifacts SET inserted_at = created_at WHERE inserted_at = ''")
 
@@ -120,6 +125,7 @@ func OpenSQLite(path string) (*SQLiteStore, error) {
 	}
 	reader.SetMaxOpenConns(4)
 
+	log.Info("database opened")
 	return &SQLiteStore{writer: writer, reader: reader}, nil
 }
 
