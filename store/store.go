@@ -43,6 +43,14 @@ type Store interface {
 	// If force is true, the counter is set unconditionally (even if lowering).
 	SeedSequence(ctx context.Context, prefix string, val uint64, force bool) error
 
+	// NextScopedID atomically generates the next scoped ID for scope_key+kind_code.
+	NextScopedID(ctx context.Context, scopeKey, kindCode string) (string, error)
+
+	// Scope key registry.
+	GetScopeKey(ctx context.Context, scope string) (key string, auto bool, err error)
+	SetScopeKey(ctx context.Context, scope, key string, auto bool) error
+	ListScopeKeys(ctx context.Context) (map[string]string, error)
+
 	Close() error
 }
 

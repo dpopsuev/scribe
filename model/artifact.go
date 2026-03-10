@@ -24,8 +24,9 @@ type Artifact struct {
 	Criteria  []Criterion         `json:"criteria,omitempty"`
 	Links     map[string][]string `json:"links,omitempty"`
 	Extra     map[string]any      `json:"extra,omitempty"`
-	CreatedAt time.Time           `json:"created_at"`
-	UpdatedAt time.Time           `json:"updated_at"`
+	CreatedAt  time.Time           `json:"created_at"`
+	UpdatedAt  time.Time           `json:"updated_at"`
+	InsertedAt time.Time           `json:"inserted_at"`
 }
 
 // Section is a named free-text block within an artifact.
@@ -79,17 +80,23 @@ const (
 
 // Filter constrains artifact list/query operations.
 type Filter struct {
-	Kind         string
-	ExcludeKinds []string // kinds to exclude from results (e.g. ["note"])
-	ExcludeKind  string   // exclude artifacts of this kind (single-kind exclusion)
-	ExcludeStatus string  // exclude artifacts with this status
-	IDPrefix     string   // match artifacts whose ID starts with this prefix
-	Scope        string
-	Scopes       []string // multi-scope IN filter (takes precedence over Scope when non-empty)
-	Status       string
-	Parent       string
-	Sprint       string
-	Labels       []string
+	Kind          string
+	ExcludeKinds  []string // kinds to exclude from results (e.g. ["note"])
+	ExcludeKind   string   // exclude artifacts of this kind (single-kind exclusion)
+	ExcludeStatus string   // exclude artifacts with this status
+	IDPrefix      string   // match artifacts whose ID starts with this prefix
+	Scope         string
+	Scopes        []string // multi-scope IN filter (takes precedence over Scope when non-empty)
+	Status        string
+	Parent        string
+	Sprint        string
+	Labels        []string
+	CreatedAfter  string
+	CreatedBefore string
+	UpdatedAfter  string
+	UpdatedBefore string
+	InsertedAfter  string
+	InsertedBefore string
 }
 
 // Matches reports whether art satisfies all non-zero filter fields.
@@ -151,6 +158,11 @@ func (f Filter) Matches(art *Artifact) bool {
 // FormatID produces PREFIX-YYYY-SEQ with minimum 3-digit zero-padded sequence.
 func FormatID(prefix string, seq int) string {
 	return fmt.Sprintf("%s-%d-%03d", prefix, time.Now().Year(), seq)
+}
+
+// FormatScopedID produces PRJ-ART-N format with no zero-padding and no year.
+func FormatScopedID(scopeKey, kindCode string, seq int) string {
+	return fmt.Sprintf("%s-%s-%d", scopeKey, kindCode, seq)
 }
 
 // DefaultPrefix returns the canonical ID prefix for a given artifact kind.

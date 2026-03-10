@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dpopsuev/scribe/keygen"
 	"github.com/dpopsuev/scribe/lifecycle"
 	"github.com/dpopsuev/scribe/model"
 	"github.com/dpopsuev/scribe/store"
@@ -39,6 +40,14 @@ type TreeNode struct {
 	Children  []*TreeNode `json:"children,omitempty"`
 }
 
+// IDConfig configures scoped ID generation, key resolution, and field mutability.
+type IDConfig struct {
+	IDFormat         string
+	ScopeKeys        map[string]string
+	KindCodes        map[string]string
+	MutableCreatedAt bool
+}
+
 // MotdResult is the message-of-the-day payload.
 type MotdResult struct {
 	Goals        []*model.Artifact `json:"goals,omitempty"`
@@ -49,19 +58,28 @@ type MotdResult struct {
 // Protocol implements all Scribe business logic.
 // Both MCP and CLI are thin wrappers around this.
 type Protocol struct {
-	store  store.Store
-	schema *model.Schema
-	scopes []string
-	vocab  []string
+	store            store.Store
+	schema           *model.Schema
+	scopes           []string
+	vocab            []string
+	idFormat         string
+	scopeKeys        map[string]string
+	kindCodes        map[string]string
+	mutableCreatedAt bool
 }
 
-// New creates a Protocol with the given store, schema, home scopes, and
-// optional vocabulary for kind enforcement.
-func New(s store.Store, schema *model.Schema, scopes, vocab []string) *Protocol {
+// New creates a Protocol with the given store, schema, home scopes,
+// optional vocabulary for kind enforcement, and ID generation config.
+func New(s store.Store, schema *model.Schema, scopes, vocab []string, idc IDConfig) *Protocol {
 	if schema == nil {
 		schema = model.DefaultSchema()
 	}
-	return &Protocol{store: s, schema: schema, scopes: scopes, vocab: vocab}
+	p := &Protocol{store: s, schema: schema, scopes: scopes, vocab: vocab}
+	p.idFormat = idc.IDFormat
+	p.scopeKeys = idc.ScopeKeys
+	p.kindCodes = idc.KindCodes
+	p.mutableCreatedAt = idc.MutableCreatedAt
+	return p
 }
 
 func (p *Protocol) Schema() *model.Schema { return p.schema }
@@ -81,6 +99,7 @@ type CreateInput struct {
 	Prefix    string              `json:"prefix,omitempty"`
 	Links     map[string][]string `json:"links,omitempty"`
 	Extra     map[string]any      `json:"extra,omitempty"`
+	CreatedAt string              `json:"created_at,omitempty"`
 }
 
 func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*model.Artifact, error) {
@@ -94,13 +113,27 @@ func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*model.A
 	if scope == "" && len(p.scopes) > 0 {
 		scope = p.scopes[0]
 	}
-	prefix := in.Prefix
-	if prefix == "" {
-		prefix = p.schema.Prefix(in.Kind)
-	}
-	id, err := p.store.NextID(ctx, prefix)
-	if err != nil {
-		return nil, fmt.Errorf("generate ID: %w", err)
+	var id string
+	var err error
+	if p.idFormat == "scoped" && in.Prefix == "" {
+		scopeKey, err := p.resolveScopeKey(ctx, scope)
+		if err != nil {
+			return nil, err
+		}
+		kindCode := p.resolveKindCode(in.Kind)
+		id, err = p.store.NextScopedID(ctx, scopeKey, kindCode)
+		if err != nil {
+			return nil, fmt.Errorf("generate scoped ID: %w", err)
+		}
+	} else {
+		prefix := in.Prefix
+		if prefix == "" {
+			prefix = p.schema.Prefix(in.Kind)
+		}
+		id, err = p.store.NextID(ctx, prefix)
+		if err != nil {
+			return nil, fmt.Errorf("generate ID: %w", err)
+		}
 	}
 	status := in.Status
 	if status == "" {
@@ -112,6 +145,11 @@ func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*model.A
 		Title: in.Title, Goal: in.Goal,
 		DependsOn: in.DependsOn, Labels: in.Labels,
 		Links: in.Links, Extra: in.Extra,
+	}
+	if in.CreatedAt != "" {
+		if t, err := time.Parse(time.RFC3339, in.CreatedAt); err == nil {
+			art.CreatedAt = t
+		}
 	}
 	if err := p.store.Put(ctx, art); err != nil {
 		return nil, err
@@ -137,18 +175,24 @@ func (p *Protocol) DeleteArtifact(ctx context.Context, id string, force bool) er
 }
 
 type ListInput struct {
-	Kind          string `json:"kind,omitempty"`
-	Scope         string `json:"scope,omitempty"`
-	Status        string `json:"status,omitempty"`
-	Parent        string `json:"parent,omitempty"`
-	Sprint        string `json:"sprint,omitempty"`
-	IDPrefix      string `json:"id_prefix,omitempty"`
-	ExcludeKind   string `json:"exclude_kind,omitempty"`
-	ExcludeStatus string `json:"exclude_status,omitempty"`
-	GroupBy       string `json:"group_by,omitempty"`
-	Sort          string `json:"sort,omitempty"`
-	Limit         int    `json:"limit,omitempty"`
-	Query         string `json:"query,omitempty"`
+	Kind           string `json:"kind,omitempty"`
+	Scope          string `json:"scope,omitempty"`
+	Status         string `json:"status,omitempty"`
+	Parent         string `json:"parent,omitempty"`
+	Sprint         string `json:"sprint,omitempty"`
+	IDPrefix       string `json:"id_prefix,omitempty"`
+	ExcludeKind    string `json:"exclude_kind,omitempty"`
+	ExcludeStatus  string `json:"exclude_status,omitempty"`
+	GroupBy        string `json:"group_by,omitempty"`
+	Sort           string `json:"sort,omitempty"`
+	Limit          int    `json:"limit,omitempty"`
+	Query          string `json:"query,omitempty"`
+	CreatedAfter   string `json:"created_after,omitempty"`
+	CreatedBefore  string `json:"created_before,omitempty"`
+	UpdatedAfter   string `json:"updated_after,omitempty"`
+	UpdatedBefore  string `json:"updated_before,omitempty"`
+	InsertedAfter  string `json:"inserted_after,omitempty"`
+	InsertedBefore string `json:"inserted_before,omitempty"`
 }
 
 func (p *Protocol) ListArtifacts(ctx context.Context, in ListInput) ([]*model.Artifact, error) {
@@ -158,6 +202,12 @@ func (p *Protocol) ListArtifacts(ctx context.Context, in ListInput) ([]*model.Ar
 		IDPrefix: in.IDPrefix,
 		ExcludeKind: in.ExcludeKind,
 		ExcludeStatus: in.ExcludeStatus,
+		CreatedAfter:   in.CreatedAfter,
+		CreatedBefore:  in.CreatedBefore,
+		UpdatedAfter:   in.UpdatedAfter,
+		UpdatedBefore:  in.UpdatedBefore,
+		InsertedAfter:  in.InsertedAfter,
+		InsertedBefore: in.InsertedBefore,
 	}
 	if in.Kind == "" {
 		f.ExcludeKinds = p.schema.ExcludedKinds()
@@ -243,6 +293,17 @@ func (p *Protocol) setFieldSingle(ctx context.Context, id, field, value string) 
 	}
 
 	switch field {
+	case "inserted_at":
+		return Result{ID: id, Error: "inserted_at is immutable"}
+	case "created_at":
+		if !p.mutableCreatedAt {
+			return Result{ID: id, Error: "created_at is not mutable (set mutable_created_at: true in config)"}
+		}
+		t, err := time.Parse(time.RFC3339, value)
+		if err != nil {
+			return Result{ID: id, Error: fmt.Sprintf("invalid created_at: %v", err)}
+		}
+		art.CreatedAt = t
 	case "title":
 		art.Title = value
 	case "goal":
@@ -764,6 +825,42 @@ func (p *Protocol) GetArtifactEdges(ctx context.Context, id string) ([]EdgeSumma
 		summaries = append(summaries, s)
 	}
 	return summaries, nil
+}
+
+func (p *Protocol) resolveScopeKey(ctx context.Context, scope string) (string, error) {
+	if scope == "" {
+		return "UNK", nil
+	}
+	if key, ok := p.scopeKeys[scope]; ok {
+		return key, nil
+	}
+	key, _, err := p.store.GetScopeKey(ctx, scope)
+	if err != nil {
+		return "", fmt.Errorf("lookup scope key: %w", err)
+	}
+	if key != "" {
+		return key, nil
+	}
+	existing := make(map[string]bool)
+	for _, v := range p.scopeKeys {
+		existing[v] = true
+	}
+	dbKeys, _ := p.store.ListScopeKeys(ctx)
+	for _, v := range dbKeys {
+		existing[v] = true
+	}
+	key = keygen.DeriveKey(scope, existing)
+	if err := p.store.SetScopeKey(ctx, scope, key, true); err != nil {
+		return "", fmt.Errorf("persist scope key: %w", err)
+	}
+	return key, nil
+}
+
+func (p *Protocol) resolveKindCode(kind string) string {
+	if code, ok := p.kindCodes[kind]; ok {
+		return code
+	}
+	return p.schema.KindCode(kind)
 }
 
 // --- Composite actions ---
@@ -1372,6 +1469,30 @@ func (p *Protocol) VocabRemove(ctx context.Context, kind string) error {
 
 // Vocab returns the current vocabulary slice (for persistence by callers).
 func (p *Protocol) Vocab() []string { return p.vocab }
+
+// ListScopeKeys returns scope -> key mappings from the store.
+func (p *Protocol) ListScopeKeys(ctx context.Context) (map[string]string, error) {
+	return p.store.ListScopeKeys(ctx)
+}
+
+// SetScopeKey sets the key for a scope. auto=false for explicit mappings.
+func (p *Protocol) SetScopeKey(ctx context.Context, scope, key string) error {
+	return p.store.SetScopeKey(ctx, scope, key, false)
+}
+
+// ListKindCodes returns kind -> code mappings (schema + config overlay).
+func (p *Protocol) ListKindCodes() map[string]string {
+	result := make(map[string]string)
+	for kind, def := range p.schema.Kinds {
+		if def.Code != "" {
+			result[kind] = def.Code
+		}
+	}
+	for kind, code := range p.kindCodes {
+		result[kind] = code
+	}
+	return result
+}
 
 // MigrateResult summarizes a vocabulary migration.
 type MigrateResult struct {

@@ -61,6 +61,8 @@ func main() {
 		contextCmd(),
 		overlapsCmd(),
 		orphansCmd(),
+		scopeKeysCmd(),
+		kindCodesCmd(),
 		serveCmd(),
 		reseedCmd(),
 		seedCmd(),
@@ -97,7 +99,7 @@ func mustProto() (*protocol.Protocol, func()) {
 	if cfg.Vocabulary != nil {
 		vocab = cfg.Vocabulary.Kinds
 	}
-	return protocol.New(s, cfg.Schema, nil, vocab), func() { s.Close() }
+	return protocol.New(s, cfg.Schema, nil, vocab, protocol.IDConfig{}), func() { s.Close() }
 }
 
 func mustStore() *store.SQLiteStore {
@@ -956,6 +958,55 @@ Set LOCUS_URL to override the endpoint.`,
 	return cmd
 }
 
+// --- scope-keys ---
+
+func scopeKeysCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "scope-keys [set SCOPE KEY]",
+		Short: "List or manage scope key mappings",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p, close := mustProto()
+			defer close()
+			if len(args) == 0 {
+				keys, err := p.ListScopeKeys(context.Background())
+				if err != nil {
+					return err
+				}
+				if len(keys) == 0 {
+					fmt.Println("no scope keys registered")
+					return nil
+				}
+				for scope, key := range keys {
+					fmt.Printf("%s → %s\n", scope, key)
+				}
+				return nil
+			}
+			if len(args) == 3 && args[0] == "set" {
+				return p.SetScopeKey(context.Background(), args[1], args[2])
+			}
+			return fmt.Errorf("usage: scope-keys [set SCOPE KEY]")
+		},
+	}
+}
+
+// --- kind-codes ---
+
+func kindCodesCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "kind-codes",
+		Short: "List kind code mappings",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p, close := mustProto()
+			defer close()
+			codes := p.ListKindCodes()
+			for kind, code := range codes {
+				fmt.Printf("%s → %s\n", kind, code)
+			}
+			return nil
+		},
+	}
+}
+
 // --- overlaps ---
 
 func overlapsCmd() *cobra.Command {
@@ -1081,7 +1132,7 @@ func serveCmd() *cobra.Command {
 			srv, _ := mcp.NewServer(s, homeScopes, vocabKinds)
 
 			if enableUI {
-				proto := protocol.New(s, nil, homeScopes, nil)
+				proto := protocol.New(s, nil, homeScopes, nil, protocol.IDConfig{})
 				uiSrv := web.NewServer(proto)
 				go func() {
 					fmt.Fprintf(os.Stderr, "scribe: UI listening on %s\n", uiAddr)
@@ -1414,7 +1465,7 @@ func uiCmd() *cobra.Command {
 			if len(scopes) == 0 {
 				scopes = detectScopes()
 			}
-			proto := protocol.New(s, cfg.Schema, scopes, nil)
+			proto := protocol.New(s, cfg.Schema, scopes, nil, protocol.IDConfig{})
 			uiSrv := web.NewServer(proto)
 
 			fmt.Fprintf(os.Stderr, "scribe: UI listening on %s\n", addr)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 
 	"github.com/dpopsuev/scribe/model"
 	"github.com/dpopsuev/scribe/store"
@@ -22,12 +23,16 @@ type Vocabulary struct {
 
 // Config is the top-level configuration loaded from scribe.yaml.
 type Config struct {
-	DB         string        `yaml:"db"`
-	Transport  string        `yaml:"transport"`
-	Addr       string        `yaml:"addr"`
-	Scopes     []string      `yaml:"scopes"`
-	Schema     *model.Schema `yaml:"schema"`
-	Vocabulary *Vocabulary   `yaml:"vocabulary"`
+	DB               string            `yaml:"db"`
+	Transport        string            `yaml:"transport"`
+	Addr             string            `yaml:"addr"`
+	Scopes           []string          `yaml:"scopes"`
+	Schema           *model.Schema     `yaml:"schema"`
+	Vocabulary       *Vocabulary       `yaml:"vocabulary"`
+	IDFormat         string            `yaml:"id_format"`
+	ScopeKeys        map[string]string `yaml:"scope_keys"`
+	KindCodes        map[string]string `yaml:"kind_codes"`
+	MutableCreatedAt *bool             `yaml:"mutable_created_at"`
 }
 
 // Load reads a config file from path and returns a merged Config.
@@ -42,6 +47,9 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config %s: %w", path, err)
 	}
 	cfg.applyDefaults()
+	if err := cfg.ValidateIDConfig(); err != nil {
+		return nil, fmt.Errorf("config validation: %w", err)
+	}
 	cfg.applyEnvOverrides()
 	return &cfg, nil
 }
@@ -76,6 +84,9 @@ func Resolve(explicit string) (*Config, error) {
 	}
 
 	cfg := defaults()
+	if err := cfg.ValidateIDConfig(); err != nil {
+		return nil, fmt.Errorf("config validation: %w", err)
+	}
 	cfg.applyEnvOverrides()
 	return &cfg, nil
 }
@@ -87,6 +98,46 @@ func defaults() Config {
 		Addr:      ":8080",
 		Schema:    model.DefaultSchema(),
 	}
+}
+
+func (c *Config) IsMutableCreatedAt() bool {
+	if c.MutableCreatedAt != nil {
+		return *c.MutableCreatedAt
+	}
+	return c.IDFormat == "scoped"
+}
+
+func (c *Config) ValidateIDConfig() error {
+	if c.IDFormat != "" && c.IDFormat != "scoped" && c.IDFormat != "legacy" {
+		return fmt.Errorf("id_format must be \"scoped\" or \"legacy\", got %q", c.IDFormat)
+	}
+
+	keyPattern := regexp.MustCompile(`^[A-Z0-9]{2,6}$`)
+
+	if err := validateUniqueKeys(c.ScopeKeys, "scope_keys", keyPattern); err != nil {
+		return err
+	}
+	if err := validateUniqueKeys(c.KindCodes, "kind_codes", keyPattern); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateUniqueKeys(m map[string]string, label string, pattern *regexp.Regexp) error {
+	if len(m) == 0 {
+		return nil
+	}
+	seen := make(map[string]string, len(m))
+	for name, code := range m {
+		if !pattern.MatchString(code) {
+			return fmt.Errorf("%s: %q has invalid code %q (must match [A-Z0-9]{2,6})", label, name, code)
+		}
+		if prev, dup := seen[code]; dup {
+			return fmt.Errorf("%s collision: %s=%s, %s=%s", label, prev, code, name, code)
+		}
+		seen[code] = name
+	}
+	return nil
 }
 
 func (c *Config) applyDefaults() {
@@ -135,5 +186,8 @@ func (c *Config) applyEnvOverrides() {
 	}
 	if v := os.Getenv("SCRIBE_ADDR"); v != "" {
 		c.Addr = v
+	}
+	if v := os.Getenv("SCRIBE_ID_FORMAT"); v != "" {
+		c.IDFormat = v
 	}
 }

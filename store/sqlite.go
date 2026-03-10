@@ -16,24 +16,25 @@ import (
 
 const schema = `
 CREATE TABLE IF NOT EXISTS artifacts (
-	id         TEXT PRIMARY KEY,
-	kind       TEXT NOT NULL,
-	scope      TEXT NOT NULL DEFAULT '',
-	status     TEXT NOT NULL,
-	parent     TEXT NOT NULL DEFAULT '',
-	title      TEXT NOT NULL,
-	goal       TEXT NOT NULL DEFAULT '',
-	depends_on TEXT NOT NULL DEFAULT '[]',
-	labels     TEXT NOT NULL DEFAULT '[]',
-	priority   TEXT NOT NULL DEFAULT '',
-	sprint     TEXT NOT NULL DEFAULT '',
-	sections   TEXT NOT NULL DEFAULT '[]',
-	features   TEXT NOT NULL DEFAULT '[]',
-	criteria   TEXT NOT NULL DEFAULT '[]',
-	links      TEXT NOT NULL DEFAULT '{}',
-	extra      TEXT NOT NULL DEFAULT '{}',
-	created_at TEXT NOT NULL,
-	updated_at TEXT NOT NULL
+	id          TEXT PRIMARY KEY,
+	kind        TEXT NOT NULL,
+	scope       TEXT NOT NULL DEFAULT '',
+	status      TEXT NOT NULL,
+	parent      TEXT NOT NULL DEFAULT '',
+	title       TEXT NOT NULL,
+	goal        TEXT NOT NULL DEFAULT '',
+	depends_on  TEXT NOT NULL DEFAULT '[]',
+	labels      TEXT NOT NULL DEFAULT '[]',
+	priority    TEXT NOT NULL DEFAULT '',
+	sprint      TEXT NOT NULL DEFAULT '',
+	sections    TEXT NOT NULL DEFAULT '[]',
+	features    TEXT NOT NULL DEFAULT '[]',
+	criteria    TEXT NOT NULL DEFAULT '[]',
+	links       TEXT NOT NULL DEFAULT '{}',
+	extra       TEXT NOT NULL DEFAULT '{}',
+	created_at  TEXT NOT NULL,
+	updated_at  TEXT NOT NULL,
+	inserted_at TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_art_kind   ON artifacts(kind);
 CREATE INDEX IF NOT EXISTS idx_art_scope  ON artifacts(scope);
@@ -52,6 +53,20 @@ CREATE INDEX IF NOT EXISTS idx_edges_rev ON edges(to_id, relation, from_id);
 CREATE TABLE IF NOT EXISTS sequences (
 	prefix   TEXT PRIMARY KEY,
 	next_val INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS scope_keys (
+	scope   TEXT PRIMARY KEY,
+	key     TEXT UNIQUE NOT NULL,
+	auto    INTEGER NOT NULL DEFAULT 1,
+	created TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS scoped_sequences (
+	scope_key TEXT NOT NULL,
+	kind_code TEXT NOT NULL,
+	next_val  INTEGER NOT NULL DEFAULT 1,
+	PRIMARY KEY (scope_key, kind_code)
 );
 `
 
@@ -90,6 +105,14 @@ func OpenSQLite(path string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("create schema: %w", err)
 	}
 
+	// Migrate: add inserted_at column if missing (existing DBs).
+	// Ignore error — column already exists in fresh DBs created with new schema.
+	writer.ExecContext(context.Background(),
+		"ALTER TABLE artifacts ADD COLUMN inserted_at TEXT NOT NULL DEFAULT ''")
+	// Backfill inserted_at from created_at where empty.
+	writer.ExecContext(context.Background(),
+		"UPDATE artifacts SET inserted_at = created_at WHERE inserted_at = ''")
+
 	reader, err := sql.Open("sqlite", dsn+"&_pragma=query_only(on)")
 	if err != nil {
 		writer.Close()
@@ -126,6 +149,9 @@ func (s *SQLiteStore) Put(ctx context.Context, art *model.Artifact) error {
 		art.CreatedAt = now
 	}
 	art.UpdatedAt = now
+	if art.InsertedAt.IsZero() {
+		art.InsertedAt = now
+	}
 
 	tx, err := s.writer.BeginTx(ctx, nil)
 	if err != nil {
@@ -145,8 +171,8 @@ func (s *SQLiteStore) Put(ctx context.Context, art *model.Artifact) error {
 	extra, _ := json.Marshal(art.Extra)
 
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO artifacts (id, kind, scope, status, parent, title, goal, depends_on, labels, priority, sprint, sections, features, criteria, links, extra, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO artifacts (id, kind, scope, status, parent, title, goal, depends_on, labels, priority, sprint, sections, features, criteria, links, extra, created_at, updated_at, inserted_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			kind=excluded.kind, scope=excluded.scope, status=excluded.status,
 			parent=excluded.parent, title=excluded.title, goal=excluded.goal,
@@ -159,6 +185,7 @@ func (s *SQLiteStore) Put(ctx context.Context, art *model.Artifact) error {
 		string(dependsOn), string(labels), art.Priority, art.Sprint,
 		string(sections), string(features), string(criteria), string(links), string(extra),
 		art.CreatedAt.Format(time.RFC3339Nano), art.UpdatedAt.Format(time.RFC3339Nano),
+		art.InsertedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
 		return fmt.Errorf("upsert %s: %w", art.ID, err)
@@ -250,6 +277,30 @@ func (s *SQLiteStore) List(ctx context.Context, f model.Filter) ([]*model.Artifa
 	if f.Sprint != "" {
 		clauses = append(clauses, "sprint = ?")
 		args = append(args, f.Sprint)
+	}
+	if f.CreatedAfter != "" {
+		clauses = append(clauses, "created_at >= ?")
+		args = append(args, f.CreatedAfter)
+	}
+	if f.CreatedBefore != "" {
+		clauses = append(clauses, "created_at < ?")
+		args = append(args, f.CreatedBefore)
+	}
+	if f.UpdatedAfter != "" {
+		clauses = append(clauses, "updated_at >= ?")
+		args = append(args, f.UpdatedAfter)
+	}
+	if f.UpdatedBefore != "" {
+		clauses = append(clauses, "updated_at < ?")
+		args = append(args, f.UpdatedBefore)
+	}
+	if f.InsertedAfter != "" {
+		clauses = append(clauses, "inserted_at >= ?")
+		args = append(args, f.InsertedAfter)
+	}
+	if f.InsertedBefore != "" {
+		clauses = append(clauses, "inserted_at < ?")
+		args = append(args, f.InsertedBefore)
 	}
 
 	q := "SELECT * FROM artifacts"
@@ -438,6 +489,78 @@ func (s *SQLiteStore) SeedSequence(ctx context.Context, prefix string, val uint6
 	return err
 }
 
+func (s *SQLiteStore) NextScopedID(ctx context.Context, scopeKey, kindCode string) (string, error) {
+	tx, err := s.writer.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+
+	var seq int64
+	err = tx.QueryRowContext(ctx,
+		"SELECT next_val FROM scoped_sequences WHERE scope_key = ? AND kind_code = ?",
+		scopeKey, kindCode).Scan(&seq)
+	if err == sql.ErrNoRows {
+		seq = 1
+	} else if err != nil {
+		return "", err
+	}
+
+	id := model.FormatScopedID(scopeKey, kindCode, int(seq))
+
+	_, err = tx.ExecContext(ctx,
+		`INSERT INTO scoped_sequences (scope_key, kind_code, next_val) VALUES (?, ?, ?)
+		 ON CONFLICT(scope_key, kind_code) DO UPDATE SET next_val = ?`,
+		scopeKey, kindCode, seq+1, seq+1)
+	if err != nil {
+		return "", err
+	}
+	return id, tx.Commit()
+}
+
+func (s *SQLiteStore) GetScopeKey(ctx context.Context, scope string) (string, bool, error) {
+	var key string
+	var auto int
+	err := s.reader.QueryRowContext(ctx,
+		"SELECT key, auto FROM scope_keys WHERE scope = ?", scope).Scan(&key, &auto)
+	if err == sql.ErrNoRows {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return key, auto == 1, nil
+}
+
+func (s *SQLiteStore) SetScopeKey(ctx context.Context, scope, key string, auto bool) error {
+	autoInt := 0
+	if auto {
+		autoInt = 1
+	}
+	_, err := s.writer.ExecContext(ctx,
+		`INSERT INTO scope_keys (scope, key, auto, created) VALUES (?, ?, ?, ?)
+		 ON CONFLICT(scope) DO UPDATE SET key = excluded.key, auto = excluded.auto`,
+		scope, key, autoInt, time.Now().UTC().Format(time.RFC3339))
+	return err
+}
+
+func (s *SQLiteStore) ListScopeKeys(ctx context.Context) (map[string]string, error) {
+	rows, err := s.reader.QueryContext(ctx, "SELECT scope, key FROM scope_keys")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]string)
+	for rows.Next() {
+		var scope, key string
+		if err := rows.Scan(&scope, &key); err == nil {
+			result[scope] = key
+		}
+	}
+	return result, rows.Err()
+}
+
 // --- scan helpers ---
 
 type rowScanner interface {
@@ -455,13 +578,13 @@ func scanArtifactRows(rows *sql.Rows) (*model.Artifact, error) {
 func scanRow(s rowScanner) (*model.Artifact, error) {
 	var art model.Artifact
 	var dependsOn, labels, sections, features, criteria, links, extra string
-	var createdAt, updatedAt string
+	var createdAt, updatedAt, insertedAt string
 
 	err := s.Scan(
 		&art.ID, &art.Kind, &art.Scope, &art.Status, &art.Parent, &art.Title, &art.Goal,
 		&dependsOn, &labels, &art.Priority, &art.Sprint,
 		&sections, &features, &criteria, &links, &extra,
-		&createdAt, &updatedAt,
+		&createdAt, &updatedAt, &insertedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -476,6 +599,7 @@ func scanRow(s rowScanner) (*model.Artifact, error) {
 	json.Unmarshal([]byte(extra), &art.Extra)
 	art.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAt)
 	art.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updatedAt)
+	art.InsertedAt, _ = time.Parse(time.RFC3339Nano, insertedAt)
 
 	if art.DependsOn == nil {
 		art.DependsOn = nil

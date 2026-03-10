@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dpopsuev/scribe/model"
 	"github.com/dpopsuev/scribe/protocol"
@@ -25,7 +26,7 @@ func openStore(t *testing.T) *store.SQLiteStore {
 func newProto(t *testing.T) (*protocol.Protocol, store.Store) {
 	t.Helper()
 	s := openStore(t)
-	return protocol.New(s, nil, nil, nil), s
+	return protocol.New(s, nil, nil, nil, protocol.IDConfig{}), s
 }
 
 func TestIsComponentLabel(t *testing.T) {
@@ -410,7 +411,7 @@ func TestSetFieldDependsOn_CycleRejected(t *testing.T) {
 func newProtoWithVocab(t *testing.T, vocab []string) (*protocol.Protocol, store.Store) {
 	t.Helper()
 	s := openStore(t)
-	return protocol.New(s, nil, nil, vocab), s
+	return protocol.New(s, nil, nil, vocab, protocol.IDConfig{}), s
 }
 
 func TestValidateKind_RejectsUnknown(t *testing.T) {
@@ -680,5 +681,139 @@ func TestSetGoal_CreatesSubGoal(t *testing.T) {
 	}
 	if res.Root.Kind != "goal" {
 		t.Errorf("expected root kind=goal, got %s", res.Root.Kind)
+	}
+}
+
+func TestCreateArtifact_ScopedID(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	idc := protocol.IDConfig{
+		IDFormat:  "scoped",
+		ScopeKeys:  map[string]string{"testscope": "TST"},
+		KindCodes:  map[string]string{"task": "TSK"},
+	}
+	p := protocol.New(s, schema, []string{"testscope"}, nil, idc)
+
+	art, err := p.CreateArtifact(context.Background(), protocol.CreateInput{
+		Kind:  "task",
+		Title: "First scoped task",
+		Scope: "testscope",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if art.ID != "TST-TSK-1" {
+		t.Errorf("scoped ID = %q, want TST-TSK-1", art.ID)
+	}
+
+	art2, err := p.CreateArtifact(context.Background(), protocol.CreateInput{
+		Kind:  "task",
+		Title: "Second scoped task",
+		Scope: "testscope",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if art2.ID != "TST-TSK-2" {
+		t.Errorf("second scoped ID = %q, want TST-TSK-2", art2.ID)
+	}
+}
+
+func TestCreateArtifact_LegacyID(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	idc := protocol.IDConfig{IDFormat: "legacy"}
+	p := protocol.New(s, schema, []string{"testscope"}, nil, idc)
+
+	art, err := p.CreateArtifact(context.Background(), protocol.CreateInput{
+		Kind:  "task",
+		Title: "Legacy task",
+		Scope: "testscope",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(art.ID, "TASK-") {
+		t.Errorf("legacy ID = %q, want TASK- prefix", art.ID)
+	}
+}
+
+func TestCreateArtifact_CreatedAtBackdate(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
+
+	art, err := p.CreateArtifact(context.Background(), protocol.CreateInput{
+		Kind:      "task",
+		Title:     "Backdated task",
+		CreatedAt: "2026-03-01T00:00:00Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if art.CreatedAt.Month() != time.March || art.CreatedAt.Day() != 1 {
+		t.Errorf("CreatedAt = %v, want 2026-03-01", art.CreatedAt)
+	}
+	if art.InsertedAt.IsZero() {
+		t.Error("InsertedAt should be set")
+	}
+}
+
+func TestSetField_InsertedAtImmutable(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
+
+	art, _ := p.CreateArtifact(context.Background(), protocol.CreateInput{
+		Kind:  "task",
+		Title: "Test immutable",
+	})
+
+	results, err := p.SetField(context.Background(), []string{art.ID}, "inserted_at", "2020-01-01T00:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results[0].OK {
+		t.Error("set_field on inserted_at should fail")
+	}
+}
+
+func TestSetField_CreatedAtMutable(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	idc := protocol.IDConfig{MutableCreatedAt: true}
+	p := protocol.New(s, schema, []string{"test"}, nil, idc)
+
+	art, _ := p.CreateArtifact(context.Background(), protocol.CreateInput{
+		Kind:  "task",
+		Title: "Test mutable created_at",
+	})
+
+	results, err := p.SetField(context.Background(), []string{art.ID}, "created_at", "2026-01-15T00:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !results[0].OK {
+		t.Errorf("set_field on created_at should succeed when mutable: %s", results[0].Error)
+	}
+}
+
+func TestSetField_CreatedAtNotMutable(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	idc := protocol.IDConfig{MutableCreatedAt: false}
+	p := protocol.New(s, schema, []string{"test"}, nil, idc)
+
+	art, _ := p.CreateArtifact(context.Background(), protocol.CreateInput{
+		Kind:  "task",
+		Title: "Test immutable created_at",
+	})
+
+	results, err := p.SetField(context.Background(), []string{art.ID}, "created_at", "2020-01-01T00:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results[0].OK {
+		t.Error("set_field on created_at should fail when not mutable")
 	}
 }
