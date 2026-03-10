@@ -99,7 +99,7 @@ func mustProto() (*protocol.Protocol, func()) {
 	if cfg.Vocabulary != nil {
 		vocab = cfg.Vocabulary.Kinds
 	}
-	return protocol.New(s, cfg.Schema, nil, vocab, protocol.IDConfig{}), func() { s.Close() }
+	return protocol.New(s, cfg.Schema, nil, vocab, cfg.ProtocolIDConfig()), func() { s.Close() }
 }
 
 func mustStore() *store.SQLiteStore {
@@ -1129,10 +1129,10 @@ func serveCmd() *cobra.Command {
 			if cfg.Vocabulary != nil {
 				vocabKinds = cfg.Vocabulary.Kinds
 			}
-			srv, _ := mcp.NewServer(s, homeScopes, vocabKinds)
+			srv, _ := mcp.NewServer(s, homeScopes, vocabKinds, cfg.ProtocolIDConfig())
 
 			if enableUI {
-				proto := protocol.New(s, nil, homeScopes, nil, protocol.IDConfig{})
+				proto := protocol.New(s, nil, homeScopes, nil, cfg.ProtocolIDConfig())
 				uiSrv := web.NewServer(proto)
 				go func() {
 					fmt.Fprintf(os.Stderr, "scribe: UI listening on %s\n", uiAddr)
@@ -1465,7 +1465,7 @@ func uiCmd() *cobra.Command {
 			if len(scopes) == 0 {
 				scopes = detectScopes()
 			}
-			proto := protocol.New(s, cfg.Schema, scopes, nil, protocol.IDConfig{})
+			proto := protocol.New(s, cfg.Schema, scopes, nil, cfg.ProtocolIDConfig())
 			uiSrv := web.NewServer(proto)
 
 			fmt.Fprintf(os.Stderr, "scribe: UI listening on %s\n", addr)

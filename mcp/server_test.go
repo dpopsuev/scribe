@@ -8,6 +8,7 @@ import (
 
 	scribemcp "github.com/dpopsuev/scribe/mcp"
 	"github.com/dpopsuev/scribe/model"
+	"github.com/dpopsuev/scribe/protocol"
 	"github.com/dpopsuev/scribe/store"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -74,7 +75,7 @@ func TestScopedList_HomeScopes(t *testing.T) {
 	s := openStore(t)
 	seedArtifacts(t, s)
 
-	srv, _ := scribemcp.NewServer(s, []string{"origami", "mos"}, nil)
+	srv, _ := scribemcp.NewServer(s, []string{"origami", "mos"}, nil, protocol.IDConfig{})
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "list_artifacts", map[string]any{
@@ -96,7 +97,7 @@ func TestScopedList_ExplicitScope(t *testing.T) {
 	s := openStore(t)
 	seedArtifacts(t, s)
 
-	srv, _ := scribemcp.NewServer(s, []string{"origami"}, nil)
+	srv, _ := scribemcp.NewServer(s, []string{"origami"}, nil, protocol.IDConfig{})
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "list_artifacts", map[string]any{
@@ -116,7 +117,7 @@ func TestScopedCreate_DefaultScope(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 
-	srv, _ := scribemcp.NewServer(s, []string{"origami"}, nil)
+	srv, _ := scribemcp.NewServer(s, []string{"origami"}, nil, protocol.IDConfig{})
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "create_artifact", map[string]any{
@@ -145,7 +146,7 @@ func TestScopedList_HomeScoped_KindFilter(t *testing.T) {
 	s := openStore(t)
 	seedArtifacts(t, s)
 
-	srv, _ := scribemcp.NewServer(s, []string{"mos"}, nil)
+	srv, _ := scribemcp.NewServer(s, []string{"mos"}, nil, protocol.IDConfig{})
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "list_artifacts", map[string]any{
@@ -165,7 +166,7 @@ func TestCrossScopeGet(t *testing.T) {
 	s := openStore(t)
 	seedArtifacts(t, s)
 
-	srv, _ := scribemcp.NewServer(s, []string{"mos"}, nil)
+	srv, _ := scribemcp.NewServer(s, []string{"mos"}, nil, protocol.IDConfig{})
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "get_artifact", map[string]any{
@@ -181,7 +182,7 @@ func TestNoHomeScopes_ShowsAll(t *testing.T) {
 	s := openStore(t)
 	seedArtifacts(t, s)
 
-	srv, _ := scribemcp.NewServer(s, nil, nil)
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{})
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "list_artifacts", map[string]any{
@@ -201,7 +202,7 @@ func TestArtifactTree_MixedScope_ShowsLabels(t *testing.T) {
 	_ = s.Put(ctx, &model.Artifact{ID: "TASK-1", Kind: "task", Scope: "origami", Status: "draft", Title: "Origami Work", Parent: "SPR-1"})
 	_ = s.Put(ctx, &model.Artifact{ID: "TASK-2", Kind: "task", Scope: "scribe", Status: "draft", Title: "Scribe Work", Parent: "SPR-1"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil)
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{})
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact_tree", map[string]any{"id": "SPR-1"})
@@ -222,7 +223,7 @@ func TestArtifactTree_SingleScope_OmitsLabels(t *testing.T) {
 	_ = s.Put(ctx, &model.Artifact{ID: "TASK-1", Kind: "task", Scope: "origami", Status: "draft", Title: "Work A", Parent: "SPR-1"})
 	_ = s.Put(ctx, &model.Artifact{ID: "TASK-2", Kind: "task", Scope: "origami", Status: "draft", Title: "Work B", Parent: "SPR-1"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil)
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{})
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact_tree", map[string]any{"id": "SPR-1"})
