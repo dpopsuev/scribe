@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -80,6 +81,9 @@ const (
 type Filter struct {
 	Kind         string
 	ExcludeKinds []string // kinds to exclude from results (e.g. ["note"])
+	ExcludeKind  string   // exclude artifacts of this kind (single-kind exclusion)
+	ExcludeStatus string  // exclude artifacts with this status
+	IDPrefix     string   // match artifacts whose ID starts with this prefix
 	Scope        string
 	Scopes       []string // multi-scope IN filter (takes precedence over Scope when non-empty)
 	Status       string
@@ -90,6 +94,15 @@ type Filter struct {
 
 // Matches reports whether art satisfies all non-zero filter fields.
 func (f Filter) Matches(art *Artifact) bool {
+	if f.IDPrefix != "" && !strings.HasPrefix(art.ID, f.IDPrefix) {
+		return false
+	}
+	if f.ExcludeKind != "" && art.Kind == f.ExcludeKind {
+		return false
+	}
+	if f.ExcludeStatus != "" && art.Status == f.ExcludeStatus {
+		return false
+	}
 	if f.Kind != "" && art.Kind != f.Kind {
 		return false
 	}

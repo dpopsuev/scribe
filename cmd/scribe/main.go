@@ -52,6 +52,7 @@ func main() {
 		goalCmd(),
 		archiveCmd(),
 		vacuumCmd(),
+		dfCmd(),
 		motdCmd(),
 		drainCmd(),
 		inventoryCmd(),
@@ -233,6 +234,9 @@ func listCmd() *cobra.Command {
 	cmd.Flags().StringVar(&in.Status, "status", "", "filter by status")
 	cmd.Flags().StringVar(&in.Parent, "parent", "", "filter by parent ID")
 	cmd.Flags().StringVar(&in.Sprint, "sprint", "", "filter by sprint ID")
+	cmd.Flags().StringVar(&in.IDPrefix, "id-prefix", "", "filter by ID prefix")
+	cmd.Flags().StringVar(&in.ExcludeKind, "exclude-kind", "", "exclude artifacts of this kind")
+	cmd.Flags().StringVar(&in.ExcludeStatus, "exclude-status", "", "exclude artifacts with this status")
 	cmd.Flags().StringVar(&format, "format", "table", "output format (table, json)")
 	cmd.Flags().StringVar(&in.Sort, "sort", "id", "sort field")
 	cmd.Flags().StringVar(&in.GroupBy, "group-by", "", "group output by field")
@@ -560,14 +564,38 @@ func goalCmd() *cobra.Command {
 // --- archive ---
 
 func archiveCmd() *cobra.Command {
-	var cascade bool
+	var cascade, dryRun bool
+	var scope, kind, status, idPrefix, excludeKind string
 	cmd := &cobra.Command{
-		Use:   "archive <ID> [ID...]",
-		Short: "Archive artifacts (marks read-only; use --cascade for subtrees)",
-		Args:  cobra.MinimumNArgs(1),
+		Use:   "archive [ID...]",
+		Short: "Archive artifacts (marks read-only; use --cascade for subtrees). With filter flags and no IDs, bulk-archives matching artifacts.",
+		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, close := mustProto()
 			defer close()
+			hasFilter := scope != "" || kind != "" || status != "" || idPrefix != "" || excludeKind != ""
+			if hasFilter && len(args) == 0 {
+				in := protocol.BulkMutationInput{
+					Scope: scope, Kind: kind, Status: status,
+					IDPrefix: idPrefix, ExcludeKind: excludeKind, DryRun: dryRun,
+				}
+				res, err := p.BulkArchive(context.Background(), in)
+				if err != nil {
+					return err
+				}
+				if dryRun {
+					fmt.Printf("dry run: would archive %d artifacts\n", res.Count)
+					for _, id := range res.AffectedIDs {
+						fmt.Printf("  %s\n", id)
+					}
+				} else {
+					fmt.Printf("archived %d artifacts\n", res.Count)
+				}
+				return nil
+			}
+			if len(args) == 0 {
+				return fmt.Errorf("provide IDs or filter flags (--scope, --kind, --status, --id-prefix, --exclude-kind)")
+			}
 			results, err := p.ArchiveArtifact(context.Background(), args, cascade)
 			if err != nil {
 				return err
@@ -583,6 +611,12 @@ func archiveCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&cascade, "cascade", false, "recursively archive child subtrees")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "preview bulk archive without applying")
+	cmd.Flags().StringVar(&scope, "scope", "", "filter by scope (bulk mode)")
+	cmd.Flags().StringVar(&kind, "kind", "", "filter by kind (bulk mode)")
+	cmd.Flags().StringVar(&status, "status", "", "filter by status (bulk mode)")
+	cmd.Flags().StringVar(&idPrefix, "id-prefix", "", "filter by ID prefix (bulk mode)")
+	cmd.Flags().StringVar(&excludeKind, "exclude-kind", "", "exclude kind (bulk mode)")
 	return cmd
 }
 
@@ -590,13 +624,15 @@ func archiveCmd() *cobra.Command {
 
 func vacuumCmd() *cobra.Command {
 	var days int
+	var scope string
+	var force bool
 	cmd := &cobra.Command{
 		Use:   "vacuum",
-		Short: "Delete archived artifacts older than --days (default 90)",
+		Short: "Delete archived artifacts older than --days (default 90). Protected kinds (spec, bug) are skipped unless --force.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, close := mustProto()
 			defer close()
-			deleted, err := p.Vacuum(context.Background(), days)
+			deleted, err := p.Vacuum(context.Background(), days, scope, force)
 			if err != nil {
 				return err
 			}
@@ -612,6 +648,48 @@ func vacuumCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().IntVar(&days, "days", 90, "minimum age in days")
+	cmd.Flags().StringVar(&scope, "scope", "", "limit to artifacts in this scope")
+	cmd.Flags().BoolVar(&force, "force", false, "delete protected kinds (spec, bug)")
+	return cmd
+}
+
+// --- df ---
+
+func dfCmd() *cobra.Command {
+	var staleDays int
+	var format string
+	cmd := &cobra.Command{
+		Use:   "df",
+		Short: "Housekeeping dashboard: storage, staleness, scope health",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p, close := mustProto()
+			defer close()
+			report, err := p.Dashboard(context.Background(), staleDays)
+			if err != nil {
+				return err
+			}
+			if format == "json" {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(report)
+			}
+			fmt.Printf("DB size: %d bytes\n\n", report.DBSizeBytes)
+			fmt.Println("Scopes:")
+			for _, ds := range report.Scopes {
+				fmt.Printf("  %-15s total=%d active=%d archived=%d sections=%d edges=%d stale=%d\n",
+					ds.Scope, ds.Total, ds.Active, ds.Archived, ds.Sections, ds.Edges, ds.Stale)
+			}
+			if len(report.StaleArts) > 0 {
+				fmt.Println("\nTop stale artifacts (by updated_at):")
+				for _, a := range report.StaleArts {
+					fmt.Printf("  %s [%s] %s\n", a.ID, a.Status, a.Title)
+				}
+			}
+			return nil
+		},
+	}
+	cmd.Flags().IntVar(&staleDays, "stale-days", 30, "staleness threshold in days")
+	cmd.Flags().StringVar(&format, "format", "text", "output format (text, json)")
 	return cmd
 }
 

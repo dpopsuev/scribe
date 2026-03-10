@@ -316,7 +316,7 @@ The vocabulary is enforced: unknown kinds are rejected with a hint to register t
 | `motd` | Message of the day: current goals, due reminders, recent notes. Start here. |
 | `create_artifact` | Create a new artifact (task, spec, goal, sprint, bug) with kind, title, scope, parent, dependencies, labels. |
 | `get_artifact` | Retrieve a single artifact by ID with all sections and metadata. |
-| `list_artifacts` | List with filters (kind, scope, status, parent, sprint), grouping, sorting, limits. |
+| `list_artifacts` | List with filters (kind, scope, status, parent, sprint, id_prefix, exclude_kind, exclude_status), grouping, sorting, limits. |
 | `search_artifacts` | Substring search across title, goal, and section text. |
 | `set_field` | Set any field on an artifact (status, title, parent, sprint, labels, etc.). |
 | `set_goal` | Set the north-star goal for a scope. Archives previous goal, creates root delivery artifact. |
@@ -333,6 +333,8 @@ The vocabulary is enforced: unknown kinds are rejected with a hint to register t
 | `vocab_list` | List registered artifact kinds in the vocabulary. |
 | `vocab_add` | Register a new artifact kind. |
 | `vocab_remove` | Remove an artifact kind (only if no artifacts use it). |
+| `batch_archive` | Archive artifacts matching filter predicates (scope, kind, status, id_prefix). Supports dry-run. |
+| `dashboard` | Housekeeping dashboard: per-scope counts, staleness, DB size (like `df` for artifacts). |
 | `context_mesh` | Query Locus for codebase architecture related to an artifact's scope. |
 | `drain_discover` | List legacy .md files for agent-driven migration into Scribe. |
 | `drain_cleanup` | Delete migrated .md files after confirmation. |

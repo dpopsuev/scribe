@@ -10,6 +10,7 @@ import (
 type KindDef struct {
 	Prefix          string `json:"prefix" yaml:"prefix"`
 	ExcludeFromList bool   `json:"exclude_from_list,omitempty" yaml:"exclude_from_list,omitempty"`
+	Protected       bool   `json:"protected,omitempty" yaml:"protected,omitempty"`
 }
 
 // Schema is the single source of truth for the Scribe data model.
@@ -65,7 +66,6 @@ var KindAbsorption = map[string]string{
 	"epic":          "goal",
 	"specification": "spec",
 	"architecture":  "spec",
-	"decision":      "spec",
 }
 
 // Prefix returns the ID prefix for a kind. Canonical kinds use the schema,
@@ -82,6 +82,14 @@ func (s *Schema) Prefix(kind string) string {
 		return strings.ToUpper(kind[:3])
 	}
 	return strings.ToUpper(kind)
+}
+
+// IsProtected returns true if the kind is protected from vacuum deletion.
+func (s *Schema) IsProtected(kind string) bool {
+	if kd, ok := s.Kinds[kind]; ok {
+		return kd.Protected
+	}
+	return false
 }
 
 // ExcludedKinds returns the kinds that should be hidden from default list output.
@@ -117,11 +125,12 @@ func ValidateKind(kind string, vocab []string) error {
 func DefaultSchema() *Schema {
 	return &Schema{
 		Kinds: map[string]KindDef{
-			"goal":   {Prefix: "GOAL"},
-			"sprint": {Prefix: "SPR"},
-			"task":   {Prefix: "TASK"},
-			"spec":   {Prefix: "SPEC"},
-			"bug":    {Prefix: "BUG"},
+			"goal":     {Prefix: "GOAL"},
+			"sprint":   {Prefix: "SPR"},
+			"task":     {Prefix: "TASK"},
+			"spec":     {Prefix: "SPEC", Protected: true},
+			"bug":      {Prefix: "BUG", Protected: true},
+			"decision": {Prefix: "ADR"},
 		},
 		Statuses: []string{
 			"draft", "active", "current", "open",

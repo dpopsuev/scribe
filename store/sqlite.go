@@ -105,6 +105,18 @@ func (s *SQLiteStore) Close() error {
 	return s.writer.Close()
 }
 
+// DBSizeBytes returns the approximate database file size using PRAGMA page_count/page_size.
+func (s *SQLiteStore) DBSizeBytes(ctx context.Context) (int64, error) {
+	var pageCount, pageSize int64
+	if err := s.reader.QueryRowContext(ctx, "PRAGMA page_count").Scan(&pageCount); err != nil {
+		return 0, err
+	}
+	if err := s.reader.QueryRowContext(ctx, "PRAGMA page_size").Scan(&pageSize); err != nil {
+		return 0, err
+	}
+	return pageCount * pageSize, nil
+}
+
 func (s *SQLiteStore) Put(ctx context.Context, art *model.Artifact) error {
 	if art.ID == "" {
 		return fmt.Errorf("artifact ID is required")
@@ -192,9 +204,21 @@ func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
 func (s *SQLiteStore) List(ctx context.Context, f model.Filter) ([]*model.Artifact, error) {
 	var clauses []string
 	var args []any
+	if f.IDPrefix != "" {
+		clauses = append(clauses, "id LIKE ?")
+		args = append(args, f.IDPrefix+"%")
+	}
 	if f.Kind != "" {
 		clauses = append(clauses, "kind = ?")
 		args = append(args, f.Kind)
+	}
+	if f.ExcludeKind != "" {
+		clauses = append(clauses, "kind != ?")
+		args = append(args, f.ExcludeKind)
+	}
+	if f.ExcludeStatus != "" {
+		clauses = append(clauses, "status != ?")
+		args = append(args, f.ExcludeStatus)
 	}
 	if len(f.ExcludeKinds) > 0 {
 		ph := make([]string, len(f.ExcludeKinds))

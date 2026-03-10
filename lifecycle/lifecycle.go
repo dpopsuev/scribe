@@ -77,9 +77,14 @@ func Archive(ctx context.Context, s store.Store, id string, cascade bool) error 
 }
 
 // Vacuum removes archived artifacts whose UpdatedAt is older than maxAge.
+// If scope is non-empty, only artifacts in that scope are considered.
 // Returns the IDs of deleted artifacts.
-func Vacuum(ctx context.Context, s store.Store, maxAge time.Duration) ([]string, error) {
-	arts, err := s.List(ctx, model.Filter{Status: "archived"})
+func Vacuum(ctx context.Context, s store.Store, maxAge time.Duration, scope string) ([]string, error) {
+	f := model.Filter{Status: "archived"}
+	if scope != "" {
+		f.Scope = scope
+	}
+	arts, err := s.List(ctx, f)
 	if err != nil {
 		return nil, err
 	}
