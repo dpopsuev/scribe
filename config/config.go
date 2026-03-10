@@ -10,13 +10,24 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// resolvedPath tracks the config file path found by Resolve, so Save
+// can write back to the same location.
+var resolvedPath string
+
+// Vocabulary defines the enforced set of artifact kinds.
+// If Kinds is nil or empty, validation is off (backward-compatible).
+type Vocabulary struct {
+	Kinds []string `yaml:"kinds"`
+}
+
 // Config is the top-level configuration loaded from scribe.yaml.
 type Config struct {
-	DB        string       `yaml:"db"`
-	Transport string       `yaml:"transport"`
-	Addr      string       `yaml:"addr"`
-	Scopes    []string     `yaml:"scopes"`
-	Schema    *model.Schema `yaml:"schema"`
+	DB         string        `yaml:"db"`
+	Transport  string        `yaml:"transport"`
+	Addr       string        `yaml:"addr"`
+	Scopes     []string      `yaml:"scopes"`
+	Schema     *model.Schema `yaml:"schema"`
+	Vocabulary *Vocabulary   `yaml:"vocabulary"`
 }
 
 // Load reads a config file from path and returns a merged Config.
@@ -59,6 +70,7 @@ func Resolve(explicit string) (*Config, error) {
 			continue
 		}
 		if _, err := os.Stat(path); err == nil {
+			resolvedPath = path
 			return Load(path)
 		}
 	}
@@ -90,6 +102,28 @@ func (c *Config) applyDefaults() {
 	if c.Schema == nil {
 		c.Schema = model.DefaultSchema()
 	}
+}
+
+// Save writes the config to the resolved path. It uses the same resolution
+// order as Resolve to find the target file, falling back to ~/.scribe/scribe.yaml.
+func Save(cfg *Config) error {
+	path := resolvedPath
+	if path == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("home dir: %w", err)
+		}
+		dir := filepath.Join(home, ".scribe")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("mkdir %s: %w", dir, err)
+		}
+		path = filepath.Join(dir, "scribe.yaml")
+	}
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
+	return os.WriteFile(path, data, 0o644)
 }
 
 func (c *Config) applyEnvOverrides() {

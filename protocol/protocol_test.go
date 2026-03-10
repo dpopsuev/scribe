@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dpopsuev/scribe/model"
@@ -24,7 +25,7 @@ func openStore(t *testing.T) *store.SQLiteStore {
 func newProto(t *testing.T) (*protocol.Protocol, store.Store) {
 	t.Helper()
 	s := openStore(t)
-	return protocol.New(s, nil, nil), s
+	return protocol.New(s, nil, nil, nil), s
 }
 
 func TestIsComponentLabel(t *testing.T) {
@@ -60,11 +61,11 @@ func TestDetectOverlaps_NoOverlaps(t *testing.T) {
 	ctx := context.Background()
 
 	_ = s.Put(ctx, &model.Artifact{
-		ID: "CON-1", Kind: "contract", Status: "active", Title: "A",
+		ID: "TASK-1", Kind: "task", Status: "active", Title: "A",
 		Labels: []string{"locus:internal/arch"},
 	})
 	_ = s.Put(ctx, &model.Artifact{
-		ID: "CON-2", Kind: "contract", Status: "active", Title: "B",
+		ID: "TASK-2", Kind: "task", Status: "active", Title: "B",
 		Labels: []string{"locus:internal/mcp"},
 	})
 
@@ -85,15 +86,15 @@ func TestDetectOverlaps_WithOverlaps(t *testing.T) {
 	ctx := context.Background()
 
 	_ = s.Put(ctx, &model.Artifact{
-		ID: "CON-1", Kind: "contract", Status: "active", Title: "Contract A",
+		ID: "TASK-1", Kind: "task", Status: "active", Title: "Task A",
 		Labels: []string{"locus:internal/arch", "locus:internal/mcp"},
 	})
 	_ = s.Put(ctx, &model.Artifact{
-		ID: "CON-2", Kind: "contract", Status: "active", Title: "Contract B",
+		ID: "TASK-2", Kind: "task", Status: "active", Title: "Task B",
 		Labels: []string{"locus:internal/arch"},
 	})
 	_ = s.Put(ctx, &model.Artifact{
-		ID: "CON-3", Kind: "contract", Status: "active", Title: "Contract C",
+		ID: "TASK-3", Kind: "task", Status: "active", Title: "Task C",
 		Labels: []string{"scribe:protocol/protocol.go"},
 	})
 
@@ -120,11 +121,11 @@ func TestDetectOverlaps_ProjectFilter(t *testing.T) {
 	ctx := context.Background()
 
 	_ = s.Put(ctx, &model.Artifact{
-		ID: "CON-1", Kind: "contract", Status: "active", Title: "A",
+		ID: "TASK-1", Kind: "task", Status: "active", Title: "A",
 		Labels: []string{"locus:internal/arch", "scribe:mcp/server.go"},
 	})
 	_ = s.Put(ctx, &model.Artifact{
-		ID: "CON-2", Kind: "contract", Status: "active", Title: "B",
+		ID: "TASK-2", Kind: "task", Status: "active", Title: "B",
 		Labels: []string{"locus:internal/arch", "scribe:mcp/server.go"},
 	})
 
@@ -245,5 +246,439 @@ func TestComponentLabelGate_NonContract(t *testing.T) {
 	}
 	if !results[0].OK {
 		t.Errorf("gate should only apply to contracts, got error: %s", results[0].Error)
+	}
+}
+
+// --- Cycle detection tests (FEA-2026-001) ---
+
+func TestLinkDependsOn_SimpleChainAllowed(t *testing.T) {
+	p, s := newProto(t)
+	ctx := context.Background()
+
+	_ = s.Put(ctx, &model.Artifact{ID: "A", Kind: "contract", Status: "draft", Title: "A"})
+	_ = s.Put(ctx, &model.Artifact{ID: "B", Kind: "contract", Status: "draft", Title: "B"})
+
+	results, err := p.LinkArtifacts(ctx, "A", "depends_on", []string{"B"})
+	if err != nil {
+		t.Fatalf("simple chain should succeed: %v", err)
+	}
+	if !results[0].OK {
+		t.Errorf("expected OK, got error: %s", results[0].Error)
+	}
+}
+
+func TestLinkDependsOn_DirectCycleRejected(t *testing.T) {
+	p, s := newProto(t)
+	ctx := context.Background()
+
+	_ = s.Put(ctx, &model.Artifact{ID: "A", Kind: "contract", Status: "draft", Title: "A"})
+	_ = s.Put(ctx, &model.Artifact{ID: "B", Kind: "contract", Status: "draft", Title: "B"})
+
+	_, _ = p.LinkArtifacts(ctx, "A", "depends_on", []string{"B"})
+
+	_, err := p.LinkArtifacts(ctx, "B", "depends_on", []string{"A"})
+	if err == nil {
+		t.Fatal("expected cycle error, got nil")
+	}
+	if !strings.Contains(err.Error(), "cycle detected") {
+		t.Errorf("expected cycle error, got: %s", err.Error())
+	}
+	if !strings.Contains(err.Error(), "→") {
+		t.Errorf("expected path in error, got: %s", err.Error())
+	}
+}
+
+func TestLinkDependsOn_TransitiveCycleRejected(t *testing.T) {
+	p, s := newProto(t)
+	ctx := context.Background()
+
+	_ = s.Put(ctx, &model.Artifact{ID: "A", Kind: "contract", Status: "draft", Title: "A"})
+	_ = s.Put(ctx, &model.Artifact{ID: "B", Kind: "contract", Status: "draft", Title: "B"})
+	_ = s.Put(ctx, &model.Artifact{ID: "C", Kind: "contract", Status: "draft", Title: "C"})
+
+	_, _ = p.LinkArtifacts(ctx, "A", "depends_on", []string{"B"})
+	_, _ = p.LinkArtifacts(ctx, "B", "depends_on", []string{"C"})
+
+	_, err := p.LinkArtifacts(ctx, "C", "depends_on", []string{"A"})
+	if err == nil {
+		t.Fatal("expected transitive cycle error, got nil")
+	}
+	if !strings.Contains(err.Error(), "cycle detected") {
+		t.Errorf("expected cycle error, got: %s", err.Error())
+	}
+}
+
+func TestLinkDependsOn_SelfLoopRejected(t *testing.T) {
+	p, s := newProto(t)
+	ctx := context.Background()
+
+	_ = s.Put(ctx, &model.Artifact{ID: "A", Kind: "contract", Status: "draft", Title: "A"})
+
+	_, err := p.LinkArtifacts(ctx, "A", "depends_on", []string{"A"})
+	if err == nil {
+		t.Fatal("expected self-loop error, got nil")
+	}
+	if !strings.Contains(err.Error(), "cycle detected") {
+		t.Errorf("expected cycle error, got: %s", err.Error())
+	}
+}
+
+func TestLinkDependsOn_BatchWithOneBadTargetRejectsAll(t *testing.T) {
+	p, s := newProto(t)
+	ctx := context.Background()
+
+	_ = s.Put(ctx, &model.Artifact{ID: "A", Kind: "contract", Status: "draft", Title: "A"})
+	_ = s.Put(ctx, &model.Artifact{ID: "B", Kind: "contract", Status: "draft", Title: "B"})
+	_ = s.Put(ctx, &model.Artifact{ID: "C", Kind: "contract", Status: "draft", Title: "C"})
+
+	_, _ = p.LinkArtifacts(ctx, "A", "depends_on", []string{"B"})
+
+	_, err := p.LinkArtifacts(ctx, "B", "depends_on", []string{"C", "A"})
+	if err == nil {
+		t.Fatal("expected batch rejection, got nil")
+	}
+
+	edges, _ := s.Neighbors(ctx, "B", "depends_on", store.Outgoing)
+	for _, e := range edges {
+		if e.To == "C" {
+			t.Error("B->C should not have been created (batch is all-or-nothing)")
+		}
+	}
+}
+
+func TestLinkOtherRelations_AllowCycles(t *testing.T) {
+	p, s := newProto(t)
+	ctx := context.Background()
+
+	_ = s.Put(ctx, &model.Artifact{ID: "A", Kind: "contract", Status: "draft", Title: "A"})
+	_ = s.Put(ctx, &model.Artifact{ID: "B", Kind: "contract", Status: "draft", Title: "B"})
+
+	_, err := p.LinkArtifacts(ctx, "A", "documents", []string{"B"})
+	if err != nil {
+		t.Fatalf("A documents B should succeed: %v", err)
+	}
+
+	_, err = p.LinkArtifacts(ctx, "B", "documents", []string{"A"})
+	if err != nil {
+		t.Fatalf("B documents A should succeed (no DAG constraint): %v", err)
+	}
+}
+
+func TestContractTree_ScopeInTreeNode(t *testing.T) {
+	p, s := newProto(t)
+	ctx := context.Background()
+
+	_ = s.Put(ctx, &model.Artifact{ID: "SPR-1", Kind: "sprint", Scope: "origami", Status: "active", Title: "Sprint"})
+	_ = s.Put(ctx, &model.Artifact{ID: "CON-1", Kind: "contract", Scope: "scribe", Status: "draft", Title: "Child", Parent: "SPR-1"})
+
+	tree, err := p.ContractTree(ctx, "SPR-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tree.Scope != "origami" {
+		t.Errorf("expected root scope 'origami', got %q", tree.Scope)
+	}
+	if len(tree.Children) == 0 {
+		t.Fatal("expected children")
+	}
+	if tree.Children[0].Scope != "scribe" {
+		t.Errorf("expected child scope 'scribe', got %q", tree.Children[0].Scope)
+	}
+}
+
+func TestSetFieldDependsOn_CycleRejected(t *testing.T) {
+	p, s := newProto(t)
+	ctx := context.Background()
+
+	_ = s.Put(ctx, &model.Artifact{ID: "A", Kind: "contract", Status: "draft", Title: "A", DependsOn: []string{"B"}})
+	_ = s.Put(ctx, &model.Artifact{ID: "B", Kind: "contract", Status: "draft", Title: "B"})
+
+	results, err := p.SetField(ctx, []string{"B"}, "depends_on", "A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results[0].OK {
+		t.Error("expected set_field to reject depends_on cycle")
+	}
+	if !strings.Contains(results[0].Error, "cycle detected") {
+		t.Errorf("expected cycle error, got: %s", results[0].Error)
+	}
+}
+
+// --- Vocabulary tests ---
+
+func newProtoWithVocab(t *testing.T, vocab []string) (*protocol.Protocol, store.Store) {
+	t.Helper()
+	s := openStore(t)
+	return protocol.New(s, nil, nil, vocab), s
+}
+
+func TestValidateKind_RejectsUnknown(t *testing.T) {
+	err := model.ValidateKind("contract", []string{"goal", "sprint", "task", "spec", "bug"})
+	if err == nil {
+		t.Fatal("expected error for unknown kind")
+	}
+	if !strings.Contains(err.Error(), `unknown kind "contract"`) {
+		t.Errorf("unexpected error: %s", err.Error())
+	}
+	if !strings.Contains(err.Error(), "scribe vocab add") {
+		t.Errorf("expected hint about vocab add, got: %s", err.Error())
+	}
+}
+
+func TestValidateKind_AcceptsKnown(t *testing.T) {
+	err := model.ValidateKind("task", []string{"goal", "sprint", "task", "spec", "bug"})
+	if err != nil {
+		t.Fatalf("expected nil, got: %v", err)
+	}
+}
+
+func TestValidateKind_NoVocabAcceptsAll(t *testing.T) {
+	err := model.ValidateKind("anything", nil)
+	if err != nil {
+		t.Fatalf("nil vocab should accept all, got: %v", err)
+	}
+	err = model.ValidateKind("anything", []string{})
+	if err != nil {
+		t.Fatalf("empty vocab should accept all, got: %v", err)
+	}
+}
+
+func TestCreateArtifact_EnforcesVocab(t *testing.T) {
+	p, _ := newProtoWithVocab(t, []string{"task", "spec", "bug", "goal", "sprint"})
+	ctx := context.Background()
+
+	_, err := p.CreateArtifact(ctx, protocol.CreateInput{Kind: "contract", Title: "test"})
+	if err == nil {
+		t.Fatal("expected vocab rejection")
+	}
+	if !strings.Contains(err.Error(), "unknown kind") {
+		t.Errorf("expected vocab error, got: %s", err.Error())
+	}
+
+	art, err := p.CreateArtifact(ctx, protocol.CreateInput{Kind: "task", Title: "test"})
+	if err != nil {
+		t.Fatalf("task should be accepted: %v", err)
+	}
+	if art.Kind != "task" {
+		t.Errorf("expected kind=task, got %s", art.Kind)
+	}
+}
+
+func TestSetFieldKind_EnforcesVocab(t *testing.T) {
+	p, s := newProtoWithVocab(t, []string{"task", "spec", "bug", "goal", "sprint"})
+	ctx := context.Background()
+
+	_ = s.Put(ctx, &model.Artifact{ID: "TASK-1", Kind: "task", Status: "draft", Title: "A"})
+
+	results, err := p.SetField(ctx, []string{"TASK-1"}, "kind", "contract")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results[0].OK {
+		t.Error("expected vocab rejection for set_field kind=contract")
+	}
+
+	results, err = p.SetField(ctx, []string{"TASK-1"}, "kind", "spec")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !results[0].OK {
+		t.Errorf("expected spec to be accepted, got: %s", results[0].Error)
+	}
+}
+
+func TestVocabMigrate_DryRun(t *testing.T) {
+	p, s := newProto(t)
+	ctx := context.Background()
+
+	_ = s.Put(ctx, &model.Artifact{ID: "CON-1", Kind: "contract", Status: "draft", Title: "A"})
+	_ = s.Put(ctx, &model.Artifact{ID: "CON-2", Kind: "contract", Status: "draft", Title: "B"})
+	_ = s.Put(ctx, &model.Artifact{ID: "EPIC-1", Kind: "epic", Status: "draft", Title: "E"})
+	_ = s.Put(ctx, &model.Artifact{ID: "SPEC-1", Kind: "specification", Status: "draft", Title: "S"})
+	_ = s.Put(ctx, &model.Artifact{ID: "RULE-1", Kind: "rule", Status: "draft", Title: "R"})
+	_ = s.Put(ctx, &model.Artifact{ID: "TASK-1", Kind: "task", Status: "draft", Title: "T"})
+
+	result, err := p.VocabMigrate(ctx, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Rewrites["contract → task"] != 2 {
+		t.Errorf("expected 2 contract→task, got %d", result.Rewrites["contract → task"])
+	}
+	if result.Rewrites["epic → goal"] != 1 {
+		t.Errorf("expected 1 epic→goal, got %d", result.Rewrites["epic → goal"])
+	}
+	if result.Rewrites["specification → spec"] != 1 {
+		t.Errorf("expected 1 specification→spec, got %d", result.Rewrites["specification → spec"])
+	}
+	if result.Archived != 1 {
+		t.Errorf("expected 1 archived (rule), got %d", result.Archived)
+	}
+
+	art, _ := s.Get(ctx, "CON-1")
+	if art.Kind != "contract" {
+		t.Error("dry run should not mutate")
+	}
+}
+
+func TestVocabMigrate_Commit(t *testing.T) {
+	p, s := newProto(t)
+	ctx := context.Background()
+
+	_ = s.Put(ctx, &model.Artifact{ID: "CON-1", Kind: "contract", Status: "draft", Title: "A"})
+	_ = s.Put(ctx, &model.Artifact{ID: "EPIC-1", Kind: "epic", Status: "draft", Title: "E"})
+	_ = s.Put(ctx, &model.Artifact{ID: "RULE-1", Kind: "rule", Status: "draft", Title: "R"})
+
+	_, err := p.VocabMigrate(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	art, _ := s.Get(ctx, "CON-1")
+	if art.Kind != "task" {
+		t.Errorf("expected kind=task after migration, got %s", art.Kind)
+	}
+	art, _ = s.Get(ctx, "EPIC-1")
+	if art.Kind != "goal" {
+		t.Errorf("expected kind=goal after migration, got %s", art.Kind)
+	}
+	art, _ = s.Get(ctx, "RULE-1")
+	if art.Status != "archived" {
+		t.Errorf("expected rule to be archived, got status=%s", art.Status)
+	}
+}
+
+func TestVocabAdd_AndRemove(t *testing.T) {
+	p, s := newProtoWithVocab(t, []string{"task", "spec", "bug", "goal", "sprint"})
+	ctx := context.Background()
+
+	if err := p.VocabAdd("incident"); err != nil {
+		t.Fatal(err)
+	}
+	kinds := p.VocabList()
+	found := false
+	for _, k := range kinds {
+		if k == "incident" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("incident should be in vocab after add")
+	}
+
+	if err := p.VocabRemove(ctx, "incident"); err != nil {
+		t.Fatal(err)
+	}
+
+	_ = s.Put(ctx, &model.Artifact{ID: "T-1", Kind: "task", Status: "draft", Title: "X"})
+	if err := p.VocabRemove(ctx, "task"); err == nil {
+		t.Error("expected error removing kind with existing artifacts")
+	}
+}
+
+// --- Orphan detection tests ---
+
+func TestDetectOrphans_TaskWithoutSpec(t *testing.T) {
+	p, s := newProto(t)
+	ctx := context.Background()
+
+	_ = s.Put(ctx, &model.Artifact{ID: "TASK-1", Kind: "task", Status: "draft", Title: "Lonely task"})
+	_ = s.Put(ctx, &model.Artifact{ID: "SPE-1", Kind: "spec", Status: "draft", Title: "Lonely spec"})
+
+	report, err := p.DetectOrphans(ctx, protocol.OrphanInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.TotalOrphans != 2 {
+		t.Errorf("expected 2 orphans, got %d", report.TotalOrphans)
+	}
+	if report.TotalScanned != 2 {
+		t.Errorf("expected 2 scanned, got %d", report.TotalScanned)
+	}
+}
+
+func TestDetectOrphans_LinkedTaskAndSpec(t *testing.T) {
+	p, s := newProto(t)
+	ctx := context.Background()
+
+	_ = s.Put(ctx, &model.Artifact{
+		ID: "TASK-1", Kind: "task", Status: "draft", Title: "Linked task",
+		Links: map[string][]string{"implements": {"SPE-1"}},
+	})
+	_ = s.Put(ctx, &model.Artifact{ID: "SPE-1", Kind: "spec", Status: "draft", Title: "Linked spec"})
+
+	report, err := p.DetectOrphans(ctx, protocol.OrphanInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.TotalOrphans != 0 {
+		t.Errorf("expected 0 orphans, got %d", report.TotalOrphans)
+		for _, o := range report.Orphans {
+			t.Logf("  %s: %s", o.ID, o.Reason)
+		}
+	}
+}
+
+func TestDetectOrphans_SkipsTerminal(t *testing.T) {
+	p, s := newProto(t)
+	ctx := context.Background()
+
+	_ = s.Put(ctx, &model.Artifact{ID: "TASK-1", Kind: "task", Status: "complete", Title: "Done task"})
+	_ = s.Put(ctx, &model.Artifact{ID: "SPE-1", Kind: "spec", Status: "archived", Title: "Archived spec"})
+
+	report, err := p.DetectOrphans(ctx, protocol.OrphanInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.TotalScanned != 0 {
+		t.Errorf("expected 0 scanned (terminal artifacts skipped), got %d", report.TotalScanned)
+	}
+}
+
+func TestDetectOrphans_BugWithoutTask(t *testing.T) {
+	p, s := newProto(t)
+	ctx := context.Background()
+
+	_ = s.Put(ctx, &model.Artifact{ID: "BUG-1", Kind: "bug", Status: "draft", Title: "Lonely bug"})
+
+	report, err := p.DetectOrphans(ctx, protocol.OrphanInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.TotalOrphans != 1 {
+		t.Errorf("expected 1 orphan, got %d", report.TotalOrphans)
+	}
+	if report.Orphans[0].Reason != "bug has no task implementing it" {
+		t.Errorf("unexpected reason: %s", report.Orphans[0].Reason)
+	}
+}
+
+func TestDetectOrphans_IgnoresGoalsAndSprints(t *testing.T) {
+	p, s := newProto(t)
+	ctx := context.Background()
+
+	_ = s.Put(ctx, &model.Artifact{ID: "GOAL-1", Kind: "goal", Status: "current", Title: "A goal"})
+	_ = s.Put(ctx, &model.Artifact{ID: "SPR-1", Kind: "sprint", Status: "active", Title: "A sprint"})
+
+	report, err := p.DetectOrphans(ctx, protocol.OrphanInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.TotalScanned != 0 {
+		t.Errorf("expected 0 scanned (goals/sprints not checked), got %d", report.TotalScanned)
+	}
+}
+
+func TestSetGoal_CreatesSubGoal(t *testing.T) {
+	p, _ := newProto(t)
+	ctx := context.Background()
+
+	res, err := p.SetGoal(ctx, protocol.SetGoalInput{Title: "North Star", Scope: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Root.Kind != "goal" {
+		t.Errorf("expected root kind=goal, got %s", res.Root.Kind)
 	}
 }

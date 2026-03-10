@@ -11,13 +11,13 @@ Persistent planning memory for AI agents. Scribe is a structured artifact store 
 podman run -d --name scribe \
   -p 8080:8080 \
   -v scribe-data:/data \
-  quay.io/dpopsuev/scribe:0.1.0
+  quay.io/dpopsuev/scribe:0.1.1
 ```
 
 ### Binary
 
 ```bash
-go install github.com/dpopsuev/scribe/cmd/scribe@v0.1.0
+go install github.com/dpopsuev/scribe/cmd/scribe@v0.1.1
 scribe serve                   # stdio (Cursor, Claude Desktop)
 scribe serve --transport http  # Streamable HTTP on :8080
 ```
@@ -59,21 +59,53 @@ This creates three failure modes:
 2. **Drift.** Multi-session work loses coherence because there's no shared record of what was decided and why.
 3. **Fragmentation.** Plans scattered across chat logs, markdown files, and issue trackers can't be queried or traversed as a graph.
 
-Scribe solves this by giving agents a structured, persistent memory they can read and write through MCP tools -- a place to store plans, contracts, sprints, goals, and their relationships in a queryable DAG.
+Scribe solves this by giving agents a structured, persistent memory they can read and write through MCP tools -- a place to store goals, specs, tasks, bugs, sprints, and their relationships in a queryable DAG.
 
 ## Core Concepts
 
 | Concept | What it is |
 |---|---|
-| **Artifact** | The universal record. Everything is an artifact: contracts, sprints, goals, specs, tasks, bugs, notes. Each has a kind, status, scope, and auto-generated ID (e.g. `CON-2026-042`). |
-| **Contract** | The primary unit of work. A contract is a promise to deliver a specific outcome -- it carries a goal statement, design sections, acceptance criteria, and dependency edges. Think of it as a lightweight RFC or work item that an agent can read, execute against, and mark complete. |
-| **Kind** | The type of artifact. Built-in kinds: `contract`, `sprint`, `goal`, `epic`, `story`, `task`, `subtask`, `bug`, `spike`, `specification`, `rule`, `note`, `doc`, `architecture`, `batch`, `binder`. Custom kinds are accepted (open world). |
-| **Status** | Lifecycle state: `draft` &rarr; `active` &rarr; `complete` / `dismissed`. Also: `current` (goals), `open` (bugs), `promoted`, `retired`, `archived`. |
+| **Artifact** | The universal record. Everything is an artifact with a kind, status, scope, and auto-generated ID (e.g. `TASK-2026-042`). |
+| **Kind** | The type of artifact. Canonical kinds: `goal`, `sprint`, `task`, `spec`, `bug`. Enforced by vocabulary validation -- unknown kinds are rejected with a hint to register them via `scribe vocab add`. |
+| **Task** | The primary unit of work. A task carries a goal statement, design sections, and dependency edges. Tasks **implement** specs and bugs. |
+| **Spec** | A specification: the *what* and *why*. Defines acceptance criteria. Tasks implement specs. |
+| **Bug** | A defect record. Like a spec, a bug is resolved by a task that implements it. |
+| **Goal** | The north-star artifact for a scope. Setting a goal auto-creates a root delivery artifact and archives any previous goal. |
+| **Sprint** | A time-boxed container. Child tasks are the work items. Tree views show progress at a glance. |
+| **Status** | Lifecycle state: `draft` &rarr; `active` &rarr; `complete` / `dismissed`. Also: `current` (goals), `retired`, `archived`. |
 | **Scope** | The project or repository an artifact belongs to (e.g. `locus`, `origami`). Enables multi-project planning from a single Scribe instance. |
 | **Section** | A named text block attached to an artifact. Use for design notes, mermaid diagrams, acceptance criteria, or any structured content. |
 | **Edge** | A directed relationship: `parent_of`, `depends_on`, `justifies`, `implements`, `documents`, `satisfies`. Edges form a DAG that agents can traverse. |
-| **Goal** | The north-star artifact for a scope. Setting a goal auto-creates a root delivery epic and archives any previous goal. |
-| **Sprint** | A time-boxed container. Child contracts are the work items. Tree views show progress at a glance. |
+
+### Artifact Relationships
+
+```mermaid
+graph LR
+    subgraph "Defines Work"
+        SPEC["spec"]
+        BUG["bug"]
+    end
+
+    subgraph "Does Work"
+        TASK["task"]
+    end
+
+    subgraph "Organizes Work"
+        GOAL["goal"]
+        SPRINT["sprint"]
+    end
+
+    TASK -- implements --> SPEC
+    TASK -- implements --> BUG
+    TASK -- depends_on --> TASK
+    SPRINT -- parent_of --> TASK
+    GOAL -- parent_of --> SPEC
+    GOAL -- parent_of --> TASK
+    GOAL -- parent_of --> BUG
+    GOAL -. justifies .-> GOAL
+```
+
+**Specs** and **bugs** define *what* needs to happen. **Tasks** do the work by implementing specs or resolving bugs. **Sprints** group tasks into time-boxed iterations. **Goals** sit at the top as north-star containers. The `detect_orphans` tool warns when a task has no spec/bug link, or when a spec/bug has no task implementing it.
 
 ### Example Artifact Graph
 
@@ -81,40 +113,34 @@ Scribe solves this by giving agents a structured, persistent memory they can rea
 graph TD
     GOAL-2026-001["GOAL-2026-001\nShip v1.0\n(current)"]
 
-    EPIC-2026-001["EPIC-2026-001\nv1.0 Delivery\n(active)"]
-    EPIC-2026-001 -.->|justifies| GOAL-2026-001
+    GOAL-2026-002["GOAL-2026-002\nv1.0 Delivery\n(active)"]
+    GOAL-2026-002 -.->|justifies| GOAL-2026-001
 
     SPR-2026-001["SPR-2026-001\nSprint 1: Foundation\n(active)"]
-    SPR-2026-001 -->|parent_of| EPIC-2026-001
 
-    SPR-2026-002["SPR-2026-002\nSprint 2: Hardening\n(draft)"]
-    SPR-2026-002 -->|parent_of| EPIC-2026-001
+    SPE-2026-001["SPE-2026-001\nAuth spec\n(draft)"]
+    SPE-2026-001 -->|parent_of| GOAL-2026-002
 
-    CON-2026-001["CON-2026-001\nAdd authentication\n(complete)"]
-    CON-2026-001 -->|parent_of| SPR-2026-001
+    TASK-2026-001["TASK-2026-001\nAdd authentication\n(complete)"]
+    TASK-2026-001 -->|parent_of| SPR-2026-001
+    TASK-2026-001 -.->|implements| SPE-2026-001
 
-    CON-2026-002["CON-2026-002\nAdd rate limiting\n(active)"]
-    CON-2026-002 -->|parent_of| SPR-2026-001
-    CON-2026-002 -.->|depends_on| CON-2026-001
+    TASK-2026-002["TASK-2026-002\nAdd rate limiting\n(active)"]
+    TASK-2026-002 -->|parent_of| SPR-2026-001
+    TASK-2026-002 -.->|depends_on| TASK-2026-001
 
-    CON-2026-003["CON-2026-003\nAdd audit logging\n(draft)"]
-    CON-2026-003 -->|parent_of| SPR-2026-001
-    CON-2026-003 -.->|depends_on| CON-2026-001
+    BUG-2026-001["BUG-2026-001\nAuth token leak\n(draft)"]
 
-    CON-2026-004["CON-2026-004\nLoad testing\n(draft)"]
-    CON-2026-004 -->|parent_of| SPR-2026-002
-    CON-2026-004 -.->|depends_on| CON-2026-002
-
-    CON-2026-005["CON-2026-005\nSecurity review\n(draft)"]
-    CON-2026-005 -->|parent_of| SPR-2026-002
-    CON-2026-005 -.->|depends_on| CON-2026-003
+    TASK-2026-003["TASK-2026-003\nFix token leak\n(draft)"]
+    TASK-2026-003 -->|parent_of| SPR-2026-001
+    TASK-2026-003 -.->|implements| BUG-2026-001
 ```
 
-Solid arrows are `parent_of` edges (tree structure). Dashed arrows are `depends_on` edges (sequencing). The agent walks this graph to find what to work on next: the highest-priority unblocked contract whose dependencies are all complete.
+Solid arrows are `parent_of` edges (tree structure). Dashed arrows are `implements`, `depends_on`, or `justifies` edges (semantics). The agent walks this graph to find what to work on next: the highest-priority unblocked task whose dependencies are all complete.
 
 ## Workflow
 
-In the intended mode of operation, **the agent does all of this for you**. You describe what you want in natural language -- "plan a sprint for auth and rate limiting" -- and the agent calls the Scribe MCP tools to create goals, sprints, contracts, sections, and status updates on your behalf. The CLI examples below show what's happening under the hood; you shouldn't need to run them manually.
+In the intended mode of operation, **the agent does all of this for you**. You describe what you want in natural language -- "plan a sprint for auth and rate limiting" -- and the agent calls the Scribe MCP tools to create goals, sprints, tasks, specs, sections, and status updates on your behalf. The CLI examples below show what's happening under the hood; you shouldn't need to run them manually.
 
 ### 1. Set a goal
 
@@ -124,38 +150,39 @@ The agent (or you) sets the north star for a project scope:
 scribe goal set "Ship v1.0 with full MCP coverage" --scope myproject
 ```
 
-This creates a `GOAL` artifact (status: `current`) and a root `EPIC` linked via `justifies`.
+This creates a `GOAL` artifact (status: `current`) and a root delivery artifact linked via `justifies`.
 
-### 2. Plan work
+### 2. Define specs, plan work
 
-Create contracts (work items) under the epic. Group them into sprints:
+Create specs (what needs to happen), then tasks (who does it), grouped into sprints:
 
 ```bash
+scribe create --kind spec --title "Authentication system" --scope myproject
 scribe create --kind sprint --title "Sprint 1: Foundation" --scope myproject
-scribe create --kind contract --title "Add authentication" --parent SPR-2026-001 --scope myproject
-scribe create --kind contract --title "Add rate limiting" --parent SPR-2026-001 --depends-on CON-2026-001 --scope myproject
+scribe create --kind task --title "Add authentication" --parent SPR-2026-001 --scope myproject
+scribe link TASK-2026-001 implements SPE-2026-001
 ```
 
 Attach design details as sections:
 
 ```bash
-scribe section add CON-2026-001 design "JWT-based auth with refresh tokens. See arch diagram."
-scribe section add CON-2026-001 acceptance "All endpoints require valid JWT. Refresh within 5min window."
+scribe section add TASK-2026-001 design "JWT-based auth with refresh tokens."
+scribe section add SPE-2026-001 acceptance "All endpoints require valid JWT. Refresh within 5min window."
 ```
 
 ### 3. Execute
 
-As agents work through contracts, they update status:
+As agents work through tasks, they update status:
 
 ```bash
-scribe set CON-2026-001 status active    # starting work
-scribe set CON-2026-001 status complete  # done
+scribe set TASK-2026-001 status active    # starting work
+scribe set TASK-2026-001 status complete  # done
 ```
 
 Guards enforce consistency:
 - A sprint can't be completed if it has non-complete children.
 - When all children of a parent are terminal, the parent auto-completes.
-- When the root epic completes, the goal auto-archives.
+- When the root delivery artifact completes, the goal auto-archives.
 - Archived artifacts are read-only.
 
 ### 4. Resume
@@ -280,19 +307,19 @@ Every artifact carries:
 - **Lifecycle:** status, priority, sprint assignment, labels, timestamps
 - **Extension:** `extra` map for domain-specific key-value pairs (reminders, custom fields)
 
-The schema is open-world: unknown kinds get an auto-derived prefix, unknown fields go into `extra`.
+The vocabulary is enforced: unknown kinds are rejected with a hint to register them via `scribe vocab add`. Unknown fields go into `extra`.
 
 ## MCP Tools
 
 | Tool | Description |
 |---|---|
 | `motd` | Message of the day: current goals, due reminders, recent notes. Start here. |
-| `create_artifact` | Create a new artifact with kind, title, scope, parent, dependencies, labels. |
+| `create_artifact` | Create a new artifact (task, spec, goal, sprint, bug) with kind, title, scope, parent, dependencies, labels. |
 | `get_artifact` | Retrieve a single artifact by ID with all sections and metadata. |
 | `list_artifacts` | List with filters (kind, scope, status, parent, sprint), grouping, sorting, limits. |
 | `search_artifacts` | Substring search across title, goal, and section text. |
 | `set_field` | Set any field on an artifact (status, title, parent, sprint, labels, etc.). |
-| `set_goal` | Set the north-star goal for a scope. Archives previous goal, creates root epic. |
+| `set_goal` | Set the north-star goal for a scope. Archives previous goal, creates root delivery artifact. |
 | `attach_section` | Add or replace a named text section on an artifact. |
 | `get_section` | Retrieve a section's text by name. |
 | `contract_tree` | Render the parent-child tree rooted at any artifact. |
@@ -301,8 +328,12 @@ The schema is open-world: unknown kinds get an auto-derived prefix, unknown fiel
 | `archive_artifact` | Archive artifacts (marks read-only). Cascade archives entire subtrees. |
 | `vacuum` | Delete archived artifacts older than N days. |
 | `inventory` | Dashboard: total count, breakdown by kind/status, active sprints, goals. |
-| `context_mesh` | Query Locus for codebase architecture related to an artifact's scope. |
 | `detect_overlaps` | Find active artifacts sharing component labels (scope conflict detection). |
+| `detect_orphans` | Find tasks without spec/bug links, and specs/bugs without implementing tasks. |
+| `vocab_list` | List registered artifact kinds in the vocabulary. |
+| `vocab_add` | Register a new artifact kind. |
+| `vocab_remove` | Remove an artifact kind (only if no artifacts use it). |
+| `context_mesh` | Query Locus for codebase architecture related to an artifact's scope. |
 | `drain_discover` | List legacy .md files for agent-driven migration into Scribe. |
 | `drain_cleanup` | Delete migrated .md files after confirmation. |
 
@@ -319,18 +350,23 @@ addr: ":8080"
 scopes:
   - myproject
 
+vocabulary:
+  kinds:
+    - goal
+    - sprint
+    - task
+    - spec
+    - bug
+    # add your own via: scribe vocab add <kind>
+
 schema:
   kinds:
-    contract:      { prefix: CON }
-    sprint:        { prefix: SPR }
     goal:          { prefix: GOAL }
-    epic:          { prefix: EPIC }
+    sprint:        { prefix: SPR }
     task:          { prefix: TASK }
+    spec:          { prefix: SPE }
     bug:           { prefix: BUG }
     note:          { prefix: NOTE, exclude_from_list: true }
-    # add your own:
-    # rfc:         { prefix: RFC }
-    # adr:         { prefix: ADR }
 
   statuses:
     - draft
@@ -360,7 +396,7 @@ podman run -d --name scribe \
   -p 8080:8080 \
   -v scribe-data:/data \
   -v ./scribe.yaml:/data/scribe.yaml \
-  quay.io/dpopsuev/scribe:0.1.0
+  quay.io/dpopsuev/scribe:0.1.1
 ```
 
 ## Environment Variables
