@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Artifact is the universal record for all governance artifacts.
+// Artifact is the universal record for all work graph nodes.
 type Artifact struct {
 	ID        string              `json:"id"`
 	Kind      string              `json:"kind"`

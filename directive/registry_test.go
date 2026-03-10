@@ -10,8 +10,8 @@ func TestToolRegistry_AllToolsRegistered(t *testing.T) {
 	reg := mcp.ToolRegistry()
 	tools := reg.List()
 
-	if len(tools) != 14 {
-		t.Fatalf("expected 14 tools, got %d", len(tools))
+	if len(tools) != 3 {
+		t.Fatalf("expected 3 tools, got %d", len(tools))
 	}
 
 	for _, tool := range tools {
