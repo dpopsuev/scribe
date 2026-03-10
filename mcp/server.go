@@ -21,7 +21,7 @@ import (
 // Returns both the server and a directive registry for CLI introspection.
 func NewServer(s store.Store, homeScopes, vocab []string) (*sdkmcp.Server, *directive.Registry) {
 	srv := sdkmcp.NewServer(
-		&sdkmcp.Implementation{Name: "scribe", Version: "0.1.1"},
+		&sdkmcp.Implementation{Name: "scribe", Version: "0.2.0"},
 		&sdkmcp.ServerOptions{
 		Instructions: "Scribe is a lean governance artifact store with native DAG support. " +
 			"Use it to create, query, and manage structured artifacts (tasks, specs, sprints, goals, bugs) " +

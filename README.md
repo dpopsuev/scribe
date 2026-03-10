@@ -11,13 +11,13 @@ Persistent planning memory for AI agents. Scribe is a structured artifact store 
 podman run -d --name scribe \
   -p 8080:8080 \
   -v scribe-data:/data \
-  quay.io/dpopsuev/scribe:0.1.1
+  quay.io/dpopsuev/scribe:0.2.0
 ```
 
 ### Binary
 
 ```bash
-go install github.com/dpopsuev/scribe/cmd/scribe@v0.1.1
+go install github.com/dpopsuev/scribe/cmd/scribe@v0.2.0
 scribe serve                   # stdio (Cursor, Claude Desktop)
 scribe serve --transport http  # Streamable HTTP on :8080
 ```
@@ -328,6 +328,100 @@ The vocabulary is enforced: unknown kinds are rejected with a hint to register t
 | `dashboard` | Housekeeping dashboard: per-scope counts, staleness, DB size, top stale artifacts. |
 | `detect_orphans` | Find orphans and/or overlaps. Use `check=orphans\|overlaps\|all` (default: all). |
 
+## LLM Chatbox Examples
+
+These show what an LLM agent sends over MCP. Copy-paste into any chat to see them in action.
+
+**Start a session -- get context:**
+
+```json
+{ "tool": "motd" }
+```
+
+**Create a spec, then a task implementing it:**
+
+```json
+{ "tool": "create_artifact", "arguments": {
+    "kind": "spec", "title": "User authentication via OAuth2", "scope": "myproject"
+}}
+
+{ "tool": "create_artifact", "arguments": {
+    "kind": "task", "title": "Implement OAuth2 login flow", "scope": "myproject"
+}}
+
+{ "tool": "link_artifacts", "arguments": {
+    "id": "TASK-2026-001", "relation": "implements", "targets": ["SPE-2026-001"]
+}}
+```
+
+**List active tasks for a scope:**
+
+```json
+{ "tool": "list_artifacts", "arguments": {
+    "kind": "task", "scope": "myproject", "status": "active"
+}}
+```
+
+**Search across all artifacts:**
+
+```json
+{ "tool": "list_artifacts", "arguments": {
+    "query": "authentication"
+}}
+```
+
+**View a sprint board as a tree:**
+
+```json
+{ "tool": "contract_tree", "arguments": { "id": "SPR-2026-001" } }
+```
+
+**Update task status:**
+
+```json
+{ "tool": "set_field", "arguments": {
+    "id": "TASK-2026-001", "field": "status", "value": "complete"
+}}
+```
+
+**Attach design notes to a spec:**
+
+```json
+{ "tool": "attach_section", "arguments": {
+    "id": "SPE-2026-001", "name": "acceptance",
+    "text": "All endpoints require valid JWT. Refresh within 5min window."
+}}
+```
+
+**Archive old artifacts by filter (dry run first):**
+
+```json
+{ "tool": "archive_artifact", "arguments": {
+    "scope": "myproject", "status": "complete", "dry_run": true
+}}
+```
+
+**Unlink a relationship:**
+
+```json
+{ "tool": "link_artifacts", "arguments": {
+    "id": "TASK-2026-001", "relation": "implements",
+    "targets": ["SPE-2026-001"], "unlink": true
+}}
+```
+
+**Check for orphaned tasks and spec overlaps:**
+
+```json
+{ "tool": "detect_orphans", "arguments": { "check": "all", "scope": "myproject" } }
+```
+
+**Housekeeping dashboard:**
+
+```json
+{ "tool": "dashboard", "arguments": { "stale_days": 14 } }
+```
+
 ## Configuration
 
 Scribe works with zero configuration. For customization, create a `scribe.yaml`:
@@ -387,7 +481,7 @@ podman run -d --name scribe \
   -p 8080:8080 \
   -v scribe-data:/data \
   -v ./scribe.yaml:/data/scribe.yaml \
-  quay.io/dpopsuev/scribe:0.1.1
+  quay.io/dpopsuev/scribe:0.2.0
 ```
 
 ## Environment Variables
