@@ -26,7 +26,7 @@ func NewServer(s store.Store, homeScopes, vocab []string) (*sdkmcp.Server, *dire
 		Instructions: "Scribe is a lean governance artifact store with native DAG support. " +
 			"Use it to create, query, and manage structured artifacts (tasks, specs, sprints, goals, bugs) " +
 			"with parent-child trees, dependency edges, named text sections, and lifecycle status tracking. " +
-			"Start with motd for context, then list_artifacts or search_artifacts to explore.",
+			"Start with motd for context, then list_artifacts to explore.",
 		},
 	)
 	reg := directive.New()
@@ -51,7 +51,7 @@ func NewServer(s store.Store, homeScopes, vocab []string) (*sdkmcp.Server, *dire
 
 	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "list_artifacts",
-		Description: "List artifacts with optional filters (kind, scope, status, parent, sprint). Supports group_by (status, scope, kind, sprint), sort (id, title, status, scope, kind, sprint), and limit.",
+		Description: "List artifacts with optional filters (kind, scope, status, parent, sprint, id_prefix, exclude_kind, exclude_status). Supports group_by (status, scope, kind, sprint), sort (id, title, status, scope, kind, sprint), limit, and query (substring search across title, goal, section text).",
 		Keywords:    []string{"list", "artifacts", "filter", "query", "sprint", "scope"},
 		Categories:  []string{"crud", "query"},
 	}, noOut(h.handleList))
@@ -62,13 +62,6 @@ func NewServer(s store.Store, homeScopes, vocab []string) (*sdkmcp.Server, *dire
 		Keywords:    []string{"set", "update", "field", "status", "title"},
 		Categories:  []string{"crud"},
 	}, noOut(h.handleSetField))
-
-	directive.AddTool(reg, srv, directive.ToolMeta{
-		Name:        "search_artifacts",
-		Description: "Search artifacts by substring match across title, goal, and section text. Returns matching artifacts. Supports optional scope, kind, and status filters.",
-		Keywords:    []string{"search", "find", "query", "text"},
-		Categories:  []string{"query"},
-	}, noOut(h.handleSearch))
 
 	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "attach_section",
@@ -100,17 +93,10 @@ func NewServer(s store.Store, homeScopes, vocab []string) (*sdkmcp.Server, *dire
 
 	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "archive_artifact",
-		Description: "Archive one or more artifacts (marks read-only). Use cascade=true to recursively archive child subtrees.",
+		Description: "Archive one or more artifacts (marks read-only). Use cascade=true to recursively archive child subtrees. When no IDs given, archives all matching filter (scope, kind, status, id_prefix, exclude_kind). Use dry_run=true to preview.",
 		Keywords:    []string{"archive", "retire", "cascade"},
 		Categories:  []string{"lifecycle"},
 	}, noOut(h.handleArchive))
-
-	directive.AddTool(reg, srv, directive.ToolMeta{
-		Name:        "batch_archive",
-		Description: "Archive all artifacts matching a filter (scope, kind, status, id_prefix, exclude_kind). Use dry_run=true to preview.",
-		Keywords:    []string{"archive", "bulk", "batch", "filter"},
-		Categories:  []string{"lifecycle"},
-	}, noOut(h.handleBatchArchive))
 
 	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "vacuum",
@@ -127,27 +113,6 @@ func NewServer(s store.Store, homeScopes, vocab []string) (*sdkmcp.Server, *dire
 	}, noOut(h.handleMotd))
 
 	directive.AddTool(reg, srv, directive.ToolMeta{
-		Name:        "drain_discover",
-		Description: "List .md files under a directory for agent-driven migration into Scribe. Returns file paths, directories, and sizes. The agent reads each file and creates artifacts via create_artifact / attach_section.",
-		Keywords:    []string{"drain", "discover", "migrate", "markdown"},
-		Categories:  []string{"migration"},
-	}, noOut(h.handleDrainDiscover))
-
-	directive.AddTool(reg, srv, directive.ToolMeta{
-		Name:        "drain_cleanup",
-		Description: "Delete .md files under a directory after migration is confirmed.",
-		Keywords:    []string{"drain", "cleanup", "delete", "markdown"},
-		Categories:  []string{"migration"},
-	}, noOut(h.handleDrainCleanup))
-
-	directive.AddTool(reg, srv, directive.ToolMeta{
-		Name:        "inventory",
-		Description: "Return a dashboard summary: total artifacts, counts by kind and status, active sprints, and current goals.",
-		Keywords:    []string{"inventory", "dashboard", "summary", "stats"},
-		Categories:  []string{"query", "navigation"},
-	}, noOut(h.handleInventory))
-
-	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "dashboard",
 		Description: "Housekeeping dashboard: storage, staleness, scope health. Returns scopes with total/active/archived/sections/edges/stale counts, DB size, and top 10 stale artifacts.",
 		Keywords:    []string{"dashboard", "df", "housekeeping", "stale", "storage"},
@@ -156,59 +121,17 @@ func NewServer(s store.Store, homeScopes, vocab []string) (*sdkmcp.Server, *dire
 
 	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "link_artifacts",
-		Description: "Add a directed relationship between artifacts. Supported relations: parent_of, depends_on, justifies, implements, documents, satisfies.",
+		Description: "Add a directed relationship between artifacts. Supported relations: parent_of, depends_on, justifies, implements, documents, satisfies. Set unlink=true to remove the relationship instead.",
 		Keywords:    []string{"link", "relation", "edge", "depends", "parent"},
 		Categories:  []string{"crud", "graph"},
 	}, noOut(h.handleLink))
 
 	directive.AddTool(reg, srv, directive.ToolMeta{
-		Name:        "unlink_artifacts",
-		Description: "Remove a directed relationship between artifacts.",
-		Keywords:    []string{"unlink", "remove", "relation", "edge"},
-		Categories:  []string{"crud", "graph"},
-	}, noOut(h.handleUnlink))
-
-	directive.AddTool(reg, srv, directive.ToolMeta{
-		Name:        "context_mesh",
-		Description: "Query Locus for codebase context related to a governance artifact. Returns architecture components, cycles, and API surface data matching the artifact's scope.",
-		Keywords:    []string{"context", "mesh", "locus", "architecture", "scan"},
-		Categories:  []string{"integration"},
-	}, noOut(h.handleContextMesh))
-
-	directive.AddTool(reg, srv, directive.ToolMeta{
-		Name:        "detect_overlaps",
-		Description: "Find active artifacts that share component labels (project:path format), indicating potential scope conflicts between tasks.",
-		Keywords:    []string{"overlap", "conflict", "label", "component"},
-		Categories:  []string{"query", "governance"},
-	}, noOut(h.handleDetectOverlaps))
-
-	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "detect_orphans",
-		Description: "Find tasks without implements links to specs/bugs, and specs/bugs without tasks implementing them. Warns about missing relationships.",
-		Keywords:    []string{"orphan", "lint", "unlinked", "implements", "spec", "bug"},
+		Description: "Find tasks without implements links to specs/bugs, and specs/bugs without tasks implementing them. Warns about missing relationships. Use check=overlaps to find scope conflicts, check=all for both.",
+		Keywords:    []string{"orphan", "lint", "unlinked", "implements", "spec", "bug", "overlap", "conflict"},
 		Categories:  []string{"query", "governance"},
-	}, noOut(h.handleDetectOrphans))
-
-	directive.AddTool(reg, srv, directive.ToolMeta{
-		Name:        "vocab_list",
-		Description: "List registered artifact kinds in the vocabulary.",
-		Keywords:    []string{"vocab", "kind", "list", "vocabulary"},
-		Categories:  []string{"vocabulary"},
-	}, noOut(h.handleVocabList))
-
-	directive.AddTool(reg, srv, directive.ToolMeta{
-		Name:        "vocab_add",
-		Description: "Register a new artifact kind. Returns error if already registered.",
-		Keywords:    []string{"vocab", "kind", "add", "register"},
-		Categories:  []string{"vocabulary"},
-	}, noOut(h.handleVocabAdd))
-
-	directive.AddTool(reg, srv, directive.ToolMeta{
-		Name:        "vocab_remove",
-		Description: "Remove an artifact kind (only if no artifacts use it).",
-		Keywords:    []string{"vocab", "kind", "remove", "delete"},
-		Categories:  []string{"vocabulary"},
-	}, noOut(h.handleVocabRemove))
+	}, noOut(h.handleDetect))
 
 	return srv, reg
 }
@@ -249,9 +172,18 @@ func (h *handler) handleGet(ctx context.Context, _ *sdkmcp.CallToolRequest, in i
 }
 
 func (h *handler) handleList(ctx context.Context, _ *sdkmcp.CallToolRequest, in protocol.ListInput) (*sdkmcp.CallToolResult, any, error) {
-	arts, err := h.proto.ListArtifacts(ctx, in)
+	var arts []*model.Artifact
+	var err error
+	if in.Query != "" {
+		arts, err = h.proto.SearchArtifacts(ctx, in.Query, in)
+	} else {
+		arts, err = h.proto.ListArtifacts(ctx, in)
+	}
 	if err != nil {
 		return nil, nil, err
+	}
+	if in.Query != "" && len(arts) == 0 {
+		return text(fmt.Sprintf("no artifacts matching %q", in.Query)), nil, nil
 	}
 	if in.Sort != "" {
 		sortArtifacts(arts, in.Sort)
@@ -363,11 +295,31 @@ func (h *handler) handleSetGoal(ctx context.Context, _ *sdkmcp.CallToolRequest, 
 }
 
 type archiveInput struct {
-	IDs     []string `json:"ids"`
-	Cascade bool     `json:"cascade,omitempty"`
+	IDs         []string `json:"ids"`
+	Cascade     bool     `json:"cascade,omitempty"`
+	Scope       string   `json:"scope,omitempty"`
+	Kind        string   `json:"kind,omitempty"`
+	Status      string   `json:"status,omitempty"`
+	IDPrefix    string   `json:"id_prefix,omitempty"`
+	ExcludeKind string   `json:"exclude_kind,omitempty"`
+	DryRun      bool     `json:"dry_run,omitempty"`
 }
 
 func (h *handler) handleArchive(ctx context.Context, _ *sdkmcp.CallToolRequest, in archiveInput) (*sdkmcp.CallToolResult, any, error) {
+	if len(in.IDs) == 0 && (in.Scope != "" || in.Kind != "" || in.Status != "" || in.IDPrefix != "" || in.ExcludeKind != "") {
+		bulk := protocol.BulkMutationInput{
+			Scope: in.Scope, Kind: in.Kind, Status: in.Status,
+			IDPrefix: in.IDPrefix, ExcludeKind: in.ExcludeKind, DryRun: in.DryRun,
+		}
+		res, err := h.proto.BulkArchive(ctx, bulk)
+		if err != nil {
+			return nil, nil, err
+		}
+		if in.DryRun {
+			return text(fmt.Sprintf("dry run: would archive %d artifacts: %v", res.Count, res.AffectedIDs)), nil, nil
+		}
+		return text(fmt.Sprintf("archived %d artifacts", res.Count)), nil, nil
+	}
 	results, err := h.proto.ArchiveArtifact(ctx, in.IDs, in.Cascade)
 	if err != nil {
 		return nil, nil, err
@@ -523,17 +475,28 @@ type linkInput struct {
 	ID       string   `json:"id"`
 	Relation string   `json:"relation"`
 	Targets  []string `json:"targets"`
+	Unlink   bool     `json:"unlink,omitempty"`
 }
 
 func (h *handler) handleLink(ctx context.Context, _ *sdkmcp.CallToolRequest, in linkInput) (*sdkmcp.CallToolResult, any, error) {
-	results, err := h.proto.LinkArtifacts(ctx, in.ID, in.Relation, in.Targets)
+	var results []protocol.Result
+	var err error
+	if in.Unlink {
+		results, err = h.proto.UnlinkArtifacts(ctx, in.ID, in.Relation, in.Targets)
+	} else {
+		results, err = h.proto.LinkArtifacts(ctx, in.ID, in.Relation, in.Targets)
+	}
 	if err != nil {
 		return nil, nil, err
+	}
+	verb := "linked"
+	if in.Unlink {
+		verb = "unlinked"
 	}
 	var lines []string
 	for _, r := range results {
 		if r.OK {
-			lines = append(lines, fmt.Sprintf("%s -[%s]-> %s", in.ID, in.Relation, r.ID))
+			lines = append(lines, fmt.Sprintf("%s %s -[%s]-> %s", verb, in.ID, in.Relation, r.ID))
 		} else {
 			lines = append(lines, fmt.Sprintf("%s -> error: %s", r.ID, r.Error))
 		}
@@ -612,6 +575,66 @@ func (h *handler) handleContextMesh(ctx context.Context, _ *sdkmcp.CallToolReque
 
 	data, _ := json.MarshalIndent(result, "", "  ")
 	return text(string(data)), nil, nil
+}
+
+type detectInput struct {
+	Check   string `json:"check,omitempty"`
+	Scope   string `json:"scope,omitempty"`
+	Status  string `json:"status,omitempty"`
+	Kind    string `json:"kind,omitempty"`
+	Project string `json:"project,omitempty"`
+}
+
+func (h *handler) handleDetect(ctx context.Context, _ *sdkmcp.CallToolRequest, in detectInput) (*sdkmcp.CallToolResult, any, error) {
+	check := in.Check
+	if check == "" {
+		check = "all"
+	}
+	var parts []string
+
+	if check == "overlaps" || check == "all" {
+		report, err := h.proto.DetectOverlaps(ctx, protocol.OverlapInput{
+			Kind: in.Kind, Status: in.Status, Project: in.Project,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(report.Overlaps) == 0 {
+			parts = append(parts, fmt.Sprintf("No overlaps found across %d artifacts.", report.TotalScanned))
+		} else {
+			var b strings.Builder
+			for _, o := range report.Overlaps {
+				fmt.Fprintf(&b, "%s\n", o.Label)
+				for _, a := range o.Artifacts {
+					fmt.Fprintf(&b, "  %-16s %s\n", a.ID, a.Title)
+				}
+				b.WriteString("\n")
+			}
+			fmt.Fprintf(&b, "%d overlap(s) across %d artifacts", report.TotalOverlaps, report.TotalScanned)
+			parts = append(parts, b.String())
+		}
+	}
+
+	if check == "orphans" || check == "all" {
+		report, err := h.proto.DetectOrphans(ctx, protocol.OrphanInput{
+			Scope: in.Scope, Status: in.Status,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(report.Orphans) == 0 {
+			parts = append(parts, fmt.Sprintf("No orphans found across %d artifacts.", report.TotalScanned))
+		} else {
+			var b strings.Builder
+			for _, o := range report.Orphans {
+				fmt.Fprintf(&b, "%-16s %-5s [%s] %s\n  → %s\n\n", o.ID, o.Kind, o.Status, o.Title, o.Reason)
+			}
+			fmt.Fprintf(&b, "%d orphan(s) across %d artifacts", report.TotalOrphans, report.TotalScanned)
+			parts = append(parts, b.String())
+		}
+	}
+
+	return text(strings.Join(parts, "\n\n")), nil, nil
 }
 
 func (h *handler) handleDetectOverlaps(ctx context.Context, _ *sdkmcp.CallToolRequest, in protocol.OverlapInput) (*sdkmcp.CallToolResult, any, error) {
