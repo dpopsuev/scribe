@@ -11,13 +11,13 @@ Persistent planning memory for AI agents. Scribe is a structured artifact store 
 podman run -d --name scribe \
   -p 8080:8080 \
   -v scribe-data:/data \
-  quay.io/dpopsuev/scribe:0.2.0
+  quay.io/dpopsuev/scribe:0.2.1
 ```
 
 ### Binary
 
 ```bash
-go install github.com/dpopsuev/scribe/cmd/scribe@v0.2.0
+go install github.com/dpopsuev/scribe/cmd/scribe@v0.2.1
 scribe serve                   # stdio (Cursor, Claude Desktop)
 scribe serve --transport http  # Streamable HTTP on :8080
 ```
@@ -200,7 +200,7 @@ Returns current goals, due reminders, and recent notes -- enough for an agent to
 Search, filter, and traverse the artifact graph:
 
 ```bash
-scribe list --kind contract --status active --scope myproject
+scribe list --kind task --status active --scope myproject
 scribe search "authentication"
 scribe tree SPR-2026-001           # sprint board as a tree
 scribe inventory                    # dashboard: counts by kind, status, active sprints
@@ -481,7 +481,7 @@ podman run -d --name scribe \
   -p 8080:8080 \
   -v scribe-data:/data \
   -v ./scribe.yaml:/data/scribe.yaml \
-  quay.io/dpopsuev/scribe:0.2.0
+  quay.io/dpopsuev/scribe:0.2.1
 ```
 
 ## Environment Variables

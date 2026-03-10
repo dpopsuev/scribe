@@ -52,7 +52,7 @@ func TestContainerLifecycle(t *testing.T) {
 	var artifactID string
 	t.Run("create artifact", func(t *testing.T) {
 		resp := callTool(t, sid, "create_artifact", map[string]any{
-			"kind":  "contract",
+			"kind":  "task",
 			"title": "integration-test-artifact",
 		}, 3)
 		// response contains the artifact JSON with an ID

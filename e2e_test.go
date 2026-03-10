@@ -221,25 +221,25 @@ func TestE2E_Deterministic(t *testing.T) {
 
 	t.Run("create_artifact", func(t *testing.T) {
 		text := extractText(t, mcpToolCall(t, sid, nextID(), "create_artifact", map[string]any{
-			"kind":  "contract",
-			"title": "E2E test contract",
+			"kind":  "task",
+			"title": "E2E test task",
 			"scope": "e2e",
 		}))
-		if !strings.Contains(text, "E2E test contract") {
+		if !strings.Contains(text, "E2E test task") {
 			t.Fatalf("create response missing title:\n%s", truncate(text, 500))
 		}
-		if !strings.Contains(text, "CON-") {
-			t.Fatalf("create response missing CON- prefix:\n%s", truncate(text, 500))
+		if !strings.Contains(text, "TASK-") {
+			t.Fatalf("create response missing TASK- prefix:\n%s", truncate(text, 500))
 		}
 		t.Logf("created: %s", truncate(text, 200))
 	})
 
 	t.Run("list_artifacts", func(t *testing.T) {
 		text := extractText(t, mcpToolCall(t, sid, nextID(), "list_artifacts", map[string]any{
-			"kind": "contract",
+			"kind": "task",
 		}))
-		if !strings.Contains(text, "E2E test contract") {
-			t.Fatalf("list missing created contract:\n%s", truncate(text, 500))
+		if !strings.Contains(text, "E2E test task") {
+			t.Fatalf("list missing created task:\n%s", truncate(text, 500))
 		}
 	})
 
@@ -247,21 +247,21 @@ func TestE2E_Deterministic(t *testing.T) {
 		text := extractText(t, mcpToolCall(t, sid, nextID(), "search_artifacts", map[string]any{
 			"query": "E2E test",
 		}))
-		if !strings.Contains(text, "E2E test contract") {
-			t.Fatalf("search missing contract:\n%s", truncate(text, 500))
+		if !strings.Contains(text, "E2E test task") {
+			t.Fatalf("search missing task:\n%s", truncate(text, 500))
 		}
 	})
 
 	t.Run("attach_and_get_section", func(t *testing.T) {
 		text := extractText(t, mcpToolCall(t, sid, nextID(), "list_artifacts", map[string]any{
-			"kind": "contract",
+			"kind": "task",
 		}))
 		var id string
 		for _, line := range strings.Split(text, "\n") {
-			if strings.Contains(line, "CON-") {
+			if strings.Contains(line, "TASK-") {
 				parts := strings.Fields(line)
 				for _, p := range parts {
-					if strings.HasPrefix(p, "CON-") {
+					if strings.HasPrefix(p, "TASK-") {
 						id = p
 						break
 					}
@@ -272,7 +272,7 @@ func TestE2E_Deterministic(t *testing.T) {
 			}
 		}
 		if id == "" {
-			id = extractFirstID(t, text, "CON-")
+			id = extractFirstID(t, text, "TASK-")
 		}
 
 		attachText := extractText(t, mcpToolCall(t, sid, nextID(), "attach_section", map[string]any{
@@ -293,8 +293,8 @@ func TestE2E_Deterministic(t *testing.T) {
 
 	t.Run("inventory", func(t *testing.T) {
 		text := extractText(t, mcpToolCall(t, sid, nextID(), "inventory", nil))
-		if !strings.Contains(text, "contract") {
-			t.Fatalf("inventory missing contract kind:\n%s", truncate(text, 500))
+		if !strings.Contains(text, "task") {
+			t.Fatalf("inventory missing task kind:\n%s", truncate(text, 500))
 		}
 	})
 }
@@ -401,11 +401,11 @@ func TestE2E_LLMRoundTrip(t *testing.T) {
 			"type": "function",
 			"function": map[string]any{
 				"name":        "create_artifact",
-				"description": "Create a new governance artifact. You MUST call this to create contracts.",
+				"description": "Create a new governance artifact. You MUST call this to create tasks.",
 				"parameters": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
-						"kind":  map[string]any{"type": "string", "description": "Artifact kind (contract, sprint, goal)"},
+						"kind":  map[string]any{"type": "string", "description": "Artifact kind (task, sprint, goal)"},
 						"title": map[string]any{"type": "string", "description": "Artifact title"},
 						"scope": map[string]any{"type": "string", "description": "Project scope"},
 						"goal":  map[string]any{"type": "string", "description": "Goal description"},
@@ -433,7 +433,7 @@ func TestE2E_LLMRoundTrip(t *testing.T) {
 
 	messages := []map[string]any{
 		{"role": "system", "content": "You are a project manager. Use the tools provided to manage governance artifacts. Always create artifacts when asked."},
-		{"role": "user", "content": "Create a contract titled 'LLM Integration Test' in scope 'e2e' with goal 'Verify LLM can call Scribe MCP tools'. Then list all contracts to confirm it was created."},
+		{"role": "user", "content": "Create a task titled 'LLM Integration Test' in scope 'e2e' with goal 'Verify LLM can call Scribe MCP tools'. Then list all tasks to confirm it was created."},
 	}
 
 	toolCalled := false

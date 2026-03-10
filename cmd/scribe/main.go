@@ -425,7 +425,7 @@ func treeCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, close := mustProto()
 			defer close()
-			tree, err := p.ContractTree(context.Background(), args[0])
+			tree, err := p.ArtifactTree(context.Background(), protocol.TreeInput{ID: args[0]})
 			if err != nil {
 				return err
 			}

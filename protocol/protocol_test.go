@@ -149,11 +149,11 @@ func TestComponentLabelGate_Blocks(t *testing.T) {
 	ctx := context.Background()
 
 	_ = s.Put(ctx, &model.Artifact{
-		ID: "CON-1", Kind: "contract", Status: "draft", Title: "Gated",
+		ID: "TASK-1", Kind: "task", Status: "draft", Title: "Gated",
 		Sections: []model.Section{{Name: "specification", Text: "some spec"}},
 	})
 
-	results, err := p.SetField(ctx, []string{"CON-1"}, "status", "active")
+	results, err := p.SetField(ctx, []string{"TASK-1"}, "status", "active")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,12 +173,12 @@ func TestComponentLabelGate_Passes(t *testing.T) {
 	ctx := context.Background()
 
 	_ = s.Put(ctx, &model.Artifact{
-		ID: "CON-1", Kind: "contract", Status: "draft", Title: "Labeled",
+		ID: "TASK-1", Kind: "task", Status: "draft", Title: "Labeled",
 		Labels:   []string{"locus:internal/arch"},
 		Sections: []model.Section{{Name: "specification", Text: "some spec"}},
 	})
 
-	results, err := p.SetField(ctx, []string{"CON-1"}, "status", "active")
+	results, err := p.SetField(ctx, []string{"TASK-1"}, "status", "active")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,11 +195,11 @@ func TestComponentLabelGate_NoTriggerSection(t *testing.T) {
 	ctx := context.Background()
 
 	_ = s.Put(ctx, &model.Artifact{
-		ID: "CON-1", Kind: "contract", Status: "draft", Title: "No trigger",
+		ID: "TASK-1", Kind: "task", Status: "draft", Title: "No trigger",
 		Sections: []model.Section{{Name: "notes", Text: "just notes"}},
 	})
 
-	results, err := p.SetField(ctx, []string{"CON-1"}, "status", "active")
+	results, err := p.SetField(ctx, []string{"TASK-1"}, "status", "active")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,11 +215,11 @@ func TestComponentLabelGate_DisabledByDefault(t *testing.T) {
 	ctx := context.Background()
 
 	_ = s.Put(ctx, &model.Artifact{
-		ID: "CON-1", Kind: "contract", Status: "draft", Title: "Ungated",
+		ID: "TASK-1", Kind: "task", Status: "draft", Title: "Ungated",
 		Sections: []model.Section{{Name: "specification", Text: "spec"}},
 	})
 
-	results, err := p.SetField(ctx, []string{"CON-1"}, "status", "active")
+	results, err := p.SetField(ctx, []string{"TASK-1"}, "status", "active")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +228,7 @@ func TestComponentLabelGate_DisabledByDefault(t *testing.T) {
 	}
 }
 
-func TestComponentLabelGate_NonContract(t *testing.T) {
+func TestComponentLabelGate_NonTask(t *testing.T) {
 	os.Setenv("SCRIBE_GATE_REQUIRE_COMPONENT_LABELS", "true")
 	defer os.Unsetenv("SCRIBE_GATE_REQUIRE_COMPONENT_LABELS")
 
@@ -245,7 +245,7 @@ func TestComponentLabelGate_NonContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !results[0].OK {
-		t.Errorf("gate should only apply to contracts, got error: %s", results[0].Error)
+		t.Errorf("gate should only apply to tasks, got error: %s", results[0].Error)
 	}
 }
 
@@ -255,8 +255,8 @@ func TestLinkDependsOn_SimpleChainAllowed(t *testing.T) {
 	p, s := newProto(t)
 	ctx := context.Background()
 
-	_ = s.Put(ctx, &model.Artifact{ID: "A", Kind: "contract", Status: "draft", Title: "A"})
-	_ = s.Put(ctx, &model.Artifact{ID: "B", Kind: "contract", Status: "draft", Title: "B"})
+	_ = s.Put(ctx, &model.Artifact{ID: "A", Kind: "task", Status: "draft", Title: "A"})
+	_ = s.Put(ctx, &model.Artifact{ID: "B", Kind: "task", Status: "draft", Title: "B"})
 
 	results, err := p.LinkArtifacts(ctx, "A", "depends_on", []string{"B"})
 	if err != nil {
@@ -271,8 +271,8 @@ func TestLinkDependsOn_DirectCycleRejected(t *testing.T) {
 	p, s := newProto(t)
 	ctx := context.Background()
 
-	_ = s.Put(ctx, &model.Artifact{ID: "A", Kind: "contract", Status: "draft", Title: "A"})
-	_ = s.Put(ctx, &model.Artifact{ID: "B", Kind: "contract", Status: "draft", Title: "B"})
+	_ = s.Put(ctx, &model.Artifact{ID: "A", Kind: "task", Status: "draft", Title: "A"})
+	_ = s.Put(ctx, &model.Artifact{ID: "B", Kind: "task", Status: "draft", Title: "B"})
 
 	_, _ = p.LinkArtifacts(ctx, "A", "depends_on", []string{"B"})
 
@@ -292,9 +292,9 @@ func TestLinkDependsOn_TransitiveCycleRejected(t *testing.T) {
 	p, s := newProto(t)
 	ctx := context.Background()
 
-	_ = s.Put(ctx, &model.Artifact{ID: "A", Kind: "contract", Status: "draft", Title: "A"})
-	_ = s.Put(ctx, &model.Artifact{ID: "B", Kind: "contract", Status: "draft", Title: "B"})
-	_ = s.Put(ctx, &model.Artifact{ID: "C", Kind: "contract", Status: "draft", Title: "C"})
+	_ = s.Put(ctx, &model.Artifact{ID: "A", Kind: "task", Status: "draft", Title: "A"})
+	_ = s.Put(ctx, &model.Artifact{ID: "B", Kind: "task", Status: "draft", Title: "B"})
+	_ = s.Put(ctx, &model.Artifact{ID: "C", Kind: "task", Status: "draft", Title: "C"})
 
 	_, _ = p.LinkArtifacts(ctx, "A", "depends_on", []string{"B"})
 	_, _ = p.LinkArtifacts(ctx, "B", "depends_on", []string{"C"})
@@ -312,7 +312,7 @@ func TestLinkDependsOn_SelfLoopRejected(t *testing.T) {
 	p, s := newProto(t)
 	ctx := context.Background()
 
-	_ = s.Put(ctx, &model.Artifact{ID: "A", Kind: "contract", Status: "draft", Title: "A"})
+	_ = s.Put(ctx, &model.Artifact{ID: "A", Kind: "task", Status: "draft", Title: "A"})
 
 	_, err := p.LinkArtifacts(ctx, "A", "depends_on", []string{"A"})
 	if err == nil {
@@ -327,9 +327,9 @@ func TestLinkDependsOn_BatchWithOneBadTargetRejectsAll(t *testing.T) {
 	p, s := newProto(t)
 	ctx := context.Background()
 
-	_ = s.Put(ctx, &model.Artifact{ID: "A", Kind: "contract", Status: "draft", Title: "A"})
-	_ = s.Put(ctx, &model.Artifact{ID: "B", Kind: "contract", Status: "draft", Title: "B"})
-	_ = s.Put(ctx, &model.Artifact{ID: "C", Kind: "contract", Status: "draft", Title: "C"})
+	_ = s.Put(ctx, &model.Artifact{ID: "A", Kind: "task", Status: "draft", Title: "A"})
+	_ = s.Put(ctx, &model.Artifact{ID: "B", Kind: "task", Status: "draft", Title: "B"})
+	_ = s.Put(ctx, &model.Artifact{ID: "C", Kind: "task", Status: "draft", Title: "C"})
 
 	_, _ = p.LinkArtifacts(ctx, "A", "depends_on", []string{"B"})
 
@@ -350,8 +350,8 @@ func TestLinkOtherRelations_AllowCycles(t *testing.T) {
 	p, s := newProto(t)
 	ctx := context.Background()
 
-	_ = s.Put(ctx, &model.Artifact{ID: "A", Kind: "contract", Status: "draft", Title: "A"})
-	_ = s.Put(ctx, &model.Artifact{ID: "B", Kind: "contract", Status: "draft", Title: "B"})
+	_ = s.Put(ctx, &model.Artifact{ID: "A", Kind: "task", Status: "draft", Title: "A"})
+	_ = s.Put(ctx, &model.Artifact{ID: "B", Kind: "task", Status: "draft", Title: "B"})
 
 	_, err := p.LinkArtifacts(ctx, "A", "documents", []string{"B"})
 	if err != nil {
@@ -364,14 +364,14 @@ func TestLinkOtherRelations_AllowCycles(t *testing.T) {
 	}
 }
 
-func TestContractTree_ScopeInTreeNode(t *testing.T) {
+func TestArtifactTree_ScopeInTreeNode(t *testing.T) {
 	p, s := newProto(t)
 	ctx := context.Background()
 
 	_ = s.Put(ctx, &model.Artifact{ID: "SPR-1", Kind: "sprint", Scope: "origami", Status: "active", Title: "Sprint"})
-	_ = s.Put(ctx, &model.Artifact{ID: "CON-1", Kind: "contract", Scope: "scribe", Status: "draft", Title: "Child", Parent: "SPR-1"})
+	_ = s.Put(ctx, &model.Artifact{ID: "TASK-1", Kind: "task", Scope: "scribe", Status: "draft", Title: "Child", Parent: "SPR-1"})
 
-	tree, err := p.ContractTree(ctx, "SPR-1")
+	tree, err := p.ArtifactTree(ctx, protocol.TreeInput{ID: "SPR-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -390,8 +390,8 @@ func TestSetFieldDependsOn_CycleRejected(t *testing.T) {
 	p, s := newProto(t)
 	ctx := context.Background()
 
-	_ = s.Put(ctx, &model.Artifact{ID: "A", Kind: "contract", Status: "draft", Title: "A", DependsOn: []string{"B"}})
-	_ = s.Put(ctx, &model.Artifact{ID: "B", Kind: "contract", Status: "draft", Title: "B"})
+	_ = s.Put(ctx, &model.Artifact{ID: "A", Kind: "task", Status: "draft", Title: "A", DependsOn: []string{"B"}})
+	_ = s.Put(ctx, &model.Artifact{ID: "B", Kind: "task", Status: "draft", Title: "B"})
 
 	results, err := p.SetField(ctx, []string{"B"}, "depends_on", "A")
 	if err != nil {
@@ -414,11 +414,11 @@ func newProtoWithVocab(t *testing.T, vocab []string) (*protocol.Protocol, store.
 }
 
 func TestValidateKind_RejectsUnknown(t *testing.T) {
-	err := model.ValidateKind("contract", []string{"goal", "sprint", "task", "spec", "bug"})
+	err := model.ValidateKind("foo", []string{"goal", "sprint", "task", "spec", "bug"})
 	if err == nil {
 		t.Fatal("expected error for unknown kind")
 	}
-	if !strings.Contains(err.Error(), `unknown kind "contract"`) {
+	if !strings.Contains(err.Error(), `unknown kind "foo"`) {
 		t.Errorf("unexpected error: %s", err.Error())
 	}
 	if !strings.Contains(err.Error(), "scribe vocab add") {
@@ -448,7 +448,7 @@ func TestCreateArtifact_EnforcesVocab(t *testing.T) {
 	p, _ := newProtoWithVocab(t, []string{"task", "spec", "bug", "goal", "sprint"})
 	ctx := context.Background()
 
-	_, err := p.CreateArtifact(ctx, protocol.CreateInput{Kind: "contract", Title: "test"})
+	_, err := p.CreateArtifact(ctx, protocol.CreateInput{Kind: "foo", Title: "test"})
 	if err == nil {
 		t.Fatal("expected vocab rejection")
 	}
@@ -471,12 +471,12 @@ func TestSetFieldKind_EnforcesVocab(t *testing.T) {
 
 	_ = s.Put(ctx, &model.Artifact{ID: "TASK-1", Kind: "task", Status: "draft", Title: "A"})
 
-	results, err := p.SetField(ctx, []string{"TASK-1"}, "kind", "contract")
+	results, err := p.SetField(ctx, []string{"TASK-1"}, "kind", "foo")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if results[0].OK {
-		t.Error("expected vocab rejection for set_field kind=contract")
+		t.Error("expected vocab rejection for set_field kind=foo")
 	}
 
 	results, err = p.SetField(ctx, []string{"TASK-1"}, "kind", "spec")
@@ -492,8 +492,8 @@ func TestVocabMigrate_DryRun(t *testing.T) {
 	p, s := newProto(t)
 	ctx := context.Background()
 
-	_ = s.Put(ctx, &model.Artifact{ID: "CON-1", Kind: "contract", Status: "draft", Title: "A"})
-	_ = s.Put(ctx, &model.Artifact{ID: "CON-2", Kind: "contract", Status: "draft", Title: "B"})
+	_ = s.Put(ctx, &model.Artifact{ID: "STORY-1", Kind: "story", Status: "draft", Title: "A"})
+	_ = s.Put(ctx, &model.Artifact{ID: "STORY-2", Kind: "story", Status: "draft", Title: "B"})
 	_ = s.Put(ctx, &model.Artifact{ID: "EPIC-1", Kind: "epic", Status: "draft", Title: "E"})
 	_ = s.Put(ctx, &model.Artifact{ID: "SPEC-1", Kind: "specification", Status: "draft", Title: "S"})
 	_ = s.Put(ctx, &model.Artifact{ID: "RULE-1", Kind: "rule", Status: "draft", Title: "R"})
@@ -503,8 +503,8 @@ func TestVocabMigrate_DryRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Rewrites["contract → task"] != 2 {
-		t.Errorf("expected 2 contract→task, got %d", result.Rewrites["contract → task"])
+	if result.Rewrites["story → task"] != 2 {
+		t.Errorf("expected 2 story→task, got %d", result.Rewrites["story → task"])
 	}
 	if result.Rewrites["epic → goal"] != 1 {
 		t.Errorf("expected 1 epic→goal, got %d", result.Rewrites["epic → goal"])
@@ -516,8 +516,8 @@ func TestVocabMigrate_DryRun(t *testing.T) {
 		t.Errorf("expected 1 archived (rule), got %d", result.Archived)
 	}
 
-	art, _ := s.Get(ctx, "CON-1")
-	if art.Kind != "contract" {
+	art, _ := s.Get(ctx, "STORY-1")
+	if art.Kind != "story" {
 		t.Error("dry run should not mutate")
 	}
 }
@@ -526,7 +526,7 @@ func TestVocabMigrate_Commit(t *testing.T) {
 	p, s := newProto(t)
 	ctx := context.Background()
 
-	_ = s.Put(ctx, &model.Artifact{ID: "CON-1", Kind: "contract", Status: "draft", Title: "A"})
+	_ = s.Put(ctx, &model.Artifact{ID: "STORY-1", Kind: "story", Status: "draft", Title: "A"})
 	_ = s.Put(ctx, &model.Artifact{ID: "EPIC-1", Kind: "epic", Status: "draft", Title: "E"})
 	_ = s.Put(ctx, &model.Artifact{ID: "RULE-1", Kind: "rule", Status: "draft", Title: "R"})
 
@@ -535,7 +535,7 @@ func TestVocabMigrate_Commit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	art, _ := s.Get(ctx, "CON-1")
+	art, _ := s.Get(ctx, "STORY-1")
 	if art.Kind != "task" {
 		t.Errorf("expected kind=task after migration, got %s", art.Kind)
 	}

@@ -21,7 +21,7 @@ import (
 // Returns both the server and a directive registry for CLI introspection.
 func NewServer(s store.Store, homeScopes, vocab []string) (*sdkmcp.Server, *directive.Registry) {
 	srv := sdkmcp.NewServer(
-		&sdkmcp.Implementation{Name: "scribe", Version: "0.2.0"},
+		&sdkmcp.Implementation{Name: "scribe", Version: "0.2.1"},
 		&sdkmcp.ServerOptions{
 		Instructions: "Scribe is a lean governance artifact store with native DAG support. " +
 			"Use it to create, query, and manage structured artifacts (tasks, specs, sprints, goals, bugs) " +
@@ -38,13 +38,13 @@ func NewServer(s store.Store, homeScopes, vocab []string) (*sdkmcp.Server, *dire
 	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "create_artifact",
 		Description: "Create a new governance artifact (task, spec, goal, sprint, bug)",
-		Keywords:    []string{"create", "new", "artifact", "contract", "sprint", "goal"},
+		Keywords:    []string{"create", "new", "artifact", "sprint", "goal"},
 		Categories:  []string{"crud"},
 	}, noOut(h.handleCreate))
 
 	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name:        "get_artifact",
-		Description: "Retrieve a single artifact by ID",
+		Description: "Retrieve a single artifact by ID. Set include_edges=true to include resolved neighbor summaries.",
 		Keywords:    []string{"get", "show", "artifact", "detail"},
 		Categories:  []string{"crud"},
 	}, noOut(h.handleGet))
@@ -78,8 +78,8 @@ func NewServer(s store.Store, homeScopes, vocab []string) (*sdkmcp.Server, *dire
 	}, noOut(h.handleGetSection))
 
 	directive.AddTool(reg, srv, directive.ToolMeta{
-		Name:        "contract_tree",
-		Description: "Return the parent-child tree rooted at an artifact",
+		Name:        "artifact_tree",
+		Description: "Return the parent-child tree rooted at an artifact. Supports optional relation, direction, and depth for general graph traversal.",
 		Keywords:    []string{"tree", "hierarchy", "children", "parent"},
 		Categories:  []string{"query", "navigation"},
 	}, noOut(h.handleTree))
@@ -163,12 +163,29 @@ type idInput struct {
 	ID string `json:"id"`
 }
 
-func (h *handler) handleGet(ctx context.Context, _ *sdkmcp.CallToolRequest, in idInput) (*sdkmcp.CallToolResult, any, error) {
+type getInput struct {
+	ID           string `json:"id"`
+	IncludeEdges bool   `json:"include_edges,omitempty"`
+}
+
+func (h *handler) handleGet(ctx context.Context, _ *sdkmcp.CallToolRequest, in getInput) (*sdkmcp.CallToolResult, any, error) {
 	art, err := h.proto.GetArtifact(ctx, in.ID)
 	if err != nil {
 		return nil, nil, err
 	}
-	return text(render.Markdown(art)), nil, nil
+	if !in.IncludeEdges {
+		return text(render.Markdown(art)), nil, nil
+	}
+	edges, err := h.proto.GetArtifactEdges(ctx, in.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	type artWithEdges struct {
+		*model.Artifact
+		Edges []protocol.EdgeSummary `json:"edges"`
+	}
+	data, _ := json.MarshalIndent(artWithEdges{Artifact: art, Edges: edges}, "", "  ")
+	return text(string(data)), nil, nil
 }
 
 func (h *handler) handleList(ctx context.Context, _ *sdkmcp.CallToolRequest, in protocol.ListInput) (*sdkmcp.CallToolResult, any, error) {
@@ -269,8 +286,8 @@ func (h *handler) handleGetSection(ctx context.Context, _ *sdkmcp.CallToolReques
 	return text(t), nil, nil
 }
 
-func (h *handler) handleTree(ctx context.Context, _ *sdkmcp.CallToolRequest, in idInput) (*sdkmcp.CallToolResult, any, error) {
-	tree, err := h.proto.ContractTree(ctx, in.ID)
+func (h *handler) handleTree(ctx context.Context, _ *sdkmcp.CallToolRequest, in protocol.TreeInput) (*sdkmcp.CallToolResult, any, error) {
+	tree, err := h.proto.ArtifactTree(ctx, in)
 	if err != nil {
 		return nil, nil, err
 	}

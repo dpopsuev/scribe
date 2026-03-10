@@ -26,7 +26,7 @@ func tmpStore(t *testing.T) store.Store {
 
 func TestGuardPut_NewArtifact(t *testing.T) {
 	s := tmpStore(t)
-	art := &model.Artifact{ID: "CON-2026-001", Kind: "contract", Status: "active", Title: "test"}
+	art := &model.Artifact{ID: "TASK-2026-001", Kind: "task", Status: "active", Title: "test"}
 	if err := lifecycle.GuardPut(context.Background(), s, art); err != nil {
 		t.Fatalf("new artifact should pass: %v", err)
 	}
@@ -35,11 +35,11 @@ func TestGuardPut_NewArtifact(t *testing.T) {
 func TestGuardPut_ArchivedBlocks(t *testing.T) {
 	s := tmpStore(t)
 	ctx := context.Background()
-	art := &model.Artifact{ID: "CON-2026-001", Kind: "contract", Status: "archived", Title: "test"}
+	art := &model.Artifact{ID: "TASK-2026-001", Kind: "task", Status: "archived", Title: "test"}
 	if err := s.Put(ctx, art); err != nil {
 		t.Fatal(err)
 	}
-	update := &model.Artifact{ID: "CON-2026-001", Kind: "contract", Status: "archived", Title: "changed"}
+	update := &model.Artifact{ID: "TASK-2026-001", Kind: "task", Status: "archived", Title: "changed"}
 	err := lifecycle.GuardPut(ctx, s, update)
 	if !errors.Is(err, lifecycle.ErrArchived) {
 		t.Fatalf("expected ErrArchived, got: %v", err)
@@ -49,11 +49,11 @@ func TestGuardPut_ArchivedBlocks(t *testing.T) {
 func TestGuardPut_NonArchivedPasses(t *testing.T) {
 	s := tmpStore(t)
 	ctx := context.Background()
-	art := &model.Artifact{ID: "CON-2026-001", Kind: "contract", Status: "active", Title: "test"}
+	art := &model.Artifact{ID: "TASK-2026-001", Kind: "task", Status: "active", Title: "test"}
 	if err := s.Put(ctx, art); err != nil {
 		t.Fatal(err)
 	}
-	update := &model.Artifact{ID: "CON-2026-001", Kind: "contract", Status: "complete", Title: "changed"}
+	update := &model.Artifact{ID: "TASK-2026-001", Kind: "task", Status: "complete", Title: "changed"}
 	if err := lifecycle.GuardPut(ctx, s, update); err != nil {
 		t.Fatalf("non-archived should pass: %v", err)
 	}
@@ -62,15 +62,15 @@ func TestGuardPut_NonArchivedPasses(t *testing.T) {
 func TestGuardDelete_RequiresArchived(t *testing.T) {
 	s := tmpStore(t)
 	ctx := context.Background()
-	art := &model.Artifact{ID: "CON-2026-001", Kind: "contract", Status: "active", Title: "test"}
+	art := &model.Artifact{ID: "TASK-2026-001", Kind: "task", Status: "active", Title: "test"}
 	s.Put(ctx, art)
 
-	err := lifecycle.GuardDelete(ctx, s, "CON-2026-001", false)
+	err := lifecycle.GuardDelete(ctx, s, "TASK-2026-001", false)
 	if !errors.Is(err, lifecycle.ErrNotArchived) {
 		t.Fatalf("expected ErrNotArchived, got: %v", err)
 	}
 
-	if err := lifecycle.GuardDelete(ctx, s, "CON-2026-001", true); err != nil {
+	if err := lifecycle.GuardDelete(ctx, s, "TASK-2026-001", true); err != nil {
 		t.Fatalf("force should bypass: %v", err)
 	}
 }
@@ -78,10 +78,10 @@ func TestGuardDelete_RequiresArchived(t *testing.T) {
 func TestGuardDelete_ArchivedAllowed(t *testing.T) {
 	s := tmpStore(t)
 	ctx := context.Background()
-	art := &model.Artifact{ID: "CON-2026-001", Kind: "contract", Status: "archived", Title: "test"}
+	art := &model.Artifact{ID: "TASK-2026-001", Kind: "task", Status: "archived", Title: "test"}
 	s.Put(ctx, art)
 
-	if err := lifecycle.GuardDelete(ctx, s, "CON-2026-001", false); err != nil {
+	if err := lifecycle.GuardDelete(ctx, s, "TASK-2026-001", false); err != nil {
 		t.Fatalf("archived delete should pass: %v", err)
 	}
 }
@@ -89,13 +89,13 @@ func TestGuardDelete_ArchivedAllowed(t *testing.T) {
 func TestArchive_LeafArtifact(t *testing.T) {
 	s := tmpStore(t)
 	ctx := context.Background()
-	art := &model.Artifact{ID: "CON-2026-001", Kind: "contract", Status: "complete", Title: "test"}
+	art := &model.Artifact{ID: "TASK-2026-001", Kind: "task", Status: "complete", Title: "test"}
 	s.Put(ctx, art)
 
-	if err := lifecycle.Archive(ctx, s, "CON-2026-001", false); err != nil {
+	if err := lifecycle.Archive(ctx, s, "TASK-2026-001", false); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := s.Get(ctx, "CON-2026-001")
+	got, _ := s.Get(ctx, "TASK-2026-001")
 	if got.Status != "archived" {
 		t.Fatalf("expected archived, got %s", got.Status)
 	}
@@ -140,12 +140,12 @@ func TestVacuum(t *testing.T) {
 	s := tmpStore(t)
 	ctx := context.Background()
 
-	stale := &model.Artifact{ID: "CON-2026-001", Kind: "contract", Status: "archived", Title: "stale"}
+	stale := &model.Artifact{ID: "TASK-2026-001", Kind: "task", Status: "archived", Title: "stale"}
 	stale.UpdatedAt = time.Now().UTC().Add(-48 * time.Hour)
 	s.Put(ctx, stale)
 	// Reset UpdatedAt to old time (Put sets UpdatedAt to now, so we need SQL workaround)
 	// The test uses a short enough duration to cover this
-	fresh := &model.Artifact{ID: "CON-2026-002", Kind: "contract", Status: "archived", Title: "fresh"}
+	fresh := &model.Artifact{ID: "TASK-2026-002", Kind: "task", Status: "archived", Title: "fresh"}
 	s.Put(ctx, fresh)
 
 	deleted, err := lifecycle.Vacuum(ctx, s, 1*time.Second, "")
