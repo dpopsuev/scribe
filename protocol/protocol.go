@@ -137,6 +137,7 @@ type CreateInput struct {
 	Extra      map[string]any      `json:"extra,omitempty"`
 	CreatedAt  string              `json:"created_at,omitempty"`
 	ExplicitID string              `json:"explicit_id,omitempty"`
+	Sections   []model.Section     `json:"sections,omitempty"`
 }
 
 func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*model.Artifact, error) {
@@ -210,11 +211,15 @@ func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*model.A
 		Priority:  in.Priority,
 		DependsOn: in.DependsOn, Labels: in.Labels,
 		Links: in.Links, Extra: in.Extra,
+		Sections: in.Sections,
 	}
 	if in.CreatedAt != "" {
 		if t, err := time.Parse(time.RFC3339, in.CreatedAt); err == nil {
 			art.CreatedAt = t
 		}
+	}
+	if err := p.checkTemplateConformance(ctx, art); err != nil {
+		return nil, err
 	}
 	if err := p.store.Put(ctx, art); err != nil {
 		return nil, err
@@ -697,6 +702,12 @@ func (p *Protocol) DetachSection(ctx context.Context, id, name string) (bool, er
 	}
 	if p.schema.Guards.ArchivedReadonly && p.schema.IsReadonly(art.Status) {
 		return false, fmt.Errorf("%w: %s", ErrArchived, art.ID)
+	}
+	if tpl := p.resolveTemplate(ctx, art); tpl != nil {
+		expected := templateSections(tpl)
+		if guidance, required := expected[name]; required {
+			return false, fmt.Errorf("cannot remove section %q required by template %s: %s", name, tpl.ID, guidance)
+		}
 	}
 	idx := -1
 	for i, sec := range art.Sections {
@@ -1926,6 +1937,23 @@ func (p *Protocol) Check(ctx context.Context, scope string) (*CheckReport, error
 				})
 			}
 		}
+
+		if tpl := p.resolveTemplate(ctx, art); tpl != nil {
+			expected := templateSections(tpl)
+			have := make(map[string]bool, len(art.Sections))
+			for _, sec := range art.Sections {
+				have[sec.Name] = true
+			}
+			for secName, guidance := range expected {
+				if !have[secName] {
+					report.Violations = append(report.Violations, CheckViolation{
+						ID: art.ID, Kind: art.Kind, Title: art.Title,
+						Category: "missing_template_section",
+						Detail:   fmt.Sprintf("missing section %q required by template %s: %s", secName, tpl.ID, guidance),
+					})
+				}
+			}
+		}
 	}
 
 	sort.Slice(report.Violations, func(i, j int) bool {
@@ -2032,26 +2060,11 @@ type MigrateResult struct {
 	Report           *CheckReport `json:"report"`
 }
 
-// Migrate performs legacy data cleanup: removes satisfies edges, then runs CheckFix.
+// Migrate performs legacy data cleanup, then runs CheckFix.
+// Note: satisfies edges are no longer removed — the relation is now used for
+// template binding (artifact satisfies template).
 func (p *Protocol) Migrate(ctx context.Context) (*MigrateResult, error) {
 	result := &MigrateResult{}
-
-	f := model.Filter{}
-	if len(p.scopes) > 0 {
-		f.Scopes = p.scopes
-	}
-	arts, err := p.store.List(ctx, f)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, art := range arts {
-		if targets, ok := art.Links["satisfies"]; ok && len(targets) > 0 {
-			result.SatisfiesRemoved += len(targets)
-			delete(art.Links, "satisfies")
-			_ = p.store.Put(ctx, art)
-		}
-	}
 
 	report, fixes, err := p.CheckFix(ctx, "")
 	if err != nil {
@@ -2060,6 +2073,64 @@ func (p *Protocol) Migrate(ctx context.Context) (*MigrateResult, error) {
 	result.Report = report
 	result.Fixes = fixes
 	return result, nil
+}
+
+// --- template enforcement helpers ---
+
+// resolveTemplate follows the satisfies link on an artifact to find its template.
+// Returns nil if no satisfies link exists or the template can't be loaded.
+func (p *Protocol) resolveTemplate(ctx context.Context, art *model.Artifact) *model.Artifact {
+	targets, ok := art.Links[model.RelSatisfies]
+	if !ok || len(targets) == 0 {
+		return nil
+	}
+	tpl, err := p.store.Get(ctx, targets[0])
+	if err != nil || tpl.Kind != "template" {
+		return nil
+	}
+	return tpl
+}
+
+// templateSections extracts section names and guidance text from a template artifact.
+// Skips the "content" section which holds the full raw markdown.
+func templateSections(tpl *model.Artifact) map[string]string {
+	m := make(map[string]string, len(tpl.Sections))
+	for _, sec := range tpl.Sections {
+		if sec.Name == "content" {
+			continue
+		}
+		m[sec.Name] = sec.Text
+	}
+	return m
+}
+
+// checkTemplateConformance validates that art has all sections required by its template.
+// Returns an error listing missing sections with guidance if any are absent.
+func (p *Protocol) checkTemplateConformance(ctx context.Context, art *model.Artifact) error {
+	tpl := p.resolveTemplate(ctx, art)
+	if tpl == nil {
+		return nil
+	}
+	expected := templateSections(tpl)
+	if len(expected) == 0 {
+		return nil
+	}
+	have := make(map[string]bool, len(art.Sections))
+	for _, sec := range art.Sections {
+		have[sec.Name] = true
+	}
+	var msgs []string
+	for name, guidance := range expected {
+		if !have[name] {
+			msgs = append(msgs, fmt.Sprintf("  - %s: %s", name, guidance))
+		}
+	}
+	if len(msgs) == 0 {
+		return nil
+	}
+	sort.Strings(msgs)
+	return fmt.Errorf("artifact does not conform to template %s — missing sections:\n%s",
+		tpl.ID, strings.Join(msgs, "\n"))
 }
 
 // --- helpers ---

@@ -70,11 +70,12 @@ type Edge struct {
 
 // Well-known edge relations.
 const (
-	RelParentOf  = "parent_of"
-	RelDependsOn = "depends_on"
-	RelJustifies = "justifies"
+	RelParentOf   = "parent_of"
+	RelDependsOn  = "depends_on"
+	RelJustifies  = "justifies"
 	RelImplements = "implements"
 	RelDocuments  = "documents"
+	RelSatisfies  = "satisfies"
 )
 
 // Filter constrains artifact list/query operations.

@@ -21,7 +21,7 @@ podman run -d --name scribe \
 ### Binary
 
 ```bash
-go install github.com/dpopsuev/scribe/cmd/scribe@v0.3.0
+go install github.com/dpopsuev/scribe/cmd/scribe@v0.5.0
 scribe serve                   # stdio (Cursor, Claude Desktop)
 scribe serve --transport http  # Streamable HTTP on :8080
 ```
