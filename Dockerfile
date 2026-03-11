@@ -3,7 +3,8 @@ WORKDIR /build
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /scribe ./cmd/scribe
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.Version=${VERSION}" -o /scribe ./cmd/scribe
 
 FROM scratch
 COPY --from=build /scribe /scribe

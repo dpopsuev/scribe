@@ -30,6 +30,7 @@ import (
 var (
 	dbPath     string
 	configPath string
+	Version    = "dev"
 )
 
 func main() {
@@ -41,6 +42,11 @@ func main() {
 	root.PersistentFlags().StringVar(&configPath, "config", "", "config file path (default: ./scribe.yaml or ~/.scribe/scribe.yaml)")
 
 	root.AddCommand(
+		&cobra.Command{
+			Use:   "version",
+			Short: "Print the version",
+			Run:   func(cmd *cobra.Command, args []string) { fmt.Printf("scribe %s\n", Version) },
+		},
 		createCmd(),
 		showCmd(),
 		listCmd(),
@@ -1164,7 +1170,7 @@ func serveCmd() *cobra.Command {
 				}
 			}
 
-			srv, _ := mcp.NewServer(s, homeScopes, nil, idc)
+			srv, _ := mcp.NewServer(s, homeScopes, nil, idc, Version)
 
 			slog.Info("server configured",
 				"transport", t,
@@ -1200,7 +1206,7 @@ func serveCmd() *cobra.Command {
 							slog.Warn("unknown workspace, using default", "workspace", ws)
 							return srv
 						}
-						wsSrv, _ := mcp.NewServer(s, wsScopes, nil, idc)
+						wsSrv, _ := mcp.NewServer(s, wsScopes, nil, idc, Version)
 						serverCache.Store(ws, wsSrv)
 						slog.Info("created workspace server", "workspace", ws, "scopes", wsScopes)
 						return wsSrv
