@@ -75,7 +75,7 @@ func TestScopedList_HomeScopes(t *testing.T) {
 	s := openStore(t)
 	seedArtifacts(t, s)
 
-	srv, _ := scribemcp.NewServer(s, []string{"origami", "mos"}, nil, protocol.IDConfig{})
+	srv, _ := scribemcp.NewServer(s, []string{"origami", "mos"}, nil, protocol.IDConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -98,7 +98,7 @@ func TestScopedList_ExplicitScope(t *testing.T) {
 	s := openStore(t)
 	seedArtifacts(t, s)
 
-	srv, _ := scribemcp.NewServer(s, []string{"origami"}, nil, protocol.IDConfig{})
+	srv, _ := scribemcp.NewServer(s, []string{"origami"}, nil, protocol.IDConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -119,7 +119,7 @@ func TestScopedCreate_DefaultScope(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 
-	srv, _ := scribemcp.NewServer(s, []string{"origami"}, nil, protocol.IDConfig{})
+	srv, _ := scribemcp.NewServer(s, []string{"origami"}, nil, protocol.IDConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -149,7 +149,7 @@ func TestScopedList_HomeScoped_KindFilter(t *testing.T) {
 	s := openStore(t)
 	seedArtifacts(t, s)
 
-	srv, _ := scribemcp.NewServer(s, []string{"mos"}, nil, protocol.IDConfig{})
+	srv, _ := scribemcp.NewServer(s, []string{"mos"}, nil, protocol.IDConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -170,7 +170,7 @@ func TestCrossScopeGet(t *testing.T) {
 	s := openStore(t)
 	seedArtifacts(t, s)
 
-	srv, _ := scribemcp.NewServer(s, []string{"mos"}, nil, protocol.IDConfig{})
+	srv, _ := scribemcp.NewServer(s, []string{"mos"}, nil, protocol.IDConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -187,7 +187,7 @@ func TestNoHomeScopes_ShowsAll(t *testing.T) {
 	s := openStore(t)
 	seedArtifacts(t, s)
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{})
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -208,7 +208,7 @@ func TestArtifactTree_MixedScope_ShowsLabels(t *testing.T) {
 	_ = s.Put(ctx, &model.Artifact{ID: "TASK-1", Kind: "task", Scope: "origami", Status: "draft", Title: "Origami Work", Parent: "SPR-1"})
 	_ = s.Put(ctx, &model.Artifact{ID: "TASK-2", Kind: "task", Scope: "scribe", Status: "draft", Title: "Scribe Work", Parent: "SPR-1"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{})
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "graph", map[string]any{"action": "tree", "id": "SPR-1"})
@@ -229,7 +229,7 @@ func TestArtifactTree_SingleScope_OmitsLabels(t *testing.T) {
 	_ = s.Put(ctx, &model.Artifact{ID: "TASK-1", Kind: "task", Scope: "origami", Status: "draft", Title: "Work A", Parent: "SPR-1"})
 	_ = s.Put(ctx, &model.Artifact{ID: "TASK-2", Kind: "task", Scope: "origami", Status: "draft", Title: "Work B", Parent: "SPR-1"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{})
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "graph", map[string]any{"action": "tree", "id": "SPR-1"})
@@ -251,7 +251,7 @@ func TestBriefing_EdgeAwareOutput(t *testing.T) {
 	_ = s.Put(ctx, &model.Artifact{ID: "BUG-1", Kind: "bug", Scope: "limes", Status: "draft", Title: "Hardcoded deps"})
 	_ = s.AddEdge(ctx, model.Edge{From: "TSK-1", To: "BUG-1", Relation: "implements"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{})
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "graph", map[string]any{"action": "briefing", "id": "CAM-1"})
@@ -281,7 +281,7 @@ func TestBriefing_IncomingEdgeArrow(t *testing.T) {
 	_ = s.Put(ctx, &model.Artifact{ID: "TSK-1", Kind: "task", Scope: "scribe", Status: "draft", Title: "Task"})
 	_ = s.AddEdge(ctx, model.Edge{From: "TSK-1", To: "SPC-1", Relation: "implements"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{})
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "graph", map[string]any{"action": "briefing", "id": "SPC-1"})
@@ -302,7 +302,7 @@ func TestTree_EdgeLabelsShownWhenPresent(t *testing.T) {
 	_ = s.Put(ctx, &model.Artifact{ID: "SPC-1", Kind: "spec", Scope: "scribe", Status: "draft", Title: "Spec"})
 	_ = s.AddEdge(ctx, model.Edge{From: "TSK-1", To: "SPC-1", Relation: "implements"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{})
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "graph", map[string]any{
