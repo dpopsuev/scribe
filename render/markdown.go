@@ -137,12 +137,18 @@ func Table(arts []*model.Artifact) string {
 }
 
 // GroupedTable renders artifacts grouped by a field, with counts and one-line summaries.
-func GroupedTable(arts []*model.Artifact, field string) string {
+// Optional statusOrder overrides the default status ordering.
+func GroupedTable(arts []*model.Artifact, field string, statusOrder ...[]string) string {
 	if len(arts) == 0 {
 		return "No artifacts found.\n"
 	}
 
-	groupOrder := groupOrderForField(field)
+	var groupOrder []string
+	if field == "status" && len(statusOrder) > 0 && len(statusOrder[0]) > 0 {
+		groupOrder = statusOrder[0]
+	} else {
+		groupOrder = groupOrderForField(field)
+	}
 	groups := make(map[string][]*model.Artifact)
 	for _, a := range arts {
 		key := groupKey(a, field)
@@ -217,9 +223,40 @@ func groupKey(a *model.Artifact, field string) string {
 
 func groupOrderForField(field string) []string {
 	if field == "status" {
-		return []string{"current", "active", "draft", "complete", "retired", "archived"}
+		return []string{"current", "active", "open", "draft", "complete", "dismissed", "promoted", "retired", "archived"}
 	}
 	return nil
+}
+
+// GroupedTableByScopeLabel groups artifacts by the labels of their scope.
+// An artifact may appear in multiple groups if its scope has multiple labels.
+// Artifacts whose scope has no labels are grouped under "(unlabeled)".
+func GroupedTableByScopeLabel(arts []*model.Artifact, scopeLabels map[string][]string) string {
+	if len(arts) == 0 {
+		return "No artifacts found.\n"
+	}
+	groups := make(map[string][]*model.Artifact)
+	for _, a := range arts {
+		labels := scopeLabels[a.Scope]
+		if len(labels) == 0 {
+			groups["(unlabeled)"] = append(groups["(unlabeled)"], a)
+		} else {
+			for _, l := range labels {
+				groups[l] = append(groups[l], a)
+			}
+		}
+	}
+	var keys []string
+	for k := range groups {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		fmt.Fprintf(&b, "\n## %s\n\n", k)
+		b.WriteString(Table(groups[k]))
+	}
+	return b.String()
 }
 
 func sortStrings(ss []string) {

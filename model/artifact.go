@@ -74,15 +74,13 @@ const (
 	RelDependsOn = "depends_on"
 	RelJustifies = "justifies"
 	RelImplements = "implements"
-	RelDocuments = "documents"
-	RelSatisfies = "satisfies"
+	RelDocuments  = "documents"
 )
 
 // Filter constrains artifact list/query operations.
 type Filter struct {
-	Kind          string
-	ExcludeKinds  []string // kinds to exclude from results (e.g. ["note"])
-	ExcludeKind   string   // exclude artifacts of this kind (single-kind exclusion)
+	Kind        string
+	ExcludeKind string
 	ExcludeStatus string   // exclude artifacts with this status
 	IDPrefix      string   // match artifacts whose ID starts with this prefix
 	Scope         string
@@ -90,8 +88,11 @@ type Filter struct {
 	Status        string
 	Parent        string
 	Sprint        string
-	Labels        []string
-	CreatedAfter  string
+	Labels          []string
+	LabelsOr        []string
+	ExcludeLabels   []string
+	ScopeLabelIndex map[string][]string // populated at query time: label -> matching scopes
+	CreatedAfter    string
 	CreatedBefore string
 	UpdatedAfter  string
 	UpdatedBefore string
@@ -112,11 +113,6 @@ func (f Filter) Matches(art *Artifact) bool {
 	}
 	if f.Kind != "" && art.Kind != f.Kind {
 		return false
-	}
-	for _, ek := range f.ExcludeKinds {
-		if art.Kind == ek {
-			return false
-		}
 	}
 	if len(f.Scopes) > 0 {
 		found := false
@@ -141,18 +137,57 @@ func (f Filter) Matches(art *Artifact) bool {
 	if f.Sprint != "" && art.Sprint != f.Sprint {
 		return false
 	}
+	return f.MatchLabels(art)
+}
+
+// MatchLabels returns true if the artifact passes all label-related filter checks
+// (Labels AND, LabelsOr OR, ExcludeLabels NOT) with scope label expansion.
+func (f Filter) MatchLabels(art *Artifact) bool {
 	if len(f.Labels) > 0 {
-		have := make(map[string]bool, len(art.Labels))
-		for _, l := range art.Labels {
-			have[l] = true
-		}
 		for _, want := range f.Labels {
-			if !have[want] {
+			if !f.labelCheck(want, art) {
+				return false
+			}
+		}
+	}
+	if len(f.LabelsOr) > 0 {
+		any := false
+		for _, want := range f.LabelsOr {
+			if f.labelCheck(want, art) {
+				any = true
+				break
+			}
+		}
+		if !any {
+			return false
+		}
+	}
+	if len(f.ExcludeLabels) > 0 {
+		for _, want := range f.ExcludeLabels {
+			if f.labelCheck(want, art) {
 				return false
 			}
 		}
 	}
 	return true
+}
+
+// labelCheck returns true if the artifact has the label directly
+// or its scope carries the label (via the pre-populated ScopeLabelIndex).
+func (f Filter) labelCheck(label string, art *Artifact) bool {
+	for _, l := range art.Labels {
+		if l == label {
+			return true
+		}
+	}
+	if f.ScopeLabelIndex != nil {
+		for _, s := range f.ScopeLabelIndex[label] {
+			if art.Scope == s {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // FormatID produces PREFIX-YYYY-SEQ with minimum 3-digit zero-padded sequence.
@@ -169,4 +204,124 @@ func FormatScopedID(scopeKey, kindCode string, seq int) string {
 // Delegates to the built-in schema (see schema.go).
 func DefaultPrefix(kind string) string {
 	return DefaultSchema().Prefix(kind)
+}
+
+// --- ID Template Engine ---
+
+// IDComponent describes a single component of an ID template.
+type IDComponent struct {
+	Type       string `json:"type" yaml:"type"`                                 // scope, kind, time, suffix
+	Format     string `json:"format,omitempty" yaml:"format,omitempty"`         // time: year|yearmonth|date
+	Generation string `json:"generation,omitempty" yaml:"generation,omitempty"` // suffix: serial|random
+	ValueType  string `json:"value_type,omitempty" yaml:"value_type,omitempty"` // suffix: int|hex
+	Width      int    `json:"width,omitempty" yaml:"width,omitempty"`           // suffix: zero-pad width
+	UsePrefix  bool   `json:"use_prefix,omitempty" yaml:"use_prefix,omitempty"` // kind: use full prefix instead of code
+}
+
+// IDTemplate defines a component-based ID format.
+type IDTemplate struct {
+	Separator  string        `json:"separator,omitempty" yaml:"separator,omitempty"`
+	Components []IDComponent `json:"components" yaml:"components"`
+}
+
+// PresetScoped returns the template for the "scoped" preset: SCOPE-KIND-SEQ.
+func PresetScoped() IDTemplate {
+	return IDTemplate{
+		Separator: "-",
+		Components: []IDComponent{
+			{Type: "scope"},
+			{Type: "kind"},
+			{Type: "suffix", Generation: "serial", ValueType: "int"},
+		},
+	}
+}
+
+// PresetLegacy returns the template for the "legacy" preset: PREFIX-YYYY-SEQ.
+func PresetLegacy() IDTemplate {
+	return IDTemplate{
+		Separator: "-",
+		Components: []IDComponent{
+			{Type: "kind", UsePrefix: true},
+			{Type: "time", Format: "year"},
+			{Type: "suffix", Generation: "serial", ValueType: "int", Width: 3},
+		},
+	}
+}
+
+// IDContext provides the values needed to format an ID from a template.
+type IDContext struct {
+	ScopeKey string
+	KindCode string
+	Prefix   string
+	Seq      int64
+}
+
+// FormatTemplate formats an ID using the template and context.
+func (t IDTemplate) FormatTemplate(ctx IDContext) string {
+	sep := t.Separator
+	if sep == "" {
+		sep = "-"
+	}
+	parts := make([]string, 0, len(t.Components))
+	for _, c := range t.Components {
+		switch c.Type {
+		case "scope":
+			parts = append(parts, ctx.ScopeKey)
+		case "kind":
+			if c.UsePrefix {
+				parts = append(parts, ctx.Prefix)
+			} else {
+				parts = append(parts, ctx.KindCode)
+			}
+		case "time":
+			parts = append(parts, formatTime(c.Format))
+		case "suffix":
+			parts = append(parts, formatSuffix(ctx.Seq, c.Width))
+		}
+	}
+	return strings.Join(parts, sep)
+}
+
+// SeqKey returns the sequence key for serial suffix generation, composed from
+// all non-suffix components. Used to look up the sequence counter in the store.
+func (t IDTemplate) SeqKey(ctx IDContext) string {
+	sep := t.Separator
+	if sep == "" {
+		sep = "-"
+	}
+	var parts []string
+	for _, c := range t.Components {
+		switch c.Type {
+		case "scope":
+			parts = append(parts, ctx.ScopeKey)
+		case "kind":
+			if c.UsePrefix {
+				parts = append(parts, ctx.Prefix)
+			} else {
+				parts = append(parts, ctx.KindCode)
+			}
+		case "time":
+			parts = append(parts, formatTime(c.Format))
+		}
+	}
+	return strings.Join(parts, sep)
+}
+
+func formatTime(format string) string {
+	now := time.Now()
+	switch format {
+	case "yearmonth":
+		return now.Format("200601")
+	case "date":
+		return now.Format("20060102")
+	default:
+		return fmt.Sprintf("%d", now.Year())
+	}
+}
+
+func formatSuffix(seq int64, width int) string {
+	if width > 0 {
+		return fmt.Sprintf("%0*d", width, seq)
+	}
+	return fmt.Sprintf("%d", seq)
 }

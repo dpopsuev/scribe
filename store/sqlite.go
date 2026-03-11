@@ -60,7 +60,8 @@ CREATE TABLE IF NOT EXISTS scope_keys (
 	scope   TEXT PRIMARY KEY,
 	key     TEXT UNIQUE NOT NULL,
 	auto    INTEGER NOT NULL DEFAULT 1,
-	created TEXT NOT NULL DEFAULT ''
+	created TEXT NOT NULL DEFAULT '',
+	labels  TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS scoped_sequences (
@@ -81,14 +82,52 @@ func DefaultSQLitePath() string {
 	return filepath.Join(home, ".scribe", "scribe.sqlite")
 }
 
+// SQLiteConfig holds tunable parameters for the SQLite store.
+type SQLiteConfig struct {
+	Path           string `json:"path,omitempty" yaml:"path,omitempty"`
+	BusyTimeoutMs  int    `json:"busy_timeout_ms,omitempty" yaml:"busy_timeout_ms,omitempty"`
+	ReaderPoolSize int    `json:"reader_pool_size,omitempty" yaml:"reader_pool_size,omitempty"`
+	JournalMode    string `json:"journal_mode,omitempty" yaml:"journal_mode,omitempty"`
+}
+
+func (c SQLiteConfig) busyTimeout() int {
+	if c.BusyTimeoutMs > 0 {
+		return c.BusyTimeoutMs
+	}
+	return 5000
+}
+
+func (c SQLiteConfig) readerPool() int {
+	if c.ReaderPoolSize > 0 {
+		return c.ReaderPoolSize
+	}
+	return 4
+}
+
+func (c SQLiteConfig) journalMode() string {
+	if c.JournalMode != "" {
+		return c.JournalMode
+	}
+	return "wal"
+}
+
 // SQLiteStore implements Store on top of SQLite with WAL mode.
 type SQLiteStore struct {
 	writer *sql.DB
 	reader *sql.DB
 }
 
-// OpenSQLite creates or opens a SQLite database at path with WAL mode.
+// OpenSQLite creates or opens a SQLite database at path.
 func OpenSQLite(path string) (*SQLiteStore, error) {
+	return OpenSQLiteConfig(SQLiteConfig{Path: path})
+}
+
+// OpenSQLiteConfig creates or opens a SQLite database with the given config.
+func OpenSQLiteConfig(cfg SQLiteConfig) (*SQLiteStore, error) {
+	path := cfg.Path
+	if path == "" {
+		path = DefaultSQLitePath()
+	}
 	log := slog.With("component", "store", "path", path)
 
 	if info, err := os.Stat(path); err == nil && info.IsDir() {
@@ -99,7 +138,8 @@ func OpenSQLite(path string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("mkdir %s: %w", filepath.Dir(path), err)
 	}
 
-	dsn := path + "?_pragma=journal_mode(wal)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(on)"
+	dsn := fmt.Sprintf("%s?_pragma=journal_mode(%s)&_pragma=busy_timeout(%d)&_pragma=foreign_keys(on)",
+		path, cfg.journalMode(), cfg.busyTimeout())
 
 	writer, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -117,13 +157,15 @@ func OpenSQLite(path string) (*SQLiteStore, error) {
 		"ALTER TABLE artifacts ADD COLUMN inserted_at TEXT NOT NULL DEFAULT ''")
 	writer.ExecContext(context.Background(),
 		"UPDATE artifacts SET inserted_at = created_at WHERE inserted_at = ''")
+	writer.ExecContext(context.Background(),
+		"ALTER TABLE scope_keys ADD COLUMN labels TEXT NOT NULL DEFAULT ''")
 
 	reader, err := sql.Open("sqlite", dsn+"&_pragma=query_only(on)")
 	if err != nil {
 		writer.Close()
 		return nil, fmt.Errorf("open reader: %w", err)
 	}
-	reader.SetMaxOpenConns(4)
+	reader.SetMaxOpenConns(cfg.readerPool())
 
 	log.Info("database opened")
 	return &SQLiteStore{writer: writer, reader: reader}, nil
@@ -253,14 +295,6 @@ func (s *SQLiteStore) List(ctx context.Context, f model.Filter) ([]*model.Artifa
 		clauses = append(clauses, "status != ?")
 		args = append(args, f.ExcludeStatus)
 	}
-	if len(f.ExcludeKinds) > 0 {
-		ph := make([]string, len(f.ExcludeKinds))
-		for i, ek := range f.ExcludeKinds {
-			ph[i] = "?"
-			args = append(args, ek)
-		}
-		clauses = append(clauses, "kind NOT IN ("+strings.Join(ph, ",")+")")
-	}
 	if len(f.Scopes) > 0 {
 		placeholders := make([]string, len(f.Scopes))
 		for i, sc := range f.Scopes {
@@ -327,21 +361,8 @@ func (s *SQLiteStore) List(ctx context.Context, f model.Filter) ([]*model.Artifa
 		if err != nil {
 			continue
 		}
-		if len(f.Labels) > 0 {
-			have := make(map[string]bool, len(art.Labels))
-			for _, l := range art.Labels {
-				have[l] = true
-			}
-			ok := true
-			for _, want := range f.Labels {
-				if !have[want] {
-					ok = false
-					break
-				}
-			}
-			if !ok {
-				continue
-			}
+		if !f.MatchLabels(art) {
+			continue
 		}
 		results = append(results, art)
 	}
@@ -524,6 +545,30 @@ func (s *SQLiteStore) NextScopedID(ctx context.Context, scopeKey, kindCode strin
 	return id, tx.Commit()
 }
 
+func (s *SQLiteStore) NextSeq(ctx context.Context, key string) (int64, error) {
+	tx, err := s.writer.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	var seq int64
+	err = tx.QueryRowContext(ctx, "SELECT next_val FROM sequences WHERE prefix = ?", key).Scan(&seq)
+	if err == sql.ErrNoRows {
+		seq = 1
+	} else if err != nil {
+		return 0, err
+	}
+
+	_, err = tx.ExecContext(ctx,
+		"INSERT INTO sequences (prefix, next_val) VALUES (?, ?) ON CONFLICT(prefix) DO UPDATE SET next_val = ?",
+		key, seq+1, seq+1)
+	if err != nil {
+		return 0, err
+	}
+	return seq, tx.Commit()
+}
+
 func (s *SQLiteStore) GetScopeKey(ctx context.Context, scope string) (string, bool, error) {
 	var key string
 	var auto int
@@ -563,6 +608,71 @@ func (s *SQLiteStore) ListScopeKeys(ctx context.Context) (map[string]string, err
 		if err := rows.Scan(&scope, &key); err == nil {
 			result[scope] = key
 		}
+	}
+	return result, rows.Err()
+}
+
+func (s *SQLiteStore) SetScopeLabels(ctx context.Context, scope string, labels []string) error {
+	csv := strings.Join(labels, ",")
+	_, err := s.writer.ExecContext(ctx,
+		`UPDATE scope_keys SET labels = ? WHERE scope = ?`, csv, scope)
+	return err
+}
+
+func (s *SQLiteStore) GetScopeLabels(ctx context.Context, scope string) ([]string, error) {
+	var csv string
+	err := s.reader.QueryRowContext(ctx,
+		"SELECT labels FROM scope_keys WHERE scope = ?", scope).Scan(&csv)
+	if err != nil {
+		return nil, err
+	}
+	if csv == "" {
+		return nil, nil
+	}
+	return strings.Split(csv, ","), nil
+}
+
+func (s *SQLiteStore) ScopesByLabel(ctx context.Context, label string) ([]string, error) {
+	rows, err := s.reader.QueryContext(ctx,
+		`SELECT scope FROM scope_keys WHERE ',' || labels || ',' LIKE '%,' || ? || ',%'`, label)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var scopes []string
+	for rows.Next() {
+		var scope string
+		if err := rows.Scan(&scope); err == nil {
+			scopes = append(scopes, scope)
+		}
+	}
+	return scopes, rows.Err()
+}
+
+// ScopeInfo holds scope metadata including labels.
+type ScopeInfo struct {
+	Scope  string
+	Key    string
+	Labels []string
+}
+
+func (s *SQLiteStore) ListScopeInfo(ctx context.Context) ([]ScopeInfo, error) {
+	rows, err := s.reader.QueryContext(ctx, "SELECT scope, key, labels FROM scope_keys ORDER BY scope")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []ScopeInfo
+	for rows.Next() {
+		var scope, key, csv string
+		if err := rows.Scan(&scope, &key, &csv); err != nil {
+			continue
+		}
+		info := ScopeInfo{Scope: scope, Key: key}
+		if csv != "" {
+			info.Labels = strings.Split(csv, ",")
+		}
+		result = append(result, info)
 	}
 	return result, rows.Err()
 }

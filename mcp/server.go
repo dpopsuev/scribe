@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/dpopsuev/scribe/directive"
-	"github.com/dpopsuev/scribe/mcpclient"
 	"github.com/dpopsuev/scribe/model"
 	"github.com/dpopsuev/scribe/protocol"
 	"github.com/dpopsuev/scribe/render"
@@ -25,7 +24,7 @@ func NewServer(s store.Store, homeScopes, vocab []string, idc protocol.IDConfig)
 		&sdkmcp.Implementation{Name: "scribe", Version: "0.3.0"},
 		&sdkmcp.ServerOptions{
 			Instructions: "Scribe is a work graph for AI agents with native DAG support. " +
-				"Use it to create, query, and manage structured artifacts (tasks, specs, sprints, goals, bugs) " +
+				"Use it to create, query, and manage structured artifacts (tasks, specs, goals, bugs, campaigns) " +
 				"with parent-child trees, dependency edges, named text sections, and lifecycle status tracking. " +
 				"Start with admin motd for context, then artifact list to explore.",
 		},
@@ -33,14 +32,13 @@ func NewServer(s store.Store, homeScopes, vocab []string, idc protocol.IDConfig)
 	reg := directive.New()
 	h := &handler{
 		proto: protocol.New(s, nil, homeScopes, vocab, idc),
-		locus: mcpclient.New(mcpclient.DefaultLocusURL()),
 	}
 
 	directive.AddTool(reg, srv, directive.ToolMeta{
 		Name: "artifact",
 		Description: "Create, read, update, and manage work artifacts. " +
 			"Actions: create (new artifact), get (by ID), list (filter/search), set (update field), " +
-			"archive (mark read-only), attach_section (add text), get_section (read text).",
+			"archive (mark read-only), attach_section (add text), get_section (read text), detach_section (remove text).",
 		Keywords:   []string{"create", "get", "list", "set", "archive", "artifact", "section"},
 		Categories: []string{"crud"},
 	}, noOut(h.handleArtifact))
@@ -49,9 +47,10 @@ func NewServer(s store.Store, homeScopes, vocab []string, idc protocol.IDConfig)
 		Name: "graph",
 		Description: "Navigate and modify artifact relationships. " +
 			"Actions: tree (parent-child hierarchy with optional relation/direction/depth), " +
+			"briefing (recursive traversal of ALL edges from any artifact, showing full context chain), " +
 			"link (add directed relationship), unlink (remove relationship). " +
-			"Supported relations: parent_of, depends_on, justifies, implements, documents, satisfies.",
-		Keywords:   []string{"tree", "link", "unlink", "relation", "edge", "graph"},
+			"Supported relations: parent_of, depends_on, justifies, implements, documents.",
+		Keywords:   []string{"tree", "briefing", "link", "unlink", "relation", "edge", "graph"},
 		Categories: []string{"query", "graph"},
 	}, noOut(h.handleGraph))
 
@@ -59,7 +58,8 @@ func NewServer(s store.Store, homeScopes, vocab []string, idc protocol.IDConfig)
 		Name: "admin",
 		Description: "System administration and monitoring. " +
 			"Actions: motd (session context with goals/reminders), dashboard (storage/staleness/health), " +
-			"set_goal (set north star), vacuum (delete old archived), detect (find orphans/overlaps).",
+			"set_goal (set north star), vacuum (delete old archived), detect (find orphans/overlaps), " +
+			"lint (validate schema consistency).",
 		Keywords:   []string{"motd", "dashboard", "goal", "vacuum", "detect", "orphan"},
 		Categories: []string{"lifecycle", "maintenance"},
 	}, noOut(h.handleAdmin))
@@ -76,81 +76,86 @@ func ToolRegistry() *directive.Registry {
 
 type handler struct {
 	proto *protocol.Protocol
-	locus *mcpclient.LocusClient
 }
 
 // --- consolidated input types ---
 
 type artifactInput struct {
-	Action string `json:"action"`
+	Action string `json:"action" jsonschema:"required,create | get | list | set | archive | attach_section | get_section | detach_section"`
 
-	ID    string `json:"id,omitempty"`
-	Kind  string `json:"kind,omitempty"`
-	Scope string `json:"scope,omitempty"`
+	ID    string `json:"id,omitempty" jsonschema:"artifact ID (required for get, set, archive, *_section)"`
+	Kind  string `json:"kind,omitempty" jsonschema:"artifact kind such as task, spec, bug, goal, campaign"`
+	Scope string `json:"scope,omitempty" jsonschema:"owning repository or project scope"`
 
-	Title     string              `json:"title,omitempty"`
-	Goal      string              `json:"goal,omitempty"`
-	Parent    string              `json:"parent,omitempty"`
-	Status    string              `json:"status,omitempty"`
-	DependsOn []string            `json:"depends_on,omitempty"`
-	Labels    []string            `json:"labels,omitempty"`
-	Prefix    string              `json:"prefix,omitempty"`
-	Links     map[string][]string `json:"links,omitempty"`
-	Extra     map[string]any      `json:"extra,omitempty"`
-	CreatedAt string              `json:"created_at,omitempty"`
+	Title     string              `json:"title,omitempty" jsonschema:"artifact title (required for create)"`
+	Goal      string              `json:"goal,omitempty" jsonschema:"goal statement or description"`
+	Parent    string              `json:"parent,omitempty" jsonschema:"parent artifact ID for hierarchy"`
+	Status    string              `json:"status,omitempty" jsonschema:"lifecycle status, e.g. draft, active, complete, archived"`
+	Priority  string              `json:"priority,omitempty" jsonschema:"priority level, e.g. none, low, medium, high, critical"`
+	DependsOn []string            `json:"depends_on,omitempty" jsonschema:"IDs of artifacts this depends on"`
+	Labels    []string            `json:"labels,omitempty" jsonschema:"freeform labels for categorization"`
+	Prefix    string              `json:"prefix,omitempty" jsonschema:"override ID prefix (default derived from kind)"`
+	Links     map[string][]string `json:"links,omitempty" jsonschema:"named link groups, e.g. {\"docs\": [\"url1\"]}"`
+	Extra     map[string]any      `json:"extra,omitempty" jsonschema:"arbitrary key-value metadata"`
+	CreatedAt string              `json:"created_at,omitempty" jsonschema:"RFC 3339 timestamp to backdate creation"`
 
-	IncludeEdges bool `json:"include_edges,omitempty"`
+	IncludeEdges bool `json:"include_edges,omitempty" jsonschema:"if true, get returns resolved neighbor summaries"`
 
-	Sprint         string `json:"sprint,omitempty"`
-	IDPrefix       string `json:"id_prefix,omitempty"`
-	ExcludeKind    string `json:"exclude_kind,omitempty"`
-	ExcludeStatus  string `json:"exclude_status,omitempty"`
-	GroupBy        string `json:"group_by,omitempty"`
-	Sort           string `json:"sort,omitempty"`
-	Limit          int    `json:"limit,omitempty"`
-	Query          string `json:"query,omitempty"`
-	CreatedAfter   string `json:"created_after,omitempty"`
-	CreatedBefore  string `json:"created_before,omitempty"`
-	UpdatedAfter   string `json:"updated_after,omitempty"`
-	UpdatedBefore  string `json:"updated_before,omitempty"`
-	InsertedAfter  string `json:"inserted_after,omitempty"`
-	InsertedBefore string `json:"inserted_before,omitempty"`
+	Sprint         string `json:"sprint,omitempty" jsonschema:"filter by sprint ID (list)"`
+	IDPrefix       string `json:"id_prefix,omitempty" jsonschema:"filter by ID prefix (list, archive)"`
+	ExcludeKind    string `json:"exclude_kind,omitempty" jsonschema:"exclude artifacts of this kind (list, archive)"`
+	ExcludeStatus  string   `json:"exclude_status,omitempty" jsonschema:"exclude artifacts with this status (list)"`
+	LabelsOr       []string `json:"labels_or,omitempty" jsonschema:"at least one label must match - OR semantics (list)"`
+	ExcludeLabels  []string `json:"exclude_labels,omitempty" jsonschema:"exclude artifacts matching any of these labels (list)"`
+	GroupBy        string   `json:"group_by,omitempty" jsonschema:"group results by field: status, scope, kind, sprint, scope_label (list)"`
+	Sort           string `json:"sort,omitempty" jsonschema:"sort results by: id, title, status, scope, kind, sprint (list)"`
+	Limit          int    `json:"limit,omitempty" jsonschema:"max results to return (list)"`
+	Query          string `json:"query,omitempty" jsonschema:"substring search across title, goal, and section text (list)"`
+	CreatedAfter   string `json:"created_after,omitempty" jsonschema:"RFC 3339 lower bound on created_at (list)"`
+	CreatedBefore  string `json:"created_before,omitempty" jsonschema:"RFC 3339 upper bound on created_at (list)"`
+	UpdatedAfter   string `json:"updated_after,omitempty" jsonschema:"RFC 3339 lower bound on updated_at (list)"`
+	UpdatedBefore  string `json:"updated_before,omitempty" jsonschema:"RFC 3339 upper bound on updated_at (list)"`
+	InsertedAfter  string `json:"inserted_after,omitempty" jsonschema:"RFC 3339 lower bound on inserted_at (list)"`
+	InsertedBefore string `json:"inserted_before,omitempty" jsonschema:"RFC 3339 upper bound on inserted_at (list)"`
 
-	Field string `json:"field,omitempty"`
-	Value string `json:"value,omitempty"`
+	Field string `json:"field,omitempty" jsonschema:"field to update: title, goal, scope, status, parent, priority, sprint, kind, depends_on, labels (set)"`
+	Value string `json:"value,omitempty" jsonschema:"new value for the field; comma-separated for depends_on/labels (set)"`
+	Force bool   `json:"force,omitempty" jsonschema:"bypass transition validation for status changes (set)"`
 
-	IDs     []string `json:"ids,omitempty"`
-	Cascade bool     `json:"cascade,omitempty"`
-	DryRun  bool     `json:"dry_run,omitempty"`
+	IDs     []string `json:"ids,omitempty" jsonschema:"artifact IDs to archive; if empty uses filter params (archive)"`
+	Cascade bool     `json:"cascade,omitempty" jsonschema:"recursively archive child subtrees (archive)"`
+	DryRun  bool     `json:"dry_run,omitempty" jsonschema:"preview without applying changes (archive)"`
 
-	Name string `json:"name,omitempty"`
-	Text string `json:"text,omitempty"`
+	Name string `json:"name,omitempty" jsonschema:"section name (attach_section, get_section, detach_section)"`
+	Text string `json:"text,omitempty" jsonschema:"section body text (attach_section)"`
 }
 
 type graphInput struct {
-	Action    string   `json:"action"`
-	ID        string   `json:"id,omitempty"`
-	Relation  string   `json:"relation,omitempty"`
-	Direction string   `json:"direction,omitempty"`
-	Depth     int      `json:"depth,omitempty"`
-	Targets   []string `json:"targets,omitempty"`
+	Action    string   `json:"action" jsonschema:"required,tree | briefing | link | unlink"`
+	ID        string   `json:"id,omitempty" jsonschema:"root artifact ID for tree/briefing, or source artifact for link/unlink"`
+	Relation  string   `json:"relation,omitempty" jsonschema:"edge type: parent_of, depends_on, justifies, implements, documents"`
+	Direction string   `json:"direction,omitempty" jsonschema:"traversal direction for tree: outbound (default) or inbound"`
+	Depth     int      `json:"depth,omitempty" jsonschema:"max traversal depth for tree (0 = unlimited)"`
+	Targets   []string `json:"targets,omitempty" jsonschema:"target artifact IDs to link/unlink"`
 }
 
 type adminInput struct {
-	Action string `json:"action"`
+	Action string `json:"action" jsonschema:"required,motd | dashboard | set_goal | vacuum | detect | lint | check | set_scope_labels | list_scope_labels"`
 
-	StaleDays int `json:"stale_days,omitempty"`
+	StaleDays int `json:"stale_days,omitempty" jsonschema:"days without update to consider an artifact stale (dashboard)"`
 
-	Title string `json:"title,omitempty"`
-	Scope string `json:"scope,omitempty"`
-	Kind  string `json:"kind,omitempty"`
+	Title string `json:"title,omitempty" jsonschema:"goal title (set_goal)"`
+	Scope string `json:"scope,omitempty" jsonschema:"scope to target (set_goal, vacuum, detect)"`
+	Kind  string `json:"kind,omitempty" jsonschema:"root delivery artifact kind, default goal (set_goal); or kind filter (detect)"`
 
-	Days  int  `json:"days,omitempty"`
-	Force bool `json:"force,omitempty"`
+	Days  int  `json:"days,omitempty" jsonschema:"delete archived artifacts older than this many days (vacuum)"`
+	Force bool `json:"force,omitempty" jsonschema:"skip confirmation for destructive vacuum (vacuum)"`
 
-	Check   string `json:"check,omitempty"`
-	Status  string `json:"status,omitempty"`
-	Project string `json:"project,omitempty"`
+	Check   string `json:"check,omitempty" jsonschema:"orphans (default), overlaps, or all (detect)"`
+	Status  string `json:"status,omitempty" jsonschema:"filter by status (detect)"`
+	Project string `json:"project,omitempty" jsonschema:"filter by project scope (detect)"`
+
+	Labels []string `json:"labels,omitempty" jsonschema:"freeform labels for categorization (set_scope_labels)"`
 }
 
 // --- dispatchers ---
@@ -161,6 +166,7 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		return h.handleCreate(ctx, req, protocol.CreateInput{
 			Kind: in.Kind, Title: in.Title, Scope: in.Scope,
 			Goal: in.Goal, Parent: in.Parent, Status: in.Status,
+			Priority: in.Priority,
 			DependsOn: in.DependsOn, Labels: in.Labels, Prefix: in.Prefix,
 			Links: in.Links, Extra: in.Extra, CreatedAt: in.CreatedAt,
 		})
@@ -171,13 +177,14 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 			Kind: in.Kind, Scope: in.Scope, Status: in.Status,
 			Parent: in.Parent, Sprint: in.Sprint, IDPrefix: in.IDPrefix,
 			ExcludeKind: in.ExcludeKind, ExcludeStatus: in.ExcludeStatus,
+			Labels: in.Labels, LabelsOr: in.LabelsOr, ExcludeLabels: in.ExcludeLabels,
 			GroupBy: in.GroupBy, Sort: in.Sort, Limit: in.Limit, Query: in.Query,
 			CreatedAfter: in.CreatedAfter, CreatedBefore: in.CreatedBefore,
 			UpdatedAfter: in.UpdatedAfter, UpdatedBefore: in.UpdatedBefore,
 			InsertedAfter: in.InsertedAfter, InsertedBefore: in.InsertedBefore,
 		})
 	case "set":
-		return h.handleSetField(ctx, req, setFieldInput{ID: in.ID, Field: in.Field, Value: in.Value})
+		return h.handleSetField(ctx, req, setFieldInput{ID: in.ID, Field: in.Field, Value: in.Value, Force: in.Force})
 	case "archive":
 		return h.handleArchive(ctx, req, archiveInput{
 			IDs: in.IDs, Cascade: in.Cascade, Scope: in.Scope,
@@ -188,8 +195,10 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		return h.handleAttachSection(ctx, req, sectionInput{ID: in.ID, Name: in.Name, Text: in.Text})
 	case "get_section":
 		return h.handleGetSection(ctx, req, getSectionInput{ID: in.ID, Name: in.Name})
+	case "detach_section":
+		return h.handleDetachSection(ctx, req, getSectionInput{ID: in.ID, Name: in.Name})
 	default:
-		return nil, nil, fmt.Errorf("unknown artifact action %q (valid: create, get, list, set, archive, attach_section, get_section)", in.Action)
+		return nil, nil, fmt.Errorf("unknown artifact action %q (valid: create, get, list, set, archive, attach_section, get_section, detach_section)", in.Action)
 	}
 }
 
@@ -203,12 +212,14 @@ func (h *handler) handleGraph(ctx context.Context, req *sdkmcp.CallToolRequest, 
 		return h.handleLink(ctx, req, linkInput{
 			ID: in.ID, Relation: in.Relation, Targets: in.Targets,
 		})
+	case "briefing":
+		return h.handleBriefing(ctx, in.ID)
 	case "unlink":
 		return h.handleLink(ctx, req, linkInput{
 			ID: in.ID, Relation: in.Relation, Targets: in.Targets, Unlink: true,
 		})
 	default:
-		return nil, nil, fmt.Errorf("unknown graph action %q (valid: tree, link, unlink)", in.Action)
+		return nil, nil, fmt.Errorf("unknown graph action %q (valid: tree, briefing, link, unlink)", in.Action)
 	}
 }
 
@@ -229,8 +240,34 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 			Check: in.Check, Scope: in.Scope, Status: in.Status,
 			Kind: in.Kind, Project: in.Project,
 		})
+	case "lint":
+		return h.handleLint(ctx)
+	case "check":
+		return h.handleCheck(ctx, in.Scope)
+	case "set_scope_labels":
+		if in.Scope == "" {
+			return nil, nil, fmt.Errorf("scope is required for set_scope_labels")
+		}
+		if err := h.proto.SetScopeLabels(ctx, in.Scope, in.Labels); err != nil {
+			return nil, nil, err
+		}
+		return text(fmt.Sprintf("scope %q labels set to %v", in.Scope, in.Labels)), nil, nil
+	case "list_scope_labels":
+		infos, err := h.proto.ListScopeInfo(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		var b strings.Builder
+		for _, info := range infos {
+			labels := "(none)"
+			if len(info.Labels) > 0 {
+				labels = strings.Join(info.Labels, ", ")
+			}
+			fmt.Fprintf(&b, "%-20s %s → %s\n", info.Scope, info.Key, labels)
+		}
+		return text(b.String()), nil, nil
 	default:
-		return nil, nil, fmt.Errorf("unknown admin action %q (valid: motd, dashboard, set_goal, vacuum, detect)", in.Action)
+		return nil, nil, fmt.Errorf("unknown admin action %q (valid: motd, dashboard, set_goal, vacuum, detect, lint, check, set_scope_labels, list_scope_labels)", in.Action)
 	}
 }
 
@@ -243,7 +280,11 @@ func (h *handler) handleCreate(ctx context.Context, _ *sdkmcp.CallToolRequest, i
 	}
 	data, _ := json.MarshalIndent(art, "", "  ")
 	msg := string(data)
-	if expected := h.proto.Schema().GetExpectedSections(art.Kind); len(expected) > 0 && len(art.Sections) == 0 {
+	schema := h.proto.Schema()
+	if should := schema.MissingShouldSections(art.Kind, art.Sections); len(should) > 0 {
+		msg += fmt.Sprintf("\n\nWarning: missing recommended sections: %s", strings.Join(should, ", "))
+	}
+	if expected := schema.GetExpectedSections(art.Kind); len(expected) > 0 && len(art.Sections) == 0 {
 		msg += fmt.Sprintf("\n\nSections hint: %s (use attach_section to populate)", strings.Join(expected, ", "))
 	}
 	return text(msg), nil, nil
@@ -298,6 +339,18 @@ func (h *handler) handleList(ctx context.Context, _ *sdkmcp.CallToolRequest, in 
 	if in.Limit > 0 && in.Limit < len(arts) {
 		arts = arts[:in.Limit]
 	}
+	if in.GroupBy == "scope_label" {
+		scopeLabels := make(map[string][]string)
+		infos, err := h.proto.ListScopeInfo(ctx)
+		if err == nil {
+			for _, info := range infos {
+				if len(info.Labels) > 0 {
+					scopeLabels[info.Scope] = info.Labels
+				}
+			}
+		}
+		return text(render.GroupedTableByScopeLabel(arts, scopeLabels)), nil, nil
+	}
 	if in.GroupBy != "" {
 		return text(render.GroupedTable(arts, in.GroupBy)), nil, nil
 	}
@@ -308,10 +361,11 @@ type setFieldInput struct {
 	ID    string `json:"id"`
 	Field string `json:"field"`
 	Value string `json:"value"`
+	Force bool   `json:"force,omitempty"`
 }
 
 func (h *handler) handleSetField(ctx context.Context, _ *sdkmcp.CallToolRequest, in setFieldInput) (*sdkmcp.CallToolResult, any, error) {
-	results, err := h.proto.SetField(ctx, []string{in.ID}, in.Field, in.Value)
+	results, err := h.proto.SetField(ctx, []string{in.ID}, in.Field, in.Value, protocol.SetFieldOptions{Force: in.Force})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -376,6 +430,17 @@ func (h *handler) handleGetSection(ctx context.Context, _ *sdkmcp.CallToolReques
 	return text(t), nil, nil
 }
 
+func (h *handler) handleDetachSection(ctx context.Context, _ *sdkmcp.CallToolRequest, in getSectionInput) (*sdkmcp.CallToolResult, any, error) {
+	removed, err := h.proto.DetachSection(ctx, in.ID, in.Name)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !removed {
+		return text(fmt.Sprintf("%s: section %q not found", in.ID, in.Name)), nil, nil
+	}
+	return text(fmt.Sprintf("%s: section %q removed", in.ID, in.Name)), nil, nil
+}
+
 func (h *handler) handleTree(ctx context.Context, _ *sdkmcp.CallToolRequest, in protocol.TreeInput) (*sdkmcp.CallToolResult, any, error) {
 	tree, err := h.proto.ArtifactTree(ctx, in)
 	if err != nil {
@@ -384,6 +449,21 @@ func (h *handler) handleTree(ctx context.Context, _ *sdkmcp.CallToolRequest, in 
 	showScope := countDistinctScopes(tree) > 1
 	var b strings.Builder
 	renderTree(tree, "", true, showScope, &b)
+	return text(b.String()), nil, nil
+}
+
+func (h *handler) handleBriefing(ctx context.Context, id string) (*sdkmcp.CallToolResult, any, error) {
+	tree, err := h.proto.ArtifactTree(ctx, protocol.TreeInput{
+		ID:        id,
+		Relation:  "*",
+		Direction: "both",
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	showScope := countDistinctScopes(tree) > 1
+	var b strings.Builder
+	renderBriefing(tree, "", true, showScope, &b)
 	return text(b.String()), nil, nil
 }
 
@@ -503,22 +583,12 @@ func (h *handler) handleMotd(ctx context.Context, _ *sdkmcp.CallToolRequest, _ s
 		}
 		sections = append(sections, "Goal:\n"+strings.Join(lines, "\n"))
 	}
-	now := time.Now().UTC()
-	if len(m.DueReminders) > 0 {
+	if len(m.Warnings) > 0 {
 		var lines []string
-		for _, n := range m.DueReminders {
-			r, _ := n.Extra["remind_at"].(string)
-			lines = append(lines, fmt.Sprintf("  %s %s (due: %s)", n.ID, n.Title, r))
+		for _, w := range m.Warnings {
+			lines = append(lines, "  ⚠ "+w)
 		}
-		sections = append(sections, fmt.Sprintf("Due reminders (%d):\n%s", len(m.DueReminders), strings.Join(lines, "\n")))
-	}
-	if len(m.RecentNotes) > 0 {
-		var lines []string
-		for _, n := range m.RecentNotes {
-			age := now.Sub(n.CreatedAt).Truncate(time.Minute)
-			lines = append(lines, fmt.Sprintf("  %s %s (%s ago)", n.ID, n.Title, age))
-		}
-		sections = append(sections, fmt.Sprintf("Recent notes (%d):\n%s", len(m.RecentNotes), strings.Join(lines, "\n")))
+		sections = append(sections, "Warnings:\n"+strings.Join(lines, "\n"))
 	}
 	if len(sections) == 0 {
 		return text("nothing to report"), nil, nil
@@ -638,63 +708,6 @@ func (h *handler) handleUnlink(ctx context.Context, _ *sdkmcp.CallToolRequest, i
 	return text(strings.Join(lines, "\n")), nil, nil
 }
 
-// --- CON-318: context mesh ---
-
-type contextMeshInput struct {
-	ID   string `json:"id"`
-	Path string `json:"path,omitempty"`
-}
-
-func (h *handler) handleContextMesh(ctx context.Context, _ *sdkmcp.CallToolRequest, in contextMeshInput) (*sdkmcp.CallToolResult, any, error) {
-	art, err := h.proto.GetArtifact(ctx, in.ID)
-	if err != nil {
-		return nil, nil, fmt.Errorf("get artifact %s: %w", in.ID, err)
-	}
-
-	path := in.Path
-	if path == "" {
-		path = art.Scope
-	}
-	if path == "" {
-		return nil, nil, fmt.Errorf("no path or scope on artifact %s to scan", in.ID)
-	}
-
-	type meshResult struct {
-		ArtifactID string          `json:"artifact_id"`
-		Title      string          `json:"title"`
-		Scope      string          `json:"scope"`
-		Scan       json.RawMessage `json:"scan,omitempty"`
-		Cycles     json.RawMessage `json:"cycles,omitempty"`
-		Surface    json.RawMessage `json:"api_surface,omitempty"`
-		Error      string          `json:"error,omitempty"`
-	}
-
-	result := meshResult{
-		ArtifactID: art.ID,
-		Title:      art.Title,
-		Scope:      path,
-	}
-
-	scanData, err := h.locus.ScanProject(ctx, path)
-	if err != nil {
-		result.Error = fmt.Sprintf("locus scan_project: %v", err)
-	} else {
-		result.Scan = scanData
-	}
-
-	if result.Error == "" {
-		if cycles, err := h.locus.GetCycles(ctx, path); err == nil {
-			result.Cycles = cycles
-		}
-		if surface, err := h.locus.GetAPISurface(ctx, path); err == nil {
-			result.Surface = surface
-		}
-	}
-
-	data, _ := json.MarshalIndent(result, "", "  ")
-	return text(string(data)), nil, nil
-}
-
 type detectInput struct {
 	Check   string `json:"check,omitempty"`
 	Scope   string `json:"scope,omitempty"`
@@ -793,6 +806,36 @@ func (h *handler) handleDetectOrphans(ctx context.Context, _ *sdkmcp.CallToolReq
 	return text(b.String()), nil, nil
 }
 
+func (h *handler) handleLint(_ context.Context) (*sdkmcp.CallToolResult, any, error) {
+	results := h.proto.Lint()
+	if len(results) == 0 {
+		return text("OK    schema is valid (0 errors, 0 warnings)"), nil, nil
+	}
+	var b strings.Builder
+	errors, warnings := 0, 0
+	for _, r := range results {
+		switch r.Level {
+		case "error":
+			errors++
+			fmt.Fprintf(&b, "ERROR %s\n", r.Message)
+		case "warn":
+			warnings++
+			fmt.Fprintf(&b, "WARN  %s\n", r.Message)
+		}
+	}
+	fmt.Fprintf(&b, "\nschema validated (%d error(s), %d warning(s))", errors, warnings)
+	return text(b.String()), nil, nil
+}
+
+func (h *handler) handleCheck(ctx context.Context, scope string) (*sdkmcp.CallToolResult, any, error) {
+	report, err := h.proto.Check(ctx, scope)
+	if err != nil {
+		return nil, nil, err
+	}
+	data, _ := json.MarshalIndent(report, "", "  ")
+	return text(string(data)), nil, nil
+}
+
 // --- vocab handlers ---
 
 func (h *handler) handleVocabList(_ context.Context, _ *sdkmcp.CallToolRequest, _ struct{}) (*sdkmcp.CallToolResult, any, error) {
@@ -843,11 +886,19 @@ func renderTree(node *protocol.TreeNode, prefix string, last, showScope bool, b 
 	if prefix == "" {
 		connector = ""
 	}
+	edgeLabel := ""
+	if node.Edge != "" {
+		arrow := " -> "
+		if node.Direction == "incoming" {
+			arrow = " <- "
+		}
+		edgeLabel = node.Edge + arrow
+	}
 	scopeLabel := ""
 	if showScope && node.Scope != "" {
 		scopeLabel = fmt.Sprintf(" [%s]", node.Scope)
 	}
-	fmt.Fprintf(b, "%s%s%s%s [%s] %s\n", prefix, connector, node.ID, scopeLabel, node.Status, node.Title)
+	fmt.Fprintf(b, "%s%s%s%s%s [%s] %s\n", prefix, connector, edgeLabel, node.ID, scopeLabel, node.Status, node.Title)
 	cp := prefix
 	if prefix != "" {
 		if last {
@@ -858,6 +909,49 @@ func renderTree(node *protocol.TreeNode, prefix string, last, showScope bool, b 
 	}
 	for i, ch := range node.Children {
 		renderTree(ch, cp, i == len(node.Children)-1, showScope, b)
+	}
+}
+
+func renderBriefing(node *protocol.TreeNode, prefix string, last, showScope bool, b *strings.Builder) {
+	connector := "├── "
+	if last {
+		connector = "└── "
+	}
+	if prefix == "" {
+		connector = ""
+	}
+
+	edgeLabel := ""
+	if node.Edge != "" {
+		arrow := " -> "
+		if node.Direction == "incoming" {
+			arrow = " <- "
+		}
+		edgeLabel = node.Edge + arrow
+	}
+
+	scopeLabel := ""
+	if showScope && node.Scope != "" {
+		scopeLabel = fmt.Sprintf(" [%s]", node.Scope)
+	}
+
+	kindStatus := node.Status
+	if node.Kind != "" {
+		kindStatus = node.Kind + "|" + node.Status
+	}
+
+	fmt.Fprintf(b, "%s%s%s%s%s [%s] %s\n", prefix, connector, edgeLabel, node.ID, scopeLabel, kindStatus, node.Title)
+
+	cp := prefix
+	if prefix != "" {
+		if last {
+			cp += "    "
+		} else {
+			cp += "│   "
+		}
+	}
+	for i, ch := range node.Children {
+		renderBriefing(ch, cp, i == len(node.Children)-1, showScope, b)
 	}
 }
 

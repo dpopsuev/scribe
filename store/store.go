@@ -46,10 +46,19 @@ type Store interface {
 	// NextScopedID atomically generates the next scoped ID for scope_key+kind_code.
 	NextScopedID(ctx context.Context, scopeKey, kindCode string) (string, error)
 
+	// NextSeq atomically returns the next sequence number for an arbitrary key.
+	NextSeq(ctx context.Context, key string) (int64, error)
+
 	// Scope key registry.
 	GetScopeKey(ctx context.Context, scope string) (key string, auto bool, err error)
 	SetScopeKey(ctx context.Context, scope, key string, auto bool) error
 	ListScopeKeys(ctx context.Context) (map[string]string, error)
+
+	// Scope labels.
+	SetScopeLabels(ctx context.Context, scope string, labels []string) error
+	GetScopeLabels(ctx context.Context, scope string) ([]string, error)
+	ScopesByLabel(ctx context.Context, label string) ([]string, error)
+	ListScopeInfo(ctx context.Context) ([]ScopeInfo, error)
 
 	Close() error
 }

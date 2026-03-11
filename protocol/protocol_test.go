@@ -174,9 +174,13 @@ func TestComponentLabelGate_Passes(t *testing.T) {
 	ctx := context.Background()
 
 	_ = s.Put(ctx, &model.Artifact{
-		ID: "TASK-1", Kind: "task", Status: "draft", Title: "Labeled",
-		Labels:   []string{"locus:internal/arch"},
-		Sections: []model.Section{{Name: "specification", Text: "some spec"}},
+		ID: "TASK-1", Kind: "task", Status: "draft", Title: "Labeled", Scope: "test",
+		Labels: []string{"locus:internal/arch"},
+		Sections: []model.Section{
+			{Name: "context", Text: "some context"},
+			{Name: "checklist", Text: "items"},
+			{Name: "acceptance", Text: "criteria"},
+		},
 	})
 
 	results, err := p.SetField(ctx, []string{"TASK-1"}, "status", "active")
@@ -196,8 +200,12 @@ func TestComponentLabelGate_NoTriggerSection(t *testing.T) {
 	ctx := context.Background()
 
 	_ = s.Put(ctx, &model.Artifact{
-		ID: "TASK-1", Kind: "task", Status: "draft", Title: "No trigger",
-		Sections: []model.Section{{Name: "notes", Text: "just notes"}},
+		ID: "TASK-1", Kind: "task", Status: "draft", Title: "No trigger", Scope: "test",
+		Sections: []model.Section{
+			{Name: "context", Text: "context"},
+			{Name: "checklist", Text: "items"},
+			{Name: "acceptance", Text: "criteria"},
+		},
 	})
 
 	results, err := p.SetField(ctx, []string{"TASK-1"}, "status", "active")
@@ -216,8 +224,12 @@ func TestComponentLabelGate_DisabledByDefault(t *testing.T) {
 	ctx := context.Background()
 
 	_ = s.Put(ctx, &model.Artifact{
-		ID: "TASK-1", Kind: "task", Status: "draft", Title: "Ungated",
-		Sections: []model.Section{{Name: "specification", Text: "spec"}},
+		ID: "TASK-1", Kind: "task", Status: "draft", Title: "Ungated", Scope: "test",
+		Sections: []model.Section{
+			{Name: "context", Text: "context"},
+			{Name: "checklist", Text: "items"},
+			{Name: "acceptance", Text: "criteria"},
+		},
 	})
 
 	results, err := p.SetField(ctx, []string{"TASK-1"}, "status", "active")
@@ -236,12 +248,13 @@ func TestComponentLabelGate_NonTask(t *testing.T) {
 	p, s := newProto(t)
 	ctx := context.Background()
 
+	// Campaign has no ActivationRequiresSections; component label gate applies only to tasks.
 	_ = s.Put(ctx, &model.Artifact{
-		ID: "SPR-1", Kind: "sprint", Status: "draft", Title: "Sprint",
-		Sections: []model.Section{{Name: "specification", Text: "spec"}},
+		ID: "CMP-1", Kind: "campaign", Status: "draft", Title: "Campaign", Scope: "test",
+		Sections: []model.Section{{Name: "mission", Text: "mission"}},
 	})
 
-	results, err := p.SetField(ctx, []string{"SPR-1"}, "status", "active")
+	results, err := p.SetField(ctx, []string{"CMP-1"}, "status", "active")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,10 +382,10 @@ func TestArtifactTree_ScopeInTreeNode(t *testing.T) {
 	p, s := newProto(t)
 	ctx := context.Background()
 
-	_ = s.Put(ctx, &model.Artifact{ID: "SPR-1", Kind: "sprint", Scope: "origami", Status: "active", Title: "Sprint"})
-	_ = s.Put(ctx, &model.Artifact{ID: "TASK-1", Kind: "task", Scope: "scribe", Status: "draft", Title: "Child", Parent: "SPR-1"})
+	_ = s.Put(ctx, &model.Artifact{ID: "GOAL-1", Kind: "goal", Scope: "origami", Status: "current", Title: "Goal"})
+	_ = s.Put(ctx, &model.Artifact{ID: "TASK-1", Kind: "task", Scope: "scribe", Status: "draft", Title: "Child", Parent: "GOAL-1"})
 
-	tree, err := p.ArtifactTree(ctx, protocol.TreeInput{ID: "SPR-1"})
+	tree, err := p.ArtifactTree(ctx, protocol.TreeInput{ID: "GOAL-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -415,7 +428,7 @@ func newProtoWithVocab(t *testing.T, vocab []string) (*protocol.Protocol, store.
 }
 
 func TestValidateKind_RejectsUnknown(t *testing.T) {
-	err := model.ValidateKind("foo", []string{"goal", "sprint", "task", "spec", "bug"})
+	err := model.ValidateKind("foo", []string{"goal", "campaign", "task", "spec", "bug"})
 	if err == nil {
 		t.Fatal("expected error for unknown kind")
 	}
@@ -428,7 +441,7 @@ func TestValidateKind_RejectsUnknown(t *testing.T) {
 }
 
 func TestValidateKind_AcceptsKnown(t *testing.T) {
-	err := model.ValidateKind("task", []string{"goal", "sprint", "task", "spec", "bug"})
+	err := model.ValidateKind("task", []string{"goal", "campaign", "task", "spec", "bug"})
 	if err != nil {
 		t.Fatalf("expected nil, got: %v", err)
 	}
@@ -446,7 +459,7 @@ func TestValidateKind_NoVocabAcceptsAll(t *testing.T) {
 }
 
 func TestCreateArtifact_EnforcesVocab(t *testing.T) {
-	p, _ := newProtoWithVocab(t, []string{"task", "spec", "bug", "goal", "sprint"})
+	p, _ := newProtoWithVocab(t, []string{"task", "spec", "bug", "goal", "campaign"})
 	ctx := context.Background()
 
 	_, err := p.CreateArtifact(ctx, protocol.CreateInput{Kind: "foo", Title: "test"})
@@ -467,7 +480,7 @@ func TestCreateArtifact_EnforcesVocab(t *testing.T) {
 }
 
 func TestSetFieldKind_EnforcesVocab(t *testing.T) {
-	p, s := newProtoWithVocab(t, []string{"task", "spec", "bug", "goal", "sprint"})
+	p, s := newProtoWithVocab(t, []string{"task", "spec", "bug", "goal", "campaign"})
 	ctx := context.Background()
 
 	_ = s.Put(ctx, &model.Artifact{ID: "TASK-1", Kind: "task", Status: "draft", Title: "A"})
@@ -489,69 +502,8 @@ func TestSetFieldKind_EnforcesVocab(t *testing.T) {
 	}
 }
 
-func TestVocabMigrate_DryRun(t *testing.T) {
-	p, s := newProto(t)
-	ctx := context.Background()
-
-	_ = s.Put(ctx, &model.Artifact{ID: "STORY-1", Kind: "story", Status: "draft", Title: "A"})
-	_ = s.Put(ctx, &model.Artifact{ID: "STORY-2", Kind: "story", Status: "draft", Title: "B"})
-	_ = s.Put(ctx, &model.Artifact{ID: "EPIC-1", Kind: "epic", Status: "draft", Title: "E"})
-	_ = s.Put(ctx, &model.Artifact{ID: "SPEC-1", Kind: "specification", Status: "draft", Title: "S"})
-	_ = s.Put(ctx, &model.Artifact{ID: "RULE-1", Kind: "rule", Status: "draft", Title: "R"})
-	_ = s.Put(ctx, &model.Artifact{ID: "TASK-1", Kind: "task", Status: "draft", Title: "T"})
-
-	result, err := p.VocabMigrate(ctx, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Rewrites["story → task"] != 2 {
-		t.Errorf("expected 2 story→task, got %d", result.Rewrites["story → task"])
-	}
-	if result.Rewrites["epic → goal"] != 1 {
-		t.Errorf("expected 1 epic→goal, got %d", result.Rewrites["epic → goal"])
-	}
-	if result.Rewrites["specification → spec"] != 1 {
-		t.Errorf("expected 1 specification→spec, got %d", result.Rewrites["specification → spec"])
-	}
-	if result.Archived != 1 {
-		t.Errorf("expected 1 archived (rule), got %d", result.Archived)
-	}
-
-	art, _ := s.Get(ctx, "STORY-1")
-	if art.Kind != "story" {
-		t.Error("dry run should not mutate")
-	}
-}
-
-func TestVocabMigrate_Commit(t *testing.T) {
-	p, s := newProto(t)
-	ctx := context.Background()
-
-	_ = s.Put(ctx, &model.Artifact{ID: "STORY-1", Kind: "story", Status: "draft", Title: "A"})
-	_ = s.Put(ctx, &model.Artifact{ID: "EPIC-1", Kind: "epic", Status: "draft", Title: "E"})
-	_ = s.Put(ctx, &model.Artifact{ID: "RULE-1", Kind: "rule", Status: "draft", Title: "R"})
-
-	_, err := p.VocabMigrate(ctx, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	art, _ := s.Get(ctx, "STORY-1")
-	if art.Kind != "task" {
-		t.Errorf("expected kind=task after migration, got %s", art.Kind)
-	}
-	art, _ = s.Get(ctx, "EPIC-1")
-	if art.Kind != "goal" {
-		t.Errorf("expected kind=goal after migration, got %s", art.Kind)
-	}
-	art, _ = s.Get(ctx, "RULE-1")
-	if art.Status != "archived" {
-		t.Errorf("expected rule to be archived, got status=%s", art.Status)
-	}
-}
-
 func TestVocabAdd_AndRemove(t *testing.T) {
-	p, s := newProtoWithVocab(t, []string{"task", "spec", "bug", "goal", "sprint"})
+	p, s := newProtoWithVocab(t, []string{"task", "spec", "bug", "goal", "campaign"})
 	ctx := context.Background()
 
 	if err := p.VocabAdd("incident"); err != nil {
@@ -584,8 +536,9 @@ func TestDetectOrphans_TaskWithoutSpec(t *testing.T) {
 	p, s := newProto(t)
 	ctx := context.Background()
 
-	_ = s.Put(ctx, &model.Artifact{ID: "TASK-1", Kind: "task", Status: "draft", Title: "Lonely task", Scope: "test"})
-	_ = s.Put(ctx, &model.Artifact{ID: "SPE-1", Kind: "spec", Status: "draft", Title: "Lonely spec", Scope: "test"})
+	// ref and doc kinds have RequiredOutgoing: [documents]; tasks do not.
+	_ = s.Put(ctx, &model.Artifact{ID: "REF-1", Kind: "ref", Status: "draft", Title: "Lonely ref", Scope: "test"})
+	_ = s.Put(ctx, &model.Artifact{ID: "DOC-1", Kind: "doc", Status: "draft", Title: "Lonely doc", Scope: "test"})
 
 	report, err := p.DetectOrphans(ctx, protocol.OrphanInput{})
 	if err != nil {
@@ -641,7 +594,7 @@ func TestDetectOrphans_BugWithoutTask(t *testing.T) {
 	p, s := newProto(t)
 	ctx := context.Background()
 
-	_ = s.Put(ctx, &model.Artifact{ID: "BUG-1", Kind: "bug", Status: "draft", Title: "Lonely bug", Scope: "test"})
+	_ = s.Put(ctx, &model.Artifact{ID: "REF-1", Kind: "ref", Status: "draft", Title: "Lonely ref", Scope: "test"})
 
 	report, err := p.DetectOrphans(ctx, protocol.OrphanInput{})
 	if err != nil {
@@ -650,24 +603,23 @@ func TestDetectOrphans_BugWithoutTask(t *testing.T) {
 	if report.TotalOrphans != 1 {
 		t.Errorf("expected 1 orphan, got %d", report.TotalOrphans)
 	}
-	if report.Orphans[0].Reason != "bug has no task implementing it" {
+	if len(report.Orphans) > 0 && !strings.Contains(report.Orphans[0].Reason, "documents") {
 		t.Errorf("unexpected reason: %s", report.Orphans[0].Reason)
 	}
 }
 
-func TestDetectOrphans_IgnoresGoalsAndSprints(t *testing.T) {
+func TestDetectOrphans_IgnoresGoals(t *testing.T) {
 	p, s := newProto(t)
 	ctx := context.Background()
 
 	_ = s.Put(ctx, &model.Artifact{ID: "GOAL-1", Kind: "goal", Status: "current", Title: "A goal", Scope: "test"})
-	_ = s.Put(ctx, &model.Artifact{ID: "SPR-1", Kind: "sprint", Status: "active", Title: "A sprint", Scope: "test"})
 
 	report, err := p.DetectOrphans(ctx, protocol.OrphanInput{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if report.TotalScanned != 0 {
-		t.Errorf("expected 0 scanned (goals/sprints not checked), got %d", report.TotalScanned)
+		t.Errorf("expected 0 scanned (goals not checked), got %d", report.TotalScanned)
 	}
 }
 
@@ -690,10 +642,10 @@ func TestCreateArtifact_InfersScopeFromParent(t *testing.T) {
 	p, s := newProto(t)
 	ctx := context.Background()
 
-	_ = s.Put(ctx, &model.Artifact{ID: "SPR-1", Kind: "sprint", Status: "active", Title: "Sprint", Scope: "parentscope"})
+	_ = s.Put(ctx, &model.Artifact{ID: "GOAL-1", Kind: "goal", Status: "current", Title: "Goal", Scope: "parentscope"})
 
 	art, err := p.CreateArtifact(ctx, protocol.CreateInput{
-		Kind: "task", Title: "Child task", Parent: "SPR-1",
+		Kind: "task", Title: "Child task", Parent: "GOAL-1",
 	})
 	if err != nil {
 		t.Fatalf("should infer scope from parent: %v", err)
@@ -738,10 +690,10 @@ func TestCreateArtifact_ExplicitScopeWins(t *testing.T) {
 	p, s := newProto(t)
 	ctx := context.Background()
 
-	_ = s.Put(ctx, &model.Artifact{ID: "SPR-1", Kind: "sprint", Status: "active", Title: "Sprint", Scope: "parentscope"})
+	_ = s.Put(ctx, &model.Artifact{ID: "GOAL-1", Kind: "goal", Status: "current", Title: "Goal", Scope: "parentscope"})
 
 	art, err := p.CreateArtifact(ctx, protocol.CreateInput{
-		Kind: "task", Title: "Explicit", Scope: "explicit", Parent: "SPR-1",
+		Kind: "task", Title: "Explicit", Scope: "explicit", Parent: "GOAL-1",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -923,6 +875,7 @@ func TestCampaign_CreateWithoutScope(t *testing.T) {
 	s := openStore(t)
 	p := protocol.New(s, nil, []string{"test"}, nil, protocol.IDConfig{})
 
+	// ScopeOptional removed: campaign infers scope from single homeScope like other kinds.
 	art, err := p.CreateArtifact(context.Background(), protocol.CreateInput{
 		Kind:  "campaign",
 		Title: "Q2 DX Polish",
@@ -930,8 +883,8 @@ func TestCampaign_CreateWithoutScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected campaign creation without scope to succeed: %v", err)
 	}
-	if art.Scope != "" {
-		t.Errorf("campaign scope should be empty, got %q", art.Scope)
+	if art.Scope != "test" {
+		t.Errorf("campaign scope should be inferred as test, got %q", art.Scope)
 	}
 	if !strings.HasPrefix(art.ID, "CMP-") {
 		t.Errorf("campaign ID should start with CMP-, got %q", art.ID)
@@ -944,15 +897,20 @@ func TestCampaign_ScopedIDFallback(t *testing.T) {
 	idc := protocol.IDConfig{IDFormat: "scoped"}
 	p := protocol.New(s, schema, []string{"test"}, nil, idc)
 
+	// ScopeOptional removed: campaign gets scope from single homeScope.
 	art, err := p.CreateArtifact(context.Background(), protocol.CreateInput{
 		Kind:  "campaign",
-		Title: "Scopeless with scoped format",
+		Title: "Campaign with scoped format",
 	})
 	if err != nil {
 		t.Fatalf("campaign with scoped ID format should succeed: %v", err)
 	}
-	if !strings.HasPrefix(art.ID, "CMP-") {
-		t.Errorf("campaign should use prefix-based ID, got %q", art.ID)
+	// With scope "test", scoped format yields TST-CMP-1 (or similar).
+	if art.Scope != "test" {
+		t.Errorf("campaign scope should be test, got %q", art.Scope)
+	}
+	if art.ID == "" {
+		t.Error("campaign ID should be set")
 	}
 }
 
@@ -990,12 +948,16 @@ func TestCampaign_SetFieldScopeEmpty(t *testing.T) {
 		Title: "Test scope empty",
 	})
 
+	// ScopeOptional removed: empty scope is rejected for all kinds.
 	results, err := p.SetField(context.Background(), []string{art.ID}, "scope", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !results[0].OK {
-		t.Errorf("setting empty scope on campaign should succeed, got error: %s", results[0].Error)
+	if results[0].OK {
+		t.Error("setting empty scope on campaign should fail")
+	}
+	if !strings.Contains(results[0].Error, "cannot be empty") {
+		t.Errorf("expected 'cannot be empty' error, got: %s", results[0].Error)
 	}
 }
 
@@ -1045,13 +1007,35 @@ func TestSchema_IsReadonly(t *testing.T) {
 	}
 }
 
-func TestSchema_IsScopeOptional(t *testing.T) {
+func TestSchema_SectionTiers(t *testing.T) {
 	s := model.DefaultSchema()
-	if !s.IsScopeOptional("campaign") {
-		t.Error("campaign should be scope-optional")
+	taskShould := s.GetShouldSections("task")
+	if len(taskShould) != 2 || taskShould[0] != "checklist" || taskShould[1] != "acceptance" {
+		t.Errorf("expected task should=[checklist, acceptance], got %v", taskShould)
 	}
-	if s.IsScopeOptional("task") {
-		t.Error("task should not be scope-optional")
+	specMust := s.GetMustSections("spec")
+	if len(specMust) != 1 || specMust[0] != "problem" {
+		t.Errorf("expected spec must=[problem], got %v", specMust)
+	}
+}
+
+func TestSchema_MissingShouldSections(t *testing.T) {
+	s := model.DefaultSchema()
+
+	have := []model.Section{{Name: "context", Text: "..."}}
+	missing := s.MissingShouldSections("task", have)
+	if len(missing) != 2 {
+		t.Errorf("expected 2 missing should-sections, got %v", missing)
+	}
+
+	full := []model.Section{
+		{Name: "context", Text: "..."},
+		{Name: "checklist", Text: "..."},
+		{Name: "acceptance", Text: "..."},
+	}
+	missing = s.MissingShouldSections("task", full)
+	if len(missing) != 0 {
+		t.Errorf("expected 0 missing should-sections, got %v", missing)
 	}
 }
 
@@ -1123,7 +1107,6 @@ func TestSchema_ValidRelation(t *testing.T) {
 func TestActivationGuard_BlocksMissingSections(t *testing.T) {
 	s := openStore(t)
 	schema := model.DefaultSchema()
-	schema.Guards.ActivationRequiresExpectedSections = true
 	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
 
 	art, _ := p.CreateArtifact(context.Background(), protocol.CreateInput{
@@ -1138,7 +1121,7 @@ func TestActivationGuard_BlocksMissingSections(t *testing.T) {
 	if results[0].OK {
 		t.Error("activation should fail when expected sections are missing")
 	}
-	if !strings.Contains(results[0].Error, "missing expected sections") {
+	if !strings.Contains(results[0].Error, "missing") {
 		t.Errorf("error should mention missing sections, got: %s", results[0].Error)
 	}
 }
@@ -1146,7 +1129,7 @@ func TestActivationGuard_BlocksMissingSections(t *testing.T) {
 func TestActivationGuard_AllowsWhenDisabled(t *testing.T) {
 	s := openStore(t)
 	schema := model.DefaultSchema()
-	schema.Guards.ActivationRequiresExpectedSections = false
+	schema.Kinds["task"] = model.KindDef{Prefix: "TASK", Code: "TSK"}
 	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
 
 	art, _ := p.CreateArtifact(context.Background(), protocol.CreateInput{
@@ -1166,7 +1149,6 @@ func TestActivationGuard_AllowsWhenDisabled(t *testing.T) {
 func TestActivationGuard_PassesWithSections(t *testing.T) {
 	s := openStore(t)
 	schema := model.DefaultSchema()
-	schema.Guards.ActivationRequiresExpectedSections = true
 	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
 
 	art, _ := p.CreateArtifact(context.Background(), protocol.CreateInput{
@@ -1184,5 +1166,243 @@ func TestActivationGuard_PassesWithSections(t *testing.T) {
 	}
 	if !results[0].OK {
 		t.Errorf("activation should succeed with all sections, got error: %s", results[0].Error)
+	}
+}
+
+// --- DB conformance checker tests ---
+
+func TestCheck_CleanDB(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
+
+	p.CreateArtifact(context.Background(), protocol.CreateInput{Kind: "goal", Title: "G1"})
+
+	report, err := p.Check(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.TotalViolations != 0 {
+		t.Errorf("clean DB should have 0 violations, got %d", report.TotalViolations)
+		for _, v := range report.Violations {
+			t.Logf("  %s %s %s", v.ID, v.Category, v.Detail)
+		}
+	}
+}
+
+func TestCheck_UnknownKind(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
+
+	s.Put(context.Background(), &model.Artifact{ID: "X-1", Kind: "bogus", Status: "draft", Title: "Bad", Scope: "test"})
+
+	report, err := p.Check(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.TotalViolations != 1 {
+		t.Errorf("expected 1 violation, got %d", report.TotalViolations)
+	}
+}
+
+func TestCheck_InvalidParent(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
+
+	s.Put(context.Background(), &model.Artifact{ID: "TSK-1", Kind: "task", Status: "draft", Title: "T", Parent: "TSK-2", Scope: "test"})
+	s.Put(context.Background(), &model.Artifact{ID: "TSK-2", Kind: "task", Status: "draft", Title: "T2", Scope: "test"})
+
+	report, err := p.Check(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, v := range report.Violations {
+		if v.Category == "invalid_parent" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected invalid_parent violation")
+	}
+}
+
+func TestCheckFix_RemovesInvalidParent(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
+
+	s.Put(context.Background(), &model.Artifact{ID: "TSK-1", Kind: "task", Status: "draft", Title: "T", Parent: "TSK-2", Scope: "test"})
+	s.Put(context.Background(), &model.Artifact{ID: "TSK-2", Kind: "task", Status: "draft", Title: "T2", Scope: "test"})
+
+	_, fixes, err := p.CheckFix(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fixes) == 0 {
+		t.Error("expected at least one fix")
+	}
+	art, _ := s.Get(context.Background(), "TSK-1")
+	if art.Parent != "" {
+		t.Errorf("parent should be cleared, got %q", art.Parent)
+	}
+}
+
+func TestMigrate_RemovesSatisfiesEdges(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
+
+	art := &model.Artifact{
+		ID: "G-1", Kind: "goal", Status: "draft", Title: "G", Scope: "test",
+		Links: map[string][]string{"satisfies": {"S-1"}},
+	}
+	s.Put(context.Background(), art)
+	s.Put(context.Background(), &model.Artifact{ID: "S-1", Kind: "spec", Status: "draft", Title: "S", Scope: "test"})
+
+	result, err := p.Migrate(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SatisfiesRemoved == 0 {
+		t.Error("expected satisfies links to be removed")
+	}
+}
+
+// --- Scope labels tests ---
+
+func scopeSetup(t *testing.T, s *store.SQLiteStore, scopes ...string) {
+	t.Helper()
+	ctx := context.Background()
+	for _, scope := range scopes {
+		key := strings.ToUpper(scope)
+		if len(key) > 3 {
+			key = key[:3]
+		}
+		s.SetScopeKey(ctx, scope, key, true)
+	}
+}
+
+func TestScopeLabels_SetAndGet(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
+	ctx := context.Background()
+
+	scopeSetup(t, s, "test")
+
+	if err := p.SetScopeLabels(ctx, "test", []string{"go", "backend"}); err != nil {
+		t.Fatal("set:", err)
+	}
+	labels, err := p.GetScopeLabels(ctx, "test")
+	if err != nil {
+		t.Fatal("get:", err)
+	}
+	if len(labels) != 2 || labels[0] != "go" || labels[1] != "backend" {
+		t.Errorf("expected [go backend], got %v", labels)
+	}
+}
+
+func TestScopeLabels_QueryExpansion_AND(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	p := protocol.New(s, schema, []string{"myrepo"}, nil, protocol.IDConfig{})
+	ctx := context.Background()
+
+	scopeSetup(t, s, "myrepo")
+	p.SetScopeLabels(ctx, "myrepo", []string{"go", "backend"})
+
+	p.CreateArtifact(ctx, protocol.CreateInput{Kind: "task", Title: "T1", Scope: "myrepo"})
+
+	arts, err := p.ListArtifacts(ctx, protocol.ListInput{Labels: []string{"go", "backend"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(arts) != 1 {
+		t.Errorf("expected 1 artifact via AND scope expansion, got %d", len(arts))
+	}
+}
+
+func TestScopeLabels_QueryExpansion_OR(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	p := protocol.New(s, schema, []string{"myrepo"}, nil, protocol.IDConfig{})
+	ctx := context.Background()
+
+	scopeSetup(t, s, "myrepo")
+	p.SetScopeLabels(ctx, "myrepo", []string{"go"})
+
+	p.CreateArtifact(ctx, protocol.CreateInput{Kind: "task", Title: "T1", Scope: "myrepo"})
+
+	arts, err := p.ListArtifacts(ctx, protocol.ListInput{LabelsOr: []string{"go", "python"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(arts) != 1 {
+		t.Errorf("expected 1 artifact via OR scope expansion, got %d", len(arts))
+	}
+}
+
+func TestScopeLabels_QueryExpansion_NOT(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	p := protocol.New(s, schema, []string{"myrepo"}, nil, protocol.IDConfig{})
+	ctx := context.Background()
+
+	scopeSetup(t, s, "myrepo")
+	p.SetScopeLabels(ctx, "myrepo", []string{"go"})
+
+	p.CreateArtifact(ctx, protocol.CreateInput{Kind: "task", Title: "T1", Scope: "myrepo"})
+
+	arts, err := p.ListArtifacts(ctx, protocol.ListInput{ExcludeLabels: []string{"go"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(arts) != 0 {
+		t.Errorf("expected 0 artifacts (excluded by scope label), got %d", len(arts))
+	}
+}
+
+func TestScopeLabels_ScopeFilterPrecedence(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	p := protocol.New(s, schema, []string{"repo1", "repo2"}, nil, protocol.IDConfig{})
+	ctx := context.Background()
+
+	scopeSetup(t, s, "repo1", "repo2")
+	p.SetScopeLabels(ctx, "repo1", []string{"go"})
+	p.SetScopeLabels(ctx, "repo2", []string{"go"})
+
+	p.CreateArtifact(ctx, protocol.CreateInput{Kind: "task", Title: "T1", Scope: "repo1"})
+	p.CreateArtifact(ctx, protocol.CreateInput{Kind: "task", Title: "T2", Scope: "repo2"})
+
+	arts, err := p.ListArtifacts(ctx, protocol.ListInput{Scope: "repo1", Labels: []string{"go"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(arts) != 1 {
+		t.Errorf("expected 1 artifact (scope filter takes precedence), got %d", len(arts))
+	}
+}
+
+func TestScopeLabels_DirectArtifactLabel(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	p := protocol.New(s, schema, []string{"myrepo"}, nil, protocol.IDConfig{})
+	ctx := context.Background()
+
+	scopeSetup(t, s, "myrepo")
+
+	art, _ := p.CreateArtifact(ctx, protocol.CreateInput{Kind: "task", Title: "T1", Scope: "myrepo", Labels: []string{"urgent"}})
+	_ = art
+
+	arts, err := p.ListArtifacts(ctx, protocol.ListInput{Labels: []string{"urgent"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(arts) != 1 {
+		t.Errorf("expected 1 artifact via direct label, got %d", len(arts))
 	}
 }

@@ -14,28 +14,12 @@
   {{end}}
 </div>
 
-{{if .Inventory.Goals}}
-<h2>Current Goals</h2>
-<table>
-  <thead><tr><th>ID</th><th>Scope</th><th>Title</th></tr></thead>
-  <tbody>
-    {{range .Inventory.Goals}}
-    <tr>
-      <td><a href="/artifacts/{{.ID}}">{{.ID}}</a></td>
-      <td>{{.Scope}}</td>
-      <td>{{.Title}}</td>
-    </tr>
-    {{end}}
-  </tbody>
-</table>
-{{end}}
-
-{{if .Inventory.ActiveSprints}}
-<h2>Active Sprints</h2>
+{{range $kind, $arts := .Inventory.Tracked}}
+<h2>{{$kind}}</h2>
 <table>
   <thead><tr><th>ID</th><th>Scope</th><th>Title</th><th>Tree</th></tr></thead>
   <tbody>
-    {{range .Inventory.ActiveSprints}}
+    {{range $arts}}
     <tr>
       <td><a href="/artifacts/{{.ID}}">{{.ID}}</a></td>
       <td>{{.Scope}}</td>
