@@ -499,14 +499,16 @@ func (s *Schema) Hash() string {
 func DefaultSchema() *Schema {
 	return &Schema{
 		Kinds: map[string]KindDef{
-			"goal": {Prefix: "GOAL", Code: "GOL", Protected: true,
-				IsGoalKind: true, ActiveStatus: "current", TrackInMotd: true,
-				AutoArchiveOnJustifyComplete: true,
-				Children:                     []string{"task", "spec", "bug", "need", "ref", "doc", "decision"},
-				Relations: KindRelations{
-					Incoming: []string{RelParentOf},
-				},
+		"goal": {Prefix: "GOAL", Code: "GOL", Protected: true,
+			IsGoalKind: true, ActiveStatus: "current", TrackInMotd: true,
+			AutoArchiveOnJustifyComplete: true,
+			Children:                     []string{"task", "spec", "bug", "need", "ref", "doc", "decision"},
+			Relations: KindRelations{
+				Incoming:  []string{RelParentOf},
+				Outgoing:  []string{RelSatisfies},
+				Targets:   map[string][]string{RelSatisfies: {"template"}},
 			},
+		},
 		"task": {Prefix: "TASK", Code: "TSK",
 			TriggerStatus:              "complete",
 			ActivationRequiresSections: true,
@@ -514,8 +516,8 @@ func DefaultSchema() *Schema {
 			ShouldSections:             []string{"checklist", "acceptance"},
 			Children:                   []string{},
 			Relations: KindRelations{
-				Outgoing: []string{RelImplements, RelDependsOn},
-				Targets:  map[string][]string{RelImplements: {"spec", "bug"}},
+				Outgoing: []string{RelImplements, RelDependsOn, RelSatisfies},
+				Targets:  map[string][]string{RelImplements: {"spec", "bug"}, RelSatisfies: {"template"}},
 			},
 		},
 		"spec": {Prefix: "SPEC", Code: "SPC", Protected: true,
@@ -525,6 +527,8 @@ func DefaultSchema() *Schema {
 			Children:                   []string{},
 			Relations: KindRelations{
 				Incoming: []string{RelImplements, RelJustifies},
+				Outgoing: []string{RelSatisfies},
+				Targets:  map[string][]string{RelSatisfies: {"template"}},
 			},
 		},
 		"bug": {Prefix: "BUG", Code: "BUG", Protected: true,
@@ -533,6 +537,8 @@ func DefaultSchema() *Schema {
 			Children:       []string{},
 			Relations: KindRelations{
 				Incoming: []string{RelImplements},
+				Outgoing: []string{RelSatisfies},
+				Targets:  map[string][]string{RelSatisfies: {"template"}},
 			},
 		},
 		"need": {Prefix: "NEED", Code: "NED", Protected: true,
@@ -540,16 +546,17 @@ func DefaultSchema() *Schema {
 			ShouldSections: []string{"value", "acceptance"},
 			Children:       []string{},
 			Relations: KindRelations{
-				Outgoing: []string{RelJustifies},
-				Targets:  map[string][]string{RelJustifies: {"spec"}},
+				Outgoing: []string{RelJustifies, RelSatisfies},
+				Targets:  map[string][]string{RelJustifies: {"spec"}, RelSatisfies: {"template"}},
 			},
 		},
 		"ref": {Prefix: "REF", Code: "REF", Protected: true,
 			ShouldSections: []string{"summary", "source"},
 			Children:       []string{},
 			Relations: KindRelations{
-				Outgoing:         []string{RelDocuments},
+				Outgoing:         []string{RelDocuments, RelSatisfies},
 				RequiredOutgoing: []string{RelDocuments},
+				Targets:          map[string][]string{RelSatisfies: {"template"}},
 			},
 		},
 		"doc": {Prefix: "DOC", Code: "DOC", Protected: true,
@@ -557,20 +564,34 @@ func DefaultSchema() *Schema {
 			CouldSections:  []string{"content"},
 			Children:       []string{},
 			Relations: KindRelations{
-				Outgoing:         []string{RelDocuments},
+				Outgoing:         []string{RelDocuments, RelSatisfies},
 				RequiredOutgoing: []string{RelDocuments},
+				Targets:          map[string][]string{RelSatisfies: {"template"}},
 			},
 		},
-		"decision": {Prefix: "ADR", Code: "ADR", Protected: true, Children: []string{}},
+		"decision": {Prefix: "ADR", Code: "ADR", Protected: true, Children: []string{},
+			Relations: KindRelations{
+				Outgoing: []string{RelSatisfies},
+				Targets:  map[string][]string{RelSatisfies: {"template"}},
+			},
+		},
 		"campaign": {Prefix: "CMP", Code: "CMP", Protected: true,
 			ActiveStatus:   "active", TrackInMotd: true,
 			MustSections:   []string{"mission"},
 			ShouldSections: []string{"goals", "success_criteria"},
 			Children:       []string{"goal"},
-				Relations: KindRelations{
-					Outgoing: []string{RelParentOf},
-				},
+			Relations: KindRelations{
+				Outgoing: []string{RelParentOf, RelSatisfies},
+				Targets:  map[string][]string{RelSatisfies: {"template"}},
 			},
+		},
+		"template": {Prefix: "TPL", Code: "TPL", Protected: true,
+			MustSections: []string{"content"},
+			Children:     []string{},
+			Relations: KindRelations{
+				Incoming: []string{RelSatisfies},
+			},
+		},
 		},
 		Statuses: []string{
 			"draft", "active", "current", "open",
@@ -581,7 +602,7 @@ func DefaultSchema() *Schema {
 		ReadonlyStatuses: []string{"archived"},
 		Relations: []string{
 			RelParentOf, RelDependsOn, RelJustifies,
-			RelImplements, RelDocuments,
+			RelImplements, RelDocuments, RelSatisfies,
 		},
 		Guards: Guards{
 			ArchivedReadonly:                     true,

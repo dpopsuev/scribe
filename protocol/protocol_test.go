@@ -1250,24 +1250,176 @@ func TestCheckFix_RemovesInvalidParent(t *testing.T) {
 	}
 }
 
-func TestMigrate_RemovesSatisfiesEdges(t *testing.T) {
+func TestMigrate_PreservesSatisfiesEdges(t *testing.T) {
 	s := openStore(t)
 	schema := model.DefaultSchema()
 	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
 
+	s.Put(context.Background(), &model.Artifact{
+		ID: "TPL-1", Kind: "template", Status: "active", Title: "T", Scope: "test",
+		Sections: []model.Section{{Name: "content", Text: "tpl"}},
+	})
 	art := &model.Artifact{
 		ID: "G-1", Kind: "goal", Status: "draft", Title: "G", Scope: "test",
-		Links: map[string][]string{"satisfies": {"S-1"}},
+		Links: map[string][]string{"satisfies": {"TPL-1"}},
 	}
 	s.Put(context.Background(), art)
-	s.Put(context.Background(), &model.Artifact{ID: "S-1", Kind: "spec", Status: "draft", Title: "S", Scope: "test"})
 
 	result, err := p.Migrate(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.SatisfiesRemoved == 0 {
-		t.Error("expected satisfies links to be removed")
+	if result.SatisfiesRemoved != 0 {
+		t.Errorf("expected satisfies links to be preserved, got %d removed", result.SatisfiesRemoved)
+	}
+	got, _ := s.Get(context.Background(), "G-1")
+	if _, ok := got.Links["satisfies"]; !ok {
+		t.Error("satisfies link was removed but should have been preserved")
+	}
+}
+
+// --- Template enforcement tests ---
+
+func createTestTemplate(t *testing.T, s *store.SQLiteStore) {
+	t.Helper()
+	ctx := context.Background()
+	s.Put(ctx, &model.Artifact{
+		ID: "SCR-TPL-1", Kind: "template", Status: "active", Title: "Task Template", Scope: "test",
+		Sections: []model.Section{
+			{Name: "content", Text: "full raw template markdown"},
+			{Name: "context", Text: "Background and motivation"},
+			{Name: "checklist", Text: "Ordered steps for execution"},
+			{Name: "acceptance", Text: "Given/When/Then criteria"},
+		},
+	})
+}
+
+func TestTemplate_CreateConformant(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
+	createTestTemplate(t, s)
+
+	art, err := p.CreateArtifact(context.Background(), protocol.CreateInput{
+		Kind: "task", Title: "T", Scope: "test",
+		Links: map[string][]string{"satisfies": {"SCR-TPL-1"}},
+		Sections: []model.Section{
+			{Name: "context", Text: "bg"},
+			{Name: "checklist", Text: "steps"},
+			{Name: "acceptance", Text: "criteria"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected success, got: %v", err)
+	}
+	if art.ID == "" {
+		t.Error("expected artifact to be created")
+	}
+}
+
+func TestTemplate_CreateMissingSections(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
+	createTestTemplate(t, s)
+
+	_, err := p.CreateArtifact(context.Background(), protocol.CreateInput{
+		Kind: "task", Title: "T", Scope: "test",
+		Links: map[string][]string{"satisfies": {"SCR-TPL-1"}},
+		Sections: []model.Section{
+			{Name: "context", Text: "bg"},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for missing template sections")
+	}
+	if !strings.Contains(err.Error(), "acceptance") {
+		t.Errorf("error should mention missing section 'acceptance', got: %s", err.Error())
+	}
+	if !strings.Contains(err.Error(), "checklist") {
+		t.Errorf("error should mention missing section 'checklist', got: %s", err.Error())
+	}
+}
+
+func TestTemplate_DetachBlocksTemplateSection(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
+	createTestTemplate(t, s)
+
+	s.Put(context.Background(), &model.Artifact{
+		ID: "T-1", Kind: "task", Status: "draft", Title: "T", Scope: "test",
+		Links: map[string][]string{"satisfies": {"SCR-TPL-1"}},
+		Sections: []model.Section{
+			{Name: "context", Text: "bg"},
+			{Name: "checklist", Text: "steps"},
+			{Name: "acceptance", Text: "criteria"},
+			{Name: "notes", Text: "extra"},
+		},
+	})
+
+	_, err := p.DetachSection(context.Background(), "T-1", "context")
+	if err == nil {
+		t.Fatal("expected error when detaching template-required section")
+	}
+	if !strings.Contains(err.Error(), "required by template") {
+		t.Errorf("error should mention template requirement, got: %s", err.Error())
+	}
+}
+
+func TestTemplate_DetachAllowsNonTemplateSection(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
+	createTestTemplate(t, s)
+
+	s.Put(context.Background(), &model.Artifact{
+		ID: "T-1", Kind: "task", Status: "draft", Title: "T", Scope: "test",
+		Links: map[string][]string{"satisfies": {"SCR-TPL-1"}},
+		Sections: []model.Section{
+			{Name: "context", Text: "bg"},
+			{Name: "checklist", Text: "steps"},
+			{Name: "acceptance", Text: "criteria"},
+			{Name: "notes", Text: "extra"},
+		},
+	})
+
+	removed, err := p.DetachSection(context.Background(), "T-1", "notes")
+	if err != nil {
+		t.Fatalf("expected success, got: %v", err)
+	}
+	if !removed {
+		t.Error("expected section to be removed")
+	}
+}
+
+func TestTemplate_CheckWarnsNonConformant(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
+	createTestTemplate(t, s)
+
+	s.Put(context.Background(), &model.Artifact{
+		ID: "T-1", Kind: "task", Status: "draft", Title: "T", Scope: "test",
+		Links: map[string][]string{"satisfies": {"SCR-TPL-1"}},
+		Sections: []model.Section{
+			{Name: "context", Text: "bg"},
+		},
+	})
+
+	report, err := p.Check(context.Background(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, v := range report.Violations {
+		if v.Category == "missing_template_section" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected missing_template_section violation")
 	}
 }
 
