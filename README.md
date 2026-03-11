@@ -15,7 +15,7 @@ Work graph for AI agents. Scribe is a structured artifact store with native DAG 
 podman run -d --name scribe \
   -p 8080:8080 \
   -v scribe-data:/data \
-  quay.io/dpopsuev/scribe:0.3.0
+  quay.io/dpopsuev/scribe:0.5.0
 ```
 
 ### Binary
@@ -90,7 +90,7 @@ Scribe solves this by giving agents a structured, persistent memory they can rea
 | Concept | What it is |
 |---|---|
 | **Artifact** | The universal record. Everything is an artifact with a kind, status, scope, and auto-generated ID (e.g. `TASK-2026-042`). |
-| **Kind** | The type of artifact. Canonical kinds: `goal`, `sprint`, `task`, `spec`, `bug`. Enforced by vocabulary validation -- unknown kinds are rejected with a hint to register them via `scribe vocab add`. |
+| **Kind** | The type of artifact. Canonical kinds: `goal`, `sprint`, `task`, `spec`, `bug`, `campaign`, `template`, `need`, `ref`, `doc`, `decision`. Enforced by vocabulary validation -- unknown kinds are rejected with a hint to register them via `scribe vocab add`. |
 | **Task** | The primary unit of work. A task carries a goal statement, design sections, and dependency edges. Tasks **implement** specs and bugs. |
 | **Spec** | A specification: the *what* and *why*. Defines acceptance criteria. Tasks implement specs. |
 | **Bug** | A defect record. Like a spec, a bug is resolved by a task that implements it. |
@@ -98,7 +98,10 @@ Scribe solves this by giving agents a structured, persistent memory they can rea
 | **Status** | Lifecycle state: `draft` &rarr; `active` &rarr; `complete` / `dismissed`. Also: `current` (goals), `retired`, `archived`. |
 | **Scope** | The project or repository an artifact belongs to (e.g. `locus`, `origami`). Enables multi-project planning from a single Scribe instance. |
 | **Section** | A named text block attached to an artifact. Use for design notes, mermaid diagrams, acceptance criteria, or any structured content. |
-| **Edge** | A directed relationship: `parent_of`, `depends_on`, `justifies`, `implements`, `documents`. Edges form a DAG that agents can traverse. |
+| **Campaign** | Cross-project mission container. Groups goals, specs, and tasks under a theme (e.g. "v1 stabilization"). |
+| **Template** | Meta-artifact (artifact about artifacts). Defines required sections and guidance for a kind. Artifacts link to templates via `satisfies`. |
+| **Need** | A requirement or capability gap. Justifies goals and specs. |
+| **Edge** | A directed relationship: `parent_of`, `depends_on`, `justifies`, `implements`, `documents`, `satisfies`. Edges form a DAG that agents can traverse. |
 
 ### Artifact Relationships
 
@@ -116,11 +119,18 @@ graph LR
     subgraph "Organizes Work"
         GOAL["goal"]
         SPRINT["sprint"]
+        CAMPAIGN["campaign"]
+    end
+
+    subgraph "Guides Work"
+        TEMPLATE["template"]
     end
 
     TASK -- implements --> SPEC
     TASK -- implements --> BUG
     TASK -- depends_on --> TASK
+    TASK -- satisfies --> TEMPLATE
+    SPEC -- satisfies --> TEMPLATE
     SPRINT -- parent_of --> TASK
     GOAL -- parent_of --> SPEC
     GOAL -- parent_of --> TASK
@@ -128,7 +138,7 @@ graph LR
     GOAL -. justifies .-> GOAL
 ```
 
-**Specs** and **bugs** define *what* needs to happen. **Tasks** do the work by implementing specs or resolving bugs. **Sprints** group tasks into time-boxed iterations. **Goals** sit at the top as north-star containers. The `detect_orphans` tool warns when a task has no spec/bug link, or when a spec/bug has no task implementing it.
+**Specs** and **bugs** define *what* needs to happen. **Tasks** do the work by implementing specs or resolving bugs. **Sprints** group tasks into time-boxed iterations. **Goals** sit at the top as north-star containers. The `detect` admin tool warns when a task has no spec/bug link, or when a spec/bug has no task implementing it.
 
 ### Example Artifact Graph
 
@@ -270,12 +280,10 @@ block-beta
 | `protocol` | 14 | All business logic. Both CLI and MCP are wrappers around this. |
 | `model` | 9 | Data model: `Artifact`, `Section`, `Edge`, `Filter`, `Schema`. |
 | `store` | 13 | Persistence interface + SQLite implementation. |
-| `lifecycle` | 7 | Guards (archived=readonly, delete-requires-archived), archive with cascade, vacuum. |
 | `render` | 1 | Markdown and table formatters for CLI and MCP output. |
 | `config` | 6 | Configuration loading, workspace definitions, schema. |
 | `directive` | 6 | MCP tool registry and input validation. |
 | `keygen` | 2 | Auto-generated ID sequences per artifact kind. |
-| `mcpclient` | 1 | Optional client for cross-tool communication (e.g. querying Locus). |
 | `web` | 6 | Web UI for artifact browsing and sprint boards. |
 
 ### Storage
@@ -337,7 +345,9 @@ schema:
     task:          { prefix: TASK }
     spec:          { prefix: SPE }
     bug:           { prefix: BUG }
-    note:          { prefix: NOTE, exclude_from_list: true }
+    campaign:      { prefix: CON }
+    template:      { prefix: TPL }
+    need:          { prefix: NED }
 
   statuses:
     - draft
@@ -373,7 +383,7 @@ podman run -d --name scribe \
   -p 8080:8080 \
   -v scribe-data:/data \
   -v ./scribe.yaml:/data/scribe.yaml \
-  quay.io/dpopsuev/scribe:0.3.0
+  quay.io/dpopsuev/scribe:0.5.0
 ```
 
 ## Environment Variables
