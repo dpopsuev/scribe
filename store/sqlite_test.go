@@ -511,3 +511,44 @@ func TestInsertedAtImmutable(t *testing.T) {
 		t.Errorf("InsertedAt changed on update: %v -> %v", originalInserted, got2.InsertedAt)
 	}
 }
+
+func TestScopeLabels_Store(t *testing.T) {
+	s := openSQLite(t)
+	ctx := context.Background()
+
+	s.SetScopeKey(ctx, "myrepo", "MYR", false)
+
+	if err := s.SetScopeLabels(ctx, "myrepo", []string{"go", "backend"}); err != nil {
+		t.Fatal("SetScopeLabels:", err)
+	}
+
+	labels, err := s.GetScopeLabels(ctx, "myrepo")
+	if err != nil {
+		t.Fatal("GetScopeLabels:", err)
+	}
+	if len(labels) != 2 || labels[0] != "go" || labels[1] != "backend" {
+		t.Errorf("expected [go backend], got %v", labels)
+	}
+
+	scopes, err := s.ScopesByLabel(ctx, "backend")
+	if err != nil {
+		t.Fatal("ScopesByLabel:", err)
+	}
+	if len(scopes) != 1 || scopes[0] != "myrepo" {
+		t.Errorf("expected [myrepo], got %v", scopes)
+	}
+
+	infos, err := s.ListScopeInfo(ctx)
+	if err != nil {
+		t.Fatal("ListScopeInfo:", err)
+	}
+	found := false
+	for _, info := range infos {
+		if info.Scope == "myrepo" && len(info.Labels) == 2 {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected to find myrepo in scope info with 2 labels")
+	}
+}

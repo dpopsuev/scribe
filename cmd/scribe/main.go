@@ -14,12 +14,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/dpopsuev/scribe/config"
 	"github.com/dpopsuev/scribe/directive"
 	"github.com/dpopsuev/scribe/mcp"
-	"github.com/dpopsuev/scribe/mcpclient"
 	"github.com/dpopsuev/scribe/web"
 	"github.com/dpopsuev/scribe/model"
 	"github.com/dpopsuev/scribe/protocol"
@@ -49,6 +47,7 @@ func main() {
 		setCmd(),
 		deleteCmd(),
 		treeCmd(),
+		briefingCmd(),
 		sectionCmd(),
 		searchCmd(),
 		goalCmd(),
@@ -60,7 +59,6 @@ func main() {
 		inventoryCmd(),
 		linkCmd(),
 		unlinkCmd(),
-		contextCmd(),
 		overlapsCmd(),
 		orphansCmd(),
 		scopeKeysCmd(),
@@ -71,6 +69,10 @@ func main() {
 		toolsCmd(),
 		uiCmd(),
 		vocabCmd(),
+		lintCmd(),
+		checkCmd(),
+		migrateCmd(),
+		configCmd(),
 	)
 
 	if err := root.Execute(); err != nil {
@@ -85,28 +87,24 @@ func mustConfig() *config.Config {
 		os.Exit(1)
 	}
 	if dbPath != "" {
-		cfg.DB = dbPath
+		cfg.DB.SQLite.Path = dbPath
 	}
 	return cfg
 }
 
 func mustProto() (*protocol.Protocol, func()) {
 	cfg := mustConfig()
-	s, err := store.OpenSQLite(cfg.DB)
+	s, err := store.OpenSQLiteConfig(cfg.SQLiteConfig())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: open store: %v\n", err)
 		os.Exit(1)
 	}
-	var vocab []string
-	if cfg.Vocabulary != nil {
-		vocab = cfg.Vocabulary.Kinds
-	}
-	return protocol.New(s, cfg.Schema, nil, vocab, cfg.ProtocolIDConfig()), func() { s.Close() }
+	return protocol.New(s, cfg.Schema, nil, nil, cfg.ProtocolIDConfig()), func() { s.Close() }
 }
 
 func mustStore() *store.SQLiteStore {
 	cfg := mustConfig()
-	s, err := store.OpenSQLite(cfg.DB)
+	s, err := store.OpenSQLiteConfig(cfg.SQLiteConfig())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: open store: %v\n", err)
 		os.Exit(1)
@@ -127,18 +125,7 @@ func createCmd() *cobra.Command {
 			defer close()
 
 			if explicitID != "" {
-				s := p.Store()
-				art := &model.Artifact{
-					ID: explicitID, Kind: in.Kind, Scope: in.Scope,
-					Status: "draft", Parent: in.Parent,
-					Title: in.Title, Goal: in.Goal,
-					DependsOn: in.DependsOn, Labels: in.Labels,
-				}
-				if err := s.Put(context.Background(), art); err != nil {
-					return err
-				}
-				fmt.Println(explicitID)
-				return nil
+				in.ExplicitID = explicitID
 			}
 
 			art, err := p.CreateArtifact(context.Background(), in)
@@ -224,7 +211,18 @@ func listCmd() *cobra.Command {
 				enc.SetIndent("", "  ")
 				return enc.Encode(arts)
 			default:
-				if in.GroupBy != "" {
+				if in.GroupBy == "scope_label" {
+					scopeLabels := make(map[string][]string)
+					infos, err := p.ListScopeInfo(context.Background())
+					if err == nil {
+						for _, info := range infos {
+							if len(info.Labels) > 0 {
+								scopeLabels[info.Scope] = info.Labels
+							}
+						}
+					}
+					fmt.Print(render.GroupedTableByScopeLabel(arts, scopeLabels))
+				} else if in.GroupBy != "" {
 					fmt.Print(render.GroupedTable(arts, in.GroupBy))
 				} else {
 					fmt.Print(render.Table(arts))
@@ -241,9 +239,12 @@ func listCmd() *cobra.Command {
 	cmd.Flags().StringVar(&in.IDPrefix, "id-prefix", "", "filter by ID prefix")
 	cmd.Flags().StringVar(&in.ExcludeKind, "exclude-kind", "", "exclude artifacts of this kind")
 	cmd.Flags().StringVar(&in.ExcludeStatus, "exclude-status", "", "exclude artifacts with this status")
+	cmd.Flags().StringSliceVar(&in.Labels, "label", nil, "filter by label (AND, repeatable)")
+	cmd.Flags().StringSliceVar(&in.LabelsOr, "label-or", nil, "filter by label (OR, repeatable)")
+	cmd.Flags().StringSliceVar(&in.ExcludeLabels, "exclude-label", nil, "exclude by label (NOT, repeatable)")
 	cmd.Flags().StringVar(&format, "format", "table", "output format (table, json)")
 	cmd.Flags().StringVar(&in.Sort, "sort", "id", "sort field")
-	cmd.Flags().StringVar(&in.GroupBy, "group-by", "", "group output by field")
+	cmd.Flags().StringVar(&in.GroupBy, "group-by", "", "group output by field (status, scope, kind, sprint, scope_label)")
 	cmd.Flags().BoolVar(&count, "count", false, "print count only")
 	cmd.Flags().IntVar(&in.Limit, "limit", 0, "max rows to show (0 = all)")
 	return cmd
@@ -388,26 +389,12 @@ func sectionCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, close := mustProto()
 			defer close()
-			ctx := context.Background()
-			art, err := p.GetArtifact(ctx, args[0])
+			found, err := p.DetachSection(context.Background(), args[0], args[1])
 			if err != nil {
 				return err
 			}
-			var kept []model.Section
-			found := false
-			for _, sec := range art.Sections {
-				if sec.Name == args[1] {
-					found = true
-					continue
-				}
-				kept = append(kept, sec)
-			}
 			if !found {
 				return fmt.Errorf("section %q not found on %s", args[1], args[0])
-			}
-			art.Sections = kept
-			if err := p.Store().Put(ctx, art); err != nil {
-				return err
 			}
 			fmt.Printf("%s: section %q removed\n", args[0], args[1])
 			return nil
@@ -467,6 +454,78 @@ func printTree(node *protocol.TreeNode, prefix string, last bool, b *strings.Bui
 	}
 	for i, ch := range node.Children {
 		printTree(ch, cp, i == len(node.Children)-1, b)
+	}
+}
+
+// --- briefing ---
+
+func briefingCmd() *cobra.Command {
+	var format string
+	cmd := &cobra.Command{
+		Use:   "briefing <ID>",
+		Short: "Recursive edge-aware traversal showing the full context chain from any artifact",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p, close := mustProto()
+			defer close()
+			tree, err := p.ArtifactTree(context.Background(), protocol.TreeInput{
+				ID:        args[0],
+				Relation:  "*",
+				Direction: "both",
+			})
+			if err != nil {
+				return err
+			}
+			if format == "json" {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(tree)
+			}
+			var b strings.Builder
+			printBriefing(tree, "", true, &b)
+			fmt.Print(b.String())
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&format, "format", "text", "output format (text, json)")
+	return cmd
+}
+
+func printBriefing(node *protocol.TreeNode, prefix string, last bool, b *strings.Builder) {
+	connector := "├── "
+	if last {
+		connector = "└── "
+	}
+	if prefix == "" {
+		connector = ""
+	}
+
+	edgeLabel := ""
+	if node.Edge != "" {
+		arrow := " -> "
+		if node.Direction == "incoming" {
+			arrow = " <- "
+		}
+		edgeLabel = node.Edge + arrow
+	}
+
+	kindStatus := node.Status
+	if node.Kind != "" {
+		kindStatus = node.Kind + "|" + node.Status
+	}
+
+	fmt.Fprintf(b, "%s%s%s%s [%s] %s\n", prefix, connector, edgeLabel, node.ID, kindStatus, node.Title)
+
+	cp := prefix
+	if prefix != "" {
+		if last {
+			cp += "    "
+		} else {
+			cp += "│   "
+		}
+	}
+	for i, ch := range node.Children {
+		printBriefing(ch, cp, i == len(node.Children)-1, b)
 	}
 }
 
@@ -722,22 +781,12 @@ func motdCmd() *cobra.Command {
 				}
 				sections = append(sections, "Goal:\n"+strings.Join(lines, "\n"))
 			}
-			now := time.Now().UTC()
-			if len(m.DueReminders) > 0 {
+			if len(m.Warnings) > 0 {
 				var lines []string
-				for _, n := range m.DueReminders {
-					r, _ := n.Extra["remind_at"].(string)
-					lines = append(lines, fmt.Sprintf("  %s %s (due: %s)", n.ID, n.Title, r))
+				for _, w := range m.Warnings {
+					lines = append(lines, "  ⚠ "+w)
 				}
-				sections = append(sections, fmt.Sprintf("Due reminders (%d):\n%s", len(m.DueReminders), strings.Join(lines, "\n")))
-			}
-			if len(m.RecentNotes) > 0 {
-				var lines []string
-				for _, n := range m.RecentNotes {
-					age := now.Sub(n.CreatedAt).Truncate(time.Minute)
-					lines = append(lines, fmt.Sprintf("  %s %s (%s ago)", n.ID, n.Title, age))
-				}
-				sections = append(sections, fmt.Sprintf("Recent notes (%d):\n%s", len(m.RecentNotes), strings.Join(lines, "\n")))
+				sections = append(sections, "Warnings:\n"+strings.Join(lines, "\n"))
 			}
 			if len(sections) == 0 {
 				fmt.Println("nothing to report")
@@ -833,20 +882,17 @@ func inventoryCmd() *cobra.Command {
 			for s, v := range inv.ByStatus {
 				fmt.Printf("  %-15s %d\n", s, v)
 			}
-			if len(inv.ActiveSprints) > 0 {
-				fmt.Println("\nActive sprints:")
-				for _, sp := range inv.ActiveSprints {
-					fmt.Printf("  %s %s\n", sp.ID, sp.Title)
+			for kind, arts := range inv.Tracked {
+				if len(arts) == 0 {
+					continue
 				}
-			}
-			if len(inv.Goals) > 0 {
-				fmt.Println("\nCurrent goals:")
-				for _, g := range inv.Goals {
+				fmt.Printf("\nTracked %s:\n", kind)
+				for _, a := range arts {
 					prefix := ""
-					if g.Scope != "" {
-						prefix = "[" + g.Scope + "] "
+					if a.Scope != "" {
+						prefix = "[" + a.Scope + "] "
 					}
-					fmt.Printf("  %s %s%s\n", g.ID, prefix, g.Title)
+					fmt.Printf("  %s %s%s\n", a.ID, prefix, a.Title)
 				}
 			}
 			return nil
@@ -862,7 +908,7 @@ func linkCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "link <ID> <relation> <target> [target...]",
 		Short: "Add a directed relationship between artifacts",
-		Long:  "Relations: parent_of, depends_on, justifies, implements, documents, satisfies",
+		Long:  "Relations: parent_of, depends_on, justifies, implements, documents",
 		Args:  cobra.MinimumNArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, close := mustProto()
@@ -907,86 +953,44 @@ func unlinkCmd() *cobra.Command {
 	}
 }
 
-// --- context ---
-
-func contextCmd() *cobra.Command {
-	var path string
-	cmd := &cobra.Command{
-		Use:   "context <ID>",
-		Short: "Query Locus for codebase context related to an artifact",
-		Long: `Read an artifact's scope and labels, call Locus scan_project,
-and return architecture context relevant to the artifact.
-
-Requires Locus to be running (default: http://localhost:8081/).
-Set LOCUS_URL to override the endpoint.`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			p, close := mustProto()
-			defer close()
-			art, err := p.GetArtifact(context.Background(), args[0])
-			if err != nil {
-				return err
-			}
-			scanPath := path
-			if scanPath == "" {
-				scanPath = art.Scope
-			}
-			if scanPath == "" {
-				return fmt.Errorf("no --path and no scope on artifact %s", args[0])
-			}
-
-			locus := mcpclient.New(mcpclient.DefaultLocusURL())
-			defer locus.Close()
-
-			ctx := context.Background()
-			scanData, err := locus.ScanProject(ctx, scanPath)
-			if err != nil {
-				return fmt.Errorf("locus scan_project: %w", err)
-			}
-			fmt.Printf("# Context for %s: %s\n\n", art.ID, art.Title)
-			fmt.Printf("Scope: %s\n\n", scanPath)
-			fmt.Printf("## Architecture Scan\n\n```json\n%s\n```\n", string(scanData))
-
-			if cycles, err := locus.GetCycles(ctx, scanPath); err == nil {
-				fmt.Printf("\n## Cycles\n\n```json\n%s\n```\n", string(cycles))
-			}
-			if surface, err := locus.GetAPISurface(ctx, scanPath); err == nil {
-				fmt.Printf("\n## API Surface\n\n```json\n%s\n```\n", string(surface))
-			}
-			return nil
-		},
-	}
-	cmd.Flags().StringVar(&path, "path", "", "repository path to scan (overrides artifact scope)")
-	return cmd
-}
-
 // --- scope-keys ---
 
 func scopeKeysCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "scope-keys [set SCOPE KEY]",
-		Short: "List or manage scope key mappings",
+		Use:   "scope-keys [set SCOPE KEY | set-labels SCOPE LABEL,...]",
+		Short: "List or manage scope key mappings and labels",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, close := mustProto()
 			defer close()
 			if len(args) == 0 {
-				keys, err := p.ListScopeKeys(context.Background())
+				infos, err := p.ListScopeInfo(context.Background())
 				if err != nil {
 					return err
 				}
-				if len(keys) == 0 {
+				if len(infos) == 0 {
 					fmt.Println("no scope keys registered")
 					return nil
 				}
-				for scope, key := range keys {
-					fmt.Printf("%s → %s\n", scope, key)
+				for _, info := range infos {
+					labels := ""
+					if len(info.Labels) > 0 {
+						labels = " [" + strings.Join(info.Labels, ",") + "]"
+					}
+					fmt.Printf("%s → %s%s\n", info.Scope, info.Key, labels)
 				}
 				return nil
 			}
 			if len(args) == 3 && args[0] == "set" {
 				return p.SetScopeKey(context.Background(), args[1], args[2])
 			}
-			return fmt.Errorf("usage: scope-keys [set SCOPE KEY]")
+			if len(args) == 3 && args[0] == "set-labels" {
+				labels := strings.Split(args[2], ",")
+				for i := range labels {
+					labels[i] = strings.TrimSpace(labels[i])
+				}
+				return p.SetScopeLabels(context.Background(), args[1], labels)
+			}
+			return fmt.Errorf("usage: scope-keys [set SCOPE KEY | set-labels SCOPE LABEL,...]")
 		},
 	}
 }
@@ -1124,13 +1128,13 @@ func serveCmd() *cobra.Command {
 			cfg := mustConfig()
 
 			slog.Info("starting scribe",
-				"db", cfg.DB,
+				"db", cfg.DBPath(),
 				"id_format", cfg.IDFormat,
 			)
 
-			s, err := store.OpenSQLite(cfg.DB)
+			s, err := store.OpenSQLiteConfig(cfg.SQLiteConfig())
 			if err != nil {
-				slog.Error("failed to open store", "db", cfg.DB, "error", err)
+				slog.Error("failed to open store", "db", cfg.DBPath(), "error", err)
 				return fmt.Errorf("open store: %w", err)
 			}
 			defer s.Close()
@@ -1151,10 +1155,6 @@ func serveCmd() *cobra.Command {
 				homeScopes = detectScopes()
 			}
 
-			var vocabKinds []string
-			if cfg.Vocabulary != nil {
-				vocabKinds = cfg.Vocabulary.Kinds
-			}
 			idc := cfg.ProtocolIDConfig()
 
 			if ws := os.Getenv("SCRIBE_WORKSPACE"); ws != "" && cfg.Workspaces != nil {
@@ -1164,7 +1164,7 @@ func serveCmd() *cobra.Command {
 				}
 			}
 
-			srv, _ := mcp.NewServer(s, homeScopes, vocabKinds, idc)
+			srv, _ := mcp.NewServer(s, homeScopes, nil, idc)
 
 			slog.Info("server configured",
 				"transport", t,
@@ -1200,7 +1200,7 @@ func serveCmd() *cobra.Command {
 							slog.Warn("unknown workspace, using default", "workspace", ws)
 							return srv
 						}
-						wsSrv, _ := mcp.NewServer(s, wsScopes, vocabKinds, idc)
+						wsSrv, _ := mcp.NewServer(s, wsScopes, nil, idc)
 						serverCache.Store(ws, wsSrv)
 						slog.Info("created workspace server", "workspace", ws, "scopes", wsScopes)
 						return wsSrv
@@ -1344,10 +1344,6 @@ func vocabCmd() *cobra.Command {
 			if err := p.VocabAdd(args[0]); err != nil {
 				return err
 			}
-			cfg := mustConfig()
-			if err := persistVocab(cfg, p.Vocab()); err != nil {
-				return err
-			}
 			fmt.Printf("registered kind %q\n", args[0])
 			return nil
 		},
@@ -1363,61 +1359,15 @@ func vocabCmd() *cobra.Command {
 			if err := p.VocabRemove(context.Background(), args[0]); err != nil {
 				return err
 			}
-			cfg := mustConfig()
-			if err := persistVocab(cfg, p.Vocab()); err != nil {
-				return err
-			}
 			fmt.Printf("removed kind %q\n", args[0])
 			return nil
 		},
 	}
 
-	var dryRun bool
-	migrateVocabCmd := &cobra.Command{
-		Use:   "migrate",
-		Short: "Rewrite artifact kinds using the canonical absorption table",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			p, close := mustProto()
-			defer close()
-			result, err := p.VocabMigrate(context.Background(), dryRun)
-			if err != nil {
-				return err
-			}
-			if dryRun {
-				fmt.Println("DRY RUN (no changes written)")
-			}
-			if len(result.Rewrites) == 0 && result.Archived == 0 {
-				fmt.Println("nothing to migrate")
-				return nil
-			}
-			keys := make([]string, 0, len(result.Rewrites))
-			for k := range result.Rewrites {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			for _, k := range keys {
-				fmt.Printf("  %s: %d\n", k, result.Rewrites[k])
-			}
-			if result.Archived > 0 {
-				fmt.Printf("  rule → archived: %d\n", result.Archived)
-			}
-			fmt.Printf("total: %d artifacts affected\n", result.Total)
-			return nil
-		},
-	}
-	migrateVocabCmd.Flags().BoolVar(&dryRun, "dry-run", true, "preview changes without writing (use --dry-run=false to commit)")
-
-	cmd.AddCommand(listVocabCmd, addVocabCmd, removeVocabCmd, migrateVocabCmd)
+	cmd.AddCommand(listVocabCmd, addVocabCmd, removeVocabCmd)
 	return cmd
 }
 
-func persistVocab(cfg *config.Config, vocab []string) error {
-	if cfg.Vocabulary == nil {
-		cfg.Vocabulary = &config.Vocabulary{}
-	}
-	cfg.Vocabulary.Kinds = vocab
-	return config.Save(cfg)
-}
 
 // --- sort helper ---
 
@@ -1516,7 +1466,7 @@ func uiCmd() *cobra.Command {
 		Short: "Start the read-only web UI (standalone, no MCP server)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg := mustConfig()
-			s, err := store.OpenSQLite(cfg.DB)
+			s, err := store.OpenSQLiteConfig(cfg.SQLiteConfig())
 			if err != nil {
 				return fmt.Errorf("open store: %w", err)
 			}
@@ -1535,4 +1485,180 @@ func uiCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&addr, "addr", ":8082", "listen address for the web UI")
 	return cmd
+}
+
+func lintCmd() *cobra.Command {
+	var format string
+	cmd := &cobra.Command{
+		Use:   "lint",
+		Short: "Validate the resolved schema for internal consistency",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p, close := mustProto()
+			defer close()
+			results := p.Lint()
+			if format == "json" {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(results)
+			}
+			errors, warnings := 0, 0
+			for _, r := range results {
+				switch r.Level {
+				case "error":
+					errors++
+					fmt.Printf("ERROR %s\n", r.Message)
+				case "warn":
+					warnings++
+					fmt.Printf("WARN  %s\n", r.Message)
+				}
+			}
+			if errors == 0 && warnings == 0 {
+				fmt.Println("OK    schema is valid")
+			} else {
+				fmt.Printf("OK    schema validated (%d error(s), %d warning(s))\n", errors, warnings)
+			}
+			if errors > 0 {
+				os.Exit(1)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&format, "format", "text", "output format (text, json)")
+	return cmd
+}
+
+func checkCmd() *cobra.Command {
+	var scope, format string
+	var fix bool
+	cmd := &cobra.Command{
+		Use:   "check",
+		Short: "Validate DB artifacts against the resolved schema",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p, close := mustProto()
+			defer close()
+			ctx := context.Background()
+
+			if fix {
+				report, fixes, err := p.CheckFix(ctx, scope)
+				if err != nil {
+					return err
+				}
+				if format == "json" {
+					enc := json.NewEncoder(os.Stdout)
+					enc.SetIndent("", "  ")
+					return enc.Encode(map[string]any{
+						"report": report,
+						"fixes":  fixes,
+					})
+				}
+				for _, v := range report.Violations {
+					fmt.Printf("%-18s %-18s %s\n", v.ID, v.Category, v.Detail)
+				}
+				if len(fixes) > 0 {
+					fmt.Println("\nFixes applied:")
+					for _, f := range fixes {
+						fmt.Printf("  %s\n", f)
+					}
+				}
+				fmt.Printf("\nScanned %d, passed %d, violations %d, fixes %d\n",
+					report.TotalScanned, report.TotalPassed, report.TotalViolations, len(fixes))
+				if report.TotalViolations > 0 {
+					os.Exit(1)
+				}
+				return nil
+			}
+
+			report, err := p.Check(ctx, scope)
+			if err != nil {
+				return err
+			}
+			if format == "json" {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(report)
+			}
+			for _, v := range report.Violations {
+				fmt.Printf("%-18s %-18s %s\n", v.ID, v.Category, v.Detail)
+			}
+			fmt.Printf("\nScanned %d, passed %d, violations %d\n",
+				report.TotalScanned, report.TotalPassed, report.TotalViolations)
+			if report.TotalViolations > 0 {
+				os.Exit(1)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&scope, "scope", "", "limit to a specific scope")
+	cmd.Flags().StringVar(&format, "format", "text", "output format (text, json)")
+	cmd.Flags().BoolVar(&fix, "fix", false, "auto-repair fixable violations")
+	return cmd
+}
+
+func migrateCmd() *cobra.Command {
+	var format string
+	cmd := &cobra.Command{
+		Use:   "migrate",
+		Short: "Run DB migration: remove legacy edges, validate and fix artifacts against schema",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p, close := mustProto()
+			defer close()
+			result, err := p.Migrate(context.Background())
+			if err != nil {
+				return err
+			}
+			if format == "json" {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(result)
+			}
+			if result.SatisfiesRemoved > 0 {
+				fmt.Printf("Removed %d satisfies edges\n", result.SatisfiesRemoved)
+			}
+			for _, f := range result.Fixes {
+				fmt.Printf("  fix: %s\n", f)
+			}
+			fmt.Printf("\nScanned %d, passed %d, violations %d, fixes %d\n",
+				result.Report.TotalScanned, result.Report.TotalPassed,
+				result.Report.TotalViolations, len(result.Fixes))
+
+			lintResults := p.Lint()
+			lintErrors := 0
+			for _, r := range lintResults {
+				if r.Level == "error" {
+					lintErrors++
+					fmt.Printf("LINT ERROR %s\n", r.Message)
+				}
+			}
+			if lintErrors > 0 {
+				fmt.Printf("\n%d lint error(s) found\n", lintErrors)
+				os.Exit(1)
+			}
+			fmt.Println("Schema lint: OK")
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&format, "format", "text", "output format (text, json)")
+	return cmd
+}
+
+func configCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "config",
+		Short: "Dump resolved configuration as YAML",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Resolve(configPath)
+			if err != nil {
+				return err
+			}
+			if dbPath != "" {
+				cfg.DB.SQLite.Path = dbPath
+			}
+			data, err := json.MarshalIndent(cfg, "", "  ")
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
+			return nil
+		},
+	}
 }

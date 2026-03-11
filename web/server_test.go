@@ -31,8 +31,8 @@ func setup(t *testing.T) *web.Server {
 		},
 	})
 	s.Put(ctx, &model.Artifact{
-		ID: "SPR-2026-001", Kind: "sprint", Scope: "test",
-		Status: "active", Title: "Test Sprint",
+		ID: "CMP-2026-001", Kind: "campaign", Scope: "test",
+		Status: "active", Title: "Test Campaign",
 	})
 	s.Put(ctx, &model.Artifact{
 		ID: "GOL-2026-001", Kind: "goal", Scope: "test",
@@ -41,7 +41,7 @@ func setup(t *testing.T) *web.Server {
 	s.Put(ctx, &model.Artifact{
 		ID: "TASK-2026-002", Kind: "task", Scope: "test",
 		Status: "active", Title: "Child Task",
-		Parent: "SPR-2026-001",
+		Parent: "GOL-2026-001",
 	})
 
 	proto := protocol.New(s, nil, []string{"test"}, nil, protocol.IDConfig{})
@@ -60,8 +60,8 @@ func TestDashboard(t *testing.T) {
 	if !strings.Contains(body, "Dashboard") {
 		t.Error("dashboard page missing title")
 	}
-	if !strings.Contains(body, "Test Sprint") {
-		t.Error("dashboard missing active sprint")
+	if !strings.Contains(body, "Test Campaign") {
+		t.Error("dashboard missing active campaign")
 	}
 	if !strings.Contains(body, "Test Goal") {
 		t.Error("dashboard missing goal")
@@ -85,14 +85,14 @@ func TestArtifactList(t *testing.T) {
 func TestArtifactListFiltered(t *testing.T) {
 	srv := setup(t)
 	rr := httptest.NewRecorder()
-	srv.ServeHTTP(rr, httptest.NewRequest("GET", "/artifacts?kind=sprint", nil))
+	srv.ServeHTTP(rr, httptest.NewRequest("GET", "/artifacts?kind=campaign", nil))
 
 	if rr.Code != http.StatusOK {
-		t.Fatalf("GET /artifacts?kind=sprint = %d, want 200", rr.Code)
+		t.Fatalf("GET /artifacts?kind=campaign = %d, want 200", rr.Code)
 	}
 	body := rr.Body.String()
-	if !strings.Contains(body, "Test Sprint") {
-		t.Error("filtered list missing sprint")
+	if !strings.Contains(body, "Test Campaign") {
+		t.Error("filtered list missing campaign")
 	}
 	if strings.Contains(body, "Test Task") {
 		t.Error("filtered list should not contain task")
@@ -129,10 +129,10 @@ func TestArtifactDetail_NotFound(t *testing.T) {
 func TestTree(t *testing.T) {
 	srv := setup(t)
 	rr := httptest.NewRecorder()
-	srv.ServeHTTP(rr, httptest.NewRequest("GET", "/tree/SPR-2026-001", nil))
+	srv.ServeHTTP(rr, httptest.NewRequest("GET", "/tree/GOL-2026-001", nil))
 
 	if rr.Code != http.StatusOK {
-		t.Fatalf("GET /tree/SPR-2026-001 = %d, want 200", rr.Code)
+		t.Fatalf("GET /tree/GOL-2026-001 = %d, want 200", rr.Code)
 	}
 	body := rr.Body.String()
 	if !strings.Contains(body, "Child Task") {

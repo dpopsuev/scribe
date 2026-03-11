@@ -241,3 +241,78 @@ func TestArtifactTree_SingleScope_OmitsLabels(t *testing.T) {
 		t.Errorf("tree should contain both children, got:\n%s", text)
 	}
 }
+
+func TestBriefing_EdgeAwareOutput(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+
+	_ = s.Put(ctx, &model.Artifact{ID: "CAM-1", Kind: "campaign", Scope: "go4", Status: "active", Title: "Gang of Four"})
+	_ = s.Put(ctx, &model.Artifact{ID: "TSK-1", Kind: "task", Scope: "go4", Status: "draft", Title: "Remove MCP clients", Parent: "CAM-1"})
+	_ = s.Put(ctx, &model.Artifact{ID: "BUG-1", Kind: "bug", Scope: "limes", Status: "draft", Title: "Hardcoded deps"})
+	_ = s.AddEdge(ctx, model.Edge{From: "TSK-1", To: "BUG-1", Relation: "implements"})
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{})
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "graph", map[string]any{"action": "briefing", "id": "CAM-1"})
+
+	if !strings.Contains(text, "[campaign|active]") {
+		t.Errorf("briefing should show [kind|status] for root, got:\n%s", text)
+	}
+	if !strings.Contains(text, "parent_of ->") {
+		t.Errorf("briefing should show edge label with arrow, got:\n%s", text)
+	}
+	if !strings.Contains(text, "[task|draft]") {
+		t.Errorf("briefing should show [kind|status] for child, got:\n%s", text)
+	}
+	if !strings.Contains(text, "implements ->") {
+		t.Errorf("briefing should show implements edge, got:\n%s", text)
+	}
+	if !strings.Contains(text, "[bug|draft]") {
+		t.Errorf("briefing should show bug kind, got:\n%s", text)
+	}
+}
+
+func TestBriefing_IncomingEdgeArrow(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+
+	_ = s.Put(ctx, &model.Artifact{ID: "SPC-1", Kind: "spec", Scope: "scribe", Status: "draft", Title: "Spec"})
+	_ = s.Put(ctx, &model.Artifact{ID: "TSK-1", Kind: "task", Scope: "scribe", Status: "draft", Title: "Task"})
+	_ = s.AddEdge(ctx, model.Edge{From: "TSK-1", To: "SPC-1", Relation: "implements"})
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{})
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "graph", map[string]any{"action": "briefing", "id": "SPC-1"})
+
+	if !strings.Contains(text, "implements <-") {
+		t.Errorf("briefing should show incoming arrow for implements edge on spec root, got:\n%s", text)
+	}
+	if !strings.Contains(text, "[task|draft]") {
+		t.Errorf("briefing should show task as child of spec, got:\n%s", text)
+	}
+}
+
+func TestTree_EdgeLabelsShownWhenPresent(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+
+	_ = s.Put(ctx, &model.Artifact{ID: "TSK-1", Kind: "task", Scope: "scribe", Status: "draft", Title: "Task"})
+	_ = s.Put(ctx, &model.Artifact{ID: "SPC-1", Kind: "spec", Scope: "scribe", Status: "draft", Title: "Spec"})
+	_ = s.AddEdge(ctx, model.Edge{From: "TSK-1", To: "SPC-1", Relation: "implements"})
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{})
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "graph", map[string]any{
+		"action":    "tree",
+		"id":        "TSK-1",
+		"relation":  "implements",
+		"direction": "outgoing",
+	})
+
+	if !strings.Contains(text, "implements ->") {
+		t.Errorf("tree with relation should show edge label, got:\n%s", text)
+	}
+}

@@ -95,11 +95,10 @@ Scribe solves this by giving agents a structured, persistent memory they can rea
 | **Spec** | A specification: the *what* and *why*. Defines acceptance criteria. Tasks implement specs. |
 | **Bug** | A defect record. Like a spec, a bug is resolved by a task that implements it. |
 | **Goal** | The north-star artifact for a scope. Setting a goal auto-creates a root delivery artifact and archives any previous goal. |
-| **Sprint** | A time-boxed container. Child tasks are the work items. Tree views show progress at a glance. |
 | **Status** | Lifecycle state: `draft` &rarr; `active` &rarr; `complete` / `dismissed`. Also: `current` (goals), `retired`, `archived`. |
 | **Scope** | The project or repository an artifact belongs to (e.g. `locus`, `origami`). Enables multi-project planning from a single Scribe instance. |
 | **Section** | A named text block attached to an artifact. Use for design notes, mermaid diagrams, acceptance criteria, or any structured content. |
-| **Edge** | A directed relationship: `parent_of`, `depends_on`, `justifies`, `implements`, `documents`, `satisfies`. Edges form a DAG that agents can traverse. |
+| **Edge** | A directed relationship: `parent_of`, `depends_on`, `justifies`, `implements`, `documents`. Edges form a DAG that agents can traverse. |
 
 ### Artifact Relationships
 
@@ -295,7 +294,7 @@ Every artifact carries:
 
 - **Identity:** auto-generated ID (`PREFIX-YYYY-SEQ`), kind, scope
 - **Content:** title, goal statement, named sections (arbitrary text blocks)
-- **Graph:** parent, depends_on edges, typed links (justifies, implements, documents, satisfies)
+- **Graph:** parent, depends_on edges, typed links (justifies, implements, documents)
 - **Lifecycle:** status, priority, sprint assignment, labels, timestamps
 - **Extension:** `extra` map for domain-specific key-value pairs (reminders, custom fields)
 
@@ -306,7 +305,7 @@ The vocabulary is enforced: unknown kinds are rejected with a hint to register t
 | Tool | Description |
 |---|---|
 | `artifact` | Create, read, update, and manage work artifacts. Actions: `create`, `get`, `list`, `set`, `archive`, `attach_section`, `get_section`. |
-| `graph` | Navigate and modify artifact relationships. Actions: `tree` (hierarchy), `link` (add edge), `unlink` (remove edge). Relations: parent_of, depends_on, justifies, implements, documents, satisfies. |
+| `graph` | Navigate and modify artifact relationships. Actions: `tree` (hierarchy), `briefing` (full context chain), `link` (add edge), `unlink` (remove edge). Relations: parent_of, depends_on, justifies, implements, documents. |
 | `admin` | System administration and monitoring. Actions: `motd` (session context), `dashboard` (health/staleness), `set_goal` (north star), `vacuum` (cleanup), `detect` (orphans/overlaps). |
 
 ## Configuration

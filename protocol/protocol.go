@@ -5,14 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/dpopsuev/scribe/keygen"
-	"github.com/dpopsuev/scribe/lifecycle"
 	"github.com/dpopsuev/scribe/model"
 	"github.com/dpopsuev/scribe/store"
 )
@@ -32,6 +31,7 @@ type Result struct {
 // TreeNode is a recursive tree representation.
 type TreeNode struct {
 	ID        string      `json:"id"`
+	Kind      string      `json:"kind"`
 	Status    string      `json:"status"`
 	Title     string      `json:"title"`
 	Scope     string      `json:"scope,omitempty"`
@@ -55,7 +55,7 @@ var defaultDefaults = &staticDefaults{vacuum: 90, stale: 30, staleCap: 10, motdH
 
 type staticDefaults struct{ vacuum, stale, staleCap, motdHours, treeDepth int }
 
-func (d *staticDefaults) GetVacuumDays() int         { return d.vacuum }
+func (d *staticDefaults) GetVacuumDays() int        { return d.vacuum }
 func (d *staticDefaults) GetDashboardStale() int    { return d.stale }
 func (d *staticDefaults) GetDashboardStaleCap() int { return d.staleCap }
 func (d *staticDefaults) GetMotdRecentHours() int   { return d.motdHours }
@@ -64,6 +64,7 @@ func (d *staticDefaults) GetTreeMaxDepth() int      { return d.treeDepth }
 // IDConfig configures scoped ID generation, key resolution, and field mutability.
 type IDConfig struct {
 	IDFormat         string
+	IDTemplate       *model.IDTemplate
 	ScopeKeys        map[string]string
 	KindCodes        map[string]string
 	MutableCreatedAt bool
@@ -72,10 +73,10 @@ type IDConfig struct {
 
 // MotdResult is the message-of-the-day payload.
 type MotdResult struct {
-	Campaigns    []*model.Artifact `json:"campaigns,omitempty"`
-	Goals        []*model.Artifact `json:"goals,omitempty"`
-	DueReminders []*model.Artifact `json:"due_reminders,omitempty"`
-	RecentNotes  []*model.Artifact `json:"recent_notes,omitempty"`
+	SchemaHash string            `json:"schema_hash,omitempty"`
+	Campaigns  []*model.Artifact `json:"campaigns,omitempty"`
+	Goals      []*model.Artifact `json:"goals,omitempty"`
+	Warnings   []string          `json:"warnings,omitempty"`
 }
 
 // Protocol implements all Scribe business logic.
@@ -86,6 +87,7 @@ type Protocol struct {
 	scopes           []string
 	vocab            []string
 	idFormat         string
+	idTemplate       *model.IDTemplate
 	scopeKeys        map[string]string
 	kindCodes        map[string]string
 	mutableCreatedAt bool
@@ -98,8 +100,12 @@ func New(s store.Store, schema *model.Schema, scopes, vocab []string, idc IDConf
 	if schema == nil {
 		schema = model.DefaultSchema()
 	}
+	if len(vocab) == 0 {
+		vocab = schema.KindNames()
+	}
 	p := &Protocol{store: s, schema: schema, scopes: scopes, vocab: vocab}
 	p.idFormat = idc.IDFormat
+	p.idTemplate = idc.IDTemplate
 	p.scopeKeys = idc.ScopeKeys
 	p.kindCodes = idc.KindCodes
 	p.mutableCreatedAt = idc.MutableCreatedAt
@@ -117,18 +123,20 @@ func (p *Protocol) Store() store.Store    { return p.store }
 // --- CRUD ---
 
 type CreateInput struct {
-	Kind      string              `json:"kind"`
-	Title     string              `json:"title"`
-	Scope     string              `json:"scope,omitempty"`
-	Goal      string              `json:"goal,omitempty"`
-	Parent    string              `json:"parent,omitempty"`
-	Status    string              `json:"status,omitempty"`
-	DependsOn []string            `json:"depends_on,omitempty"`
-	Labels    []string            `json:"labels,omitempty"`
-	Prefix    string              `json:"prefix,omitempty"`
-	Links     map[string][]string `json:"links,omitempty"`
-	Extra     map[string]any      `json:"extra,omitempty"`
-	CreatedAt string              `json:"created_at,omitempty"`
+	Kind       string              `json:"kind"`
+	Title      string              `json:"title"`
+	Scope      string              `json:"scope,omitempty"`
+	Goal       string              `json:"goal,omitempty"`
+	Parent     string              `json:"parent,omitempty"`
+	Status     string              `json:"status,omitempty"`
+	Priority   string              `json:"priority,omitempty"`
+	DependsOn  []string            `json:"depends_on,omitempty"`
+	Labels     []string            `json:"labels,omitempty"`
+	Prefix     string              `json:"prefix,omitempty"`
+	Links      map[string][]string `json:"links,omitempty"`
+	Extra      map[string]any      `json:"extra,omitempty"`
+	CreatedAt  string              `json:"created_at,omitempty"`
+	ExplicitID string              `json:"explicit_id,omitempty"`
 }
 
 func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*model.Artifact, error) {
@@ -138,12 +146,32 @@ func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*model.A
 	if err := model.ValidateKind(in.Kind, p.vocab); err != nil {
 		return nil, err
 	}
+	if in.Priority != "" && !p.schema.ValidPriority(in.Priority) {
+		return nil, fmt.Errorf("invalid priority %q — valid: %s", in.Priority, strings.Join(p.schema.Priorities, ", "))
+	}
+	if in.Parent != "" {
+		if parent, err := p.store.Get(ctx, in.Parent); err == nil {
+			if reason, ok := p.schema.ValidChild(parent.Kind, in.Kind); !ok {
+				return nil, fmt.Errorf("%s", reason)
+			}
+		}
+		if cycle, path := p.wouldCycleParent(ctx, in.Parent, ""); cycle {
+			return nil, fmt.Errorf("parent_of cycle detected: %s", strings.Join(path, " → "))
+		}
+	}
 	scope, err := p.inferScope(ctx, in.Scope, in.Parent, in.Kind)
 	if err != nil {
 		return nil, err
 	}
 	var id string
-	if p.idFormat == "scoped" && in.Prefix == "" {
+	if in.ExplicitID != "" {
+		id = in.ExplicitID
+	} else if p.idTemplate != nil && in.Prefix == "" {
+		id, err = p.generateTemplatedID(ctx, scope, in.Kind)
+		if err != nil {
+			return nil, err
+		}
+	} else if p.idFormat == "scoped" && in.Prefix == "" {
 		if scope == "" {
 			prefix := p.schema.Prefix(in.Kind)
 			id, err = p.store.NextID(ctx, prefix)
@@ -179,6 +207,7 @@ func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*model.A
 		ID: id, Kind: in.Kind, Scope: scope,
 		Status: status, Parent: in.Parent,
 		Title: in.Title, Goal: in.Goal,
+		Priority:  in.Priority,
 		DependsOn: in.DependsOn, Labels: in.Labels,
 		Links: in.Links, Extra: in.Extra,
 	}
@@ -203,7 +232,7 @@ func (p *Protocol) DeleteArtifact(ctx context.Context, id string, force bool) er
 		if err != nil {
 			return err
 		}
-		if art.Status != "archived" {
+		if !p.schema.IsReadonly(art.Status) {
 			return fmt.Errorf("%w: %s (status: %s)", ErrNotArchived, id, art.Status)
 		}
 	}
@@ -211,33 +240,39 @@ func (p *Protocol) DeleteArtifact(ctx context.Context, id string, force bool) er
 }
 
 type ListInput struct {
-	Kind           string `json:"kind,omitempty"`
-	Scope          string `json:"scope,omitempty"`
-	Status         string `json:"status,omitempty"`
-	Parent         string `json:"parent,omitempty"`
-	Sprint         string `json:"sprint,omitempty"`
-	IDPrefix       string `json:"id_prefix,omitempty"`
-	ExcludeKind    string `json:"exclude_kind,omitempty"`
-	ExcludeStatus  string `json:"exclude_status,omitempty"`
-	GroupBy        string `json:"group_by,omitempty"`
-	Sort           string `json:"sort,omitempty"`
-	Limit          int    `json:"limit,omitempty"`
-	Query          string `json:"query,omitempty"`
-	CreatedAfter   string `json:"created_after,omitempty"`
-	CreatedBefore  string `json:"created_before,omitempty"`
-	UpdatedAfter   string `json:"updated_after,omitempty"`
-	UpdatedBefore  string `json:"updated_before,omitempty"`
-	InsertedAfter  string `json:"inserted_after,omitempty"`
-	InsertedBefore string `json:"inserted_before,omitempty"`
+	Kind           string   `json:"kind,omitempty"`
+	Scope          string   `json:"scope,omitempty"`
+	Status         string   `json:"status,omitempty"`
+	Parent         string   `json:"parent,omitempty"`
+	Sprint         string   `json:"sprint,omitempty"`
+	IDPrefix       string   `json:"id_prefix,omitempty"`
+	ExcludeKind    string   `json:"exclude_kind,omitempty"`
+	ExcludeStatus  string   `json:"exclude_status,omitempty"`
+	Labels         []string `json:"labels,omitempty"`
+	LabelsOr       []string `json:"labels_or,omitempty"`
+	ExcludeLabels  []string `json:"exclude_labels,omitempty"`
+	GroupBy        string   `json:"group_by,omitempty"`
+	Sort           string   `json:"sort,omitempty"`
+	Limit          int      `json:"limit,omitempty"`
+	Query          string   `json:"query,omitempty"`
+	CreatedAfter   string   `json:"created_after,omitempty"`
+	CreatedBefore  string   `json:"created_before,omitempty"`
+	UpdatedAfter   string   `json:"updated_after,omitempty"`
+	UpdatedBefore  string   `json:"updated_before,omitempty"`
+	InsertedAfter  string   `json:"inserted_after,omitempty"`
+	InsertedBefore string   `json:"inserted_before,omitempty"`
 }
 
 func (p *Protocol) ListArtifacts(ctx context.Context, in ListInput) ([]*model.Artifact, error) {
 	f := model.Filter{
 		Kind: in.Kind, Status: in.Status,
 		Parent: in.Parent, Sprint: in.Sprint,
-		IDPrefix: in.IDPrefix,
-		ExcludeKind: in.ExcludeKind,
-		ExcludeStatus: in.ExcludeStatus,
+		IDPrefix:       in.IDPrefix,
+		ExcludeKind:    in.ExcludeKind,
+		ExcludeStatus:  in.ExcludeStatus,
+		Labels:         in.Labels,
+		LabelsOr:       in.LabelsOr,
+		ExcludeLabels:  in.ExcludeLabels,
 		CreatedAfter:   in.CreatedAfter,
 		CreatedBefore:  in.CreatedBefore,
 		UpdatedAfter:   in.UpdatedAfter,
@@ -245,15 +280,39 @@ func (p *Protocol) ListArtifacts(ctx context.Context, in ListInput) ([]*model.Ar
 		InsertedAfter:  in.InsertedAfter,
 		InsertedBefore: in.InsertedBefore,
 	}
-	if in.Kind == "" {
-		f.ExcludeKinds = p.schema.ExcludedKinds()
-	}
 	if in.Scope != "" {
 		f.Scope = in.Scope
 	} else if len(p.scopes) > 0 {
 		f.Scopes = p.scopes
 	}
+	p.populateScopeLabelIndex(ctx, &f)
 	return p.store.List(ctx, f)
+}
+
+func (p *Protocol) populateScopeLabelIndex(ctx context.Context, f *model.Filter) {
+	allLabels := make(map[string]bool)
+	for _, l := range f.Labels {
+		allLabels[l] = true
+	}
+	for _, l := range f.LabelsOr {
+		allLabels[l] = true
+	}
+	for _, l := range f.ExcludeLabels {
+		allLabels[l] = true
+	}
+	if len(allLabels) == 0 {
+		return
+	}
+	idx := make(map[string][]string)
+	for label := range allLabels {
+		scopes, err := p.store.ScopesByLabel(ctx, label)
+		if err == nil && len(scopes) > 0 {
+			idx[label] = scopes
+		}
+	}
+	if len(idx) > 0 {
+		f.ScopeLabelIndex = idx
+	}
 }
 
 func (p *Protocol) SearchArtifacts(ctx context.Context, query string, in ListInput) ([]*model.Artifact, error) {
@@ -302,7 +361,12 @@ func matchesQuery(art *model.Artifact, q string) bool {
 
 // --- SetField (universal mutation) ---
 
-func (p *Protocol) SetField(ctx context.Context, ids []string, field, value string) ([]Result, error) {
+// SetFieldOptions holds optional flags for SetField.
+type SetFieldOptions struct {
+	Force bool // bypass transition validation for status changes
+}
+
+func (p *Protocol) SetField(ctx context.Context, ids []string, field, value string, opts ...SetFieldOptions) ([]Result, error) {
 	if len(ids) == 0 {
 		return nil, fmt.Errorf("at least one ID is required")
 	}
@@ -310,15 +374,20 @@ func (p *Protocol) SetField(ctx context.Context, ids []string, field, value stri
 		return nil, fmt.Errorf("field is required")
 	}
 
+	var opt SetFieldOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+
 	results := make([]Result, 0, len(ids))
 	for _, id := range ids {
-		r := p.setFieldSingle(ctx, id, field, value)
+		r := p.setFieldSingle(ctx, id, field, value, opt)
 		results = append(results, r)
 	}
 	return results, nil
 }
 
-func (p *Protocol) setFieldSingle(ctx context.Context, id, field, value string) Result {
+func (p *Protocol) setFieldSingle(ctx context.Context, id, field, value string, opt SetFieldOptions) Result {
 	art, err := p.store.Get(ctx, id)
 	if err != nil {
 		return Result{ID: id, Error: err.Error()}
@@ -345,15 +414,28 @@ func (p *Protocol) setFieldSingle(ctx context.Context, id, field, value string) 
 	case "goal":
 		art.Goal = value
 	case "scope":
-		if value == "" && !p.schema.IsScopeOptional(art.Kind) {
+		if value == "" {
 			return Result{ID: id, Error: "scope cannot be empty"}
 		}
 		art.Scope = value
 	case "status":
-		return p.setStatus(ctx, art, value)
+		return p.setStatusForce(ctx, art, value, opt.Force)
 	case "parent":
+		if value != "" {
+			if parent, err := p.store.Get(ctx, value); err == nil {
+				if reason, ok := p.schema.ValidChild(parent.Kind, art.Kind); !ok {
+					return Result{ID: id, Error: reason}
+				}
+			}
+			if cycle, path := p.wouldCycleParent(ctx, value, id); cycle {
+				return Result{ID: id, Error: fmt.Sprintf("parent_of cycle detected: %s", strings.Join(path, " → "))}
+			}
+		}
 		art.Parent = value
 	case "priority":
+		if value != "" && !p.schema.ValidPriority(value) {
+			return Result{ID: id, Error: fmt.Sprintf("invalid priority %q — valid: %s", value, strings.Join(p.schema.Priorities, ", "))}
+		}
 		art.Priority = value
 	case "sprint":
 		art.Sprint = value
@@ -397,6 +479,16 @@ func (p *Protocol) setFieldSingle(ctx context.Context, id, field, value string) 
 }
 
 func (p *Protocol) setStatus(ctx context.Context, art *model.Artifact, status string) Result {
+	return p.setStatusForce(ctx, art, status, false)
+}
+
+func (p *Protocol) setStatusForce(ctx context.Context, art *model.Artifact, status string, force bool) Result {
+	if !force {
+		if reason, ok := p.schema.ValidTransition(art.Kind, art.Status, status); !ok {
+			return Result{ID: art.ID, Error: reason}
+		}
+	}
+
 	if p.schema.Guards.CompletionRequiresChildrenComplete && status == "complete" {
 		if err := p.guardChildrenComplete(ctx, art); err != nil {
 			return Result{ID: art.ID, Error: err.Error()}
@@ -409,28 +501,24 @@ func (p *Protocol) setStatus(ctx context.Context, art *model.Artifact, status st
 			return Result{ID: art.ID, Error: err.Error()}
 		}
 		for _, ch := range children {
-			if ch.Status != "archived" {
+			if !p.schema.IsReadonly(ch.Status) {
 				return Result{ID: art.ID, Error: fmt.Sprintf("cannot archive %s: child %s is %s (use archive_artifact with cascade)", art.ID, ch.ID, ch.Status)}
 			}
 		}
 	}
 
-	if p.schema.Guards.ActivationRequiresExpectedSections && status == "active" {
-		missing := p.schema.MissingSections(art.Kind, art.Sections)
-		if len(missing) > 0 {
+	if p.schema.ActivationRequiresSections(art.Kind) && status == "active" {
+		shouldMissing := p.schema.MissingShouldSections(art.Kind, art.Sections)
+		if len(shouldMissing) > 0 {
+			return Result{ID: art.ID, Error: fmt.Sprintf(
+				"cannot activate %s: missing recommended sections: %s",
+				art.ID, strings.Join(shouldMissing, ", "))}
+		}
+		expMissing := p.schema.MissingSections(art.Kind, art.Sections)
+		if len(expMissing) > 0 {
 			return Result{ID: art.ID, Error: fmt.Sprintf(
 				"cannot activate %s: missing expected sections: %s",
-				art.ID, strings.Join(missing, ", "))}
-		}
-	}
-
-	if status == "active" && art.Kind == "task" && os.Getenv("SCRIBE_GATE_REQUIRE_COMPONENT_LABELS") == "true" {
-		if sec := triggerSection(art); sec != "" && !hasComponentLabels(art.Labels) {
-			return Result{
-				ID: art.ID,
-				Error: fmt.Sprintf("Gate: require_component_labels\n\n  %s has a %q section but no component labels.\n\n  Add labels declaring which components this artifact touches:\n    scribe set %s labels \"project:path/to/component, ...\"\n\n  To skip this gate, remove the section or set SCRIBE_GATE_REQUIRE_COMPONENT_LABELS=false.",
-					art.ID, sec, art.ID),
-			}
+				art.ID, strings.Join(expMissing, ", "))}
 		}
 	}
 
@@ -439,9 +527,10 @@ func (p *Protocol) setStatus(ctx context.Context, art *model.Artifact, status st
 		return Result{ID: art.ID, Error: err.Error()}
 	}
 
+	triggerStatus := p.schema.TriggerStatusFor(art.Kind)
 	r := Result{ID: art.ID, OK: true}
 	var info []string
-	if p.schema.Guards.AutoArchiveGoalOnJustifyComplete && status == "complete" {
+	if p.schema.AutoArchiveOnJustifyComplete(art.Kind) && status == triggerStatus {
 		if extra := p.autoArchiveGoal(ctx, art); extra != "" {
 			info = append(info, extra)
 		}
@@ -451,7 +540,7 @@ func (p *Protocol) setStatus(ctx context.Context, art *model.Artifact, status st
 			info = append(info, extra)
 		}
 	}
-	if p.schema.Guards.AutoActivateNextDraftSprint && p.schema.HasAutoActivateNext(art.Kind) && status == "complete" {
+	if p.schema.HasAutoActivateNext(art.Kind) && status == triggerStatus {
 		if extra := p.autoActivateNextSprint(ctx, art); extra != "" {
 			info = append(info, extra)
 		}
@@ -469,7 +558,7 @@ func (p *Protocol) guardChildrenComplete(ctx context.Context, art *model.Artifac
 	}
 	var incomplete []string
 	for _, ch := range children {
-		if ch.Status != "complete" {
+		if !p.schema.IsTerminal(ch.Status) {
 			incomplete = append(incomplete, fmt.Sprintf("%s [%s]", ch.ID, ch.Status))
 		}
 	}
@@ -485,13 +574,20 @@ func (p *Protocol) autoArchiveGoal(ctx context.Context, art *model.Artifact) str
 	if len(goalIDs) == 0 {
 		return ""
 	}
+	goalKind, goalDef := p.schema.GoalKind()
+	if goalKind == "" {
+		return ""
+	}
 	var parts []string
 	for _, gid := range goalIDs {
 		goal, err := p.store.Get(ctx, gid)
-		if err != nil || goal.Kind != "goal" || goal.Status != "current" {
+		if err != nil {
 			continue
 		}
-		goal.Status = "archived"
+		if !p.schema.Kinds[goal.Kind].IsGoalKind || goal.Status != goalDef.ActiveStatus {
+			continue
+		}
+		goal.Status = p.schema.ReadonlyStatuses[0]
 		if err := p.store.Put(ctx, goal); err != nil {
 			continue
 		}
@@ -529,13 +625,14 @@ func (p *Protocol) autoCompleteParent(ctx context.Context, art *model.Artifact) 
 }
 
 func (p *Protocol) autoActivateNextSprint(ctx context.Context, completed *model.Artifact) string {
-	drafts, err := p.store.List(ctx, model.Filter{Kind: "sprint", Status: "draft"})
+	defaultStatus := p.schema.DefaultStatus(completed.Kind)
+	drafts, err := p.store.List(ctx, model.Filter{Kind: completed.Kind, Status: defaultStatus})
 	if err != nil || len(drafts) == 0 {
 		return ""
 	}
 	sort.Slice(drafts, func(i, j int) bool { return drafts[i].ID < drafts[j].ID })
 	next := drafts[0]
-	next.Status = "active"
+	next.Status = p.schema.ActiveStatusFor(completed.Kind)
 	if err := p.store.Put(ctx, next); err != nil {
 		return ""
 	}
@@ -586,6 +683,62 @@ func (p *Protocol) GetSection(ctx context.Context, id, name string) (string, err
 		}
 	}
 	return "", fmt.Errorf("section %q not found on %s", name, id)
+}
+
+// DetachSection removes a named section from an artifact. Returns true if the
+// section existed and was removed.
+func (p *Protocol) DetachSection(ctx context.Context, id, name string) (bool, error) {
+	if id == "" || name == "" {
+		return false, fmt.Errorf("id and name are required")
+	}
+	art, err := p.store.Get(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	if p.schema.Guards.ArchivedReadonly && p.schema.IsReadonly(art.Status) {
+		return false, fmt.Errorf("%w: %s", ErrArchived, art.ID)
+	}
+	idx := -1
+	for i, sec := range art.Sections {
+		if sec.Name == name {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return false, nil
+	}
+	art.Sections = append(art.Sections[:idx], art.Sections[idx+1:]...)
+	if err := p.store.Put(ctx, art); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// wouldCycleParent returns true if setting parentID as the parent of childID
+// would create a cycle. Walks up the parent chain from parentID; if childID
+// is encountered, the assignment would close a loop. When childID is empty
+// (new artifact), no cycle is possible.
+func (p *Protocol) wouldCycleParent(ctx context.Context, parentID, childID string) (bool, []string) {
+	if childID == "" {
+		return false, nil
+	}
+	if parentID == childID {
+		return true, []string{childID, childID}
+	}
+	path := []string{childID, parentID}
+	cur := parentID
+	for {
+		art, err := p.store.Get(ctx, cur)
+		if err != nil || art.Parent == "" {
+			return false, nil
+		}
+		path = append(path, art.Parent)
+		if art.Parent == childID {
+			return true, path
+		}
+		cur = art.Parent
+	}
 }
 
 // --- Links ---
@@ -725,7 +878,7 @@ func (p *Protocol) ArtifactTree(ctx context.Context, in TreeInput) (*TreeNode, e
 		rel = "parent_of"
 	}
 	if !p.schema.ValidRelation(rel) {
-		return nil, fmt.Errorf("unknown relation %q. Valid: parent_of, depends_on, implements, justifies, documents, satisfies, *", rel)
+		return nil, fmt.Errorf("unknown relation %q; valid: %s, *", rel, strings.Join(p.schema.Relations, ", "))
 	}
 
 	dir := in.Direction
@@ -757,14 +910,14 @@ func (p *Protocol) ArtifactTree(ctx context.Context, in TreeInput) (*TreeNode, e
 		return p.buildTree(ctx, root), nil
 	}
 
-	node := &TreeNode{ID: root.ID, Status: root.Status, Title: root.Title, Scope: root.Scope}
+	node := &TreeNode{ID: root.ID, Kind: root.Kind, Status: root.Status, Title: root.Title, Scope: root.Scope}
 	visited := map[string]bool{root.ID: true}
 	p.buildGraphTree(ctx, node, rel, storeDir, depth, 1, visited)
 	return node, nil
 }
 
 func (p *Protocol) buildTree(ctx context.Context, art *model.Artifact) *TreeNode {
-	node := &TreeNode{ID: art.ID, Status: art.Status, Title: art.Title, Scope: art.Scope}
+	node := &TreeNode{ID: art.ID, Kind: art.Kind, Status: art.Status, Title: art.Title, Scope: art.Scope}
 	children, _ := p.store.Children(ctx, art.ID)
 	for _, ch := range children {
 		node.Children = append(node.Children, p.buildTree(ctx, ch))
@@ -803,6 +956,7 @@ func (p *Protocol) buildGraphTree(ctx context.Context, node *TreeNode, rel strin
 
 		child := &TreeNode{
 			ID:        target.ID,
+			Kind:      target.Kind,
 			Status:    target.Status,
 			Title:     target.Title,
 			Scope:     target.Scope,
@@ -869,9 +1023,6 @@ func (p *Protocol) inferScope(ctx context.Context, explicit, parentID, kind stri
 			return parent.Scope, nil
 		}
 	}
-	if p.schema.IsScopeOptional(kind) {
-		return "", nil
-	}
 	if len(p.scopes) == 1 {
 		return p.scopes[0], nil
 	}
@@ -936,31 +1087,36 @@ func (p *Protocol) SetGoal(ctx context.Context, in SetGoalInput) (*SetGoalResult
 	if in.Title == "" {
 		return nil, fmt.Errorf("title is required")
 	}
-	scope, err := p.inferScope(ctx, in.Scope, "", "goal")
+	goalKind, goalDef := p.schema.GoalKind()
+	if goalKind == "" {
+		return nil, fmt.Errorf("no kind with is_goal_kind=true in schema")
+	}
+	scope, err := p.inferScope(ctx, in.Scope, "", goalKind)
 	if err != nil {
 		return nil, err
 	}
 
-	existing, err := p.store.List(ctx, model.Filter{Kind: "goal", Status: "current", Scope: scope})
+	existing, err := p.store.List(ctx, model.Filter{Kind: goalKind, Status: goalDef.ActiveStatus, Scope: scope})
 	if err != nil {
 		return nil, err
 	}
 	var archived []*model.Artifact
 	for _, old := range existing {
-		old.Status = "archived"
+		old.Status = p.schema.ReadonlyStatuses[0]
 		if err := p.store.Put(ctx, old); err != nil {
 			return nil, fmt.Errorf("archive %s: %w", old.ID, err)
 		}
 		archived = append(archived, old)
 	}
 
-	goalID, err := p.store.NextID(ctx, "GOAL")
+	goalPrefix := p.schema.Prefix(goalKind)
+	goalID, err := p.store.NextID(ctx, goalPrefix)
 	if err != nil {
 		return nil, err
 	}
 	goal := &model.Artifact{
-		ID: goalID, Kind: "goal", Scope: scope,
-		Status: "current", Title: in.Title,
+		ID: goalID, Kind: goalKind, Scope: scope,
+		Status: goalDef.ActiveStatus, Title: in.Title,
 	}
 	if err := p.store.Put(ctx, goal); err != nil {
 		return nil, err
@@ -968,7 +1124,7 @@ func (p *Protocol) SetGoal(ctx context.Context, in SetGoalInput) (*SetGoalResult
 
 	rootKind := in.Kind
 	if rootKind == "" {
-		rootKind = "goal"
+		rootKind = goalKind
 	}
 	rootPrefix := p.schema.Prefix(rootKind)
 	rootID, err := p.store.NextID(ctx, rootPrefix)
@@ -977,7 +1133,7 @@ func (p *Protocol) SetGoal(ctx context.Context, in SetGoalInput) (*SetGoalResult
 	}
 	root := &model.Artifact{
 		ID: rootID, Kind: rootKind, Scope: scope,
-		Status: "draft", Title: in.Title,
+		Status: p.schema.DefaultStatus(rootKind), Title: in.Title,
 		Links: map[string][]string{model.RelJustifies: {goalID}},
 	}
 	if err := p.store.Put(ctx, root); err != nil {
@@ -992,13 +1148,42 @@ func (p *Protocol) ArchiveArtifact(ctx context.Context, ids []string, cascade bo
 	}
 	var results []Result
 	for _, id := range ids {
-		if err := lifecycle.Archive(ctx, p.store, id, cascade); err != nil {
+		if err := p.archiveSingle(ctx, id, cascade); err != nil {
 			results = append(results, Result{ID: id, Error: err.Error()})
 			continue
 		}
 		results = append(results, Result{ID: id, OK: true})
 	}
 	return results, nil
+}
+
+func (p *Protocol) archiveSingle(ctx context.Context, id string, cascade bool) error {
+	art, err := p.store.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if p.schema.IsReadonly(art.Status) {
+		return nil
+	}
+	children, err := p.store.Children(ctx, id)
+	if err != nil {
+		return err
+	}
+	if cascade {
+		for _, ch := range children {
+			if err := p.archiveSingle(ctx, ch.ID, true); err != nil {
+				return fmt.Errorf("cascade archive %s: %w", ch.ID, err)
+			}
+		}
+	} else {
+		for _, ch := range children {
+			if !p.schema.IsReadonly(ch.Status) {
+				return fmt.Errorf("cannot archive %s: child %s is %s (use cascade to archive the whole tree)", id, ch.ID, ch.Status)
+			}
+		}
+	}
+	art.Status = p.schema.ReadonlyStatuses[0]
+	return p.store.Put(ctx, art)
 }
 
 // BulkMutationInput filters artifacts for bulk operations.
@@ -1099,32 +1284,69 @@ func (p *Protocol) Vacuum(ctx context.Context, days int, scope string, force boo
 }
 
 func (p *Protocol) Motd(ctx context.Context) (*MotdResult, error) {
-	result := &MotdResult{}
-
-	campaigns, _ := p.store.List(ctx, model.Filter{Kind: "campaign", Status: "active"})
-	result.Campaigns = campaigns
-
-	gf := model.Filter{Kind: "goal", Status: "current"}
-	if len(p.scopes) > 0 {
-		gf.Scopes = p.scopes
+	result := &MotdResult{
+		SchemaHash: p.schema.Hash(),
 	}
-	goals, _ := p.store.List(ctx, gf)
-	result.Goals = goals
 
-	nf := model.Filter{Kind: "note", Status: "open"}
-	if len(p.scopes) > 0 {
-		nf.Scopes = p.scopes
-	}
-	notes, _ := p.store.List(ctx, nf)
-	now := time.Now().UTC()
-	cutoff := now.Add(-time.Duration(p.defaults.GetMotdRecentHours()) * time.Hour)
-	for _, n := range notes {
-		if isDue(n, now) {
-			result.DueReminders = append(result.DueReminders, n)
-		} else if n.CreatedAt.After(cutoff) {
-			result.RecentNotes = append(result.RecentNotes, n)
+	for kind, def := range p.schema.MotdKinds() {
+		f := model.Filter{Kind: kind, Status: def.ActiveStatus}
+		if def.IsGoalKind {
+			if len(p.scopes) > 0 {
+				f.Scopes = p.scopes
+			}
+			arts, _ := p.store.List(ctx, f)
+			result.Goals = append(result.Goals, arts...)
+		} else {
+			arts, _ := p.store.List(ctx, f)
+			result.Campaigns = append(result.Campaigns, arts...)
 		}
 	}
+
+	all, _ := p.store.List(ctx, model.Filter{})
+
+	shouldGaps := make(map[string]int)
+	for _, art := range all {
+		if p.schema.IsTerminal(art.Status) {
+			continue
+		}
+		missing := p.schema.MissingShouldSections(art.Kind, art.Sections)
+		if len(missing) > 0 {
+			shouldGaps[art.Kind] += 1
+		}
+	}
+	if len(shouldGaps) > 0 {
+		var kinds []string
+		for k := range shouldGaps {
+			kinds = append(kinds, k)
+		}
+		sort.Strings(kinds)
+		for _, k := range kinds {
+			result.Warnings = append(result.Warnings,
+				fmt.Sprintf("%d %s(s) missing recommended sections", shouldGaps[k], k))
+		}
+	}
+
+	unknownCounts := make(map[string]int)
+	for _, art := range all {
+		if p.schema.UnknownKind(art.Kind) {
+			unknownCounts[art.Kind]++
+		}
+	}
+	if len(unknownCounts) > 0 {
+		var kinds []string
+		for k := range unknownCounts {
+			kinds = append(kinds, k)
+		}
+		sort.Strings(kinds)
+		total := 0
+		for _, c := range unknownCounts {
+			total += c
+		}
+		result.Warnings = append(result.Warnings,
+			fmt.Sprintf("%d artifact(s) have unrecognized kinds: %s — consider updating schema or migrating",
+				total, strings.Join(kinds, ", ")))
+	}
+
 	return result, nil
 }
 
@@ -1170,7 +1392,7 @@ func (p *Protocol) Dashboard(ctx context.Context, staleDays int) (*DashboardResu
 			scopeMap[s] = ds
 		}
 		ds.Total++
-		if art.Status == "archived" {
+		if p.schema.IsReadonly(art.Status) {
 			ds.Archived++
 		} else if !p.schema.IsTerminal(art.Status) {
 			ds.Active++
@@ -1210,11 +1432,10 @@ func (p *Protocol) Dashboard(ctx context.Context, staleDays int) (*DashboardResu
 // --- Inventory ---
 
 type InventoryResult struct {
-	Total         int               `json:"total"`
-	ByKind        map[string]int    `json:"by_kind"`
-	ByStatus      map[string]int    `json:"by_status"`
-	ActiveSprints []*model.Artifact `json:"active_sprints,omitempty"`
-	Goals         []*model.Artifact `json:"goals,omitempty"`
+	Total      int                          `json:"total"`
+	ByKind     map[string]int               `json:"by_kind"`
+	ByStatus   map[string]int               `json:"by_status"`
+	Tracked    map[string][]*model.Artifact `json:"tracked,omitempty"`
 }
 
 func (p *Protocol) Inventory(ctx context.Context) (*InventoryResult, error) {
@@ -1222,19 +1443,18 @@ func (p *Protocol) Inventory(ctx context.Context) (*InventoryResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	motdKinds := p.schema.MotdKinds()
 	r := &InventoryResult{
 		Total:    len(all),
 		ByKind:   make(map[string]int),
 		ByStatus: make(map[string]int),
+		Tracked:  make(map[string][]*model.Artifact),
 	}
 	for _, art := range all {
 		r.ByKind[art.Kind]++
 		r.ByStatus[art.Status]++
-		if art.Kind == "sprint" && art.Status == "active" {
-			r.ActiveSprints = append(r.ActiveSprints, art)
-		}
-		if art.Kind == "goal" && art.Status == "current" {
-			r.Goals = append(r.Goals, art)
+		if def, ok := motdKinds[art.Kind]; ok && art.Status == def.ActiveStatus {
+			r.Tracked[art.Kind] = append(r.Tracked[art.Kind], art)
 		}
 	}
 	return r, nil
@@ -1242,44 +1462,52 @@ func (p *Protocol) Inventory(ctx context.Context) (*InventoryResult, error) {
 
 // --- FS operations ---
 
-func (p *Protocol) DrainDiscover(ctx context.Context, path string) ([]lifecycle.DrainEntry, error) {
+// DrainEntry represents a discovered legacy markdown file.
+type DrainEntry struct {
+	Path     string `json:"path"`
+	Dir      string `json:"dir"`
+	Filename string `json:"filename"`
+	SizeB    int64  `json:"size_bytes"`
+}
+
+func (p *Protocol) DrainDiscover(ctx context.Context, path string) ([]DrainEntry, error) {
 	if path == "" {
 		return nil, fmt.Errorf("path is required")
 	}
-	return lifecycle.DrainDiscover(path)
+	var entries []DrainEntry
+	err := filepath.Walk(path, func(fpath string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(info.Name(), ".md") || strings.HasPrefix(info.Name(), "_") {
+			return nil
+		}
+		rel, _ := filepath.Rel(path, fpath)
+		entries = append(entries, DrainEntry{
+			Path: fpath, Dir: filepath.Dir(rel),
+			Filename: info.Name(), SizeB: info.Size(),
+		})
+		return nil
+	})
+	return entries, err
 }
 
 func (p *Protocol) DrainCleanup(ctx context.Context, path string) (int, error) {
 	if path == "" {
 		return 0, fmt.Errorf("path is required")
 	}
-	entries, err := lifecycle.DrainDiscover(path)
+	entries, err := p.DrainDiscover(ctx, path)
 	if err != nil {
 		return 0, err
 	}
-	paths := make([]string, len(entries))
-	for i, e := range entries {
-		paths[i] = e.Path
-	}
-	return lifecycle.DrainCleanup(paths)
-}
-
-// --- Component label gate ---
-
-var triggerSections = map[string]bool{
-	"specification": true,
-	"feature":       true,
-	"bugfix":        true,
-	"arch":          true,
-}
-
-func triggerSection(art *model.Artifact) string {
-	for _, sec := range art.Sections {
-		if triggerSections[sec.Name] {
-			return sec.Name
+	var removed int
+	for _, e := range entries {
+		if err := os.Remove(e.Path); err != nil && !os.IsNotExist(err) {
+			return removed, err
 		}
+		removed++
 	}
-	return ""
+	return removed, nil
 }
 
 // --- Component labels ---
@@ -1288,15 +1516,6 @@ var componentLabelRe = regexp.MustCompile(`^[a-z][a-z0-9_-]*:.+/.+$`)
 
 func IsComponentLabel(s string) bool {
 	return componentLabelRe.MatchString(strings.TrimSpace(s))
-}
-
-func hasComponentLabels(labels []string) bool {
-	for _, l := range labels {
-		if IsComponentLabel(l) {
-			return true
-		}
-	}
-	return false
 }
 
 func extractComponentLabels(labels []string, projectPrefix string) []string {
@@ -1402,8 +1621,8 @@ type OrphanInput struct {
 	Status string `json:"status,omitempty"`
 }
 
-// DetectOrphans finds tasks that don't implement any spec or bug, and
-// specs/bugs that no task implements.
+// DetectOrphans finds tasks without implements links, specs/bugs/needs without
+// incoming implements links, and ref/doc kinds missing required outgoing links.
 func (p *Protocol) DetectOrphans(ctx context.Context, in OrphanInput) (*OrphanReport, error) {
 	f := model.Filter{}
 	if in.Scope != "" {
@@ -1426,29 +1645,21 @@ func (p *Protocol) DetectOrphans(ctx context.Context, in OrphanInput) (*OrphanRe
 			continue
 		}
 
-		switch art.Kind {
-		case "task":
+		kd, ok := p.schema.Kinds[art.Kind]
+		if !ok {
+			continue
+		}
+
+		for _, rel := range kd.Relations.RequiredOutgoing {
 			report.TotalScanned++
-			edges, err := p.store.Neighbors(ctx, art.ID, model.RelImplements, store.Outgoing)
+			edges, err := p.store.Neighbors(ctx, art.ID, rel, store.Outgoing)
 			if err != nil {
 				continue
 			}
 			if len(edges) == 0 {
 				report.Orphans = append(report.Orphans, OrphanEntry{
 					ID: art.ID, Kind: art.Kind, Title: art.Title, Status: art.Status,
-					Reason: "task has no implements link to a spec or bug",
-				})
-			}
-		case "spec", "bug":
-			report.TotalScanned++
-			edges, err := p.store.Neighbors(ctx, art.ID, model.RelImplements, store.Incoming)
-			if err != nil {
-				continue
-			}
-			if len(edges) == 0 {
-				report.Orphans = append(report.Orphans, OrphanEntry{
-					ID: art.ID, Kind: art.Kind, Title: art.Title, Status: art.Status,
-					Reason: fmt.Sprintf("%s has no task implementing it", art.Kind),
+					Reason: fmt.Sprintf("%s has no outgoing %s link", art.Kind, rel),
 				})
 			}
 		}
@@ -1463,19 +1674,10 @@ func (p *Protocol) DetectOrphans(ctx context.Context, in OrphanInput) (*OrphanRe
 
 // --- Vocabulary ---
 
-// VocabList returns the registered kinds. If no vocabulary is configured,
-// returns the canonical defaults.
+// VocabList returns the registered kinds (derived from schema, plus any runtime additions).
 func (p *Protocol) VocabList() []string {
-	if len(p.vocab) > 0 {
-		out := make([]string, len(p.vocab))
-		copy(out, p.vocab)
-		sort.Strings(out)
-		return out
-	}
-	var out []string
-	for k := range p.schema.Kinds {
-		out = append(out, k)
-	}
+	out := make([]string, len(p.vocab))
+	copy(out, p.vocab)
 	sort.Strings(out)
 	return out
 }
@@ -1539,6 +1741,18 @@ func (p *Protocol) SetScopeKey(ctx context.Context, scope, key string) error {
 	return p.store.SetScopeKey(ctx, scope, key, false)
 }
 
+func (p *Protocol) SetScopeLabels(ctx context.Context, scope string, labels []string) error {
+	return p.store.SetScopeLabels(ctx, scope, labels)
+}
+
+func (p *Protocol) GetScopeLabels(ctx context.Context, scope string) ([]string, error) {
+	return p.store.GetScopeLabels(ctx, scope)
+}
+
+func (p *Protocol) ListScopeInfo(ctx context.Context) ([]store.ScopeInfo, error) {
+	return p.store.ListScopeInfo(ctx)
+}
+
 // ListKindCodes returns kind -> code mappings (schema + config overlay).
 func (p *Protocol) ListKindCodes() map[string]string {
 	result := make(map[string]string)
@@ -1553,85 +1767,300 @@ func (p *Protocol) ListKindCodes() map[string]string {
 	return result
 }
 
-// MigrateResult summarizes a vocabulary migration.
-type MigrateResult struct {
-	Rewrites map[string]int `json:"rewrites"`
-	Archived int            `json:"archived"`
-	Total    int            `json:"total"`
+
+func (p *Protocol) generateTemplatedID(ctx context.Context, scope, kind string) (string, error) {
+	tmpl := p.idTemplate
+	scopeKey := ""
+	for _, c := range tmpl.Components {
+		if c.Type == "scope" {
+			var err error
+			scopeKey, err = p.resolveScopeKey(ctx, scope)
+			if err != nil {
+				return "", err
+			}
+			break
+		}
+	}
+	idCtx := model.IDContext{
+		ScopeKey: scopeKey,
+		KindCode: p.resolveKindCode(kind),
+		Prefix:   p.schema.Prefix(kind),
+	}
+	seqKey := tmpl.SeqKey(idCtx)
+	seq, err := p.store.NextSeq(ctx, seqKey)
+	if err != nil {
+		return "", fmt.Errorf("generate templated ID: %w", err)
+	}
+	idCtx.Seq = seq
+	return tmpl.FormatTemplate(idCtx), nil
 }
 
-// VocabMigrate rewrites artifact kinds using the canonical absorption table.
-// If dryRun is true, counts are returned without mutating.
-func (p *Protocol) VocabMigrate(ctx context.Context, dryRun bool) (*MigrateResult, error) {
-	all, err := p.store.List(ctx, model.Filter{})
+// Lint validates the schema and returns structured results.
+func (p *Protocol) Lint() []model.LintResult {
+	return p.schema.Lint()
+}
+
+// --- DB conformance checker ---
+
+// CheckViolation describes a single conformance violation.
+type CheckViolation struct {
+	ID       string `json:"id"`
+	Kind     string `json:"kind"`
+	Title    string `json:"title"`
+	Category string `json:"category"` // unknown_kind, invalid_parent, invalid_relation, missing_link, orphan
+	Detail   string `json:"detail"`
+}
+
+// CheckReport is the result of a full DB conformance check.
+type CheckReport struct {
+	TotalScanned    int              `json:"total_scanned"`
+	TotalPassed     int              `json:"total_passed"`
+	Violations      []CheckViolation `json:"violations"`
+	TotalViolations int              `json:"total_violations"`
+}
+
+// Check walks all artifacts and validates each against the resolved schema.
+func (p *Protocol) Check(ctx context.Context, scope string) (*CheckReport, error) {
+	f := model.Filter{}
+	if scope != "" {
+		f.Scope = scope
+	} else if len(p.scopes) > 0 {
+		f.Scopes = p.scopes
+	}
+
+	arts, err := p.store.List(ctx, f)
 	if err != nil {
 		return nil, err
 	}
-	result := &MigrateResult{Rewrites: make(map[string]int)}
-	for _, art := range all {
-		if art.Kind == "rule" {
-			result.Archived++
-			result.Total++
-			if !dryRun {
-				art.Status = "archived"
-				if err := p.store.Put(ctx, art); err != nil {
-					return nil, fmt.Errorf("archive %s: %w", art.ID, err)
+
+	report := &CheckReport{TotalScanned: len(arts)}
+
+	for _, art := range arts {
+		kd, knownKind := p.schema.Kinds[art.Kind]
+
+		if !knownKind {
+			report.Violations = append(report.Violations, CheckViolation{
+				ID: art.ID, Kind: art.Kind, Title: art.Title,
+				Category: "unknown_kind",
+				Detail:   fmt.Sprintf("kind %q not in schema", art.Kind),
+			})
+			continue
+		}
+
+		if art.Parent != "" {
+			parent, err := p.store.Get(ctx, art.Parent)
+			if err == nil {
+				if reason, ok := p.schema.ValidChild(parent.Kind, art.Kind); !ok {
+					report.Violations = append(report.Violations, CheckViolation{
+						ID: art.ID, Kind: art.Kind, Title: art.Title,
+						Category: "invalid_parent",
+						Detail:   reason,
+					})
 				}
 			}
-			continue
 		}
-		canonical, ok := model.KindAbsorption[art.Kind]
-		if !ok {
-			continue
+
+		for rel, targets := range art.Links {
+			if !p.schema.ValidRelation(rel) {
+				report.Violations = append(report.Violations, CheckViolation{
+					ID: art.ID, Kind: art.Kind, Title: art.Title,
+					Category: "invalid_relation",
+					Detail:   fmt.Sprintf("relation %q not in schema", rel),
+				})
+				continue
+			}
+			if len(kd.Relations.Outgoing) > 0 {
+				allowed := false
+				for _, o := range kd.Relations.Outgoing {
+					if o == rel {
+						allowed = true
+						break
+					}
+				}
+				if !allowed {
+					report.Violations = append(report.Violations, CheckViolation{
+						ID: art.ID, Kind: art.Kind, Title: art.Title,
+						Category: "invalid_relation",
+						Detail:   fmt.Sprintf("kind %q does not allow outgoing %q", art.Kind, rel),
+					})
+				}
+			}
+			if validTargets, ok := kd.Relations.Targets[rel]; ok {
+				for _, tid := range targets {
+					target, err := p.store.Get(ctx, tid)
+					if err != nil {
+						continue
+					}
+					targetAllowed := false
+					for _, vt := range validTargets {
+						if vt == target.Kind {
+							targetAllowed = true
+							break
+						}
+					}
+					if !targetAllowed {
+						report.Violations = append(report.Violations, CheckViolation{
+							ID: art.ID, Kind: art.Kind, Title: art.Title,
+							Category: "invalid_relation",
+							Detail: fmt.Sprintf("%s target %s (kind %q) not in allowed targets %v for relation %q",
+								art.ID, tid, target.Kind, validTargets, rel),
+						})
+					}
+				}
+			}
 		}
-		key := art.Kind + " → " + canonical
-		result.Rewrites[key]++
-		result.Total++
-		if !dryRun {
-			art.Kind = canonical
-			if err := p.store.Put(ctx, art); err != nil {
-				return nil, fmt.Errorf("migrate %s: %w", art.ID, err)
+
+		for _, reqRel := range kd.Relations.RequiredOutgoing {
+			if p.schema.IsTerminal(art.Status) {
+				continue
+			}
+			edges, err := p.store.Neighbors(ctx, art.ID, reqRel, store.Outgoing)
+			if err != nil {
+				continue
+			}
+			if len(edges) == 0 {
+				report.Violations = append(report.Violations, CheckViolation{
+					ID: art.ID, Kind: art.Kind, Title: art.Title,
+					Category: "missing_link",
+					Detail:   fmt.Sprintf("%s has no outgoing %s link", art.Kind, reqRel),
+				})
 			}
 		}
 	}
+
+	sort.Slice(report.Violations, func(i, j int) bool {
+		return report.Violations[i].ID < report.Violations[j].ID
+	})
+	report.TotalViolations = len(report.Violations)
+	report.TotalPassed = report.TotalScanned - report.TotalViolations
+	return report, nil
+}
+
+// CheckFix runs Check and then auto-repairs what it can:
+//   - invalid_relation: removes the illegal edge
+//   - invalid_parent: unsets the parent
+//
+// Returns the report (pre-fix) and a list of fix descriptions.
+func (p *Protocol) CheckFix(ctx context.Context, scope string) (*CheckReport, []string, error) {
+	report, err := p.Check(ctx, scope)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var fixes []string
+	for _, v := range report.Violations {
+		switch v.Category {
+		case "invalid_relation":
+			art, err := p.store.Get(ctx, v.ID)
+			if err != nil {
+				continue
+			}
+			changed := false
+			for rel, targets := range art.Links {
+				if !p.schema.ValidRelation(rel) {
+					delete(art.Links, rel)
+					fixes = append(fixes, fmt.Sprintf("removed unknown relation %q from %s", rel, v.ID))
+					changed = true
+					continue
+				}
+				kd := p.schema.Kinds[art.Kind]
+				if len(kd.Relations.Outgoing) > 0 {
+					allowed := false
+					for _, o := range kd.Relations.Outgoing {
+						if o == rel {
+							allowed = true
+							break
+						}
+					}
+					if !allowed {
+						delete(art.Links, rel)
+						fixes = append(fixes, fmt.Sprintf("removed disallowed %q link from %s", rel, v.ID))
+						changed = true
+						continue
+					}
+				}
+				if validTargets, ok := kd.Relations.Targets[rel]; ok {
+					var keep []string
+					for _, tid := range targets {
+						target, err := p.store.Get(ctx, tid)
+						if err != nil {
+							keep = append(keep, tid)
+							continue
+						}
+						ok := false
+						for _, vt := range validTargets {
+							if vt == target.Kind {
+								ok = true
+								break
+							}
+						}
+						if ok {
+							keep = append(keep, tid)
+						} else {
+							fixes = append(fixes, fmt.Sprintf("removed %s->%s (%s %s) target mismatch", v.ID, tid, rel, target.Kind))
+						}
+					}
+					if len(keep) != len(targets) {
+						art.Links[rel] = keep
+						changed = true
+					}
+				}
+			}
+			if changed {
+				_ = p.store.Put(ctx, art)
+			}
+
+		case "invalid_parent":
+			art, err := p.store.Get(ctx, v.ID)
+			if err != nil {
+				continue
+			}
+			art.Parent = ""
+			if err := p.store.Put(ctx, art); err == nil {
+				fixes = append(fixes, fmt.Sprintf("unset parent of %s", v.ID))
+			}
+		}
+	}
+
+	return report, fixes, nil
+}
+
+// MigrateResult describes what the migration did.
+type MigrateResult struct {
+	SatisfiesRemoved int      `json:"satisfies_removed"`
+	Fixes            []string `json:"fixes"`
+	Report           *CheckReport `json:"report"`
+}
+
+// Migrate performs legacy data cleanup: removes satisfies edges, then runs CheckFix.
+func (p *Protocol) Migrate(ctx context.Context) (*MigrateResult, error) {
+	result := &MigrateResult{}
+
+	f := model.Filter{}
+	if len(p.scopes) > 0 {
+		f.Scopes = p.scopes
+	}
+	arts, err := p.store.List(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, art := range arts {
+		if targets, ok := art.Links["satisfies"]; ok && len(targets) > 0 {
+			result.SatisfiesRemoved += len(targets)
+			delete(art.Links, "satisfies")
+			_ = p.store.Put(ctx, art)
+		}
+	}
+
+	report, fixes, err := p.CheckFix(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	result.Report = report
+	result.Fixes = fixes
 	return result, nil
 }
 
 // --- helpers ---
 
-func isDue(art *model.Artifact, now time.Time) bool {
-	r, ok := art.Extra["remind_at"].(string)
-	if !ok {
-		return false
-	}
-	t, err := time.Parse(time.RFC3339, r)
-	if err != nil {
-		return false
-	}
-	return !t.After(now)
-}
-
-// ParseRemind converts a human duration string (e.g. "3d", "2w", "1m") to a time.
-func ParseRemind(s string) (time.Time, error) {
-	if len(s) < 2 {
-		return time.Time{}, fmt.Errorf("too short: %q", s)
-	}
-	unit := s[len(s)-1]
-	n, err := strconv.Atoi(s[:len(s)-1])
-	if err != nil {
-		return time.Time{}, fmt.Errorf("parse number: %w", err)
-	}
-	now := time.Now().UTC()
-	switch unit {
-	case 'h':
-		return now.Add(time.Duration(n) * time.Hour), nil
-	case 'd':
-		return now.AddDate(0, 0, n), nil
-	case 'w':
-		return now.AddDate(0, 0, n*7), nil
-	case 'm':
-		return now.AddDate(0, n, 0), nil
-	default:
-		return time.Time{}, fmt.Errorf("unknown unit %q (use h/d/w/m)", string(unit))
-	}
-}

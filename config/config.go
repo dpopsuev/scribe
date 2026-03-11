@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -15,12 +16,6 @@ import (
 // resolvedPath tracks the config file path found by Resolve, so Save
 // can write back to the same location.
 var resolvedPath string
-
-// Vocabulary defines the enforced set of artifact kinds.
-// If Kinds is nil or empty, validation is off (backward-compatible).
-type Vocabulary struct {
-	Kinds []string `yaml:"kinds"`
-}
 
 // Defaults holds tunable numeric parameters with sane zero-value fallbacks.
 type Defaults struct {
@@ -45,20 +40,43 @@ func (d Defaults) GetDashboardStaleCap() int { return orDefault(d.DashboardStale
 func (d Defaults) GetMotdRecentHours() int   { return orDefault(d.MotdRecentHours, 48) }
 func (d Defaults) GetTreeMaxDepth() int      { return orDefault(d.TreeMaxDepth, 10) }
 
+// DBConfig supports both a simple path string and a structured SQLite config.
+type DBConfig struct {
+	SQLite store.SQLiteConfig `yaml:"sqlite,omitempty"`
+}
+
 // Config is the top-level configuration loaded from scribe.yaml.
 type Config struct {
-	DB               string              `yaml:"db"`
+	DB               DBConfig            `yaml:"db"`
+	LogLevel         string              `yaml:"log_level,omitempty"`
 	Transport        string              `yaml:"transport"`
 	Addr             string              `yaml:"addr"`
 	Scopes           []string            `yaml:"scopes"`
 	Workspaces       map[string][]string `yaml:"workspaces,omitempty"`
 	Schema           *model.Schema       `yaml:"schema"`
-	Vocabulary       *Vocabulary         `yaml:"vocabulary"`
 	IDFormat         string              `yaml:"id_format"`
+	IDTemplate       *model.IDTemplate   `yaml:"id_template,omitempty"`
 	ScopeKeys        map[string]string   `yaml:"scope_keys"`
 	KindCodes        map[string]string   `yaml:"kind_codes"`
 	MutableCreatedAt *bool               `yaml:"mutable_created_at"`
 	Defaults         Defaults            `yaml:"defaults,omitempty"`
+}
+
+// DBPath returns the resolved database path.
+func (c *Config) DBPath() string {
+	if c.DB.SQLite.Path != "" {
+		return c.DB.SQLite.Path
+	}
+	return store.DefaultSQLitePath()
+}
+
+// SQLiteConfig returns the full SQLite configuration with defaults applied.
+func (c *Config) SQLiteConfig() store.SQLiteConfig {
+	cfg := c.DB.SQLite
+	if cfg.Path == "" {
+		cfg.Path = store.DefaultSQLitePath()
+	}
+	return cfg
 }
 
 // Load reads a config file from path and returns a merged Config.
@@ -114,12 +132,37 @@ func Resolve(explicit string) (*Config, error) {
 		return nil, fmt.Errorf("config validation: %w", err)
 	}
 	cfg.applyEnvOverrides()
+
+	if err := generateFirstRun(&cfg); err != nil {
+		slog.Warn("failed to generate scribe.yaml on first run", "error", err)
+	}
+
 	return &cfg, nil
+}
+
+func generateFirstRun(cfg *Config) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(home, ".scribe")
+	path := filepath.Join(dir, "scribe.yaml")
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
 }
 
 func defaults() Config {
 	return Config{
-		DB:        store.DefaultSQLitePath(),
+		DB:        DBConfig{SQLite: store.SQLiteConfig{Path: store.DefaultSQLitePath()}},
 		Transport: "stdio",
 		Addr:      ":8080",
 		Schema:    model.DefaultSchema(),
@@ -134,13 +177,26 @@ func (c *Config) IsMutableCreatedAt() bool {
 }
 
 func (c *Config) ProtocolIDConfig() protocol.IDConfig {
-	return protocol.IDConfig{
+	idc := protocol.IDConfig{
 		IDFormat:         c.IDFormat,
 		ScopeKeys:        c.ScopeKeys,
 		KindCodes:        c.KindCodes,
 		MutableCreatedAt: c.IsMutableCreatedAt(),
 		Defaults:         c.Defaults,
 	}
+	if c.IDTemplate != nil {
+		idc.IDTemplate = c.IDTemplate
+	} else {
+		switch c.IDFormat {
+		case "scoped":
+			t := model.PresetScoped()
+			idc.IDTemplate = &t
+		case "legacy":
+			t := model.PresetLegacy()
+			idc.IDTemplate = &t
+		}
+	}
+	return idc
 }
 
 func (c *Config) ValidateIDConfig() error {
@@ -177,8 +233,8 @@ func validateUniqueKeys(m map[string]string, label string, pattern *regexp.Regex
 }
 
 func (c *Config) applyDefaults() {
-	if c.DB == "" {
-		c.DB = store.DefaultSQLitePath()
+	if c.DB.SQLite.Path == "" {
+		c.DB.SQLite.Path = store.DefaultSQLitePath()
 	}
 	if c.Transport == "" {
 		c.Transport = "stdio"
@@ -215,7 +271,7 @@ func Save(cfg *Config) error {
 
 func (c *Config) applyEnvOverrides() {
 	if v := os.Getenv("SCRIBE_DB"); v != "" {
-		c.DB = v
+		c.DB.SQLite.Path = v
 	}
 	if v := os.Getenv("SCRIBE_TRANSPORT"); v != "" {
 		c.Transport = v
