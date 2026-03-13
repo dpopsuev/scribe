@@ -1341,6 +1341,27 @@ func TestTemplate_CreateMissingSections(t *testing.T) {
 	}
 }
 
+func TestTemplate_CreateWithZeroSections(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
+	createTestTemplate(t, s)
+
+	_, err := p.CreateArtifact(context.Background(), protocol.CreateInput{
+		Kind:  "task",
+		Title: "T",
+		Scope: "test",
+		Links: map[string][]string{"satisfies": {"SCR-TPL-1"}},
+		// NO sections at all - this should be blocked!
+	})
+	if err == nil {
+		t.Fatal("expected error when creating artifact with no sections but linked to template")
+	}
+	if !strings.Contains(err.Error(), "does not conform to template") {
+		t.Errorf("error should mention template conformance, got: %s", err.Error())
+	}
+}
+
 func TestTemplate_DetachBlocksTemplateSection(t *testing.T) {
 	s := openStore(t)
 	schema := model.DefaultSchema()
@@ -1420,6 +1441,238 @@ func TestTemplate_CheckWarnsNonConformant(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected missing_template_section violation")
+	}
+}
+
+func TestTemplate_CreateWithRealisticEightSectionTemplate(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
+	ctx := context.Background()
+
+	// Create realistic 8-section template (like TPL-2026-002)
+	s.Put(ctx, &model.Artifact{
+		ID: "TPL-2026-002", Kind: "template", Status: "active", Title: "Spec Template", Scope: "test",
+		Sections: []model.Section{
+			{Name: "content", Text: "full raw template markdown"},
+			{Name: "overview", Text: "High-level summary"},
+			{Name: "context", Text: "Background and motivation"},
+			{Name: "requirements", Text: "Functional requirements"},
+			{Name: "design", Text: "Architecture and design"},
+			{Name: "implementation", Text: "Implementation details"},
+			{Name: "testing", Text: "Test plan"},
+			{Name: "deployment", Text: "Deployment strategy"},
+			{Name: "acceptance", Text: "Acceptance criteria"},
+		},
+	})
+
+	// Test 1: Success with all sections
+	art, err := p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind: "spec", Title: "Complete Spec", Scope: "test",
+		Links: map[string][]string{"satisfies": {"TPL-2026-002"}},
+		Sections: []model.Section{
+			{Name: "overview", Text: "Summary"},
+			{Name: "context", Text: "Background"},
+			{Name: "requirements", Text: "Reqs"},
+			{Name: "design", Text: "Design"},
+			{Name: "implementation", Text: "Impl"},
+			{Name: "testing", Text: "Tests"},
+			{Name: "deployment", Text: "Deploy"},
+			{Name: "acceptance", Text: "Criteria"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected success with all 8 sections, got: %v", err)
+	}
+	if art.ID == "" {
+		t.Error("expected artifact to be created")
+	}
+
+	// Test 2: Failure with missing sections
+	_, err = p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind: "spec", Title: "Incomplete Spec", Scope: "test",
+		Links: map[string][]string{"satisfies": {"TPL-2026-002"}},
+		Sections: []model.Section{
+			{Name: "overview", Text: "Summary"},
+			{Name: "context", Text: "Background"},
+			// Missing 6 sections
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for missing sections in realistic template")
+	}
+	if !strings.Contains(err.Error(), "does not conform to template") {
+		t.Errorf("error should mention template conformance, got: %s", err.Error())
+	}
+	// Verify at least a few missing sections are mentioned
+	if !strings.Contains(err.Error(), "requirements") {
+		t.Errorf("error should mention missing section 'requirements', got: %s", err.Error())
+	}
+	if !strings.Contains(err.Error(), "design") {
+		t.Errorf("error should mention missing section 'design', got: %s", err.Error())
+	}
+}
+
+func TestTemplate_LinkSatisfiesBlocksMissingSections(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
+	ctx := context.Background()
+	createTestTemplate(t, s)
+
+	// Create artifact with only 1 of 3 required sections
+	s.Put(ctx, &model.Artifact{
+		ID: "SPEC-1", Kind: "spec", Status: "draft", Title: "Incomplete Spec", Scope: "test",
+		Sections: []model.Section{
+			{Name: "context", Text: "Background info"},
+			// Missing checklist and acceptance
+		},
+	})
+
+	// Try to link to template - should be blocked
+	_, err := p.LinkArtifacts(ctx, "SPEC-1", "satisfies", []string{"SCR-TPL-1"})
+
+	if err == nil {
+		t.Fatal("expected error when linking to template with missing sections")
+	}
+	if !strings.Contains(err.Error(), "does not conform to template") {
+		t.Errorf("error should mention template conformance, got: %s", err.Error())
+	}
+	if !strings.Contains(err.Error(), "checklist") {
+		t.Errorf("error should mention missing section 'checklist', got: %s", err.Error())
+	}
+	if !strings.Contains(err.Error(), "acceptance") {
+		t.Errorf("error should mention missing section 'acceptance', got: %s", err.Error())
+	}
+}
+
+func TestTemplate_LinkSatisfiesAllowsConformant(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
+	ctx := context.Background()
+	createTestTemplate(t, s)
+
+	// Create artifact with all required sections
+	s.Put(ctx, &model.Artifact{
+		ID: "SPEC-2", Kind: "spec", Status: "draft", Title: "Complete Spec", Scope: "test",
+		Sections: []model.Section{
+			{Name: "context", Text: "Background info"},
+			{Name: "checklist", Text: "Steps to follow"},
+			{Name: "acceptance", Text: "Acceptance criteria"},
+		},
+	})
+
+	// Link to template - should succeed
+	results, err := p.LinkArtifacts(ctx, "SPEC-2", "satisfies", []string{"SCR-TPL-1"})
+
+	if err != nil {
+		t.Fatalf("expected success when linking to template with all sections, got: %v", err)
+	}
+	if len(results) != 1 || !results[0].OK {
+		t.Errorf("expected successful link result, got: %+v", results)
+	}
+
+	// Verify link was added
+	art, _ := s.Get(ctx, "SPEC-2")
+	if len(art.Links["satisfies"]) != 1 || art.Links["satisfies"][0] != "SCR-TPL-1" {
+		t.Errorf("satisfies link not added, links: %+v", art.Links)
+	}
+}
+
+func TestTemplate_LinkSatisfiesAllowsNonTemplate(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
+	ctx := context.Background()
+
+	// Create two specs (not templates)
+	s.Put(ctx, &model.Artifact{
+		ID: "SPEC-3", Kind: "spec", Status: "draft", Title: "Source Spec", Scope: "test",
+	})
+	s.Put(ctx, &model.Artifact{
+		ID: "SPEC-4", Kind: "spec", Status: "draft", Title: "Target Spec", Scope: "test",
+	})
+
+	// Try to link with satisfies relation to non-template - should fail with clear error
+	_, err := p.LinkArtifacts(ctx, "SPEC-3", "satisfies", []string{"SPEC-4"})
+
+	if err == nil {
+		t.Fatal("expected error when satisfies target is not a template")
+	}
+	if !strings.Contains(err.Error(), "not a template") {
+		t.Errorf("error should mention target is not a template, got: %s", err.Error())
+	}
+}
+
+func TestTemplate_LinkSatisfiesRealisticEightSection(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
+	ctx := context.Background()
+
+	// Create realistic 8-section template
+	s.Put(ctx, &model.Artifact{
+		ID: "TPL-2026-003", Kind: "template", Status: "active", Title: "Spec Template", Scope: "test",
+		Sections: []model.Section{
+			{Name: "content", Text: "full raw template markdown"},
+			{Name: "overview", Text: "High-level summary"},
+			{Name: "context", Text: "Background and motivation"},
+			{Name: "requirements", Text: "Functional requirements"},
+			{Name: "design", Text: "Architecture and design"},
+			{Name: "implementation", Text: "Implementation details"},
+			{Name: "testing", Text: "Test plan"},
+			{Name: "deployment", Text: "Deployment strategy"},
+			{Name: "acceptance", Text: "Acceptance criteria"},
+		},
+	})
+
+	// Create artifact with all 8 sections
+	s.Put(ctx, &model.Artifact{
+		ID: "SPEC-5", Kind: "spec", Status: "draft", Title: "Complete Spec", Scope: "test",
+		Sections: []model.Section{
+			{Name: "overview", Text: "Summary"},
+			{Name: "context", Text: "Background"},
+			{Name: "requirements", Text: "Reqs"},
+			{Name: "design", Text: "Design"},
+			{Name: "implementation", Text: "Impl"},
+			{Name: "testing", Text: "Tests"},
+			{Name: "deployment", Text: "Deploy"},
+			{Name: "acceptance", Text: "Criteria"},
+		},
+	})
+
+	// Link to template - should succeed
+	results, err := p.LinkArtifacts(ctx, "SPEC-5", "satisfies", []string{"TPL-2026-003"})
+
+	if err != nil {
+		t.Fatalf("expected success with 8-section template, got: %v", err)
+	}
+	if len(results) != 1 || !results[0].OK {
+		t.Errorf("expected successful link result, got: %+v", results)
+	}
+
+	// Create artifact with only 2 of 8 sections
+	s.Put(ctx, &model.Artifact{
+		ID: "SPEC-6", Kind: "spec", Status: "draft", Title: "Incomplete Spec", Scope: "test",
+		Sections: []model.Section{
+			{Name: "overview", Text: "Summary"},
+			{Name: "context", Text: "Background"},
+		},
+	})
+
+	// Link to template - should fail
+	_, err = p.LinkArtifacts(ctx, "SPEC-6", "satisfies", []string{"TPL-2026-003"})
+
+	if err == nil {
+		t.Fatal("expected error when linking to 8-section template with only 2 sections")
+	}
+	if !strings.Contains(err.Error(), "does not conform to template") {
+		t.Errorf("error should mention template conformance, got: %s", err.Error())
+	}
+	// Verify at least some missing sections are mentioned
+	if !strings.Contains(err.Error(), "requirements") {
+		t.Errorf("error should mention missing section 'requirements', got: %s", err.Error())
 	}
 }
 

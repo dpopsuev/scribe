@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -802,6 +803,37 @@ func (p *Protocol) LinkArtifacts(ctx context.Context, sourceID, relation string,
 	art, err := p.store.Get(ctx, sourceID)
 	if err != nil {
 		return nil, err
+	}
+
+	// Template enforcement: validate source artifact conforms to template sections before adding satisfies link
+	if relation == model.RelSatisfies {
+		for _, tid := range targetIDs {
+			tpl, err := p.store.Get(ctx, tid)
+			if err != nil {
+				return nil, fmt.Errorf("failed to resolve satisfies target %s: %w", tid, err)
+			}
+			if tpl.Kind != "template" {
+				slog.WarnContext(ctx, "satisfies link target is not a template",
+					"source_id", sourceID,
+					"target_id", tid,
+					"target_kind", tpl.Kind)
+				return nil, fmt.Errorf("satisfies link target %s is not a template (kind=%s)", tid, tpl.Kind)
+			}
+			// Temporarily add link to artifact for conformance check
+			artWithLink := &model.Artifact{
+				ID:       art.ID,
+				Kind:     art.Kind,
+				Sections: art.Sections,
+				Links:    map[string][]string{model.RelSatisfies: {tid}},
+			}
+			if err := p.checkTemplateConformance(ctx, artWithLink); err != nil {
+				slog.WarnContext(ctx, "satisfies link blocked by template enforcement",
+					"source_id", sourceID,
+					"target_id", tid,
+					"error", err.Error())
+				return nil, err
+			}
+		}
 	}
 	if art.Links == nil {
 		art.Links = make(map[string][]string)
@@ -2085,9 +2117,24 @@ func (p *Protocol) resolveTemplate(ctx context.Context, art *model.Artifact) *mo
 		return nil
 	}
 	tpl, err := p.store.Get(ctx, targets[0])
-	if err != nil || tpl.Kind != "template" {
+	if err != nil {
+		slog.DebugContext(ctx, "failed to resolve template",
+			"artifact_id", art.ID,
+			"template_id", targets[0],
+			"error", err)
 		return nil
 	}
+	if tpl.Kind != "template" {
+		slog.WarnContext(ctx, "satisfies link target is not a template",
+			"artifact_id", art.ID,
+			"target_id", tpl.ID,
+			"target_kind", tpl.Kind)
+		return nil
+	}
+	slog.DebugContext(ctx, "template resolved",
+		"artifact_id", art.ID,
+		"template_id", tpl.ID,
+		"template_sections", len(tpl.Sections))
 	return tpl
 }
 
@@ -2126,9 +2173,26 @@ func (p *Protocol) checkTemplateConformance(ctx context.Context, art *model.Arti
 		}
 	}
 	if len(msgs) == 0 {
+		// YELLOW: Happy path - conformance passed
+		slog.DebugContext(ctx, "template conformance passed",
+			"artifact_id", art.ID,
+			"template_id", tpl.ID,
+			"sections_provided", len(art.Sections),
+			"sections_required", len(expected))
 		return nil
 	}
+
+	// ORANGE: Unhappy path - conformance failed
 	sort.Strings(msgs)
+	slog.WarnContext(ctx, "template conformance failed",
+		"artifact_id", art.ID,
+		"artifact_kind", art.Kind,
+		"template_id", tpl.ID,
+		"sections_provided", len(art.Sections),
+		"sections_required", len(expected),
+		"sections_missing", len(msgs),
+		"missing_list", strings.Join(msgs, "; "))
+
 	return fmt.Errorf("artifact does not conform to template %s — missing sections:\n%s",
 		tpl.ID, strings.Join(msgs, "\n"))
 }

@@ -38,7 +38,8 @@ func NewServer(s store.Store, homeScopes, vocab []string, idc protocol.IDConfig,
 		Name: "artifact",
 		Description: "Create, read, update, and manage work artifacts. " +
 			"Actions: create (new artifact), get (by ID), list (filter/search), set (update field), " +
-			"archive (mark read-only), attach_section (add text), get_section (read text), detach_section (remove text).",
+			"archive (mark read-only), attach_section (add text), get_section (read text), detach_section (remove text). " +
+			"When creating artifacts linked to templates via satisfies relation, all template sections must be provided.",
 		Keywords:   []string{"create", "get", "list", "set", "archive", "artifact", "section"},
 		Categories: []string{"crud"},
 	}, noOut(h.handleArtifact))
@@ -98,6 +99,7 @@ type artifactInput struct {
 	Links     map[string][]string `json:"links,omitempty" jsonschema:"named link groups, e.g. {\"docs\": [\"url1\"]}"`
 	Extra     map[string]any      `json:"extra,omitempty" jsonschema:"arbitrary key-value metadata"`
 	CreatedAt string              `json:"created_at,omitempty" jsonschema:"RFC 3339 timestamp to backdate creation"`
+	Sections  []map[string]string `json:"sections,omitempty" jsonschema:"array of section objects with name and text fields (create)"`
 
 	IncludeEdges bool `json:"include_edges,omitempty" jsonschema:"if true, get returns resolved neighbor summaries"`
 
@@ -163,12 +165,22 @@ type adminInput struct {
 func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolRequest, in artifactInput) (*sdkmcp.CallToolResult, any, error) {
 	switch in.Action {
 	case "create":
+		// Convert MCP sections format to model.Section
+		var sections []model.Section
+		for _, sec := range in.Sections {
+			if name, ok := sec["name"]; ok {
+				text := sec["text"] // empty string if not present
+				sections = append(sections, model.Section{Name: name, Text: text})
+			}
+		}
+
 		return h.handleCreate(ctx, req, protocol.CreateInput{
 			Kind: in.Kind, Title: in.Title, Scope: in.Scope,
 			Goal: in.Goal, Parent: in.Parent, Status: in.Status,
 			Priority: in.Priority,
 			DependsOn: in.DependsOn, Labels: in.Labels, Prefix: in.Prefix,
 			Links: in.Links, Extra: in.Extra, CreatedAt: in.CreatedAt,
+			Sections: sections,
 		})
 	case "get":
 		return h.handleGet(ctx, req, getInput{ID: in.ID, IncludeEdges: in.IncludeEdges})
