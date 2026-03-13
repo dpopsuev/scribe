@@ -316,3 +316,307 @@ func TestTree_EdgeLabelsShownWhenPresent(t *testing.T) {
 		t.Errorf("tree with relation should show edge label, got:\n%s", text)
 	}
 }
+
+// --- Template enforcement tests ---
+
+func createMCPTemplate(t *testing.T, s store.Store) {
+	t.Helper()
+	ctx := context.Background()
+	err := s.Put(ctx, &model.Artifact{
+		ID: "SCR-TPL-1", Kind: "template", Status: "active", Title: "Task Template", Scope: "test",
+		Sections: []model.Section{
+			{Name: "content", Text: "full raw template markdown"},
+			{Name: "context", Text: "Background and motivation"},
+			{Name: "checklist", Text: "Ordered steps for execution"},
+			{Name: "acceptance", Text: "Given/When/Then criteria"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func createMCPRealisticTemplate(t *testing.T, s store.Store) {
+	t.Helper()
+	ctx := context.Background()
+	err := s.Put(ctx, &model.Artifact{
+		ID: "TPL-2026-002", Kind: "template", Status: "active", Title: "Eight Section Template", Scope: "test",
+		Sections: []model.Section{
+			{Name: "content", Text: "full raw template markdown"},
+			{Name: "overview", Text: "High-level summary"},
+			{Name: "context", Text: "Background and motivation"},
+			{Name: "requirements", Text: "Functional requirements"},
+			{Name: "design", Text: "Architecture and design"},
+			{Name: "implementation", Text: "Implementation details"},
+			{Name: "testing", Text: "Test plan"},
+			{Name: "deployment", Text: "Deployment strategy"},
+			{Name: "acceptance", Text: "Acceptance criteria"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTemplate_MCPCreateWithZeroSections(t *testing.T) {
+	s := openStore(t)
+	createMCPTemplate(t, s)
+
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	ctx := context.Background()
+	result, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "artifact",
+		Arguments: map[string]any{
+			"action": "create",
+			"kind":   "spec",
+			"title":  "Test Spec",
+			"scope":  "test",
+			"links":  map[string]any{"satisfies": []string{"SCR-TPL-1"}},
+			// NO sections provided - this should FAIL
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected tool error (IsError=true) when creating artifact with no sections but linked to template")
+	}
+
+	// Get error message from result content
+	var errMsg string
+	for _, c := range result.Content {
+		if tc, ok := c.(*sdkmcp.TextContent); ok {
+			errMsg = tc.Text
+			break
+		}
+	}
+
+	if !strings.Contains(errMsg, "does not conform to template") {
+		t.Errorf("error should mention template conformance, got: %s", errMsg)
+	}
+	if !strings.Contains(errMsg, "context") {
+		t.Errorf("error should mention missing section 'context', got: %s", errMsg)
+	}
+}
+
+func TestTemplate_MCPCreateWithAllSections(t *testing.T) {
+	s := openStore(t)
+	createMCPTemplate(t, s)
+
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "create",
+		"kind":   "spec",
+		"title":  "Test Spec",
+		"scope":  "test",
+		"links":  map[string]any{"satisfies": []string{"SCR-TPL-1"}},
+		"sections": []map[string]string{
+			{"name": "context", "text": "Background info"},
+			{"name": "checklist", "text": "Steps to follow"},
+			{"name": "acceptance", "text": "Acceptance criteria"},
+		},
+	})
+
+	if !strings.Contains(text, "Test Spec") {
+		t.Errorf("artifact should be created successfully, got: %s", text)
+	}
+	if !strings.Contains(text, "SPEC-") {
+		t.Errorf("artifact ID should be present with SPEC prefix, got: %s", text)
+	}
+	if !strings.Contains(text, "context") || !strings.Contains(text, "checklist") || !strings.Contains(text, "acceptance") {
+		t.Errorf("artifact should include all sections, got: %s", text)
+	}
+}
+
+func TestTemplate_MCPCreateWithPartialSections(t *testing.T) {
+	s := openStore(t)
+	createMCPTemplate(t, s)
+
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	ctx := context.Background()
+	result, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "artifact",
+		Arguments: map[string]any{
+			"action": "create",
+			"kind":   "spec",
+			"title":  "Test Spec",
+			"scope":  "test",
+			"links":  map[string]any{"satisfies": []string{"SCR-TPL-1"}},
+			"sections": []map[string]string{
+				{"name": "context", "text": "Background info"},
+				// Missing checklist and acceptance
+			},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected tool error (IsError=true) when creating artifact with partial sections")
+	}
+
+	// Get error message from result content
+	var errMsg string
+	for _, c := range result.Content {
+		if tc, ok := c.(*sdkmcp.TextContent); ok {
+			errMsg = tc.Text
+			break
+		}
+	}
+
+	if !strings.Contains(errMsg, "does not conform to template") {
+		t.Errorf("error should mention template conformance, got: %s", errMsg)
+	}
+	if !strings.Contains(errMsg, "checklist") {
+		t.Errorf("error should mention missing section 'checklist', got: %s", errMsg)
+	}
+	if !strings.Contains(errMsg, "acceptance") {
+		t.Errorf("error should mention missing section 'acceptance', got: %s", errMsg)
+	}
+}
+
+func TestTemplate_MCPCreateWithRealisticTemplate(t *testing.T) {
+	s := openStore(t)
+	createMCPRealisticTemplate(t, s)
+
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "create",
+		"kind":   "spec",
+		"title":  "Real World Spec",
+		"scope":  "test",
+		"links":  map[string]any{"satisfies": []string{"TPL-2026-002"}},
+		"sections": []map[string]string{
+			{"name": "overview", "text": "High-level summary text"},
+			{"name": "context", "text": "Background and motivation text"},
+			{"name": "requirements", "text": "Functional requirements text"},
+			{"name": "design", "text": "Architecture and design text"},
+			{"name": "implementation", "text": "Implementation details text"},
+			{"name": "testing", "text": "Test plan text"},
+			{"name": "deployment", "text": "Deployment strategy text"},
+			{"name": "acceptance", "text": "Acceptance criteria text"},
+		},
+	})
+
+	if !strings.Contains(text, "Real World Spec") {
+		t.Errorf("artifact should be created successfully with all 8 sections, got: %s", text)
+	}
+	if !strings.Contains(text, "SPEC-") {
+		t.Errorf("artifact ID should be present with SPEC prefix, got: %s", text)
+	}
+	// Verify all 8 sections are present in the output
+	sections := []string{"overview", "context", "requirements", "design", "implementation", "testing", "deployment", "acceptance"}
+	for _, sec := range sections {
+		if !strings.Contains(text, sec) {
+			t.Errorf("artifact should include section %q, got: %s", sec, text)
+		}
+	}
+}
+
+func TestTemplate_MCPLinkSatisfiesBlocksMissingSections(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	createMCPTemplate(t, s)
+
+	// Create artifact with incomplete sections (only 1 of 3 required)
+	s.Put(ctx, &model.Artifact{
+		ID: "SPEC-2026-001", Kind: "spec", Status: "draft", Title: "Incomplete Spec", Scope: "test",
+		Sections: []model.Section{
+			{Name: "context", Text: "Background info"},
+			// Missing checklist and acceptance
+		},
+	})
+
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	// Try to link to template via MCP - should fail
+	result, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "graph",
+		Arguments: map[string]any{
+			"action":   "link",
+			"id":       "SPEC-2026-001",
+			"relation": "satisfies",
+			"targets":  []string{"SCR-TPL-1"},
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected tool error (IsError=true) when linking to template with missing sections")
+	}
+
+	// Get error message from result content
+	var errMsg string
+	for _, c := range result.Content {
+		if tc, ok := c.(*sdkmcp.TextContent); ok {
+			errMsg = tc.Text
+			break
+		}
+	}
+
+	if !strings.Contains(errMsg, "does not conform to template") {
+		t.Errorf("error should mention template conformance, got: %s", errMsg)
+	}
+	if !strings.Contains(errMsg, "checklist") {
+		t.Errorf("error should mention missing section 'checklist', got: %s", errMsg)
+	}
+	if !strings.Contains(errMsg, "acceptance") {
+		t.Errorf("error should mention missing section 'acceptance', got: %s", errMsg)
+	}
+}
+
+func TestTemplate_MCPLinkSatisfiesAllowsConformant(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	createMCPTemplate(t, s)
+
+	// Create artifact with all required sections
+	s.Put(ctx, &model.Artifact{
+		ID: "SPEC-2026-002", Kind: "spec", Status: "draft", Title: "Complete Spec", Scope: "test",
+		Sections: []model.Section{
+			{Name: "context", Text: "Background info"},
+			{Name: "checklist", Text: "Steps to follow"},
+			{Name: "acceptance", Text: "Acceptance criteria"},
+		},
+	})
+
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	// Link to template via MCP - should succeed
+	text := callTool(t, cs, "graph", map[string]any{
+		"action":   "link",
+		"id":       "SPEC-2026-002",
+		"relation": "satisfies",
+		"targets":  []string{"SCR-TPL-1"},
+	})
+
+	if !strings.Contains(text, "linked") {
+		t.Errorf("expected successful link, got: %s", text)
+	}
+	if !strings.Contains(text, "SPEC-2026-002") {
+		t.Errorf("expected source ID in result, got: %s", text)
+	}
+	if !strings.Contains(text, "SCR-TPL-1") {
+		t.Errorf("expected target ID in result, got: %s", text)
+	}
+
+	// Verify link was added
+	art, _ := s.Get(ctx, "SPEC-2026-002")
+	if len(art.Links["satisfies"]) != 1 || art.Links["satisfies"][0] != "SCR-TPL-1" {
+		t.Errorf("satisfies link not added, links: %+v", art.Links)
+	}
+}
