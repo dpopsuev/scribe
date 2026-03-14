@@ -2,9 +2,11 @@ package mcp_test
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	scribemcp "github.com/dpopsuev/scribe/mcp"
 	"github.com/dpopsuev/scribe/model"
@@ -618,5 +620,284 @@ func TestTemplate_MCPLinkSatisfiesAllowsConformant(t *testing.T) {
 	art, _ := s.Get(ctx, "SPEC-2026-002")
 	if len(art.Links["satisfies"]) != 1 || art.Links["satisfies"][0] != "SCR-TPL-1" {
 		t.Errorf("satisfies link not added, links: %+v", art.Links)
+	}
+}
+
+// --- SCR-TSK-7: Bulk set_field ---
+
+func TestBulkSetField(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+
+	for i := 1; i <= 5; i++ {
+		s.Put(ctx, &model.Artifact{
+			ID: fmt.Sprintf("TASK-2026-%03d", i), Kind: "task", Scope: "test",
+			Status: "draft", Title: fmt.Sprintf("Task %d", i),
+		})
+	}
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "set",
+		"ids":    []any{"TASK-2026-001", "TASK-2026-002", "TASK-2026-003", "TASK-2026-004", "TASK-2026-005"},
+		"field":  "priority",
+		"value":  "high",
+	})
+
+	for i := 1; i <= 5; i++ {
+		id := fmt.Sprintf("TASK-2026-%03d", i)
+		if !strings.Contains(text, id+".priority = high") {
+			t.Errorf("expected %s.priority = high in result, got: %s", id, text)
+		}
+		art, _ := s.Get(ctx, id)
+		if art.Priority != "high" {
+			t.Errorf("%s priority = %q, want high", id, art.Priority)
+		}
+	}
+}
+
+func TestBulkSetField_SingleID(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	s.Put(ctx, &model.Artifact{ID: "TASK-2026-001", Kind: "task", Scope: "test", Status: "draft", Title: "T1"})
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "set",
+		"id":     "TASK-2026-001",
+		"field":  "priority",
+		"value":  "high",
+	})
+	if !strings.Contains(text, "TASK-2026-001.priority = high") {
+		t.Errorf("single id backward compat failed: %s", text)
+	}
+}
+
+// --- SCR-TSK-8: Batch attach_sections ---
+
+func TestBatchAttachSections(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	s.Put(ctx, &model.Artifact{ID: "SPEC-2026-001", Kind: "spec", Scope: "test", Status: "draft", Title: "S1"})
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "attach_section",
+		"id":     "SPEC-2026-001",
+		"sections": []any{
+			map[string]any{"name": "problem", "text": "The problem statement"},
+			map[string]any{"name": "decision", "text": "The decision"},
+			map[string]any{"name": "acceptance", "text": "The criteria"},
+		},
+	})
+
+	if !strings.Contains(text, "3 sections added") {
+		t.Errorf("expected '3 sections added', got: %s", text)
+	}
+
+	art, _ := s.Get(ctx, "SPEC-2026-001")
+	if len(art.Sections) != 3 {
+		t.Errorf("expected 3 sections, got %d", len(art.Sections))
+	}
+}
+
+func TestBatchAttachSections_SingleFallback(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	s.Put(ctx, &model.Artifact{ID: "SPEC-2026-001", Kind: "spec", Scope: "test", Status: "draft", Title: "S1"})
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "attach_section",
+		"id":     "SPEC-2026-001",
+		"name":   "problem",
+		"text":   "Single section",
+	})
+	if !strings.Contains(text, "section \"problem\" added") {
+		t.Errorf("single attach backward compat failed: %s", text)
+	}
+}
+
+// --- SCR-TSK-14: Batch create ---
+
+func TestBatchCreate(t *testing.T) {
+	s := openStore(t)
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "batch_create",
+		"artifacts": []any{
+			map[string]any{"kind": "task", "title": "Batch Task 1", "scope": "test"},
+			map[string]any{"kind": "task", "title": "Batch Task 2", "scope": "test"},
+			map[string]any{"kind": "task", "title": "Batch Task 3", "scope": "test"},
+		},
+	})
+
+	if !strings.Contains(text, "created 3 artifacts") {
+		t.Errorf("expected 'created 3 artifacts', got: %s", text)
+	}
+	if !strings.Contains(text, "Batch Task 1") || !strings.Contains(text, "Batch Task 3") {
+		t.Errorf("missing task titles in result: %s", text)
+	}
+}
+
+func TestBatchCreate_IntraBatchParent(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "batch_create",
+		"artifacts": []any{
+			map[string]any{"kind": "goal", "title": "Parent Goal", "scope": "test"},
+			map[string]any{"kind": "task", "title": "Child Task", "scope": "test", "parent": "$0"},
+		},
+	})
+
+	if !strings.Contains(text, "created 2 artifacts") {
+		t.Errorf("expected 'created 2 artifacts', got: %s", text)
+	}
+
+	// Verify parent was resolved
+	arts, _ := s.List(ctx, model.Filter{Kind: "task"})
+	found := false
+	for _, a := range arts {
+		if a.Title == "Child Task" && a.Parent != "" && a.Parent != "$0" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("child task parent reference was not resolved")
+	}
+}
+
+// --- SCR-TSK-18: Multi-action update ---
+
+func TestUpdate_FieldsAndSections(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	s.Put(ctx, &model.Artifact{ID: "TASK-2026-001", Kind: "task", Scope: "test", Status: "draft", Title: "T1"})
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action":   "update",
+		"id":       "TASK-2026-001",
+		"priority": "high",
+		"sections": []any{
+			map[string]any{"name": "notes", "text": "Started work"},
+		},
+	})
+
+	if !strings.Contains(text, "priority = high") {
+		t.Errorf("expected priority update in result: %s", text)
+	}
+	if !strings.Contains(text, "section \"notes\" added") {
+		t.Errorf("expected section add in result: %s", text)
+	}
+
+	art, _ := s.Get(ctx, "TASK-2026-001")
+	if art.Priority != "high" {
+		t.Errorf("priority = %q, want high", art.Priority)
+	}
+	if len(art.Sections) != 1 || art.Sections[0].Name != "notes" {
+		t.Errorf("expected notes section, got %+v", art.Sections)
+	}
+}
+
+func TestUpdate_FieldsOnly(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	s.Put(ctx, &model.Artifact{ID: "TASK-2026-001", Kind: "task", Scope: "test", Status: "draft", Title: "T1", Priority: "low"})
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action":   "update",
+		"id":       "TASK-2026-001",
+		"priority": "high",
+		"title":    "Updated Title",
+	})
+
+	if !strings.Contains(text, "priority = high") || !strings.Contains(text, "title = Updated Title") {
+		t.Errorf("expected both field updates: %s", text)
+	}
+
+	art, _ := s.Get(ctx, "TASK-2026-001")
+	if art.Priority != "high" || art.Title != "Updated Title" {
+		t.Errorf("fields not updated: priority=%q title=%q", art.Priority, art.Title)
+	}
+}
+
+// --- SCR-TSK-13: Enriched motd ---
+
+func TestMotd_ShowsOpenBugs(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	s.Put(ctx, &model.Artifact{ID: "BUG-2026-001", Kind: "bug", Scope: "test", Status: "open", Title: "Critical bug", Priority: "critical"})
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "admin", map[string]any{"action": "motd"})
+
+	if !strings.Contains(text, "Open Bugs") {
+		t.Errorf("expected Open Bugs section: %s", text)
+	}
+	if !strings.Contains(text, "BUG-2026-001") {
+		t.Errorf("expected bug ID in motd: %s", text)
+	}
+	if !strings.Contains(text, "[critical]") {
+		t.Errorf("expected priority in bug listing: %s", text)
+	}
+}
+
+func TestMotd_ShowsChangedSince(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+
+	since := time.Now().UTC().Add(-1 * time.Hour).Format(time.RFC3339)
+	s.Put(ctx, &model.Artifact{ID: "TASK-2026-001", Kind: "task", Scope: "test", Status: "active", Title: "Recent task"})
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "admin", map[string]any{"action": "motd", "since": since})
+
+	if !strings.Contains(text, "Changed Since") {
+		t.Errorf("expected Changed Since section: %s", text)
+	}
+	if !strings.Contains(text, "TASK-2026-001") {
+		t.Errorf("expected recent task in changes: %s", text)
+	}
+}
+
+func TestMotd_ShowsActiveSummary(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	s.Put(ctx, &model.Artifact{ID: "TASK-2026-001", Kind: "task", Scope: "test", Status: "active", Title: "Active"})
+	s.Put(ctx, &model.Artifact{ID: "TASK-2026-002", Kind: "task", Scope: "test", Status: "draft", Title: "Draft"})
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "admin", map[string]any{"action": "motd"})
+
+	if !strings.Contains(text, "Active Work:") {
+		t.Errorf("expected Active Work summary: %s", text)
 	}
 }
