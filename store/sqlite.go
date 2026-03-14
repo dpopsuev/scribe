@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -161,6 +162,11 @@ func OpenSQLiteConfig(cfg SQLiteConfig) (*SQLiteStore, error) {
 	writer.ExecContext(context.Background(),
 		"ALTER TABLE scope_keys ADD COLUMN labels TEXT NOT NULL DEFAULT ''")
 
+	// Reseed scoped sequences to avoid ID collisions with existing artifacts.
+	if err := reseedScopedSequences(writer); err != nil {
+		log.Warn("reseed scoped sequences failed", "error", err)
+	}
+
 	reader, err := sql.Open("sqlite", dsn+"&_pragma=query_only(on)")
 	if err != nil {
 		writer.Close()
@@ -170,6 +176,59 @@ func OpenSQLiteConfig(cfg SQLiteConfig) (*SQLiteStore, error) {
 
 	log.Info("database opened")
 	return &SQLiteStore{writer: writer, reader: reader}, nil
+}
+
+// reseedScopedSequences scans all artifacts and ensures scoped_sequences
+// counters are above the max existing sequence number for each scope+kind pair.
+// This prevents ID collisions with archived or migrated artifacts.
+func reseedScopedSequences(db *sql.DB) error {
+	rows, err := db.Query(`
+		SELECT sk.key, id FROM artifacts
+		JOIN scope_keys sk ON sk.scope = artifacts.scope
+		WHERE id LIKE '%-%-%'`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	// Track max seq per (scope_key, kind_code)
+	type seqKey struct{ scopeKey, kindCode string }
+	maxSeq := make(map[seqKey]int64)
+
+	for rows.Next() {
+		var scopeKey, id string
+		if err := rows.Scan(&scopeKey, &id); err != nil {
+			continue
+		}
+		// Parse ID: SCR-TSK-91 → scopeKey=SCR, kindCode=TSK, seq=91
+		parts := strings.SplitN(id, "-", 3)
+		if len(parts) != 3 || parts[0] != scopeKey {
+			continue
+		}
+		kindCode := parts[1]
+		seq, err := strconv.ParseInt(parts[2], 10, 64)
+		if err != nil {
+			continue
+		}
+		k := seqKey{scopeKey, kindCode}
+		if seq >= maxSeq[k] {
+			maxSeq[k] = seq
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for k, max := range maxSeq {
+		_, err := db.Exec(
+			`INSERT INTO scoped_sequences (scope_key, kind_code, next_val) VALUES (?, ?, ?)
+			 ON CONFLICT(scope_key, kind_code) DO UPDATE SET next_val = MAX(scoped_sequences.next_val, excluded.next_val)`,
+			k.scopeKey, k.kindCode, max+1)
+		if err != nil {
+			return fmt.Errorf("reseed %s-%s: %w", k.scopeKey, k.kindCode, err)
+		}
+	}
+	return nil
 }
 
 func (s *SQLiteStore) Close() error {
@@ -534,16 +593,27 @@ func (s *SQLiteStore) NextScopedID(ctx context.Context, scopeKey, kindCode strin
 		return "", err
 	}
 
-	id := model.FormatScopedID(scopeKey, kindCode, int(seq))
-
-	_, err = tx.ExecContext(ctx,
-		`INSERT INTO scoped_sequences (scope_key, kind_code, next_val) VALUES (?, ?, ?)
-		 ON CONFLICT(scope_key, kind_code) DO UPDATE SET next_val = ?`,
-		scopeKey, kindCode, seq+1, seq+1)
-	if err != nil {
-		return "", err
+	// Skip IDs that already exist in artifacts table (archived or otherwise)
+	for {
+		id := model.FormatScopedID(scopeKey, kindCode, int(seq))
+		var exists int
+		err = tx.QueryRowContext(ctx, "SELECT 1 FROM artifacts WHERE id = ?", id).Scan(&exists)
+		if err == sql.ErrNoRows {
+			// ID is free — use it
+			_, err = tx.ExecContext(ctx,
+				`INSERT INTO scoped_sequences (scope_key, kind_code, next_val) VALUES (?, ?, ?)
+				 ON CONFLICT(scope_key, kind_code) DO UPDATE SET next_val = ?`,
+				scopeKey, kindCode, seq+1, seq+1)
+			if err != nil {
+				return "", err
+			}
+			return id, tx.Commit()
+		}
+		if err != nil {
+			return "", err
+		}
+		seq++ // ID exists, try next
 	}
-	return id, tx.Commit()
 }
 
 func (s *SQLiteStore) NextSeq(ctx context.Context, key string) (int64, error) {
