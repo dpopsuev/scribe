@@ -237,18 +237,6 @@ func PresetScoped() IDTemplate {
 	}
 }
 
-// PresetLegacy returns the template for the "legacy" preset: PREFIX-YYYY-SEQ.
-func PresetLegacy() IDTemplate {
-	return IDTemplate{
-		Separator: "-",
-		Components: []IDComponent{
-			{Type: "kind", UsePrefix: true},
-			{Type: "time", Format: "year"},
-			{Type: "suffix", Generation: "serial", ValueType: "int", Width: 3},
-		},
-	}
-}
-
 // IDContext provides the values needed to format an ID from a template.
 type IDContext struct {
 	ScopeKey string

@@ -187,21 +187,16 @@ func (c *Config) ProtocolIDConfig() protocol.IDConfig {
 	if c.IDTemplate != nil {
 		idc.IDTemplate = c.IDTemplate
 	} else {
-		switch c.IDFormat {
-		case "scoped":
-			t := model.PresetScoped()
-			idc.IDTemplate = &t
-		case "legacy":
-			t := model.PresetLegacy()
-			idc.IDTemplate = &t
-		}
+		// Default to scoped format
+		t := model.PresetScoped()
+		idc.IDTemplate = &t
 	}
 	return idc
 }
 
 func (c *Config) ValidateIDConfig() error {
-	if c.IDFormat != "" && c.IDFormat != "scoped" && c.IDFormat != "legacy" {
-		return fmt.Errorf("id_format must be \"scoped\" or \"legacy\", got %q", c.IDFormat)
+	if c.IDFormat != "" && c.IDFormat != "scoped" {
+		return fmt.Errorf("id_format must be \"scoped\" or empty (defaults to scoped), got %q", c.IDFormat)
 	}
 
 	keyPattern := regexp.MustCompile(`^[A-Z0-9]{2,6}$`)
