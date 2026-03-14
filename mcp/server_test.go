@@ -901,3 +901,221 @@ func TestMotd_ShowsActiveSummary(t *testing.T) {
 		t.Errorf("expected Active Work summary: %s", text)
 	}
 }
+
+// --- SCR-TSK-15: Count mode ---
+
+func TestListCount(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	for i := 1; i <= 5; i++ {
+		s.Put(ctx, &model.Artifact{
+			ID: fmt.Sprintf("TASK-2026-%03d", i), Kind: "task", Scope: "test",
+			Status: "draft", Title: fmt.Sprintf("Task %d", i),
+		})
+	}
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "list",
+		"count":  true,
+		"kind":   "task",
+	})
+	if text != "5" {
+		t.Errorf("expected count '5', got %q", text)
+	}
+}
+
+func TestListCount_GroupBy(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	s.Put(ctx, &model.Artifact{ID: "T-001", Kind: "task", Scope: "test", Status: "draft", Title: "T1"})
+	s.Put(ctx, &model.Artifact{ID: "T-002", Kind: "task", Scope: "test", Status: "active", Title: "T2"})
+	s.Put(ctx, &model.Artifact{ID: "T-003", Kind: "task", Scope: "test", Status: "draft", Title: "T3"})
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action":   "list",
+		"count":    true,
+		"group_by": "status",
+	})
+	if !strings.Contains(text, `"draft": 2`) || !strings.Contains(text, `"active": 1`) {
+		t.Errorf("expected grouped counts, got: %s", text)
+	}
+}
+
+// --- SCR-TSK-11: Changelog ---
+
+func TestChangelog(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	since := time.Now().UTC().Add(-1 * time.Hour).Format(time.RFC3339)
+	s.Put(ctx, &model.Artifact{ID: "T-001", Kind: "task", Scope: "test", Status: "active", Title: "Changed"})
+	s.Put(ctx, &model.Artifact{ID: "T-002", Kind: "task", Scope: "test", Status: "draft", Title: "Also changed"})
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "admin", map[string]any{
+		"action": "changelog",
+		"since":  since,
+	})
+	if !strings.Contains(text, "2 artifacts") {
+		t.Errorf("expected 2 artifacts in changelog, got: %s", text)
+	}
+	if !strings.Contains(text, "T-001") || !strings.Contains(text, "T-002") {
+		t.Errorf("expected both artifact IDs in changelog: %s", text)
+	}
+}
+
+func TestChangelog_ScopeFilter(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	since := time.Now().UTC().Add(-1 * time.Hour).Format(time.RFC3339)
+	s.Put(ctx, &model.Artifact{ID: "T-001", Kind: "task", Scope: "alpha", Status: "active", Title: "Alpha"})
+	s.Put(ctx, &model.Artifact{ID: "T-002", Kind: "task", Scope: "beta", Status: "draft", Title: "Beta"})
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "admin", map[string]any{
+		"action": "changelog",
+		"since":  since,
+		"scope":  "alpha",
+	})
+	if !strings.Contains(text, "T-001") {
+		t.Errorf("expected alpha artifact: %s", text)
+	}
+	if strings.Contains(text, "T-002") {
+		t.Errorf("beta artifact should be filtered out: %s", text)
+	}
+}
+
+func TestChangelog_NoChanges(t *testing.T) {
+	s := openStore(t)
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	future := time.Now().UTC().Add(1 * time.Hour).Format(time.RFC3339)
+	text := callTool(t, cs, "admin", map[string]any{
+		"action": "changelog",
+		"since":  future,
+	})
+	if !strings.Contains(text, "no changes") {
+		t.Errorf("expected 'no changes', got: %s", text)
+	}
+}
+
+// --- SCR-TSK-10: Auto-link template ---
+
+func TestAutoLinkTemplate(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+
+	// Create a template for specs in scope "test"
+	s.SetScopeKey(ctx, "test", "TST", false)
+	s.Put(ctx, &model.Artifact{
+		ID: "TST-TPL-1", Kind: "template", Scope: "test", Status: "active",
+		Title: "Spec Template",
+		Sections: []model.Section{
+			{Name: "problem", Text: "Describe the problem"},
+			{Name: "decision", Text: "What was decided"},
+		},
+	})
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	// Create a spec WITHOUT explicit satisfies link — should auto-link
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "create",
+		"kind":   "spec",
+		"title":  "Auto-linked Spec",
+		"scope":  "test",
+		"sections": []any{
+			map[string]any{"name": "problem", "text": "The problem"},
+			map[string]any{"name": "decision", "text": "The decision"},
+		},
+	})
+	if !strings.Contains(text, "Auto-linked Spec") {
+		t.Fatalf("create failed: %s", text)
+	}
+
+	// Verify the satisfies link was auto-added
+	arts, _ := s.List(ctx, model.Filter{Kind: "spec", Scope: "test"})
+	found := false
+	for _, a := range arts {
+		if a.Title == "Auto-linked Spec" && len(a.Links["satisfies"]) == 1 && a.Links["satisfies"][0] == "TST-TPL-1" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected satisfies link to TST-TPL-1 to be auto-added")
+	}
+}
+
+func TestAutoLinkTemplate_ExplicitOverride(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+
+	s.SetScopeKey(ctx, "test", "TST", false)
+	s.Put(ctx, &model.Artifact{
+		ID: "TST-TPL-1", Kind: "template", Scope: "test", Status: "active",
+		Title:    "Spec Template",
+		Sections: []model.Section{{Name: "problem", Text: "Describe"}},
+	})
+	s.Put(ctx, &model.Artifact{
+		ID: "TST-TPL-2", Kind: "template", Scope: "test", Status: "active",
+		Title:    "Custom Template",
+		Sections: []model.Section{{Name: "overview", Text: "Describe"}},
+	})
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	// Create with explicit satisfies — should NOT auto-link
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "create",
+		"kind":   "spec",
+		"title":  "Explicit Spec",
+		"scope":  "test",
+		"links":  map[string]any{"satisfies": []any{"TST-TPL-2"}},
+		"sections": []any{
+			map[string]any{"name": "overview", "text": "Overview content"},
+		},
+	})
+	if !strings.Contains(text, "Explicit Spec") {
+		t.Fatalf("create failed: %s", text)
+	}
+
+	arts, _ := s.List(ctx, model.Filter{Kind: "spec", Scope: "test"})
+	for _, a := range arts {
+		if a.Title == "Explicit Spec" {
+			if len(a.Links["satisfies"]) != 1 || a.Links["satisfies"][0] != "TST-TPL-2" {
+				t.Errorf("explicit satisfies should be TST-TPL-2, got: %v", a.Links["satisfies"])
+			}
+		}
+	}
+}
+
+func TestAutoLinkTemplate_NoTemplateInScope(t *testing.T) {
+	s := openStore(t)
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	// Create spec in scope with no templates — should succeed without error
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "create",
+		"kind":   "task",
+		"title":  "No Template Task",
+		"scope":  "empty",
+	})
+	if !strings.Contains(text, "No Template Task") {
+		t.Fatalf("create failed: %s", text)
+	}
+}

@@ -112,6 +112,7 @@ type artifactInput struct {
 	GroupBy        string   `json:"group_by,omitempty" jsonschema:"group results by field: status, scope, kind, sprint, scope_label (list)"`
 	Sort           string `json:"sort,omitempty" jsonschema:"sort results by: id, title, status, scope, kind, sprint (list)"`
 	Limit          int    `json:"limit,omitempty" jsonschema:"max results to return (list)"`
+	Count          bool   `json:"count,omitempty" jsonschema:"return count instead of full artifacts (list)"`
 	Query          string `json:"query,omitempty" jsonschema:"substring search across title, goal, and section text (list)"`
 	CreatedAfter   string `json:"created_after,omitempty" jsonschema:"RFC 3339 lower bound on created_at (list)"`
 	CreatedBefore  string `json:"created_before,omitempty" jsonschema:"RFC 3339 upper bound on created_at (list)"`
@@ -144,7 +145,7 @@ type graphInput struct {
 }
 
 type adminInput struct {
-	Action string `json:"action" jsonschema:"required,motd | dashboard | set_goal | vacuum | detect | lint | check | set_scope_labels | list_scope_labels"`
+	Action string `json:"action" jsonschema:"required,motd | changelog | dashboard | set_goal | vacuum | detect | lint | check | set_scope_labels | list_scope_labels"`
 
 	StaleDays int    `json:"stale_days,omitempty" jsonschema:"days without update to consider an artifact stale (dashboard)"`
 	Since     string `json:"since,omitempty" jsonschema:"RFC 3339 timestamp to show changes since (motd)"`
@@ -190,7 +191,7 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 	case "get":
 		return h.handleGet(ctx, req, getInput{ID: in.ID, IncludeEdges: in.IncludeEdges})
 	case "list":
-		return h.handleList(ctx, req, protocol.ListInput{
+		li := protocol.ListInput{
 			Kind: in.Kind, Scope: in.Scope, Status: in.Status,
 			Parent: in.Parent, Sprint: in.Sprint, IDPrefix: in.IDPrefix,
 			ExcludeKind: in.ExcludeKind, ExcludeStatus: in.ExcludeStatus,
@@ -199,7 +200,11 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 			CreatedAfter: in.CreatedAfter, CreatedBefore: in.CreatedBefore,
 			UpdatedAfter: in.UpdatedAfter, UpdatedBefore: in.UpdatedBefore,
 			InsertedAfter: in.InsertedAfter, InsertedBefore: in.InsertedBefore,
-		})
+		}
+		if in.Count {
+			return h.handleListCount(ctx, li)
+		}
+		return h.handleList(ctx, req, li)
 	case "set":
 		ids := in.IDs
 		if len(ids) == 0 && in.ID != "" {
@@ -256,6 +261,8 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 	switch in.Action {
 	case "motd":
 		return h.handleMotd(ctx, req, motdInput{Since: in.Since})
+	case "changelog":
+		return h.handleChangelog(ctx, in.Since, in.Scope)
 	case "dashboard":
 		return h.handleDashboard(ctx, req, dashboardInput{StaleDays: in.StaleDays})
 	case "set_goal":
@@ -384,6 +391,46 @@ func (h *handler) handleList(ctx context.Context, _ *sdkmcp.CallToolRequest, in 
 		return text(render.GroupedTable(arts, in.GroupBy)), nil, nil
 	}
 	return text(render.Table(arts)), nil, nil
+}
+
+func (h *handler) handleListCount(ctx context.Context, in protocol.ListInput) (*sdkmcp.CallToolResult, any, error) {
+	var arts []*model.Artifact
+	var err error
+	if in.Query != "" {
+		arts, err = h.proto.SearchArtifacts(ctx, in.Query, in)
+	} else {
+		arts, err = h.proto.ListArtifacts(ctx, in)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if in.GroupBy != "" {
+		groups := make(map[string]int)
+		for _, a := range arts {
+			var key string
+			switch in.GroupBy {
+			case "status":
+				key = a.Status
+			case "scope":
+				key = a.Scope
+			case "kind":
+				key = a.Kind
+			case "sprint":
+				key = a.Sprint
+			default:
+				key = "unknown"
+			}
+			if key == "" {
+				key = "(none)"
+			}
+			groups[key]++
+		}
+		data, _ := json.MarshalIndent(groups, "", "  ")
+		return text(string(data)), nil, nil
+	}
+
+	return text(fmt.Sprintf("%d", len(arts))), nil, nil
 }
 
 type setFieldInput struct {
@@ -854,6 +901,47 @@ func (h *handler) handleMotd(ctx context.Context, _ *sdkmcp.CallToolRequest, in 
 		return text("nothing to report"), nil, nil
 	}
 	return text(strings.Join(sections, "\n\n")), nil, nil
+}
+
+func (h *handler) handleChangelog(ctx context.Context, since, scope string) (*sdkmcp.CallToolResult, any, error) {
+	if since == "" {
+		return nil, nil, fmt.Errorf("since parameter is required for changelog (RFC 3339 timestamp)")
+	}
+	li := protocol.ListInput{
+		UpdatedAfter:  since,
+		ExcludeStatus: "archived",
+		Scope:         scope,
+	}
+	arts, err := h.proto.ListArtifacts(ctx, li)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(arts) == 0 {
+		return text(fmt.Sprintf("no changes since %s", since[:10])), nil, nil
+	}
+
+	// Group by scope
+	byScope := make(map[string][]*model.Artifact)
+	for _, a := range arts {
+		s := a.Scope
+		if s == "" {
+			s = "(none)"
+		}
+		byScope[s] = append(byScope[s], a)
+	}
+
+	var sections []string
+	for s, scopeArts := range byScope {
+		var lines []string
+		for _, a := range scopeArts {
+			lines = append(lines, fmt.Sprintf("  %-16s %-8s %-8s %s", a.ID, a.Kind, a.Status, a.Title))
+		}
+		sections = append(sections, fmt.Sprintf("[%s] (%d):\n%s", s, len(scopeArts), strings.Join(lines, "\n")))
+	}
+	sort.Strings(sections)
+
+	header := fmt.Sprintf("Changes since %s (%d artifacts):\n", since[:10], len(arts))
+	return text(header + strings.Join(sections, "\n\n")), nil, nil
 }
 
 type drainDiscoverInput struct {

@@ -219,6 +219,17 @@ func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*model.A
 			art.CreatedAt = t
 		}
 	}
+	// Auto-link template if no satisfies link provided
+	if art.Links == nil || len(art.Links[model.RelSatisfies]) == 0 {
+		if tplID := p.findTemplateForKind(ctx, art.Kind, scope); tplID != "" {
+			if art.Links == nil {
+				art.Links = make(map[string][]string)
+			}
+			art.Links[model.RelSatisfies] = []string{tplID}
+			slog.DebugContext(ctx, "auto-linked template",
+				"artifact_kind", art.Kind, "scope", scope, "template_id", tplID)
+		}
+	}
 	if err := p.checkTemplateConformance(ctx, art); err != nil {
 		return nil, err
 	}
@@ -226,6 +237,31 @@ func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*model.A
 		return nil, err
 	}
 	return art, nil
+}
+
+// findTemplateForKind looks up an active template in the given scope that matches
+// the artifact kind. Returns the template ID if exactly one match, empty string otherwise.
+func (p *Protocol) findTemplateForKind(ctx context.Context, kind, scope string) string {
+	if scope == "" {
+		return ""
+	}
+	templates, err := p.store.List(ctx, model.Filter{Kind: "template", Scope: scope, Status: "active"})
+	if err != nil || len(templates) == 0 {
+		return ""
+	}
+	// Match: template title contains the kind name (case-insensitive)
+	// e.g. "Spec Template" matches kind "spec", "Bug Template" matches kind "bug"
+	kindLower := strings.ToLower(kind)
+	var matches []string
+	for _, tpl := range templates {
+		if strings.Contains(strings.ToLower(tpl.Title), kindLower) {
+			matches = append(matches, tpl.ID)
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0]
+	}
+	return "" // zero or ambiguous matches
 }
 
 func (p *Protocol) GetArtifact(ctx context.Context, id string) (*model.Artifact, error) {
