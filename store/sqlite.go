@@ -83,8 +83,9 @@ func DefaultSQLitePath() string {
 }
 
 // SQLiteConfig holds tunable parameters for the SQLite store.
+// Path is not serialized to config files - use SCRIBE_DB env var or --db flag to override.
 type SQLiteConfig struct {
-	Path           string `json:"path,omitempty" yaml:"path,omitempty"`
+	Path           string `json:"-" yaml:"-"` // Runtime only, not persisted to config
 	BusyTimeoutMs  int    `json:"busy_timeout_ms,omitempty" yaml:"busy_timeout_ms,omitempty"`
 	ReaderPoolSize int    `json:"reader_pool_size,omitempty" yaml:"reader_pool_size,omitempty"`
 	JournalMode    string `json:"journal_mode,omitempty" yaml:"journal_mode,omitempty"`
