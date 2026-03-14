@@ -1119,3 +1119,123 @@ func TestAutoLinkTemplate_NoTemplateInScope(t *testing.T) {
 		t.Fatalf("create failed: %s", text)
 	}
 }
+
+// --- SCR-TSK-16: Compact list ---
+
+func TestListCompact(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	s.Put(ctx, &model.Artifact{ID: "T-001", Kind: "task", Scope: "alpha", Status: "draft", Title: "First"})
+	s.Put(ctx, &model.Artifact{ID: "T-002", Kind: "spec", Scope: "beta", Status: "active", Title: "Second"})
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "list",
+		"fields": []any{"id", "status", "title"},
+	})
+	if !strings.Contains(text, "ID") || !strings.Contains(text, "STATUS") || !strings.Contains(text, "TITLE") {
+		t.Errorf("expected compact headers, got: %s", text)
+	}
+	if !strings.Contains(text, "T-001") || !strings.Contains(text, "T-002") {
+		t.Errorf("expected both artifact IDs: %s", text)
+	}
+	// Should NOT contain SCOPE or KIND columns since they weren't requested
+	if strings.Contains(text, "SCOPE") || strings.Contains(text, "KIND") {
+		t.Errorf("compact list should only show requested fields: %s", text)
+	}
+}
+
+func TestListCompact_InvalidField(t *testing.T) {
+	s := openStore(t)
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	ctx := context.Background()
+	result, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "artifact",
+		Arguments: map[string]any{
+			"action": "list",
+			"fields": []any{"id", "nonexistent"},
+		},
+	})
+	// Should return error for invalid field
+	if err == nil && result != nil && !result.IsError {
+		t.Error("expected error for invalid field name")
+	}
+}
+
+// --- SCR-TSK-12: Clone artifact ---
+
+func TestClone(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	s.Put(ctx, &model.Artifact{
+		ID: "SPEC-001", Kind: "spec", Scope: "alpha", Status: "active",
+		Title: "Original Spec", Goal: "Original goal",
+		Sections: []model.Section{
+			{Name: "problem", Text: "The problem"},
+			{Name: "decision", Text: "The decision"},
+		},
+		Labels: []string{"backend", "api"},
+	})
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "clone",
+		"id":     "SPEC-001",
+		"title":  "Cloned Spec",
+		"scope":  "beta",
+	})
+	if !strings.Contains(text, "cloned SPEC-001") {
+		t.Fatalf("clone failed: %s", text)
+	}
+	if !strings.Contains(text, "Cloned Spec") {
+		t.Errorf("expected cloned title: %s", text)
+	}
+
+	// Verify clone has sections
+	arts, _ := s.List(ctx, model.Filter{Scope: "beta", Kind: "spec"})
+	if len(arts) != 1 {
+		t.Fatalf("expected 1 cloned spec, got %d", len(arts))
+	}
+	clone := arts[0]
+	if clone.Title != "Cloned Spec" {
+		t.Errorf("clone title = %q, want 'Cloned Spec'", clone.Title)
+	}
+	if clone.Goal != "Original goal" {
+		t.Errorf("clone should inherit goal, got %q", clone.Goal)
+	}
+	if len(clone.Sections) != 2 {
+		t.Errorf("clone should have 2 sections, got %d", len(clone.Sections))
+	}
+	if clone.Status != "draft" {
+		t.Errorf("clone status should default to draft, got %q", clone.Status)
+	}
+	if clone.ID == "SPEC-001" {
+		t.Error("clone should have a new ID")
+	}
+}
+
+func TestClone_NonexistentSource(t *testing.T) {
+	s := openStore(t)
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	ctx := context.Background()
+	result, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "artifact",
+		Arguments: map[string]any{
+			"action": "clone",
+			"id":     "NOPE-999",
+		},
+	})
+	if err == nil && result != nil && !result.IsError {
+		t.Error("expected error for nonexistent source")
+	}
+}
