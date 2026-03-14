@@ -512,6 +512,83 @@ func TestInsertedAtImmutable(t *testing.T) {
 	}
 }
 
+func TestNextScopedID_SkipsExistingArtifacts(t *testing.T) {
+	s := openSQLite(t)
+	ctx := context.Background()
+
+	// Register scope key
+	s.SetScopeKey(ctx, "scribe", "SCR", false)
+
+	// Pre-populate artifacts at IDs 1, 2, 3 (simulating archived artifacts)
+	for i := 1; i <= 3; i++ {
+		art := &model.Artifact{
+			ID:     fmt.Sprintf("SCR-TSK-%d", i),
+			Kind:   "task",
+			Scope:  "scribe",
+			Status: "archived",
+			Title:  fmt.Sprintf("Old task %d", i),
+		}
+		if err := s.Put(ctx, art); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// NextScopedID should skip 1, 2, 3 and return SCR-TSK-4
+	id, err := s.NextScopedID(ctx, "SCR", "TSK")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != "SCR-TSK-4" {
+		t.Errorf("NextScopedID should skip existing artifacts: got %q, want SCR-TSK-4", id)
+	}
+
+	// Verify old artifacts are NOT overwritten
+	old, err := s.Get(ctx, "SCR-TSK-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if old.Title != "Old task 1" {
+		t.Errorf("archived artifact SCR-TSK-1 was overwritten: title = %q", old.Title)
+	}
+}
+
+func TestNextScopedID_ReseedOnOpen(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "reseed.db")
+
+	// First open: create artifacts up to SCR-TSK-5
+	s1, err := store.OpenSQLite(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	s1.SetScopeKey(ctx, "scribe", "SCR", false)
+	for i := 1; i <= 5; i++ {
+		s1.Put(ctx, &model.Artifact{
+			ID:     fmt.Sprintf("SCR-TSK-%d", i),
+			Kind:   "task",
+			Scope:  "scribe",
+			Status: "archived",
+			Title:  fmt.Sprintf("Task %d", i),
+		})
+	}
+	s1.Close()
+
+	// Second open: reseed should detect existing artifacts
+	s2, err := store.OpenSQLite(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+
+	id, err := s2.NextScopedID(ctx, "SCR", "TSK")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != "SCR-TSK-6" {
+		t.Errorf("after reseed, NextScopedID should return SCR-TSK-6, got %q", id)
+	}
+}
+
 func TestScopeLabels_Store(t *testing.T) {
 	s := openSQLite(t)
 	ctx := context.Background()
