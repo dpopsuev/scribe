@@ -82,7 +82,7 @@ type handler struct {
 // --- consolidated input types ---
 
 type artifactInput struct {
-	Action string `json:"action" jsonschema:"required,create | batch_create | get | list | set | update | archive | attach_section | get_section | detach_section"`
+	Action string `json:"action" jsonschema:"required,create | batch_create | clone | get | list | set | update | archive | attach_section | get_section | detach_section"`
 
 	ID    string `json:"id,omitempty" jsonschema:"artifact ID (required for get, set, update, archive, *_section)"`
 	Kind  string `json:"kind,omitempty" jsonschema:"artifact kind such as task, spec, bug, goal, campaign"`
@@ -112,7 +112,8 @@ type artifactInput struct {
 	GroupBy        string   `json:"group_by,omitempty" jsonschema:"group results by field: status, scope, kind, sprint, scope_label (list)"`
 	Sort           string `json:"sort,omitempty" jsonschema:"sort results by: id, title, status, scope, kind, sprint (list)"`
 	Limit          int    `json:"limit,omitempty" jsonschema:"max results to return (list)"`
-	Count          bool   `json:"count,omitempty" jsonschema:"return count instead of full artifacts (list)"`
+	Count          bool     `json:"count,omitempty" jsonschema:"return count instead of full artifacts (list)"`
+	Fields         []string `json:"fields,omitempty" jsonschema:"return only these columns: id, kind, scope, status, title, parent, priority (list)"`
 	Query          string `json:"query,omitempty" jsonschema:"substring search across title, goal, and section text (list)"`
 	CreatedAfter   string `json:"created_after,omitempty" jsonschema:"RFC 3339 lower bound on created_at (list)"`
 	CreatedBefore  string `json:"created_before,omitempty" jsonschema:"RFC 3339 upper bound on created_at (list)"`
@@ -188,6 +189,8 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		})
 	case "batch_create":
 		return h.handleBatchCreate(ctx, in)
+	case "clone":
+		return h.handleClone(ctx, in)
 	case "get":
 		return h.handleGet(ctx, req, getInput{ID: in.ID, IncludeEdges: in.IncludeEdges})
 	case "list":
@@ -203,6 +206,9 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		}
 		if in.Count {
 			return h.handleListCount(ctx, li)
+		}
+		if len(in.Fields) > 0 {
+			return h.handleListCompact(ctx, li, in.Fields)
 		}
 		return h.handleList(ctx, req, li)
 	case "set":
@@ -232,7 +238,7 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 	case "detach_section":
 		return h.handleDetachSection(ctx, req, getSectionInput{ID: in.ID, Name: in.Name})
 	default:
-		return nil, nil, fmt.Errorf("unknown artifact action %q (valid: create, batch_create, get, list, set, update, archive, attach_section, get_section, detach_section)", in.Action)
+		return nil, nil, fmt.Errorf("unknown artifact action %q (valid: create, batch_create, clone, get, list, set, update, archive, attach_section, get_section, detach_section)", in.Action)
 	}
 }
 
@@ -433,6 +439,69 @@ func (h *handler) handleListCount(ctx context.Context, in protocol.ListInput) (*
 	return text(fmt.Sprintf("%d", len(arts))), nil, nil
 }
 
+var validFields = map[string]func(*model.Artifact) string{
+	"id":       func(a *model.Artifact) string { return a.ID },
+	"kind":     func(a *model.Artifact) string { return a.Kind },
+	"scope":    func(a *model.Artifact) string { return a.Scope },
+	"status":   func(a *model.Artifact) string { return a.Status },
+	"title":    func(a *model.Artifact) string { return a.Title },
+	"parent":   func(a *model.Artifact) string { return a.Parent },
+	"priority": func(a *model.Artifact) string { return a.Priority },
+	"sprint":   func(a *model.Artifact) string { return a.Sprint },
+}
+
+func (h *handler) handleListCompact(ctx context.Context, in protocol.ListInput, fields []string) (*sdkmcp.CallToolResult, any, error) {
+	// Validate fields
+	var getters []func(*model.Artifact) string
+	for _, f := range fields {
+		g, ok := validFields[f]
+		if !ok {
+			return nil, nil, fmt.Errorf("unknown field %q (valid: id, kind, scope, status, title, parent, priority, sprint)", f)
+		}
+		getters = append(getters, g)
+	}
+
+	var arts []*model.Artifact
+	var err error
+	if in.Query != "" {
+		arts, err = h.proto.SearchArtifacts(ctx, in.Query, in)
+	} else {
+		arts, err = h.proto.ListArtifacts(ctx, in)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	if in.Sort != "" {
+		sortArtifacts(arts, in.Sort)
+	}
+	if in.Limit > 0 && in.Limit < len(arts) {
+		arts = arts[:in.Limit]
+	}
+
+	var b strings.Builder
+	// Header
+	for i, f := range fields {
+		if i > 0 {
+			b.WriteString("\t")
+		}
+		b.WriteString(strings.ToUpper(f))
+	}
+	b.WriteString("\n")
+
+	// Rows
+	for _, a := range arts {
+		for i, g := range getters {
+			if i > 0 {
+				b.WriteString("\t")
+			}
+			b.WriteString(g(a))
+		}
+		b.WriteString("\n")
+	}
+	fmt.Fprintf(&b, "\n(%d artifacts)\n", len(arts))
+	return text(b.String()), nil, nil
+}
+
 type setFieldInput struct {
 	ID    string `json:"id"`
 	Field string `json:"field"`
@@ -619,6 +688,72 @@ func (h *handler) handleBatchCreate(ctx context.Context, in artifactInput) (*sdk
 		lines = append(lines, fmt.Sprintf("%s [%s] %s", art.ID, art.Kind, art.Title))
 	}
 	return text(fmt.Sprintf("created %d artifacts:\n%s", len(created), strings.Join(lines, "\n"))), nil, nil
+}
+
+func (h *handler) handleClone(ctx context.Context, in artifactInput) (*sdkmcp.CallToolResult, any, error) {
+	if in.ID == "" {
+		return nil, nil, fmt.Errorf("id is required for clone (source artifact)")
+	}
+	source, err := h.proto.GetArtifact(ctx, in.ID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("source %s: %w", in.ID, err)
+	}
+
+	// Apply overrides, default to source values
+	kind := source.Kind
+	if in.Kind != "" {
+		kind = in.Kind
+	}
+	scope := source.Scope
+	if in.Scope != "" {
+		scope = in.Scope
+	}
+	title := source.Title
+	if in.Title != "" {
+		title = in.Title
+	}
+	goal := source.Goal
+	if in.Goal != "" {
+		goal = in.Goal
+	}
+	labels := source.Labels
+	if len(in.Labels) > 0 {
+		labels = in.Labels
+	}
+
+	// Copy sections from source
+	var sections []model.Section
+	for _, s := range source.Sections {
+		sections = append(sections, model.Section{Name: s.Name, Text: s.Text})
+	}
+
+	// Copy extra from source
+	var extra map[string]any
+	if len(source.Extra) > 0 {
+		extra = make(map[string]any)
+		for k, v := range source.Extra {
+			extra[k] = v
+		}
+	}
+
+	art, err := h.proto.CreateArtifact(ctx, protocol.CreateInput{
+		Kind:     kind,
+		Title:    title,
+		Scope:    scope,
+		Goal:     goal,
+		Parent:   in.Parent, // must be explicit, not inherited
+		Status:   in.Status, // defaults to draft via protocol
+		Priority: in.Priority,
+		Labels:   labels,
+		Extra:    extra,
+		Sections: sections,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("clone: %w", err)
+	}
+
+	data, _ := json.MarshalIndent(art, "", "  ")
+	return text(fmt.Sprintf("cloned %s → %s\n%s", in.ID, art.ID, string(data))), nil, nil
 }
 
 type searchInput struct {
