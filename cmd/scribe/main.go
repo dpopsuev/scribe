@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/dpopsuev/scribe/config"
 	"github.com/dpopsuev/scribe/directive"
@@ -1121,6 +1123,8 @@ func serveCmd() *cobra.Command {
 	var transport, addr string
 	var enableUI bool
 	var uiAddr string
+	var enablePprof bool
+	var pprofAddr string
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Start the MCP server (stdio or HTTP)",
@@ -1211,9 +1215,21 @@ func serveCmd() *cobra.Command {
 						slog.Info("created workspace server", "workspace", ws, "scopes", wsScopes)
 						return wsSrv
 					},
-					nil,
+					&sdkmcp.StreamableHTTPOptions{
+						SessionTimeout: 30 * time.Minute,
+					},
 				)
-				slog.Info("listening", "addr", a)
+
+				if enablePprof {
+					go func() {
+						slog.Info("pprof listening", "addr", pprofAddr)
+						if err := http.ListenAndServe(pprofAddr, nil); err != nil {
+							slog.Error("pprof server error", "error", err)
+						}
+					}()
+				}
+
+				slog.Info("listening", "addr", a, "session_timeout", "30m")
 				return http.ListenAndServe(a, handler)
 			}
 			slog.Info("serving via stdio")
@@ -1225,6 +1241,8 @@ func serveCmd() *cobra.Command {
 	cmd.Flags().StringVar(&addr, "addr", ":8080", "listen address for http transport")
 	cmd.Flags().BoolVar(&enableUI, "ui", false, "start the read-only web UI alongside the MCP server")
 	cmd.Flags().StringVar(&uiAddr, "ui-addr", ":8082", "listen address for the web UI")
+	cmd.Flags().BoolVar(&enablePprof, "pprof", false, "enable pprof profiling endpoint (localhost only)")
+	cmd.Flags().StringVar(&pprofAddr, "pprof-addr", "127.0.0.1:6060", "listen address for pprof")
 	return cmd
 }
 
