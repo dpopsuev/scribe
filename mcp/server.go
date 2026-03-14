@@ -82,9 +82,9 @@ type handler struct {
 // --- consolidated input types ---
 
 type artifactInput struct {
-	Action string `json:"action" jsonschema:"required,create | get | list | set | archive | attach_section | get_section | detach_section"`
+	Action string `json:"action" jsonschema:"required,create | batch_create | get | list | set | update | archive | attach_section | get_section | detach_section"`
 
-	ID    string `json:"id,omitempty" jsonschema:"artifact ID (required for get, set, archive, *_section)"`
+	ID    string `json:"id,omitempty" jsonschema:"artifact ID (required for get, set, update, archive, *_section)"`
 	Kind  string `json:"kind,omitempty" jsonschema:"artifact kind such as task, spec, bug, goal, campaign"`
 	Scope string `json:"scope,omitempty" jsonschema:"owning repository or project scope"`
 
@@ -124,12 +124,14 @@ type artifactInput struct {
 	Value string `json:"value,omitempty" jsonschema:"new value for the field; comma-separated for depends_on/labels (set)"`
 	Force bool   `json:"force,omitempty" jsonschema:"bypass transition validation for status changes (set)"`
 
-	IDs     []string `json:"ids,omitempty" jsonschema:"artifact IDs to archive; if empty uses filter params (archive)"`
+	IDs     []string `json:"ids,omitempty" jsonschema:"artifact IDs for bulk operations (set, archive)"`
 	Cascade bool     `json:"cascade,omitempty" jsonschema:"recursively archive child subtrees (archive)"`
 	DryRun  bool     `json:"dry_run,omitempty" jsonschema:"preview without applying changes (archive)"`
 
 	Name string `json:"name,omitempty" jsonschema:"section name (attach_section, get_section, detach_section)"`
 	Text string `json:"text,omitempty" jsonschema:"section body text (attach_section)"`
+
+	Artifacts []map[string]any `json:"artifacts,omitempty" jsonschema:"array of create inputs for batch_create"`
 }
 
 type graphInput struct {
@@ -144,7 +146,8 @@ type graphInput struct {
 type adminInput struct {
 	Action string `json:"action" jsonschema:"required,motd | dashboard | set_goal | vacuum | detect | lint | check | set_scope_labels | list_scope_labels"`
 
-	StaleDays int `json:"stale_days,omitempty" jsonschema:"days without update to consider an artifact stale (dashboard)"`
+	StaleDays int    `json:"stale_days,omitempty" jsonschema:"days without update to consider an artifact stale (dashboard)"`
+	Since     string `json:"since,omitempty" jsonschema:"RFC 3339 timestamp to show changes since (motd)"`
 
 	Title string `json:"title,omitempty" jsonschema:"goal title (set_goal)"`
 	Scope string `json:"scope,omitempty" jsonschema:"scope to target (set_goal, vacuum, detect)"`
@@ -182,6 +185,8 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 			Links: in.Links, Extra: in.Extra, CreatedAt: in.CreatedAt,
 			Sections: sections,
 		})
+	case "batch_create":
+		return h.handleBatchCreate(ctx, in)
 	case "get":
 		return h.handleGet(ctx, req, getInput{ID: in.ID, IncludeEdges: in.IncludeEdges})
 	case "list":
@@ -196,7 +201,16 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 			InsertedAfter: in.InsertedAfter, InsertedBefore: in.InsertedBefore,
 		})
 	case "set":
-		return h.handleSetField(ctx, req, setFieldInput{ID: in.ID, Field: in.Field, Value: in.Value, Force: in.Force})
+		ids := in.IDs
+		if len(ids) == 0 && in.ID != "" {
+			ids = []string{in.ID}
+		}
+		if len(ids) == 0 {
+			return nil, nil, fmt.Errorf("id or ids required for set action")
+		}
+		return h.handleBulkSetField(ctx, ids, in.Field, in.Value, in.Force)
+	case "update":
+		return h.handleUpdate(ctx, in)
 	case "archive":
 		return h.handleArchive(ctx, req, archiveInput{
 			IDs: in.IDs, Cascade: in.Cascade, Scope: in.Scope,
@@ -204,13 +218,16 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 			ExcludeKind: in.ExcludeKind, DryRun: in.DryRun,
 		})
 	case "attach_section":
+		if len(in.Sections) > 0 {
+			return h.handleBatchAttachSections(ctx, in.ID, in.Sections)
+		}
 		return h.handleAttachSection(ctx, req, sectionInput{ID: in.ID, Name: in.Name, Text: in.Text})
 	case "get_section":
 		return h.handleGetSection(ctx, req, getSectionInput{ID: in.ID, Name: in.Name})
 	case "detach_section":
 		return h.handleDetachSection(ctx, req, getSectionInput{ID: in.ID, Name: in.Name})
 	default:
-		return nil, nil, fmt.Errorf("unknown artifact action %q (valid: create, get, list, set, archive, attach_section, get_section, detach_section)", in.Action)
+		return nil, nil, fmt.Errorf("unknown artifact action %q (valid: create, batch_create, get, list, set, update, archive, attach_section, get_section, detach_section)", in.Action)
 	}
 }
 
@@ -238,7 +255,7 @@ func (h *handler) handleGraph(ctx context.Context, req *sdkmcp.CallToolRequest, 
 func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, in adminInput) (*sdkmcp.CallToolResult, any, error) {
 	switch in.Action {
 	case "motd":
-		return h.handleMotd(ctx, req, struct{}{})
+		return h.handleMotd(ctx, req, motdInput{Since: in.Since})
 	case "dashboard":
 		return h.handleDashboard(ctx, req, dashboardInput{StaleDays: in.StaleDays})
 	case "set_goal":
@@ -390,6 +407,171 @@ func (h *handler) handleSetField(ctx context.Context, _ *sdkmcp.CallToolRequest,
 		msg += "\n" + r.Error
 	}
 	return text(msg), nil, nil
+}
+
+func (h *handler) handleBulkSetField(ctx context.Context, ids []string, field, value string, force bool) (*sdkmcp.CallToolResult, any, error) {
+	results, err := h.proto.SetField(ctx, ids, field, value, protocol.SetFieldOptions{Force: force})
+	if err != nil {
+		return nil, nil, err
+	}
+	var lines []string
+	for _, r := range results {
+		if r.OK {
+			lines = append(lines, fmt.Sprintf("%s.%s = %s", r.ID, field, value))
+		} else {
+			lines = append(lines, fmt.Sprintf("%s -> error: %s", r.ID, r.Error))
+		}
+	}
+	return text(strings.Join(lines, "\n")), nil, nil
+}
+
+func (h *handler) handleBatchAttachSections(ctx context.Context, id string, sections []map[string]string) (*sdkmcp.CallToolResult, any, error) {
+	if id == "" {
+		return nil, nil, fmt.Errorf("id is required for batch attach_section")
+	}
+	var added, replaced int
+	for _, sec := range sections {
+		name, ok := sec["name"]
+		if !ok || name == "" {
+			return nil, nil, fmt.Errorf("each section must have a 'name' field")
+		}
+		t := sec["text"]
+		wasReplaced, err := h.proto.AttachSection(ctx, id, name, t)
+		if err != nil {
+			return nil, nil, fmt.Errorf("section %q: %w", name, err)
+		}
+		if wasReplaced {
+			replaced++
+		} else {
+			added++
+		}
+	}
+	return text(fmt.Sprintf("%s: %d sections added, %d replaced", id, added, replaced)), nil, nil
+}
+
+func (h *handler) handleUpdate(ctx context.Context, in artifactInput) (*sdkmcp.CallToolResult, any, error) {
+	if in.ID == "" {
+		return nil, nil, fmt.Errorf("id is required for update action")
+	}
+
+	var lines []string
+
+	// Apply field updates
+	fieldMap := map[string]string{}
+	if in.Status != "" {
+		fieldMap["status"] = in.Status
+	}
+	if in.Title != "" {
+		fieldMap["title"] = in.Title
+	}
+	if in.Goal != "" {
+		fieldMap["goal"] = in.Goal
+	}
+	if in.Scope != "" {
+		fieldMap["scope"] = in.Scope
+	}
+	if in.Parent != "" {
+		fieldMap["parent"] = in.Parent
+	}
+	if in.Priority != "" {
+		fieldMap["priority"] = in.Priority
+	}
+	if in.Sprint != "" {
+		fieldMap["sprint"] = in.Sprint
+	}
+	if in.Kind != "" {
+		fieldMap["kind"] = in.Kind
+	}
+
+	for field, value := range fieldMap {
+		results, err := h.proto.SetField(ctx, []string{in.ID}, field, value, protocol.SetFieldOptions{Force: in.Force})
+		if err != nil {
+			return nil, nil, fmt.Errorf("set %s: %w", field, err)
+		}
+		r := results[0]
+		if !r.OK {
+			return nil, nil, fmt.Errorf("set %s: %s", field, r.Error)
+		}
+		lines = append(lines, fmt.Sprintf("%s.%s = %s", in.ID, field, value))
+	}
+
+	// Apply section attaches
+	for _, sec := range in.Sections {
+		name, ok := sec["name"]
+		if !ok || name == "" {
+			continue
+		}
+		t := sec["text"]
+		replaced, err := h.proto.AttachSection(ctx, in.ID, name, t)
+		if err != nil {
+			return nil, nil, fmt.Errorf("section %q: %w", name, err)
+		}
+		action := "added"
+		if replaced {
+			action = "replaced"
+		}
+		lines = append(lines, fmt.Sprintf("%s: section %q %s", in.ID, name, action))
+	}
+
+	if len(lines) == 0 {
+		return nil, nil, fmt.Errorf("update requires at least one field or section to change")
+	}
+
+	return text(strings.Join(lines, "\n")), nil, nil
+}
+
+func (h *handler) handleBatchCreate(ctx context.Context, in artifactInput) (*sdkmcp.CallToolResult, any, error) {
+	rawArtifacts := in.Artifacts
+	if len(rawArtifacts) == 0 {
+		return nil, nil, fmt.Errorf("artifacts array is required for batch_create")
+	}
+
+	var created []*model.Artifact
+	idRefs := make(map[string]string)
+
+	for i, raw := range rawArtifacts {
+		// Re-marshal + unmarshal to leverage existing JSON parsing
+		data, _ := json.Marshal(raw)
+		var ci artifactInput
+		if err := json.Unmarshal(data, &ci); err != nil {
+			return nil, nil, fmt.Errorf("artifact[%d]: %w", i, err)
+		}
+
+		if strings.HasPrefix(ci.Parent, "$") {
+			if resolved, ok := idRefs[ci.Parent]; ok {
+				ci.Parent = resolved
+			} else {
+				return nil, nil, fmt.Errorf("artifact[%d]: unresolved parent reference %q", i, ci.Parent)
+			}
+		}
+
+		var sections []model.Section
+		for _, sec := range ci.Sections {
+			if name, ok := sec["name"]; ok {
+				sections = append(sections, model.Section{Name: name, Text: sec["text"]})
+			}
+		}
+
+		art, err := h.proto.CreateArtifact(ctx, protocol.CreateInput{
+			Kind: ci.Kind, Title: ci.Title, Scope: ci.Scope,
+			Goal: ci.Goal, Parent: ci.Parent, Status: ci.Status,
+			Priority: ci.Priority,
+			DependsOn: ci.DependsOn, Labels: ci.Labels, Prefix: ci.Prefix,
+			Links: ci.Links, Extra: ci.Extra, CreatedAt: ci.CreatedAt,
+			Sections: sections,
+		})
+		if err != nil {
+			return nil, nil, fmt.Errorf("artifact[%d] %q: %w", i, ci.Title, err)
+		}
+		created = append(created, art)
+		idRefs[fmt.Sprintf("$%d", i)] = art.ID
+	}
+
+	var lines []string
+	for _, art := range created {
+		lines = append(lines, fmt.Sprintf("%s [%s] %s", art.ID, art.Kind, art.Title))
+	}
+	return text(fmt.Sprintf("created %d artifacts:\n%s", len(created), strings.Join(lines, "\n"))), nil, nil
 }
 
 type searchInput struct {
@@ -567,12 +749,31 @@ func (h *handler) handleVacuum(ctx context.Context, _ *sdkmcp.CallToolRequest, i
 	return text(strings.Join(lines, "\n")), nil, nil
 }
 
-func (h *handler) handleMotd(ctx context.Context, _ *sdkmcp.CallToolRequest, _ struct{}) (*sdkmcp.CallToolResult, any, error) {
+type motdInput struct {
+	Since string `json:"since,omitempty"`
+}
+
+func (h *handler) handleMotd(ctx context.Context, _ *sdkmcp.CallToolRequest, in motdInput) (*sdkmcp.CallToolResult, any, error) {
 	m, err := h.proto.Motd(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
 	var sections []string
+
+	// Open bugs — fires first
+	bugs, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{Kind: "bug", Status: "open"})
+	if len(bugs) > 0 {
+		var lines []string
+		for _, b := range bugs {
+			prio := ""
+			if b.Priority != "" {
+				prio = " [" + b.Priority + "]"
+			}
+			lines = append(lines, fmt.Sprintf("  %s%s %s", b.ID, prio, b.Title))
+		}
+		sections = append(sections, "Open Bugs:\n"+strings.Join(lines, "\n"))
+	}
+
 	if len(m.Campaigns) > 0 {
 		var lines []string
 		for _, c := range m.Campaigns {
@@ -595,6 +796,53 @@ func (h *handler) handleMotd(ctx context.Context, _ *sdkmcp.CallToolRequest, _ s
 		}
 		sections = append(sections, "Goal:\n"+strings.Join(lines, "\n"))
 	}
+
+	// Active work summary
+	active, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{Status: "active"})
+	draft, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{Status: "draft"})
+	if len(active) > 0 || len(draft) > 0 {
+		sections = append(sections, fmt.Sprintf("Active Work: %d active, %d draft", len(active), len(draft)))
+	}
+
+	// Stale drafts (>7 days without update)
+	staleThreshold := time.Now().UTC().Add(-7 * 24 * time.Hour).Format(time.RFC3339)
+	stale, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{Status: "draft", UpdatedBefore: staleThreshold})
+	if len(stale) > 0 {
+		var lines []string
+		limit := len(stale)
+		if limit > 10 {
+			limit = 10
+		}
+		for _, s := range stale[:limit] {
+			lines = append(lines, fmt.Sprintf("  %s [%s] %s", s.ID, s.Scope, s.Title))
+		}
+		header := fmt.Sprintf("Stale Drafts (%d, >7 days):", len(stale))
+		if len(stale) > 10 {
+			header = fmt.Sprintf("Stale Drafts (%d, >7 days, showing 10):", len(stale))
+		}
+		sections = append(sections, header+"\n"+strings.Join(lines, "\n"))
+	}
+
+	// Changed since (session delta)
+	if in.Since != "" {
+		changed, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{UpdatedAfter: in.Since, ExcludeStatus: "archived"})
+		if len(changed) > 0 {
+			var lines []string
+			limit := len(changed)
+			if limit > 15 {
+				limit = 15
+			}
+			for _, c := range changed[:limit] {
+				lines = append(lines, fmt.Sprintf("  %s %-8s [%s] %s", c.ID, c.Status, c.Kind, c.Title))
+			}
+			header := fmt.Sprintf("Changed Since %s (%d):", in.Since[:10], len(changed))
+			if len(changed) > 15 {
+				header = fmt.Sprintf("Changed Since %s (%d, showing 15):", in.Since[:10], len(changed))
+			}
+			sections = append(sections, header+"\n"+strings.Join(lines, "\n"))
+		}
+	}
+
 	if len(m.Warnings) > 0 {
 		var lines []string
 		for _, w := range m.Warnings {
