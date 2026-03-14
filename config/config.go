@@ -70,13 +70,10 @@ func (c *Config) DBPath() string {
 	return store.DefaultSQLitePath()
 }
 
-// SQLiteConfig returns the full SQLite configuration with defaults applied.
+// SQLiteConfig returns the full SQLite configuration.
+// Path is handled by OpenSQLiteConfig which falls back to DefaultSQLitePath if empty.
 func (c *Config) SQLiteConfig() store.SQLiteConfig {
-	cfg := c.DB.SQLite
-	if cfg.Path == "" {
-		cfg.Path = store.DefaultSQLitePath()
-	}
-	return cfg
+	return c.DB.SQLite
 }
 
 // Load reads a config file from path and returns a merged Config.
@@ -228,9 +225,7 @@ func validateUniqueKeys(m map[string]string, label string, pattern *regexp.Regex
 }
 
 func (c *Config) applyDefaults() {
-	if c.DB.SQLite.Path == "" {
-		c.DB.SQLite.Path = store.DefaultSQLitePath()
-	}
+	// Path is not set here - OpenSQLiteConfig handles the default
 	if c.Transport == "" {
 		c.Transport = "stdio"
 	}
