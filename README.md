@@ -57,21 +57,21 @@ scribe serve --transport http  # Streamable HTTP on :8080
 
 Scribe is designed for natural language. You talk to your agent, and it builds the work graph behind the scenes.
 
-> **You:** Plan a sprint for authentication and rate limiting. Write specs first.
+> **You:** I want authentication and rate limiting for v1.0.
 >
-> **Agent:** *(creates 2 specs, 1 sprint, 3 tasks, links them)* Done. I created specs for "OAuth2 authentication" and "API rate limiting", a sprint called "Sprint 1: Foundation", and 3 tasks implementing those specs. The rate-limiting task depends on auth being done first. Here's the board...
+> **Agent:** There's already a spec for rate limiting. I've created a spec for auth. What's your goal for today?
 
-> **You:** I finished the auth task. What's next?
+> **You:** I need to reinforce security — we found a token leak vulnerability.
 >
-> **Agent:** *(marks task complete, checks dependencies)* Auth is done. The rate-limiting task is now unblocked — it was waiting on auth. I've marked it active. The sprint has 1 of 3 tasks complete.
+> **Agent:** I've run an audit and created a goal for Security Reinforcement. Filed `BUG-1: Token leak`. Would you like a campaign as well?
 
-> **You:** We found a token leak bug. Track it.
+> **You:** Yes.
 >
-> **Agent:** *(creates bug, creates task implementing it, adds to sprint)* Filed `BUG-2026-001: Auth token leak`. Created a task to fix it and added it to the current sprint. The sprint now has 4 tasks: 1 complete, 1 active, 2 draft.
+> **Agent:** Campaign ready. Here's the audit and brief — 3 tasks, spec for the auth fix, bug for the leak, topo sort shows the execution order. Auth fix first, then rate limiting, then leak patch.
 
-> **You:** Show me the sprint board.
+> **You:** Execute the campaign.
 >
-> **Agent:** *(calls tree on the sprint)* Here's the full tree with status, dependencies, and which specs/bugs each task implements. You're 25% through the sprint.
+> **Agent:** *(works through tasks)* Security Reinforcement campaign complete. 3 tasks closed, code committed, all tests green.
 
 ## The Problem
 
@@ -83,14 +83,14 @@ This creates three failure modes:
 2. **Drift.** Multi-session work loses coherence because there's no shared record of what was decided and why.
 3. **Fragmentation.** Plans scattered across chat logs, markdown files, and issue trackers can't be queried or traversed as a graph.
 
-Scribe solves this by giving agents a structured, persistent memory they can read and write through MCP tools -- a place to store goals, specs, tasks, bugs, sprints, and their relationships in a queryable DAG.
+Scribe solves this by giving agents a structured, persistent memory they can read and write through MCP tools -- a place to store campaigns, goals, specs, tasks, bugs, and their relationships in a queryable DAG.
 
 ## Core Concepts
 
 | Concept | What it is |
 |---|---|
 | **Artifact** | The universal record. Everything is an artifact with a kind, status, scope, and auto-generated ID (e.g. `TASK-2026-042`). |
-| **Kind** | The type of artifact. Canonical kinds: `goal`, `sprint`, `task`, `spec`, `bug`, `campaign`, `template`, `need`, `ref`, `doc`, `decision`, `config`, `mirror`. Enforced by schema validation. |
+| **Kind** | The type of artifact. Canonical kinds: `goal`, `task`, `spec`, `bug`, `campaign`, `template`, `need`, `ref`, `doc`, `decision`, `config`, `mirror`. Enforced by schema validation. |
 | **Task** | The primary unit of work. A task carries a goal statement, design sections, and dependency edges. Tasks **implement** specs and bugs. |
 | **Spec** | A specification: the *what* and *why*. Defines acceptance criteria. Tasks implement specs. |
 | **Bug** | A defect record. Like a spec, a bug is resolved by a task that implements it. |
@@ -111,6 +111,7 @@ graph LR
     subgraph "Defines Work"
         SPEC["spec"]
         BUG["bug"]
+        NEED["need"]
     end
 
     subgraph "Does Work"
@@ -118,59 +119,58 @@ graph LR
     end
 
     subgraph "Organizes Work"
-        GOAL["goal"]
-        SPRINT["sprint"]
         CAMPAIGN["campaign"]
+        GOAL["goal"]
     end
 
     subgraph "Guides Work"
         TEMPLATE["template"]
     end
 
+    CAMPAIGN -- parent_of --> GOAL
+    GOAL -- parent_of --> TASK
+    GOAL -- parent_of --> SPEC
+    GOAL -- parent_of --> BUG
     TASK -- implements --> SPEC
     TASK -- implements --> BUG
     TASK -- depends_on --> TASK
+    TASK -. follows .-> TASK
     TASK -- satisfies --> TEMPLATE
     SPEC -- satisfies --> TEMPLATE
-    SPRINT -- parent_of --> TASK
-    GOAL -- parent_of --> SPEC
-    GOAL -- parent_of --> TASK
-    GOAL -- parent_of --> BUG
-    GOAL -. justifies .-> GOAL
+    NEED -. justifies .-> SPEC
 ```
 
-**Specs** and **bugs** define *what* needs to happen. **Tasks** do the work by implementing specs or resolving bugs. **Sprints** group tasks into time-boxed iterations. **Goals** sit at the top as north-star containers. The `detect` admin tool warns when a task has no spec/bug link, or when a spec/bug has no task implementing it.
+**Campaigns** are mission containers that group goals. **Goals** are north-star artifacts that parent specs, tasks, and bugs. **Specs** and **bugs** define *what* needs to happen. **Tasks** implement specs and resolve bugs. `depends_on` edges enforce execution order; `follows` edges suggest ROI order. The `detect` admin tool warns when a task has no spec/bug link, or when a spec/bug has no implementing task.
 
 ### Example Artifact Graph
 
 ```mermaid
 graph TD
-    GOAL-2026-001["GOAL-2026-001\nShip v1.0\n(current)"]
+    CMP["SCR-CMP-1\nv1.0 Campaign\n(active)"]
 
-    GOAL-2026-002["GOAL-2026-002\nv1.0 Delivery\n(active)"]
-    GOAL-2026-002 -.->|justifies| GOAL-2026-001
+    GOAL["SCR-GOL-1\nv1.0 Release\n(current)"]
+    CMP -->|parent_of| GOAL
 
-    SPR-2026-001["SPR-2026-001\nSprint 1: Foundation\n(active)"]
+    SPEC["SCR-SPC-1\nAuth Spec\n(complete)"]
+    GOAL -->|parent_of| SPEC
 
-    SPE-2026-001["SPE-2026-001\nAuth spec\n(draft)"]
-    SPE-2026-001 -->|parent_of| GOAL-2026-002
+    BUG["SCR-BUG-1\nToken Leak\n(open)"]
+    GOAL -->|parent_of| BUG
 
-    TASK-2026-001["TASK-2026-001\nAdd authentication\n(complete)"]
-    TASK-2026-001 -->|parent_of| SPR-2026-001
-    TASK-2026-001 -.->|implements| SPE-2026-001
+    TSK1["SCR-TSK-1\nImplement Auth\n(complete)"]
+    TSK1 -.->|implements| SPEC
+    GOAL -->|parent_of| TSK1
 
-    TASK-2026-002["TASK-2026-002\nAdd rate limiting\n(active)"]
-    TASK-2026-002 -->|parent_of| SPR-2026-001
-    TASK-2026-002 -.->|depends_on| TASK-2026-001
+    TSK2["SCR-TSK-2\nRate Limiting\n(active)"]
+    TSK2 -.->|depends_on| TSK1
+    GOAL -->|parent_of| TSK2
 
-    BUG-2026-001["BUG-2026-001\nAuth token leak\n(draft)"]
-
-    TASK-2026-003["TASK-2026-003\nFix token leak\n(draft)"]
-    TASK-2026-003 -->|parent_of| SPR-2026-001
-    TASK-2026-003 -.->|implements| BUG-2026-001
+    TSK3["SCR-TSK-3\nFix Token Leak\n(draft)"]
+    TSK3 -.->|implements| BUG
+    GOAL -->|parent_of| TSK3
 ```
 
-Solid arrows are `parent_of` edges (tree structure). Dashed arrows are `implements`, `depends_on`, or `justifies` edges (semantics). The agent walks this graph to find what to work on next: the highest-priority unblocked task whose dependencies are all complete.
+Solid arrows are `parent_of` edges (tree structure). Dashed arrows are `implements`, `depends_on`, or `follows` edges (semantics). The agent uses `graph next` to find the highest-priority unblocked task whose dependencies are all complete.
 
 ## Architecture
 
