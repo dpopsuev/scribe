@@ -888,25 +888,58 @@ func scanRow(s rowScanner) (*model.Artifact, error) {
 		return nil, err
 	}
 
-	json.Unmarshal([]byte(dependsOn), &art.DependsOn)
-	json.Unmarshal([]byte(labels), &art.Labels)
-	json.Unmarshal([]byte(sections), &art.Sections)
-	json.Unmarshal([]byte(features), &art.Features)
-	json.Unmarshal([]byte(criteria), &art.Criteria)
-	json.Unmarshal([]byte(links), &art.Links)
-	json.Unmarshal([]byte(extra), &art.Extra)
-	art.CreatedAt, _ = time.Parse(time.RFC3339Nano, createdAt)
-	art.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updatedAt)
-	art.InsertedAt, _ = time.Parse(time.RFC3339Nano, insertedAt)
-
-	if art.DependsOn == nil {
-		art.DependsOn = nil
+	for _, pair := range []struct {
+		data string
+		dst  any
+		name string
+	}{
+		{dependsOn, &art.DependsOn, "depends_on"},
+		{labels, &art.Labels, "labels"},
+		{sections, &art.Sections, "sections"},
+		{features, &art.Features, "features"},
+		{criteria, &art.Criteria, "criteria"},
+		{links, &art.Links, "links"},
+		{extra, &art.Extra, "extra"},
+	} {
+		if err := json.Unmarshal([]byte(pair.data), pair.dst); err != nil {
+			slog.Warn("scanRow: unmarshal failed", "id", art.ID, "field", pair.name, "error", err)
+		}
 	}
-	if art.Labels == nil {
-		art.Labels = nil
+	for _, pair := range []struct {
+		raw  string
+		dst  *time.Time
+		name string
+	}{
+		{createdAt, &art.CreatedAt, "created_at"},
+		{updatedAt, &art.UpdatedAt, "updated_at"},
+		{insertedAt, &art.InsertedAt, "inserted_at"},
+	} {
+		if t, err := time.Parse(time.RFC3339Nano, pair.raw); err != nil {
+			slog.Warn("scanRow: parse time failed", "id", art.ID, "field", pair.name, "error", err)
+		} else {
+			*pair.dst = t
+		}
 	}
 
 	return &art, nil
+}
+
+func deleteEdge(ctx context.Context, tx *sql.Tx, from, rel, to string) error {
+	_, err := tx.ExecContext(ctx, "DELETE FROM edges WHERE from_id = ? AND relation = ? AND to_id = ?", from, rel, to)
+	return err
+}
+
+func addEdge(ctx context.Context, tx *sql.Tx, from, rel, to string) error {
+	_, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO edges (from_id, relation, to_id) VALUES (?, ?, ?)", from, rel, to)
+	return err
+}
+
+func toSet(items []string) map[string]bool {
+	m := make(map[string]bool, len(items))
+	for _, item := range items {
+		m[item] = true
+	}
+	return m
 }
 
 // reconcileEdgesSQL mirrors the bbolt reconcileEdges logic using SQL.
@@ -917,62 +950,54 @@ func reconcileEdgesSQL(ctx context.Context, tx *sql.Tx, old, cur *model.Artifact
 	}
 	if cur.Parent != oldParent {
 		if oldParent != "" {
-			tx.ExecContext(ctx, "DELETE FROM edges WHERE from_id = ? AND relation = ? AND to_id = ?",
-				oldParent, model.RelParentOf, cur.ID)
+			if err := deleteEdge(ctx, tx, oldParent, model.RelParentOf, cur.ID); err != nil {
+				return fmt.Errorf("delete parent edge: %w", err)
+			}
 		}
 		if cur.Parent != "" {
-			tx.ExecContext(ctx, "INSERT OR IGNORE INTO edges (from_id, relation, to_id) VALUES (?, ?, ?)",
-				cur.Parent, model.RelParentOf, cur.ID)
+			if err := addEdge(ctx, tx, cur.Parent, model.RelParentOf, cur.ID); err != nil {
+				return fmt.Errorf("add parent edge: %w", err)
+			}
 		}
 	}
 
-	oldDeps := make(map[string]bool)
+	oldDeps := toSet(nil)
 	if old != nil {
-		for _, d := range old.DependsOn {
-			oldDeps[d] = true
-		}
+		oldDeps = toSet(old.DependsOn)
 	}
-	newDeps := make(map[string]bool)
-	for _, d := range cur.DependsOn {
-		newDeps[d] = true
-	}
+	newDeps := toSet(cur.DependsOn)
 	for d := range oldDeps {
 		if !newDeps[d] {
-			tx.ExecContext(ctx, "DELETE FROM edges WHERE from_id = ? AND relation = ? AND to_id = ?",
-				cur.ID, model.RelDependsOn, d)
+			if err := deleteEdge(ctx, tx, cur.ID, model.RelDependsOn, d); err != nil {
+				return fmt.Errorf("delete dep edge %s: %w", d, err)
+			}
 		}
 	}
 	for d := range newDeps {
 		if !oldDeps[d] {
-			tx.ExecContext(ctx, "INSERT OR IGNORE INTO edges (from_id, relation, to_id) VALUES (?, ?, ?)",
-				cur.ID, model.RelDependsOn, d)
+			if err := addEdge(ctx, tx, cur.ID, model.RelDependsOn, d); err != nil {
+				return fmt.Errorf("add dep edge %s: %w", d, err)
+			}
 		}
 	}
 
 	oldLinks := make(map[string]map[string]bool)
 	if old != nil {
 		for rel, ids := range old.Links {
-			s := make(map[string]bool)
-			for _, id := range ids {
-				s[id] = true
-			}
-			oldLinks[rel] = s
+			oldLinks[rel] = toSet(ids)
 		}
 	}
 	newLinks := make(map[string]map[string]bool)
 	for rel, ids := range cur.Links {
-		s := make(map[string]bool)
-		for _, id := range ids {
-			s[id] = true
-		}
-		newLinks[rel] = s
+		newLinks[rel] = toSet(ids)
 	}
 	for rel, oldSet := range oldLinks {
 		newSet := newLinks[rel]
 		for id := range oldSet {
 			if newSet == nil || !newSet[id] {
-				tx.ExecContext(ctx, "DELETE FROM edges WHERE from_id = ? AND relation = ? AND to_id = ?",
-					cur.ID, rel, id)
+				if err := deleteEdge(ctx, tx, cur.ID, rel, id); err != nil {
+					return fmt.Errorf("delete link edge %s/%s: %w", rel, id, err)
+				}
 			}
 		}
 	}
@@ -980,8 +1005,9 @@ func reconcileEdgesSQL(ctx context.Context, tx *sql.Tx, old, cur *model.Artifact
 		oldSet := oldLinks[rel]
 		for id := range newSet {
 			if oldSet == nil || !oldSet[id] {
-				tx.ExecContext(ctx, "INSERT OR IGNORE INTO edges (from_id, relation, to_id) VALUES (?, ?, ?)",
-					cur.ID, rel, id)
+				if err := addEdge(ctx, tx, cur.ID, rel, id); err != nil {
+					return fmt.Errorf("add link edge %s/%s: %w", rel, id, err)
+				}
 			}
 		}
 	}
