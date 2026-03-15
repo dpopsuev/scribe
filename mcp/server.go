@@ -39,6 +39,7 @@ func NewServer(s store.Store, homeScopes, vocab []string, idc protocol.IDConfig,
 	h := &handler{
 		proto:       protocol.New(s, nil, homeScopes, vocab, idc),
 		snapshotter: snap,
+		version:     version,
 	}
 
 	directive.AddTool(reg, srv, directive.ToolMeta{
@@ -86,6 +87,7 @@ func ToolRegistry() *directive.Registry {
 type handler struct {
 	proto       *protocol.Protocol
 	snapshotter *store.Snapshotter
+	version     string
 }
 
 // --- consolidated input types ---
@@ -978,6 +980,7 @@ func (h *handler) handleMotd(ctx context.Context, _ *sdkmcp.CallToolRequest, in 
 		return nil, nil, err
 	}
 	var sections []string
+	sections = append(sections, fmt.Sprintf("Scribe %s", h.version))
 
 	// Open bugs — fires first
 	bugs, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{Kind: model.KindBug, Status: model.StatusOpen})

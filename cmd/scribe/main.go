@@ -1142,6 +1142,7 @@ func serveCmd() *cobra.Command {
 			cfg := mustConfig()
 
 			slog.Info("starting scribe",
+				"version", Version,
 				"db", cfg.DBPath(),
 				"id_format", cfg.IDFormat,
 			)
