@@ -225,7 +225,17 @@ func reseedScopedSequences(db *sql.DB) error {
 			 ON CONFLICT(scope_key, kind_code) DO UPDATE SET next_val = MAX(scoped_sequences.next_val, excluded.next_val)`,
 			k.scopeKey, k.kindCode, max+1)
 		if err != nil {
-			return fmt.Errorf("reseed %s-%s: %w", k.scopeKey, k.kindCode, err)
+			return fmt.Errorf("reseed scoped %s-%s: %w", k.scopeKey, k.kindCode, err)
+		}
+
+		// Also reseed the sequences table (used by generateTemplatedID → NextSeq)
+		seqPrefix := fmt.Sprintf("%s-%s", k.scopeKey, k.kindCode)
+		_, err = db.Exec(
+			`INSERT INTO sequences (prefix, next_val) VALUES (?, ?)
+			 ON CONFLICT(prefix) DO UPDATE SET next_val = MAX(sequences.next_val, excluded.next_val)`,
+			seqPrefix, max+1)
+		if err != nil {
+			return fmt.Errorf("reseed seq %s: %w", seqPrefix, err)
 		}
 	}
 	return nil
@@ -631,13 +641,29 @@ func (s *SQLiteStore) NextSeq(ctx context.Context, key string) (int64, error) {
 		return 0, err
 	}
 
-	_, err = tx.ExecContext(ctx,
-		"INSERT INTO sequences (prefix, next_val) VALUES (?, ?) ON CONFLICT(prefix) DO UPDATE SET next_val = ?",
-		key, seq+1, seq+1)
-	if err != nil {
-		return 0, err
+	// Skip sequence numbers whose formatted IDs already exist in artifacts.
+	// The caller (generateTemplatedID) formats the ID using the template,
+	// but the key is always "SCOPE-KIND" and the ID is "SCOPE-KIND-SEQ",
+	// so we can check for collisions using the key as prefix.
+	for {
+		candidateID := fmt.Sprintf("%s-%d", key, seq)
+		var exists int
+		err = tx.QueryRowContext(ctx, "SELECT 1 FROM artifacts WHERE id = ?", candidateID).Scan(&exists)
+		if err == sql.ErrNoRows {
+			// ID is free
+			_, err = tx.ExecContext(ctx,
+				"INSERT INTO sequences (prefix, next_val) VALUES (?, ?) ON CONFLICT(prefix) DO UPDATE SET next_val = ?",
+				key, seq+1, seq+1)
+			if err != nil {
+				return 0, err
+			}
+			return seq, tx.Commit()
+		}
+		if err != nil {
+			return 0, err
+		}
+		seq++ // ID exists, try next
 	}
-	return seq, tx.Commit()
 }
 
 func (s *SQLiteStore) GetScopeKey(ctx context.Context, scope string) (string, bool, error) {
