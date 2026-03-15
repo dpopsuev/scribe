@@ -131,6 +131,7 @@ type artifactInput struct {
 	GroupBy        string   `json:"group_by,omitempty" jsonschema:"group results by field: status, scope, kind, sprint, scope_label (list)"`
 	Sort           string `json:"sort,omitempty" jsonschema:"sort results by: id, title, status, scope, kind, sprint (list)"`
 	Limit          int    `json:"limit,omitempty" jsonschema:"max results to return (list)"`
+	Offset         int    `json:"offset,omitempty" jsonschema:"skip first N results for pagination (list)"`
 	Count          bool     `json:"count,omitempty" jsonschema:"return count instead of full artifacts (list)"`
 	Top            int      `json:"top,omitempty" jsonschema:"return N most relevant artifacts ranked by status+priority+recency (list)"`
 	Fields         []string `json:"fields,omitempty" jsonschema:"return only these columns: id, kind, scope, status, title, parent, priority, sprint, depends_on, labels (list)"`
@@ -162,7 +163,7 @@ type artifactInput struct {
 }
 
 type graphInput struct {
-	Action    string   `json:"action" jsonschema:"required,tree | briefing | topo_sort | link | unlink | bulk_link | bulk_unlink | move | replace | impact"`
+	Action    string   `json:"action" jsonschema:"required,tree | briefing | topo_sort | next | link | unlink | bulk_link | bulk_unlink | move | replace | impact"`
 	ID        string   `json:"id,omitempty" jsonschema:"root artifact ID for tree/briefing, or source artifact for link/unlink/move/replace"`
 	Relation  string   `json:"relation,omitempty" jsonschema:"edge type: parent_of, depends_on, follows, justifies, implements, documents"`
 	Direction string   `json:"direction,omitempty" jsonschema:"traversal direction for tree: outbound (default) or inbound"`
@@ -180,7 +181,8 @@ type edgeInput struct {
 }
 
 type adminInput struct {
-	Action string `json:"action" jsonschema:"required,motd | changelog | dashboard | snapshot | set_goal | vacuum | detect | lint | check | set_scope_labels | list_scope_labels | transfer_scope | seed"`
+	Action  string `json:"action" jsonschema:"required,motd | changelog | dashboard | snapshot | set_goal | vacuum | detect | lint | check | set_scope_labels | list_scope_labels | transfer_scope | seed"`
+	Compact bool   `json:"compact,omitempty" jsonschema:"minimal output for repeat calls (motd)"`
 
 	// Snapshot sub-action and params
 	SnapshotAction string `json:"snapshot_action,omitempty" jsonschema:"snapshot sub-action: create, list, diff, restore"`
@@ -262,9 +264,9 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 			return h.handleListTop(ctx, li, in.Top)
 		}
 		if len(in.Fields) > 0 {
-			return h.handleListCompact(ctx, li, in.Fields)
+			return h.handleListCompact(ctx, li, in.Fields, in.Offset)
 		}
-		return h.handleList(ctx, req, li)
+		return h.handleList(ctx, req, li, in.Offset)
 	case "set":
 		ids := in.IDs
 		if len(ids) == 0 && in.ID != "" {
@@ -333,6 +335,57 @@ func (h *handler) handleGraph(ctx context.Context, req *sdkmcp.CallToolRequest, 
 			fmt.Fprintf(&b, "\n%s\n", err)
 		}
 		return text(b.String()), nil, nil
+	case "next":
+		if in.ID == "" {
+			return nil, nil, fmt.Errorf("id required for next (root artifact)")
+		}
+		limit := in.Depth // reuse depth as limit
+		if limit <= 0 {
+			limit = 5
+		}
+		entries, err := h.proto.TopoSort(ctx, in.ID)
+		if err != nil && len(entries) == 0 {
+			return nil, nil, err
+		}
+		schema := h.proto.Schema()
+		var ready []protocol.TopoEntry
+		for _, e := range entries {
+			if schema.IsTerminal(e.Status) {
+				continue
+			}
+			// Check if all depends_on are terminal
+			art, _ := h.proto.GetArtifact(ctx, e.ID)
+			if art == nil {
+				continue
+			}
+			blocked := false
+			for _, depID := range art.DependsOn {
+				dep, _ := h.proto.GetArtifact(ctx, depID)
+				if dep != nil && !schema.IsTerminal(dep.Status) {
+					blocked = true
+					break
+				}
+			}
+			if !blocked {
+				ready = append(ready, e)
+				if len(ready) >= limit {
+					break
+				}
+			}
+		}
+		if len(ready) == 0 {
+			return text("no unblocked tasks found"), nil, nil
+		}
+		var b strings.Builder
+		fmt.Fprintf(&b, "Next %d unblocked tasks:\n", len(ready))
+		for i, e := range ready {
+			fmt.Fprintf(&b, "%d. %s [%s] %s", i+1, e.ID, e.Status, e.Title)
+			if e.Priority != "" && e.Priority != "none" {
+				fmt.Fprintf(&b, " (%s)", e.Priority)
+			}
+			b.WriteString("\n")
+		}
+		return text(b.String()), nil, nil
 	case "unlink":
 		return h.handleLink(ctx, req, linkInput{
 			ID: in.ID, Relation: in.Relation, Targets: in.Targets, Unlink: true,
@@ -364,6 +417,9 @@ func (h *handler) handleGraph(ctx context.Context, req *sdkmcp.CallToolRequest, 
 func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, in adminInput) (*sdkmcp.CallToolResult, any, error) {
 	switch in.Action {
 	case "motd":
+		if in.Compact {
+			return h.handleMotdCompact(ctx)
+		}
 		return h.handleMotd(ctx, req, motdInput{Since: in.Since})
 	case "changelog":
 		return h.handleChangelog(ctx, in.Since, in.Scope)
@@ -452,16 +508,28 @@ func (h *handler) handleCreate(ctx context.Context, _ *sdkmcp.CallToolRequest, i
 	if err != nil {
 		return nil, nil, err
 	}
-	data, _ := json.MarshalIndent(art, "", "  ")
-	msg := string(data)
+	// Lean response: id + kind + status + title + hints
+	var b strings.Builder
+	fmt.Fprintf(&b, "created %s [%s] %s", art.ID, art.Status, art.Title)
+	if art.Parent != "" {
+		fmt.Fprintf(&b, " (parent: %s)", art.Parent)
+	}
 	schema := h.proto.Schema()
-	if should := schema.MissingShouldSections(art.Kind, art.Sections); len(should) > 0 {
-		msg += fmt.Sprintf("\n\nWarning: missing recommended sections: %s", strings.Join(should, ", "))
+	if expected := schema.GetExpectedSections(art.Kind); len(expected) > 0 {
+		must := schema.GetMustSections(art.Kind)
+		should := schema.GetShouldSections(art.Kind)
+		var hints []string
+		for _, s := range must {
+			hints = append(hints, s+" (must)")
+		}
+		for _, s := range should {
+			hints = append(hints, s+" (should)")
+		}
+		if len(hints) > 0 {
+			fmt.Fprintf(&b, "\nSections: %s", strings.Join(hints, ", "))
+		}
 	}
-	if expected := schema.GetExpectedSections(art.Kind); len(expected) > 0 && len(art.Sections) == 0 {
-		msg += fmt.Sprintf("\n\nSections hint: %s (use attach_section to populate)", strings.Join(expected, ", "))
-	}
-	return text(msg), nil, nil
+	return text(b.String()), nil, nil
 }
 
 type idInput struct {
@@ -581,7 +649,7 @@ func (h *handler) handleBulkGet(ctx context.Context, ids []string, sectionFilter
 	return text(string(data)), nil, nil
 }
 
-func (h *handler) handleList(ctx context.Context, _ *sdkmcp.CallToolRequest, in protocol.ListInput) (*sdkmcp.CallToolResult, any, error) {
+func (h *handler) handleList(ctx context.Context, _ *sdkmcp.CallToolRequest, in protocol.ListInput, offset ...int) (*sdkmcp.CallToolResult, any, error) {
 	var arts []*model.Artifact
 	var err error
 	if in.Query != "" {
@@ -597,6 +665,14 @@ func (h *handler) handleList(ctx context.Context, _ *sdkmcp.CallToolRequest, in 
 	}
 	if in.Sort != "" {
 		sortArtifacts(arts, in.Sort)
+	}
+	total := len(arts)
+	off := 0
+	if len(offset) > 0 {
+		off = offset[0]
+	}
+	if off > 0 && off < len(arts) {
+		arts = arts[off:]
 	}
 	if in.Limit > 0 && in.Limit < len(arts) {
 		arts = arts[:in.Limit]
@@ -616,7 +692,11 @@ func (h *handler) handleList(ctx context.Context, _ *sdkmcp.CallToolRequest, in 
 	if in.GroupBy != "" {
 		return text(render.GroupedTable(arts, in.GroupBy)), nil, nil
 	}
-	return text(render.Table(arts)), nil, nil
+	out := render.Table(arts)
+	if off > 0 || (in.Limit > 0 && in.Limit < total) {
+		out += fmt.Sprintf("\n(showing %d of %d total)", len(arts), total)
+	}
+	return text(out), nil, nil
 }
 
 func (h *handler) handleListCount(ctx context.Context, in protocol.ListInput) (*sdkmcp.CallToolResult, any, error) {
@@ -729,7 +809,7 @@ var validFields = map[string]func(*model.Artifact) string{
 	"labels":     func(a *model.Artifact) string { return strings.Join(a.Labels, ",") },
 }
 
-func (h *handler) handleListCompact(ctx context.Context, in protocol.ListInput, fields []string) (*sdkmcp.CallToolResult, any, error) {
+func (h *handler) handleListCompact(ctx context.Context, in protocol.ListInput, fields []string, offset ...int) (*sdkmcp.CallToolResult, any, error) {
 	// Validate fields
 	var getters []func(*model.Artifact) string
 	for _, f := range fields {
@@ -752,6 +832,14 @@ func (h *handler) handleListCompact(ctx context.Context, in protocol.ListInput, 
 	}
 	if in.Sort != "" {
 		sortArtifacts(arts, in.Sort)
+	}
+	total := len(arts)
+	off := 0
+	if len(offset) > 0 {
+		off = offset[0]
+	}
+	if off > 0 && off < len(arts) {
+		arts = arts[off:]
 	}
 	if in.Limit > 0 && in.Limit < len(arts) {
 		arts = arts[:in.Limit]
@@ -777,7 +865,11 @@ func (h *handler) handleListCompact(ctx context.Context, in protocol.ListInput, 
 		}
 		b.WriteString("\n")
 	}
-	fmt.Fprintf(&b, "\n(%d artifacts)\n", len(arts))
+	if off > 0 || (in.Limit > 0 && in.Limit < total) {
+		fmt.Fprintf(&b, "\n(%d of %d artifacts)\n", len(arts), total)
+	} else {
+		fmt.Fprintf(&b, "\n(%d artifacts)\n", len(arts))
+	}
 	return text(b.String()), nil, nil
 }
 
@@ -1211,6 +1303,16 @@ func (h *handler) handleVacuum(ctx context.Context, _ *sdkmcp.CallToolRequest, i
 	}
 	lines = append(lines, fmt.Sprintf("%d archived artifacts vacuumed", len(deleted)))
 	return text(strings.Join(lines, "\n")), nil, nil
+}
+
+func (h *handler) handleMotdCompact(ctx context.Context) (*sdkmcp.CallToolResult, any, error) {
+	active, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{Status: model.StatusActive})
+	draft, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{Status: model.StatusDraft})
+	bugs, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{Kind: model.KindBug, Status: model.StatusOpen})
+
+	msg := fmt.Sprintf("Scribe %s | %d active, %d draft, %d open bugs",
+		h.version, len(active), len(draft), len(bugs))
+	return text(msg), nil, nil
 }
 
 type motdInput struct {
