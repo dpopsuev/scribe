@@ -245,7 +245,7 @@ func (p *Protocol) findTemplateForKind(ctx context.Context, kind, scope string) 
 	if scope == "" {
 		return ""
 	}
-	templates, err := p.store.List(ctx, model.Filter{Kind: "template", Scope: scope, Status: "active"})
+	templates, err := p.store.List(ctx, model.Filter{Kind: model.KindTemplate, Scope: scope, Status: model.StatusActive})
 	if err != nil || len(templates) == 0 {
 		return ""
 	}
@@ -451,18 +451,18 @@ func (p *Protocol) setFieldSingle(ctx context.Context, id, field, value string, 
 			return Result{ID: id, Error: fmt.Sprintf("invalid created_at: %v", err)}
 		}
 		art.CreatedAt = t
-	case "title":
+	case model.FieldTitle:
 		art.Title = value
-	case "goal":
+	case model.FieldGoal:
 		art.Goal = value
-	case "scope":
+	case model.FieldScope:
 		if value == "" {
 			return Result{ID: id, Error: "scope cannot be empty"}
 		}
 		art.Scope = value
-	case "status":
+	case model.FieldStatus:
 		return p.setStatusForce(ctx, art, value, opt.Force)
-	case "parent":
+	case model.FieldParent:
 		if value != "" {
 			if parent, err := p.store.Get(ctx, value); err == nil {
 				if reason, ok := p.schema.ValidChild(parent.Kind, art.Kind); !ok {
@@ -474,19 +474,19 @@ func (p *Protocol) setFieldSingle(ctx context.Context, id, field, value string, 
 			}
 		}
 		art.Parent = value
-	case "priority":
+	case model.FieldPriority:
 		if value != "" && !p.schema.ValidPriority(value) {
 			return Result{ID: id, Error: fmt.Sprintf("invalid priority %q — valid: %s", value, strings.Join(p.schema.Priorities, ", "))}
 		}
 		art.Priority = value
-	case "sprint":
+	case model.FieldSprint:
 		art.Sprint = value
-	case "kind":
+	case model.FieldKind:
 		if err := model.ValidateKind(value, p.vocab); err != nil {
 			return Result{ID: id, Error: err.Error()}
 		}
 		art.Kind = value
-	case "depends_on":
+	case model.FieldDependsOn:
 		if value == "" {
 			art.DependsOn = nil
 		} else {
@@ -531,7 +531,7 @@ func (p *Protocol) setStatusForce(ctx context.Context, art *model.Artifact, stat
 		}
 	}
 
-	if p.schema.Guards.CompletionRequiresChildrenComplete && status == "complete" {
+	if p.schema.Guards.CompletionRequiresChildrenComplete && status == model.StatusComplete {
 		if err := p.guardChildrenComplete(ctx, art); err != nil {
 			return Result{ID: art.ID, Error: err.Error()}
 		}
@@ -549,7 +549,7 @@ func (p *Protocol) setStatusForce(ctx context.Context, art *model.Artifact, stat
 		}
 	}
 
-	if p.schema.ActivationRequiresSections(art.Kind) && status == "active" {
+	if p.schema.ActivationRequiresSections(art.Kind) && status == model.StatusActive {
 		shouldMissing := p.schema.MissingShouldSections(art.Kind, art.Sections)
 		if len(shouldMissing) > 0 {
 			return Result{ID: art.ID, Error: fmt.Sprintf(
@@ -655,7 +655,7 @@ func (p *Protocol) autoCompleteParent(ctx context.Context, art *model.Artifact) 
 			return ""
 		}
 	}
-	r := p.setStatus(ctx, parent, "complete")
+	r := p.setStatus(ctx, parent, model.StatusComplete)
 	if r.OK {
 		msg := fmt.Sprintf("auto-completed %s: %s", parent.ID, parent.Title)
 		if r.Error != "" {
@@ -848,7 +848,7 @@ func (p *Protocol) LinkArtifacts(ctx context.Context, sourceID, relation string,
 			if err != nil {
 				return nil, fmt.Errorf("failed to resolve satisfies target %s: %w", tid, err)
 			}
-			if tpl.Kind != "template" {
+			if tpl.Kind != model.KindTemplate {
 				slog.WarnContext(ctx, "satisfies link target is not a template",
 					"source_id", sourceID,
 					"target_id", tid,
@@ -954,7 +954,7 @@ func (p *Protocol) ArtifactTree(ctx context.Context, in TreeInput) (*TreeNode, e
 
 	rel := in.Relation
 	if rel == "" {
-		rel = "parent_of"
+		rel = model.RelParentOf
 	}
 	if !p.schema.ValidRelation(rel) {
 		return nil, fmt.Errorf("unknown relation %q; valid: %s, *", rel, strings.Join(p.schema.Relations, ", "))
@@ -962,14 +962,14 @@ func (p *Protocol) ArtifactTree(ctx context.Context, in TreeInput) (*TreeNode, e
 
 	dir := in.Direction
 	if dir == "" {
-		dir = "outgoing"
+		dir = model.DirOutgoing
 	}
 
 	var storeDir store.Direction
 	switch dir {
-	case "outgoing":
+	case model.DirOutgoing, model.DirOutbound:
 		storeDir = store.Outgoing
-	case "incoming":
+	case model.DirIncoming, model.DirInbound:
 		storeDir = store.Incoming
 	case "both":
 		storeDir = store.Both
@@ -983,7 +983,7 @@ func (p *Protocol) ArtifactTree(ctx context.Context, in TreeInput) (*TreeNode, e
 		depth = maxD
 	}
 
-	isDefault := rel == "parent_of" && dir == "outgoing"
+	isDefault := rel == model.RelParentOf && dir == model.DirOutgoing
 
 	if isDefault {
 		return p.buildTree(ctx, root), nil
@@ -1017,10 +1017,10 @@ func (p *Protocol) buildGraphTree(ctx context.Context, node *TreeNode, rel strin
 	edges, _ := p.store.Neighbors(ctx, node.ID, queryRel, dir)
 	for _, e := range edges {
 		targetID := e.To
-		edgeDir := "outgoing"
+		edgeDir := model.DirOutgoing
 		if dir == store.Incoming || (dir == store.Both && e.To == node.ID) {
 			targetID = e.From
-			edgeDir = "incoming"
+			edgeDir = model.DirIncoming
 		}
 
 		if visited[targetID] {
@@ -1070,7 +1070,7 @@ func (p *Protocol) GetArtifactEdges(ctx context.Context, id string) ([]EdgeSumma
 		var s EdgeSummary
 		s.Relation = e.Relation
 		if e.From == id {
-			s.Direction = "outgoing"
+			s.Direction = model.DirOutgoing
 			if target, err := p.store.Get(ctx, e.To); err == nil {
 				s.Target.ID = target.ID
 				s.Target.Kind = target.Kind
@@ -1078,7 +1078,7 @@ func (p *Protocol) GetArtifactEdges(ctx context.Context, id string) ([]EdgeSumma
 				s.Target.Status = target.Status
 			}
 		} else {
-			s.Direction = "incoming"
+			s.Direction = model.DirIncoming
 			if target, err := p.store.Get(ctx, e.From); err == nil {
 				s.Target.ID = target.ID
 				s.Target.Kind = target.Kind
@@ -1337,7 +1337,7 @@ func (p *Protocol) Vacuum(ctx context.Context, days int, scope string, force boo
 		days = p.defaults.GetVacuumDays()
 	}
 	maxAge := time.Duration(days) * 24 * time.Hour
-	f := model.Filter{Status: "archived"}
+	f := model.Filter{Status: model.StatusArchived}
 	if scope != "" {
 		f.Scope = scope
 	}
@@ -1639,11 +1639,11 @@ type OverlapInput struct {
 func (p *Protocol) DetectOverlaps(ctx context.Context, in OverlapInput) (*OverlapReport, error) {
 	kind := in.Kind
 	if kind == "" {
-		kind = "task"
+		kind = model.KindTask
 	}
 	status := in.Status
 	if status == "" {
-		status = "active"
+		status = model.StatusActive
 	}
 
 	f := model.Filter{Kind: kind, Status: status}
@@ -2160,7 +2160,7 @@ func (p *Protocol) resolveTemplate(ctx context.Context, art *model.Artifact) *mo
 			"error", err)
 		return nil
 	}
-	if tpl.Kind != "template" {
+	if tpl.Kind != model.KindTemplate {
 		slog.WarnContext(ctx, "satisfies link target is not a template",
 			"artifact_id", art.ID,
 			"target_id", tpl.ID,

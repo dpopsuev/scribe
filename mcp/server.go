@@ -955,7 +955,7 @@ func (h *handler) handleMotd(ctx context.Context, _ *sdkmcp.CallToolRequest, in 
 	var sections []string
 
 	// Open bugs — fires first
-	bugs, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{Kind: "bug", Status: "open"})
+	bugs, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{Kind: model.KindBug, Status: model.StatusOpen})
 	if len(bugs) > 0 {
 		var lines []string
 		for _, b := range bugs {
@@ -992,15 +992,15 @@ func (h *handler) handleMotd(ctx context.Context, _ *sdkmcp.CallToolRequest, in 
 	}
 
 	// Active work summary
-	active, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{Status: "active"})
-	draft, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{Status: "draft"})
+	active, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{Status: model.StatusActive})
+	draft, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{Status: model.StatusDraft})
 	if len(active) > 0 || len(draft) > 0 {
 		sections = append(sections, fmt.Sprintf("Active Work: %d active, %d draft", len(active), len(draft)))
 	}
 
 	// Stale drafts (>7 days without update)
 	staleThreshold := time.Now().UTC().Add(-7 * 24 * time.Hour).Format(time.RFC3339)
-	stale, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{Status: "draft", UpdatedBefore: staleThreshold})
+	stale, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{Status: model.StatusDraft, UpdatedBefore: staleThreshold})
 	if len(stale) > 0 {
 		var lines []string
 		limit := len(stale)
@@ -1019,7 +1019,7 @@ func (h *handler) handleMotd(ctx context.Context, _ *sdkmcp.CallToolRequest, in 
 
 	// Changed since (session delta)
 	if in.Since != "" {
-		changed, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{UpdatedAfter: in.Since, ExcludeStatus: "archived"})
+		changed, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{UpdatedAfter: in.Since, ExcludeStatus: model.StatusArchived})
 		if len(changed) > 0 {
 			var lines []string
 			limit := len(changed)
@@ -1056,7 +1056,7 @@ func (h *handler) handleChangelog(ctx context.Context, since, scope string) (*sd
 	}
 	li := protocol.ListInput{
 		UpdatedAfter:  since,
-		ExcludeStatus: "archived",
+		ExcludeStatus: model.StatusArchived,
 		Scope:         scope,
 	}
 	arts, err := h.proto.ListArtifacts(ctx, li)
