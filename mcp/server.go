@@ -101,7 +101,7 @@ type handler struct {
 // --- consolidated input types ---
 
 type artifactInput struct {
-	Action string `json:"action" jsonschema:"required,create | batch_create | clone | get | list | set | update | archive | attach_section | get_section | detach_section"`
+	Action string `json:"action" jsonschema:"required,create | batch_create | clone | get | list | set | update | archive | attach_section | get_section | detach_section | diff"`
 
 	ID    string `json:"id,omitempty" jsonschema:"artifact ID (required for get, set, update, archive, *_section)"`
 	Kind  string `json:"kind,omitempty" jsonschema:"artifact kind such as task, spec, bug, goal, campaign"`
@@ -132,6 +132,7 @@ type artifactInput struct {
 	Sort           string `json:"sort,omitempty" jsonschema:"sort results by: id, title, status, scope, kind, sprint (list)"`
 	Limit          int    `json:"limit,omitempty" jsonschema:"max results to return (list)"`
 	Count          bool     `json:"count,omitempty" jsonschema:"return count instead of full artifacts (list)"`
+	Top            int      `json:"top,omitempty" jsonschema:"return N most relevant artifacts ranked by status+priority+recency (list)"`
 	Fields         []string `json:"fields,omitempty" jsonschema:"return only these columns: id, kind, scope, status, title, parent, priority, sprint, depends_on, labels (list)"`
 	Query          string `json:"query,omitempty" jsonschema:"substring search across title, goal, and section text (list)"`
 	CreatedAfter   string `json:"created_after,omitempty" jsonschema:"RFC 3339 lower bound on created_at (list)"`
@@ -146,6 +147,7 @@ type artifactInput struct {
 	Force bool   `json:"force,omitempty" jsonschema:"bypass transition validation for status changes (set)"`
 
 	SectionFilter []string `json:"section_filter,omitempty" jsonschema:"return only these sections by name (get)"`
+	Against       string   `json:"against,omitempty" jsonschema:"artifact ID to compare against (diff)"`
 
 	IDs     []string `json:"ids,omitempty" jsonschema:"artifact IDs for bulk operations (get, set, archive)"`
 	Cascade bool     `json:"cascade,omitempty" jsonschema:"recursively archive child subtrees (archive)"`
@@ -160,7 +162,7 @@ type artifactInput struct {
 }
 
 type graphInput struct {
-	Action    string   `json:"action" jsonschema:"required,tree | briefing | topo_sort | link | unlink | bulk_link | bulk_unlink | move | replace"`
+	Action    string   `json:"action" jsonschema:"required,tree | briefing | topo_sort | link | unlink | bulk_link | bulk_unlink | move | replace | impact"`
 	ID        string   `json:"id,omitempty" jsonschema:"root artifact ID for tree/briefing, or source artifact for link/unlink/move/replace"`
 	Relation  string   `json:"relation,omitempty" jsonschema:"edge type: parent_of, depends_on, follows, justifies, implements, documents"`
 	Direction string   `json:"direction,omitempty" jsonschema:"traversal direction for tree: outbound (default) or inbound"`
@@ -178,7 +180,7 @@ type edgeInput struct {
 }
 
 type adminInput struct {
-	Action string `json:"action" jsonschema:"required,motd | changelog | dashboard | snapshot | set_goal | vacuum | detect | lint | check | set_scope_labels | list_scope_labels | transfer_scope"`
+	Action string `json:"action" jsonschema:"required,motd | changelog | dashboard | snapshot | set_goal | vacuum | detect | lint | check | set_scope_labels | list_scope_labels | transfer_scope | seed"`
 
 	// Snapshot sub-action and params
 	SnapshotAction string `json:"snapshot_action,omitempty" jsonschema:"snapshot sub-action: create, list, diff, restore"`
@@ -256,6 +258,9 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		if in.Count {
 			return h.handleListCount(ctx, li)
 		}
+		if in.Top > 0 {
+			return h.handleListTop(ctx, li, in.Top)
+		}
 		if len(in.Fields) > 0 {
 			return h.handleListCompact(ctx, li, in.Fields)
 		}
@@ -286,8 +291,13 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		return h.handleGetSection(ctx, req, getSectionInput{ID: in.ID, Name: in.Name})
 	case "detach_section":
 		return h.handleDetachSection(ctx, req, getSectionInput{ID: in.ID, Name: in.Name})
+	case "diff":
+		if in.ID == "" || in.Against == "" {
+			return nil, nil, fmt.Errorf("id and against required for diff")
+		}
+		return h.handleDiff(ctx, in.ID, in.Against)
 	default:
-		return nil, nil, fmt.Errorf("unknown artifact action %q (valid: create, batch_create, clone, get, list, set, update, archive, attach_section, get_section, detach_section)", in.Action)
+		return nil, nil, fmt.Errorf("unknown artifact action %q (valid: create, batch_create, clone, get, list, set, update, archive, attach_section, get_section, detach_section, diff)", in.Action)
 	}
 }
 
@@ -341,8 +351,13 @@ func (h *handler) handleGraph(ctx context.Context, req *sdkmcp.CallToolRequest, 
 			return nil, nil, fmt.Errorf("id, relation, old_target, and target required for replace")
 		}
 		return h.handleReplace(ctx, in.ID, in.Relation, in.OldTarget, in.Target)
+	case "impact":
+		if in.ID == "" {
+			return nil, nil, fmt.Errorf("id required for impact analysis")
+		}
+		return h.handleImpact(ctx, in.ID)
 	default:
-		return nil, nil, fmt.Errorf("unknown graph action %q (valid: tree, briefing, topo_sort, link, unlink, bulk_link, bulk_unlink, move, replace)", in.Action)
+		return nil, nil, fmt.Errorf("unknown graph action %q (valid: tree, briefing, topo_sort, link, unlink, bulk_link, bulk_unlink, move, replace, impact)", in.Action)
 	}
 }
 
@@ -393,6 +408,24 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 			fmt.Fprintf(&b, "%-20s %s → %s\n", info.Scope, info.Key, labels)
 		}
 		return text(b.String()), nil, nil
+	case "seed":
+		dir := in.Scope // reuse scope field as dir path
+		if dir == "" {
+			return nil, nil, fmt.Errorf("scope field required as seed directory path")
+		}
+		result, err := h.proto.Seed(ctx, dir)
+		if err != nil {
+			return nil, nil, err
+		}
+		var lines []string
+		for _, id := range result.Created {
+			lines = append(lines, "created "+id)
+		}
+		for _, id := range result.Skipped {
+			lines = append(lines, "skipped "+id)
+		}
+		return text(fmt.Sprintf("seed: %d created, %d skipped\n%s",
+			len(result.Created), len(result.Skipped), strings.Join(lines, "\n"))), nil, nil
 	case "transfer_scope":
 		if in.Scope == "" || in.Target == "" {
 			return nil, nil, fmt.Errorf("scope and target required for transfer_scope")
@@ -477,6 +510,61 @@ func (h *handler) handleGet(ctx context.Context, _ *sdkmcp.CallToolRequest, in g
 	}
 	data, _ := json.MarshalIndent(artWithEdges{Artifact: art, Edges: edges}, "", "  ")
 	return text(string(data)), nil, nil
+}
+
+func (h *handler) handleDiff(ctx context.Context, idA, idB string) (*sdkmcp.CallToolResult, any, error) {
+	a, err := h.proto.GetArtifact(ctx, idA)
+	if err != nil {
+		return nil, nil, err
+	}
+	b, err := h.proto.GetArtifact(ctx, idB)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var lines []string
+	// Field diffs
+	fields := []struct{ name, va, vb string }{
+		{"kind", a.Kind, b.Kind},
+		{"scope", a.Scope, b.Scope},
+		{"status", a.Status, b.Status},
+		{"title", a.Title, b.Title},
+		{"parent", a.Parent, b.Parent},
+		{"priority", a.Priority, b.Priority},
+	}
+	for _, f := range fields {
+		if f.va != f.vb {
+			lines = append(lines, fmt.Sprintf("  %s: %q → %q", f.name, f.va, f.vb))
+		}
+	}
+
+	// Section diffs
+	secA := make(map[string]string, len(a.Sections))
+	for _, s := range a.Sections {
+		secA[s.Name] = s.Text
+	}
+	secB := make(map[string]string, len(b.Sections))
+	for _, s := range b.Sections {
+		secB[s.Name] = s.Text
+	}
+	for name, textA := range secA {
+		if textB, ok := secB[name]; !ok {
+			lines = append(lines, fmt.Sprintf("  section %q: removed", name))
+		} else if textA != textB {
+			lines = append(lines, fmt.Sprintf("  section %q: modified (%d → %d bytes)", name, len(textA), len(textB)))
+		}
+	}
+	for name := range secB {
+		if _, ok := secA[name]; !ok {
+			lines = append(lines, fmt.Sprintf("  section %q: added", name))
+		}
+	}
+
+	if len(lines) == 0 {
+		return text(fmt.Sprintf("no differences between %s and %s", idA, idB)), nil, nil
+	}
+	header := fmt.Sprintf("diff %s vs %s:\n", idA, idB)
+	return text(header + strings.Join(lines, "\n")), nil, nil
 }
 
 func (h *handler) handleBulkGet(ctx context.Context, ids []string, sectionFilter []string) (*sdkmcp.CallToolResult, any, error) {
@@ -569,6 +657,63 @@ func (h *handler) handleListCount(ctx context.Context, in protocol.ListInput) (*
 	}
 
 	return text(fmt.Sprintf("%d", len(arts))), nil, nil
+}
+
+func relevanceScore(a *model.Artifact) int {
+	score := 0
+	// Status weight: active > draft > complete > archived
+	switch a.Status {
+	case "active", "current", "open":
+		score += 100
+	case "draft":
+		score += 50
+	case "complete":
+		score += 10
+	}
+	// Priority weight
+	switch a.Priority {
+	case "critical":
+		score += 40
+	case "high":
+		score += 30
+	case "medium":
+		score += 20
+	case "low":
+		score += 10
+	}
+	// Recency: more recently updated scores higher (days since update)
+	if !a.UpdatedAt.IsZero() {
+		daysSince := int(time.Since(a.UpdatedAt).Hours() / 24)
+		if daysSince < 1 {
+			score += 30
+		} else if daysSince < 7 {
+			score += 20
+		} else if daysSince < 30 {
+			score += 10
+		}
+	}
+	return score
+}
+
+func (h *handler) handleListTop(ctx context.Context, in protocol.ListInput, top int) (*sdkmcp.CallToolResult, any, error) {
+	var arts []*model.Artifact
+	var err error
+	if in.Query != "" {
+		arts, err = h.proto.SearchArtifacts(ctx, in.Query, in)
+	} else {
+		arts, err = h.proto.ListArtifacts(ctx, in)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	sort.Slice(arts, func(i, j int) bool {
+		return relevanceScore(arts[i]) > relevanceScore(arts[j])
+	})
+	if top < len(arts) {
+		arts = arts[:top]
+	}
+	data, _ := json.MarshalIndent(arts, "", "  ")
+	return text(string(data)), nil, nil
 }
 
 var validFields = map[string]func(*model.Artifact) string{
@@ -1380,6 +1525,76 @@ func (h *handler) handleLink(ctx context.Context, _ *sdkmcp.CallToolRequest, in 
 			lines = append(lines, fmt.Sprintf("%s -> error: %s", r.ID, r.Error))
 		}
 	}
+	return text(strings.Join(lines, "\n")), nil, nil
+}
+
+func (h *handler) handleImpact(ctx context.Context, id string) (*sdkmcp.CallToolResult, any, error) {
+	art, err := h.proto.GetArtifact(ctx, id)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var lines []string
+	lines = append(lines, fmt.Sprintf("Impact analysis for %s [%s] %s:", id, art.Status, art.Title))
+
+	// Children (parent_of)
+	children, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{Parent: id})
+	if len(children) > 0 {
+		lines = append(lines, fmt.Sprintf("\nChildren (%d):", len(children)))
+		for _, ch := range children {
+			lines = append(lines, fmt.Sprintf("  %s [%s] %s", ch.ID, ch.Status, ch.Title))
+		}
+	}
+
+	// Inbound depends_on (things that depend on this)
+	depEdges, _ := h.proto.GetArtifactEdges(ctx, id)
+	var dependents, implementors []string
+	for _, e := range depEdges {
+		if e.Direction == "incoming" {
+			switch e.Relation {
+			case "depends_on":
+				dependents = append(dependents, fmt.Sprintf("  %s [%s] %s", e.Target.ID, e.Target.Status, e.Target.Title))
+			case "implements":
+				implementors = append(implementors, fmt.Sprintf("  %s [%s] %s", e.Target.ID, e.Target.Status, e.Target.Title))
+			}
+		}
+	}
+	if len(dependents) > 0 {
+		lines = append(lines, fmt.Sprintf("\nDepends on this (%d):", len(dependents)))
+		lines = append(lines, dependents...)
+	}
+	if len(implementors) > 0 {
+		lines = append(lines, fmt.Sprintf("\nImplements this (%d):", len(implementors)))
+		lines = append(lines, implementors...)
+	}
+
+	// Warnings
+	var warnings []string
+	if len(children) > 0 {
+		nonTerminal := 0
+		for _, ch := range children {
+			if ch.Status != "complete" && ch.Status != "archived" && ch.Status != "cancelled" {
+				nonTerminal++
+			}
+		}
+		if nonTerminal > 0 {
+			warnings = append(warnings, fmt.Sprintf("%d children would be orphaned (non-terminal)", nonTerminal))
+		}
+	}
+	if len(dependents) > 0 {
+		warnings = append(warnings, fmt.Sprintf("%d artifacts depend on this — their dependency chain would break", len(dependents)))
+	}
+	if len(warnings) > 0 {
+		lines = append(lines, "\nWarnings:")
+		for _, w := range warnings {
+			lines = append(lines, "  ⚠ "+w)
+		}
+	}
+
+	if len(children) == 0 && len(dependents) == 0 && len(implementors) == 0 {
+		lines = append(lines, "\nNo downstream impact — safe to archive.")
+	}
+
 	return text(strings.Join(lines, "\n")), nil, nil
 }
 

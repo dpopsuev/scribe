@@ -321,6 +321,23 @@ type ListInput struct {
 }
 
 func (p *Protocol) ListArtifacts(ctx context.Context, in ListInput) ([]*model.Artifact, error) {
+	// Apply sticky filter defaults from config artifacts
+	if in.Scope == "" {
+		if v := p.GetConfig(ctx, "default_scope", ""); v != "" {
+			in.Scope = v
+		}
+	}
+	if in.ExcludeStatus == "" {
+		if v := p.GetConfig(ctx, "default_exclude_status", ""); v != "" {
+			in.ExcludeStatus = v
+		}
+	}
+	if in.Sort == "" {
+		if v := p.GetConfig(ctx, "default_sort", ""); v != "" {
+			in.Sort = v
+		}
+	}
+
 	f := model.Filter{
 		Kind: in.Kind, Status: in.Status,
 		Parent: in.Parent, Sprint: in.Sprint,
