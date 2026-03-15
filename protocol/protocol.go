@@ -2,8 +2,10 @@ package protocol
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -1034,6 +1036,87 @@ func (p *Protocol) ArtifactTree(ctx context.Context, in TreeInput) (*TreeNode, e
 	return node, nil
 }
 
+// TopoSort returns a topologically sorted list of artifact IDs from the descendants
+// of the root artifact, ordered by depends_on edges (Kahn's algorithm).
+// Artifacts with no dependencies come first. Returns error if a cycle is detected.
+func (p *Protocol) TopoSort(ctx context.Context, rootID string) ([]TopoEntry, error) {
+	// Collect all descendants via parent_of
+	children, err := p.store.Children(ctx, rootID)
+	if err != nil {
+		return nil, err
+	}
+	if len(children) == 0 {
+		return nil, nil
+	}
+
+	// Build ID set and lookup
+	arts := make(map[string]*model.Artifact, len(children))
+	for _, ch := range children {
+		arts[ch.ID] = ch
+		// Also include grandchildren (flatten tree)
+		gc, _ := p.store.Children(ctx, ch.ID)
+		for _, g := range gc {
+			arts[g.ID] = g
+		}
+	}
+
+	// Build adjacency: inDegree and dependents map
+	inDegree := make(map[string]int, len(arts))
+	dependents := make(map[string][]string) // X -> [things that depend on X]
+	for id := range arts {
+		inDegree[id] = 0
+	}
+	for id, art := range arts {
+		for _, dep := range art.DependsOn {
+			if _, ok := arts[dep]; ok {
+				inDegree[id]++
+				dependents[dep] = append(dependents[dep], id)
+			}
+		}
+	}
+
+	// Kahn's algorithm
+	var queue []string
+	for id, deg := range inDegree {
+		if deg == 0 {
+			queue = append(queue, id)
+		}
+	}
+	sort.Strings(queue) // deterministic order for ties
+
+	var result []TopoEntry
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		art := arts[id]
+		result = append(result, TopoEntry{
+			ID: id, Kind: art.Kind, Status: art.Status,
+			Title: art.Title, Priority: art.Priority,
+		})
+		for _, dep := range dependents[id] {
+			inDegree[dep]--
+			if inDegree[dep] == 0 {
+				queue = append(queue, dep)
+				sort.Strings(queue)
+			}
+		}
+	}
+
+	if len(result) < len(arts) {
+		return result, fmt.Errorf("cycle detected: %d of %d artifacts could not be sorted", len(arts)-len(result), len(arts))
+	}
+	return result, nil
+}
+
+// TopoEntry is a single entry in a topological sort result.
+type TopoEntry struct {
+	ID       string `json:"id"`
+	Kind     string `json:"kind"`
+	Status   string `json:"status"`
+	Title    string `json:"title"`
+	Priority string `json:"priority,omitempty"`
+}
+
 func (p *Protocol) buildTree(ctx context.Context, art *model.Artifact) *TreeNode {
 	node := &TreeNode{ID: art.ID, Kind: art.Kind, Status: art.Status, Title: art.Title, Scope: art.Scope}
 	children, _ := p.store.Children(ctx, art.ID)
@@ -1885,6 +1968,62 @@ func (p *Protocol) ListKindCodes() map[string]string {
 	return result
 }
 
+
+// Export writes all artifacts (optionally filtered by scope) as JSON-lines to w.
+// Each line is a complete artifact with sections, edges, and metadata.
+func (p *Protocol) Export(ctx context.Context, w io.Writer, scope string) (int, error) {
+	filter := model.Filter{}
+	if scope != "" {
+		filter.Scope = scope
+	}
+	arts, err := p.store.List(ctx, filter)
+	if err != nil {
+		return 0, err
+	}
+	enc := json.NewEncoder(w)
+	for _, art := range arts {
+		// Enrich with edges
+		edges, _ := p.store.Neighbors(ctx, art.ID, "", store.Both)
+		export := ExportRecord{Artifact: *art}
+		for _, e := range edges {
+			if e.From == art.ID {
+				export.Edges = append(export.Edges, e)
+			}
+		}
+		if err := enc.Encode(export); err != nil {
+			return 0, err
+		}
+	}
+	return len(arts), nil
+}
+
+// ExportRecord wraps an artifact with its outgoing edges for export.
+type ExportRecord struct {
+	model.Artifact
+	Edges []model.Edge `json:"edges,omitempty"`
+}
+
+// Import reads JSON-lines from r and creates/updates artifacts.
+// Returns count of imported artifacts.
+func (p *Protocol) Import(ctx context.Context, r io.Reader) (int, error) {
+	dec := json.NewDecoder(r)
+	count := 0
+	for dec.More() {
+		var rec ExportRecord
+		if err := dec.Decode(&rec); err != nil {
+			return count, fmt.Errorf("line %d: %w", count+1, err)
+		}
+		if err := p.store.Put(ctx, &rec.Artifact); err != nil {
+			return count, fmt.Errorf("import %s: %w", rec.ID, err)
+		}
+		// Restore edges
+		for _, e := range rec.Edges {
+			p.store.AddEdge(ctx, e)
+		}
+		count++
+	}
+	return count, nil
+}
 
 func (p *Protocol) generateTemplatedID(ctx context.Context, scope, kind string) (string, error) {
 	tmpl := p.idTemplate

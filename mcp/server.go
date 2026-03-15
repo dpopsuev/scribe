@@ -54,9 +54,10 @@ func NewServer(s store.Store, homeScopes, vocab []string, idc protocol.IDConfig,
 		Description: "Navigate and modify artifact relationships. " +
 			"Actions: tree (parent-child hierarchy with optional relation/direction/depth), " +
 			"briefing (recursive traversal of ALL edges from any artifact, showing full context chain), " +
+			"topo_sort (topological order of descendants by depends_on for execution planning), " +
 			"link (add directed relationship), unlink (remove relationship). " +
 			"Supported relations: parent_of, depends_on, follows, justifies, implements, documents.",
-		Keywords:   []string{"tree", "briefing", "link", "unlink", "relation", "edge", "graph"},
+		Keywords:   []string{"tree", "briefing", "topo_sort", "link", "unlink", "relation", "edge", "graph"},
 		Categories: []string{"query", "graph"},
 	}, noOut(h.handleGraph))
 
@@ -143,7 +144,7 @@ type artifactInput struct {
 }
 
 type graphInput struct {
-	Action    string   `json:"action" jsonschema:"required,tree | briefing | link | unlink"`
+	Action    string   `json:"action" jsonschema:"required,tree | briefing | topo_sort | link | unlink"`
 	ID        string   `json:"id,omitempty" jsonschema:"root artifact ID for tree/briefing, or source artifact for link/unlink"`
 	Relation  string   `json:"relation,omitempty" jsonschema:"edge type: parent_of, depends_on, follows, justifies, implements, documents"`
 	Direction string   `json:"direction,omitempty" jsonschema:"traversal direction for tree: outbound (default) or inbound"`
@@ -264,12 +265,32 @@ func (h *handler) handleGraph(ctx context.Context, req *sdkmcp.CallToolRequest, 
 		})
 	case "briefing":
 		return h.handleBriefing(ctx, in.ID)
+	case "topo_sort":
+		if in.ID == "" {
+			return nil, nil, fmt.Errorf("id required for topo_sort (root artifact)")
+		}
+		entries, err := h.proto.TopoSort(ctx, in.ID)
+		if err != nil && len(entries) == 0 {
+			return nil, nil, err
+		}
+		var b strings.Builder
+		for i, e := range entries {
+			fmt.Fprintf(&b, "%d. %s [%s] %s", i+1, e.ID, e.Status, e.Title)
+			if e.Priority != "" && e.Priority != "none" {
+				fmt.Fprintf(&b, " (%s)", e.Priority)
+			}
+			b.WriteString("\n")
+		}
+		if err != nil {
+			fmt.Fprintf(&b, "\n%s\n", err)
+		}
+		return text(b.String()), nil, nil
 	case "unlink":
 		return h.handleLink(ctx, req, linkInput{
 			ID: in.ID, Relation: in.Relation, Targets: in.Targets, Unlink: true,
 		})
 	default:
-		return nil, nil, fmt.Errorf("unknown graph action %q (valid: tree, briefing, link, unlink)", in.Action)
+		return nil, nil, fmt.Errorf("unknown graph action %q (valid: tree, briefing, topo_sort, link, unlink)", in.Action)
 	}
 }
 

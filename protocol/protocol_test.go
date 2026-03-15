@@ -1,6 +1,7 @@
 package protocol_test
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -1810,6 +1811,54 @@ func TestScopeLabels_DirectArtifactLabel(t *testing.T) {
 	}
 	if len(arts) != 1 {
 		t.Errorf("expected 1 artifact via direct label, got %d", len(arts))
+	}
+}
+
+func TestExportImport_RoundTrip(t *testing.T) {
+	s := openStore(t)
+	p := protocol.New(s, nil, []string{"test"}, nil, protocol.IDConfig{})
+	ctx := context.Background()
+	scopeSetup(t, s, "test")
+
+	// Create artifacts with edges
+	a1, _ := p.CreateArtifact(ctx, protocol.CreateInput{Kind: "task", Title: "Task 1", Scope: "test", Priority: "high"})
+	a2, _ := p.CreateArtifact(ctx, protocol.CreateInput{Kind: "task", Title: "Task 2", Scope: "test", Priority: "medium", DependsOn: []string{a1.ID}})
+	p.AttachSection(ctx, a1.ID, "context", "some context")
+
+	// Export
+	var buf bytes.Buffer
+	n, err := p.Export(ctx, &buf, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Errorf("exported %d, want 2", n)
+	}
+
+	// Import into a fresh store
+	s2 := openStore(t)
+	p2 := protocol.New(s2, nil, []string{"test"}, nil, protocol.IDConfig{})
+
+	n, err = p2.Import(ctx, &buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Errorf("imported %d, want 2", n)
+	}
+
+	// Verify artifacts exist with correct data
+	got, err := p2.GetArtifact(ctx, a1.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "Task 1" {
+		t.Errorf("title = %q, want %q", got.Title, "Task 1")
+	}
+
+	got2, _ := p2.GetArtifact(ctx, a2.ID)
+	if len(got2.DependsOn) == 0 || got2.DependsOn[0] != a1.ID {
+		t.Errorf("depends_on = %v, want [%s]", got2.DependsOn, a1.ID)
 	}
 }
 
