@@ -65,13 +65,11 @@ func (d *staticDefaults) GetMotdRecentHours() int   { return d.motdHours }
 func (d *staticDefaults) GetTreeMaxDepth() int      { return d.treeDepth }
 
 // IDConfig configures scoped ID generation, key resolution, and field mutability.
+// IDConfig is an alias for model.IDConfig extended with a DefaultsProvider.
+// Use model.IDConfig for the core struct — this wrapper adds runtime behavior.
 type IDConfig struct {
-	IDFormat         string
-	IDTemplate       *model.IDTemplate
-	ScopeKeys        map[string]string
-	KindCodes        map[string]string
-	MutableCreatedAt bool
-	Defaults         DefaultsProvider
+	model.IDConfig
+	Defaults DefaultsProvider
 }
 
 // MotdResult is the message-of-the-day payload.

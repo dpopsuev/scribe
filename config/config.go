@@ -175,21 +175,26 @@ func (c *Config) IsMutableCreatedAt() bool {
 }
 
 func (c *Config) ProtocolIDConfig() protocol.IDConfig {
-	idc := protocol.IDConfig{
+	return protocol.IDConfig{
+		IDConfig: c.ModelIDConfig(),
+		Defaults: c.Defaults,
+	}
+}
+
+func (c *Config) ModelIDConfig() model.IDConfig {
+	mc := model.IDConfig{
 		IDFormat:         c.IDFormat,
 		ScopeKeys:        c.ScopeKeys,
 		KindCodes:        c.KindCodes,
 		MutableCreatedAt: c.IsMutableCreatedAt(),
-		Defaults:         c.Defaults,
 	}
 	if c.IDTemplate != nil {
-		idc.IDTemplate = c.IDTemplate
+		mc.IDTemplate = c.IDTemplate
 	} else {
-		// Default to scoped format
 		t := model.PresetScoped()
-		idc.IDTemplate = &t
+		mc.IDTemplate = &t
 	}
-	return idc
+	return mc
 }
 
 func (c *Config) ValidateIDConfig() error {
