@@ -83,6 +83,8 @@ func main() {
 		checkCmd(),
 		migrateCmd(),
 		configCmd(),
+		exportCmd(),
+		importCmd(),
 	)
 
 	if err := root.Execute(); err != nil {
@@ -1700,6 +1702,59 @@ func configCmd() *cobra.Command {
 				return err
 			}
 			fmt.Println(string(data))
+			return nil
+		},
+	}
+}
+
+func exportCmd() *cobra.Command {
+	var scope, output string
+	cmd := &cobra.Command{
+		Use:   "export",
+		Short: "Export artifacts as JSON-lines",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p, close := mustProto()
+			defer close()
+			var w io.Writer = os.Stdout
+			if output != "" && output != "-" {
+				f, err := os.Create(output)
+				if err != nil {
+					return err
+				}
+				defer f.Close()
+				w = f
+			}
+			n, err := p.Export(context.Background(), w, scope)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "exported %d artifacts\n", n)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&scope, "scope", "", "filter by scope (empty = all)")
+	cmd.Flags().StringVarP(&output, "output", "o", "-", "output file (- = stdout)")
+	return cmd
+}
+
+func importCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "import [file]",
+		Short: "Import artifacts from JSON-lines",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p, close := mustProto()
+			defer close()
+			f, err := os.Open(args[0])
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			n, err := p.Import(context.Background(), f)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "imported %d artifacts\n", n)
 			return nil
 		},
 	}
