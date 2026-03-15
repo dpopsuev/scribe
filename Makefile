@@ -25,3 +25,9 @@ run:
 	@sleep 1 && podman logs scribe 2>&1 | tail -3
 
 restart: build-image run
+
+test-e2e:
+	go test -tags e2e -v -timeout 600s -run TestE2E_Deterministic .
+
+test-e2e-llm:
+	go test -tags e2e -v -timeout 600s -run TestE2E_LLM .
