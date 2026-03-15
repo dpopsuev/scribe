@@ -172,6 +172,7 @@ type graphInput struct {
 	Target    string   `json:"target,omitempty" jsonschema:"new parent ID (move) or new target ID (replace)"`
 	OldTarget string   `json:"old_target,omitempty" jsonschema:"existing target to replace (replace)"`
 	Edges     []edgeInput `json:"edges,omitempty" jsonschema:"array of edge tuples for bulk_link/bulk_unlink"`
+	Format    string      `json:"format,omitempty" jsonschema:"output format: text (default) or json (tree, briefing, topo_sort)"`
 }
 
 type edgeInput struct {
@@ -306,6 +307,16 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 func (h *handler) handleGraph(ctx context.Context, req *sdkmcp.CallToolRequest, in graphInput) (*sdkmcp.CallToolResult, any, error) {
 	switch in.Action {
 	case "tree":
+		tree, err := h.proto.ArtifactTree(ctx, protocol.TreeInput{
+			ID: in.ID, Relation: in.Relation, Direction: in.Direction, Depth: in.Depth,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		if in.Format == "json" {
+			data, _ := json.MarshalIndent(tree, "", "  ")
+			return text(string(data)), nil, nil
+		}
 		return h.handleTree(ctx, req, protocol.TreeInput{
 			ID: in.ID, Relation: in.Relation, Direction: in.Direction, Depth: in.Depth,
 		})
@@ -314,6 +325,16 @@ func (h *handler) handleGraph(ctx context.Context, req *sdkmcp.CallToolRequest, 
 			ID: in.ID, Relation: in.Relation, Targets: in.Targets,
 		})
 	case "briefing":
+		if in.Format == "json" {
+			tree, err := h.proto.ArtifactTree(ctx, protocol.TreeInput{
+				ID: in.ID, Relation: "*", Direction: "both",
+			})
+			if err != nil {
+				return nil, nil, err
+			}
+			data, _ := json.MarshalIndent(tree, "", "  ")
+			return text(string(data)), nil, nil
+		}
 		return h.handleBriefing(ctx, in.ID)
 	case "topo_sort":
 		if in.ID == "" {
@@ -322,6 +343,10 @@ func (h *handler) handleGraph(ctx context.Context, req *sdkmcp.CallToolRequest, 
 		entries, err := h.proto.TopoSort(ctx, in.ID)
 		if err != nil && len(entries) == 0 {
 			return nil, nil, err
+		}
+		if in.Format == "json" {
+			data, _ := json.MarshalIndent(entries, "", "  ")
+			return text(string(data)), nil, nil
 		}
 		var b strings.Builder
 		for i, e := range entries {
@@ -1057,11 +1082,19 @@ func (h *handler) handleBatchCreate(ctx context.Context, in artifactInput) (*sdk
 		idRefs[fmt.Sprintf("$%d", i)] = art.ID
 	}
 
-	var lines []string
+	var b strings.Builder
+	fmt.Fprintf(&b, "created %d artifacts:\n", len(created))
 	for _, art := range created {
-		lines = append(lines, fmt.Sprintf("%s [%s] %s", art.ID, art.Kind, art.Title))
+		fmt.Fprintf(&b, "%s [%s] %s", art.ID, art.Kind, art.Title)
+		if art.Parent != "" {
+			fmt.Fprintf(&b, " (parent: %s)", art.Parent)
+		}
+		if art.Priority != "" && art.Priority != "none" {
+			fmt.Fprintf(&b, " (%s)", art.Priority)
+		}
+		b.WriteString("\n")
 	}
-	return text(fmt.Sprintf("created %d artifacts:\n%s", len(created), strings.Join(lines, "\n"))), nil, nil
+	return text(b.String()), nil, nil
 }
 
 func (h *handler) handleClone(ctx context.Context, in artifactInput) (*sdkmcp.CallToolResult, any, error) {
