@@ -428,7 +428,85 @@ func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
 	if _, err := tx.ExecContext(ctx, "DELETE FROM edges WHERE from_id = ? OR to_id = ?", id, id); err != nil {
 		return err
 	}
+
+	// Clean dangling references from other artifacts' DependsOn and Links fields
+	if err := s.cleanDanglingRefs(ctx, tx, id); err != nil {
+		slog.Warn("cleanDanglingRefs", "deleted_id", id, "error", err)
+	}
+
 	return tx.Commit()
+}
+
+// cleanDanglingRefs removes a deleted ID from other artifacts' DependsOn and Links JSON fields.
+func (s *SQLiteStore) cleanDanglingRefs(ctx context.Context, tx *sql.Tx, deletedID string) error {
+	// Find artifacts referencing this ID in depends_on or links
+	rows, err := tx.QueryContext(ctx,
+		"SELECT id, depends_on, links FROM artifacts WHERE depends_on LIKE ? OR links LIKE ?",
+		"%"+deletedID+"%", "%"+deletedID+"%")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type refUpdate struct {
+		id        string
+		deps      string
+		links     string
+	}
+	var updates []refUpdate
+	for rows.Next() {
+		var u refUpdate
+		if err := rows.Scan(&u.id, &u.deps, &u.links); err != nil {
+			continue
+		}
+		updates = append(updates, u)
+	}
+
+	for _, u := range updates {
+		changed := false
+
+		// Clean DependsOn
+		var deps []string
+		json.Unmarshal([]byte(u.deps), &deps)
+		var cleanDeps []string
+		for _, d := range deps {
+			if d != deletedID {
+				cleanDeps = append(cleanDeps, d)
+			} else {
+				changed = true
+			}
+		}
+
+		// Clean Links
+		var links map[string][]string
+		json.Unmarshal([]byte(u.links), &links)
+		for rel, targets := range links {
+			var clean []string
+			for _, t := range targets {
+				if t != deletedID {
+					clean = append(clean, t)
+				} else {
+					changed = true
+				}
+			}
+			if len(clean) == 0 {
+				delete(links, rel)
+			} else {
+				links[rel] = clean
+			}
+		}
+
+		if changed {
+			depsJSON, _ := json.Marshal(cleanDeps)
+			linksJSON, _ := json.Marshal(links)
+			if _, err := tx.ExecContext(ctx,
+				"UPDATE artifacts SET depends_on = ?, links = ? WHERE id = ?",
+				string(depsJSON), string(linksJSON), u.id); err != nil {
+				return fmt.Errorf("clean refs in %s: %w", u.id, err)
+			}
+		}
+	}
+	return nil
 }
 
 func (s *SQLiteStore) List(ctx context.Context, f model.Filter) ([]*model.Artifact, error) {
