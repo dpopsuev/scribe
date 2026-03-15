@@ -1053,11 +1053,20 @@ func TestSchema_DefaultStatus(t *testing.T) {
 func TestSchema_ExpectedSections(t *testing.T) {
 	s := model.DefaultSchema()
 	taskSec := s.GetExpectedSections("task")
-	if len(taskSec) != 3 {
-		t.Fatalf("expected 3 sections for task, got %d", len(taskSec))
+	// must(context) + should(checklist, acceptance) + could(current_architecture, desired_architecture)
+	if len(taskSec) != 5 {
+		t.Fatalf("expected 5 sections for task, got %d: %v", len(taskSec), taskSec)
 	}
 	if taskSec[0] != "context" || taskSec[1] != "checklist" || taskSec[2] != "acceptance" {
-		t.Errorf("unexpected task sections: %v", taskSec)
+		t.Errorf("unexpected task must+should sections: %v", taskSec[:3])
+	}
+
+	// MissingSections should only check must+should, not could
+	missingSec := s.MissingSections("task", []model.Section{
+		{Name: "context"}, {Name: "checklist"}, {Name: "acceptance"},
+	})
+	if len(missingSec) != 0 {
+		t.Errorf("expected 0 missing (could excluded), got %d: %v", len(missingSec), missingSec)
 	}
 
 	goalSec := s.GetExpectedSections("goal")
