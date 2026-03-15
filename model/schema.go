@@ -175,11 +175,20 @@ func (s *Schema) GetShouldSections(kind string) []string {
 	return nil
 }
 
-// MissingSections returns expected section names not present in have.
-// Checks must + should + could (or falls back to ExpectedSections).
+// MissingSections returns must+should section names not present in have.
+// CouldSections are excluded — they are informational, not blocking.
 func (s *Schema) MissingSections(kind string, have []Section) []string {
-	expected := s.GetExpectedSections(kind)
-	if len(expected) == 0 {
+	kd, ok := s.Kinds[kind]
+	if !ok {
+		return nil
+	}
+	var required []string
+	required = append(required, kd.MustSections...)
+	required = append(required, kd.ShouldSections...)
+	if len(required) == 0 {
+		required = kd.ExpectedSections
+	}
+	if len(required) == 0 {
 		return nil
 	}
 	present := make(map[string]bool, len(have))
@@ -187,7 +196,7 @@ func (s *Schema) MissingSections(kind string, have []Section) []string {
 		present[sec.Name] = true
 	}
 	var missing []string
-	for _, name := range expected {
+	for _, name := range required {
 		if !present[name] {
 			missing = append(missing, name)
 		}
@@ -545,6 +554,7 @@ func DefaultSchema() *Schema {
 			ActivationRequiresSections: true,
 			MustSections:               []string{"context"},
 			ShouldSections:             []string{"checklist", "acceptance"},
+			CouldSections:              []string{"current_architecture", "desired_architecture"},
 			RequiredFields:             []string{FieldPriority},
 			Children:                   []string{},
 			Relations: KindRelations{
@@ -556,6 +566,7 @@ func DefaultSchema() *Schema {
 			ActivationRequiresSections: true,
 			MustSections:               []string{"problem"},
 			ShouldSections:             []string{"decision", "acceptance"},
+			CouldSections:              []string{"architecture", "current_architecture", "desired_architecture"},
 			Children:                   []string{},
 			Relations: KindRelations{
 				Incoming: []string{RelImplements, RelJustifies},

@@ -28,7 +28,13 @@ func NewServer(s store.Store, homeScopes, vocab []string, idc protocol.IDConfig,
 				"with parent-child trees, dependency edges, named text sections, and lifecycle status tracking. " +
 				"Start with admin motd for context, then artifact list to explore. " +
 				"Use graph topo_sort for execution order. Use follows edges for ROI ordering. " +
-				"Templates auto-link via satisfies with cascading resolution (scoped > global).",
+				"Templates auto-link via satisfies with cascading resolution (scoped > global). " +
+				"Kinds: task (work unit), spec (design doc), bug (defect), goal (north star), campaign (mission), " +
+				"template (section guidance), need (capability gap), doc/ref (knowledge), config (runtime settings), mirror (external ticket). " +
+				"Relations: parent_of (tree), depends_on (hard block), follows (ROI order), implements (task→spec/bug), " +
+				"justifies (need→spec), documents (ref→any), satisfies (artifact→template). " +
+				"Workflow: motd → list/topo_sort → get (with section_filter) → create/update (with patch map) → set status. " +
+				"Bulk ops: get accepts ids array, graph accepts bulk_link/bulk_unlink edge arrays, move re-parents, replace swaps edge targets.",
 		},
 	)
 	reg := directive.New()
