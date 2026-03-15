@@ -9,12 +9,14 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/dpopsuev/scribe/config"
@@ -1192,6 +1194,9 @@ func serveCmd() *cobra.Command {
 				}()
 			}
 
+			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGTERM, syscall.SIGINT)
+			defer stop()
+
 			if t == "http" {
 				var serverCache sync.Map
 				serverCache.Store("", srv)
@@ -1229,11 +1234,24 @@ func serveCmd() *cobra.Command {
 					}()
 				}
 
+				httpSrv := &http.Server{Addr: a, Handler: handler}
+				go func() {
+					<-ctx.Done()
+					slog.Info("shutdown signal received, draining connections")
+					shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					defer cancel()
+					httpSrv.Shutdown(shutCtx)
+				}()
+
 				slog.Info("listening", "addr", a, "session_timeout", "30m")
-				return http.ListenAndServe(a, handler)
+				if err := httpSrv.ListenAndServe(); err != http.ErrServerClosed {
+					return err
+				}
+				slog.Info("server stopped, closing store")
+				return nil
 			}
 			slog.Info("serving via stdio")
-			return srv.Run(context.Background(), &sdkmcp.StdioTransport{})
+			return srv.Run(ctx, &sdkmcp.StdioTransport{})
 		},
 	}
 	cmd.Flags().StringSliceVar(&scopes, "scope", nil, "home scopes (repeatable)")

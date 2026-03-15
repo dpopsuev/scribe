@@ -55,7 +55,7 @@ func NewServer(s store.Store, homeScopes, vocab []string, idc protocol.IDConfig,
 			"Actions: tree (parent-child hierarchy with optional relation/direction/depth), " +
 			"briefing (recursive traversal of ALL edges from any artifact, showing full context chain), " +
 			"link (add directed relationship), unlink (remove relationship). " +
-			"Supported relations: parent_of, depends_on, justifies, implements, documents.",
+			"Supported relations: parent_of, depends_on, follows, justifies, implements, documents.",
 		Keywords:   []string{"tree", "briefing", "link", "unlink", "relation", "edge", "graph"},
 		Categories: []string{"query", "graph"},
 	}, noOut(h.handleGraph))
@@ -119,7 +119,7 @@ type artifactInput struct {
 	Sort           string `json:"sort,omitempty" jsonschema:"sort results by: id, title, status, scope, kind, sprint (list)"`
 	Limit          int    `json:"limit,omitempty" jsonschema:"max results to return (list)"`
 	Count          bool     `json:"count,omitempty" jsonschema:"return count instead of full artifacts (list)"`
-	Fields         []string `json:"fields,omitempty" jsonschema:"return only these columns: id, kind, scope, status, title, parent, priority (list)"`
+	Fields         []string `json:"fields,omitempty" jsonschema:"return only these columns: id, kind, scope, status, title, parent, priority, sprint, depends_on, labels (list)"`
 	Query          string `json:"query,omitempty" jsonschema:"substring search across title, goal, and section text (list)"`
 	CreatedAfter   string `json:"created_after,omitempty" jsonschema:"RFC 3339 lower bound on created_at (list)"`
 	CreatedBefore  string `json:"created_before,omitempty" jsonschema:"RFC 3339 upper bound on created_at (list)"`
@@ -145,7 +145,7 @@ type artifactInput struct {
 type graphInput struct {
 	Action    string   `json:"action" jsonschema:"required,tree | briefing | link | unlink"`
 	ID        string   `json:"id,omitempty" jsonschema:"root artifact ID for tree/briefing, or source artifact for link/unlink"`
-	Relation  string   `json:"relation,omitempty" jsonschema:"edge type: parent_of, depends_on, justifies, implements, documents"`
+	Relation  string   `json:"relation,omitempty" jsonschema:"edge type: parent_of, depends_on, follows, justifies, implements, documents"`
 	Direction string   `json:"direction,omitempty" jsonschema:"traversal direction for tree: outbound (default) or inbound"`
 	Depth     int      `json:"depth,omitempty" jsonschema:"max traversal depth for tree (0 = unlimited)"`
 	Targets   []string `json:"targets,omitempty" jsonschema:"target artifact IDs to link/unlink"`
@@ -155,7 +155,7 @@ type adminInput struct {
 	Action string `json:"action" jsonschema:"required,motd | changelog | dashboard | snapshot | set_goal | vacuum | detect | lint | check | set_scope_labels | list_scope_labels"`
 
 	// Snapshot sub-action and params
-	SnapshotAction string `json:"snapshot_action,omitempty" jsonschema:"snapshot sub-action: create, list, diff"`
+	SnapshotAction string `json:"snapshot_action,omitempty" jsonschema:"snapshot sub-action: create, list, diff, restore"`
 	SnapshotName   string `json:"snapshot_name,omitempty" jsonschema:"snapshot label (create) or key (diff)"`
 
 	StaleDays int    `json:"stale_days,omitempty" jsonschema:"days without update to consider an artifact stale (dashboard)"`
@@ -452,14 +452,16 @@ func (h *handler) handleListCount(ctx context.Context, in protocol.ListInput) (*
 }
 
 var validFields = map[string]func(*model.Artifact) string{
-	"id":       func(a *model.Artifact) string { return a.ID },
-	"kind":     func(a *model.Artifact) string { return a.Kind },
-	"scope":    func(a *model.Artifact) string { return a.Scope },
-	"status":   func(a *model.Artifact) string { return a.Status },
-	"title":    func(a *model.Artifact) string { return a.Title },
-	"parent":   func(a *model.Artifact) string { return a.Parent },
-	"priority": func(a *model.Artifact) string { return a.Priority },
-	"sprint":   func(a *model.Artifact) string { return a.Sprint },
+	"id":         func(a *model.Artifact) string { return a.ID },
+	"kind":       func(a *model.Artifact) string { return a.Kind },
+	"scope":      func(a *model.Artifact) string { return a.Scope },
+	"status":     func(a *model.Artifact) string { return a.Status },
+	"title":      func(a *model.Artifact) string { return a.Title },
+	"parent":     func(a *model.Artifact) string { return a.Parent },
+	"priority":   func(a *model.Artifact) string { return a.Priority },
+	"sprint":     func(a *model.Artifact) string { return a.Sprint },
+	"depends_on": func(a *model.Artifact) string { return strings.Join(a.DependsOn, ",") },
+	"labels":     func(a *model.Artifact) string { return strings.Join(a.Labels, ",") },
 }
 
 func (h *handler) handleListCompact(ctx context.Context, in protocol.ListInput, fields []string) (*sdkmcp.CallToolResult, any, error) {
@@ -468,7 +470,7 @@ func (h *handler) handleListCompact(ctx context.Context, in protocol.ListInput, 
 	for _, f := range fields {
 		g, ok := validFields[f]
 		if !ok {
-			return nil, nil, fmt.Errorf("unknown field %q (valid: id, kind, scope, status, title, parent, priority, sprint)", f)
+			return nil, nil, fmt.Errorf("unknown field %q (valid: id, kind, scope, status, title, parent, priority, sprint, depends_on, labels)", f)
 		}
 		getters = append(getters, g)
 	}
@@ -1147,8 +1149,17 @@ func (h *handler) handleSnapshot(ctx context.Context, in adminInput) (*sdkmcp.Ca
 		}
 		return text(strings.Join(parts, "\n")), nil, nil
 
+	case "restore":
+		if in.SnapshotName == "" {
+			return nil, nil, fmt.Errorf("snapshot_name required for restore (use list to find keys)")
+		}
+		if err := h.snapshotter.Restore(ctx, in.SnapshotName); err != nil {
+			return nil, nil, err
+		}
+		return text(fmt.Sprintf("database restored from snapshot: %s (pre-restore backup created)", in.SnapshotName)), nil, nil
+
 	default:
-		return nil, nil, fmt.Errorf("unknown snapshot action %q (valid: create, list, diff)", in.SnapshotAction)
+		return nil, nil, fmt.Errorf("unknown snapshot action %q (valid: create, list, diff, restore)", in.SnapshotAction)
 	}
 }
 

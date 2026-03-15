@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -138,6 +139,17 @@ func (b *LocalSnapshotBackend) ReadArtifactIndex(ctx context.Context, key string
 		index[id] = updatedAt
 	}
 	return index, rows.Err()
+}
+
+func (b *LocalSnapshotBackend) Restore(ctx context.Context, key string) error {
+	if _, err := os.Stat(key); err != nil {
+		return fmt.Errorf("snapshot not found: %s", key)
+	}
+	if err := copyFile(key, b.dbPath); err != nil {
+		return fmt.Errorf("restore copy failed: %w", err)
+	}
+	slog.Info("snapshot restored", "from", key, "to", b.dbPath)
+	return nil
 }
 
 func copyFile(src, dst string) error {

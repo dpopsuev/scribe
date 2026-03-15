@@ -67,6 +67,8 @@ type SnapshotBackend interface {
 	Delete(ctx context.Context, key string) error
 	// ReadArtifactIndex returns a map of artifact ID -> updated_at from a snapshot.
 	ReadArtifactIndex(ctx context.Context, key string) (map[string]string, error)
+	// Restore replaces the current database with the snapshot, creating a pre-restore backup.
+	Restore(ctx context.Context, key string) error
 }
 
 // Snapshotter manages database snapshots using a pluggable backend.
@@ -155,6 +157,15 @@ func (s *Snapshotter) Clean(ctx context.Context, cfg SnapshotConfig) (int, error
 	}
 
 	return deleted, nil
+}
+
+// Restore replaces the current database with a snapshot, creating a pre-restore backup first.
+func (s *Snapshotter) Restore(ctx context.Context, key string) error {
+	// Create a pre-restore backup
+	if _, err := s.backend.Save(ctx, "pre-restore"); err != nil {
+		return fmt.Errorf("pre-restore backup failed: %w", err)
+	}
+	return s.backend.Restore(ctx, key)
 }
 
 // AutoSnapshot creates a snapshot if the last one is older than the configured threshold.
