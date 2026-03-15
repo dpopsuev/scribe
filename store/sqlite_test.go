@@ -589,6 +589,78 @@ func TestNextScopedID_ReseedOnOpen(t *testing.T) {
 	}
 }
 
+func TestNextSeq_SkipsExistingArtifacts(t *testing.T) {
+	s := openSQLite(t)
+	ctx := context.Background()
+
+	// Pre-populate artifacts at IDs that match the NextSeq key format:
+	// key="SCR-SPC", seq=N → ID="SCR-SPC-N"
+	for i := 1; i <= 3; i++ {
+		s.Put(ctx, &model.Artifact{
+			ID:     fmt.Sprintf("SCR-SPC-%d", i),
+			Kind:   "spec",
+			Scope:  "scribe",
+			Status: "archived",
+			Title:  fmt.Sprintf("Old spec %d", i),
+		})
+	}
+
+	// NextSeq should skip 1, 2, 3 and return 4
+	seq, err := s.NextSeq(ctx, "SCR-SPC")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seq != 4 {
+		t.Errorf("NextSeq should skip existing artifacts: got seq=%d, want 4", seq)
+	}
+
+	// Verify old artifacts are NOT overwritten
+	old, err := s.Get(ctx, "SCR-SPC-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if old.Title != "Old spec 1" {
+		t.Errorf("archived artifact SCR-SPC-1 was overwritten: title = %q", old.Title)
+	}
+}
+
+func TestNextSeq_ReseedOnOpen(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "reseed-seq.db")
+
+	// First open: create artifacts up to SCR-SPC-5
+	s1, err := store.OpenSQLite(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	s1.SetScopeKey(ctx, "scribe", "SCR", false)
+	for i := 1; i <= 5; i++ {
+		s1.Put(ctx, &model.Artifact{
+			ID:     fmt.Sprintf("SCR-SPC-%d", i),
+			Kind:   "spec",
+			Scope:  "scribe",
+			Status: "archived",
+			Title:  fmt.Sprintf("Spec %d", i),
+		})
+	}
+	s1.Close()
+
+	// Second open: reseed should detect existing artifacts in sequences table too
+	s2, err := store.OpenSQLite(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+
+	seq, err := s2.NextSeq(ctx, "SCR-SPC")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seq != 6 {
+		t.Errorf("after reseed, NextSeq should return 6, got %d", seq)
+	}
+}
+
 func TestScopeLabels_Store(t *testing.T) {
 	s := openSQLite(t)
 	ctx := context.Background()
