@@ -2025,6 +2025,33 @@ func (p *Protocol) Import(ctx context.Context, r io.Reader) (int, error) {
 	return count, nil
 }
 
+// GetConfig resolves a named configuration value with cascading:
+// scoped config > global config > empty string.
+// Config artifacts use sections as key-value pairs (section name = key, text = value).
+func (p *Protocol) GetConfig(ctx context.Context, key, scope string) string {
+	// 1. Try scoped config
+	if scope != "" {
+		configs, _ := p.store.List(ctx, model.Filter{Kind: "config", Scope: scope, Status: model.StatusActive})
+		for _, cfg := range configs {
+			for _, sec := range cfg.Sections {
+				if sec.Name == key {
+					return sec.Text
+				}
+			}
+		}
+	}
+	// 2. Try global (scopeless) config
+	configs, _ := p.store.List(ctx, model.Filter{Kind: "config", Scope: "", Status: model.StatusActive})
+	for _, cfg := range configs {
+		for _, sec := range cfg.Sections {
+			if sec.Name == key {
+				return sec.Text
+			}
+		}
+	}
+	return ""
+}
+
 func (p *Protocol) generateTemplatedID(ctx context.Context, scope, kind string) (string, error) {
 	tmpl := p.idTemplate
 	scopeKey := ""

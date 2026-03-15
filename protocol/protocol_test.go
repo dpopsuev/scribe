@@ -1814,6 +1814,57 @@ func TestScopeLabels_DirectArtifactLabel(t *testing.T) {
 	}
 }
 
+func TestGetConfig_Cascading(t *testing.T) {
+	s := openStore(t)
+	p := protocol.New(s, nil, []string{"test"}, nil, protocol.IDConfig{})
+	ctx := context.Background()
+	scopeSetup(t, s, "test")
+
+	// No config → empty
+	if v := p.GetConfig(ctx, "log_level", "test"); v != "" {
+		t.Errorf("expected empty, got %q", v)
+	}
+
+	// Create global config directly via store (scopeless)
+	s.Put(ctx, &model.Artifact{
+		ID: "CFG-GLOBAL", Kind: "config", Scope: "", Status: "active",
+		Title: "Global Config",
+		Sections: []model.Section{
+			{Name: "log_level", Text: "info"},
+			{Name: "max_results", Text: "100"},
+		},
+	})
+
+	// Global config resolves
+	if v := p.GetConfig(ctx, "log_level", "test"); v != "info" {
+		t.Errorf("expected 'info', got %q", v)
+	}
+
+	// Create scoped config that overrides log_level
+	s.Put(ctx, &model.Artifact{
+		ID: "CFG-TEST", Kind: "config", Scope: "test", Status: "active",
+		Title: "Test Config",
+		Sections: []model.Section{
+			{Name: "log_level", Text: "debug"},
+		},
+	})
+
+	// Scoped overrides global
+	if v := p.GetConfig(ctx, "log_level", "test"); v != "debug" {
+		t.Errorf("expected 'debug', got %q", v)
+	}
+
+	// Global still used for keys not in scoped
+	if v := p.GetConfig(ctx, "max_results", "test"); v != "100" {
+		t.Errorf("expected '100', got %q", v)
+	}
+
+	// Empty scope falls through to global only
+	if v := p.GetConfig(ctx, "log_level", ""); v != "info" {
+		t.Errorf("expected 'info' for empty scope, got %q", v)
+	}
+}
+
 func TestExportImport_RoundTrip(t *testing.T) {
 	s := openStore(t)
 	p := protocol.New(s, nil, []string{"test"}, nil, protocol.IDConfig{})
