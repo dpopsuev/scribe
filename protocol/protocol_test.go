@@ -739,11 +739,11 @@ func TestSetGoal_RejectsNoScope(t *testing.T) {
 func TestCreateArtifact_ScopedID(t *testing.T) {
 	s := openStore(t)
 	schema := model.DefaultSchema()
-	idc := protocol.IDConfig{
+	idc := protocol.IDConfig{IDConfig: model.IDConfig{
 		IDFormat:  "scoped",
 		ScopeKeys:  map[string]string{"testscope": "TST"},
 		KindCodes:  map[string]string{"task": "TSK"},
-	}
+	}}
 	p := protocol.New(s, schema, []string{"testscope"}, nil, idc)
 
 	art, err := p.CreateArtifact(context.Background(), protocol.CreateInput{
@@ -774,7 +774,7 @@ func TestCreateArtifact_ScopedID(t *testing.T) {
 func TestCreateArtifact_LegacyID(t *testing.T) {
 	s := openStore(t)
 	schema := model.DefaultSchema()
-	idc := protocol.IDConfig{IDFormat: "legacy"}
+	idc := protocol.IDConfig{IDConfig: model.IDConfig{IDFormat: "legacy"}}
 	p := protocol.New(s, schema, []string{"testscope"}, nil, idc)
 
 	art, err := p.CreateArtifact(context.Background(), protocol.CreateInput{
@@ -833,7 +833,7 @@ func TestSetField_InsertedAtImmutable(t *testing.T) {
 func TestSetField_CreatedAtMutable(t *testing.T) {
 	s := openStore(t)
 	schema := model.DefaultSchema()
-	idc := protocol.IDConfig{MutableCreatedAt: true}
+	idc := protocol.IDConfig{IDConfig: model.IDConfig{MutableCreatedAt: true}}
 	p := protocol.New(s, schema, []string{"test"}, nil, idc)
 
 	art, _ := p.CreateArtifact(context.Background(), protocol.CreateInput{
@@ -853,7 +853,7 @@ func TestSetField_CreatedAtMutable(t *testing.T) {
 func TestSetField_CreatedAtNotMutable(t *testing.T) {
 	s := openStore(t)
 	schema := model.DefaultSchema()
-	idc := protocol.IDConfig{MutableCreatedAt: false}
+	idc := protocol.IDConfig{IDConfig: model.IDConfig{MutableCreatedAt: false}}
 	p := protocol.New(s, schema, []string{"test"}, nil, idc)
 
 	art, _ := p.CreateArtifact(context.Background(), protocol.CreateInput{
@@ -895,7 +895,7 @@ func TestCampaign_CreateWithoutScope(t *testing.T) {
 func TestCampaign_ScopedIDFallback(t *testing.T) {
 	s := openStore(t)
 	schema := model.DefaultSchema()
-	idc := protocol.IDConfig{IDFormat: "scoped"}
+	idc := protocol.IDConfig{IDConfig: model.IDConfig{IDFormat: "scoped"}}
 	p := protocol.New(s, schema, []string{"test"}, nil, idc)
 
 	// ScopeOptional removed: campaign gets scope from single homeScope.

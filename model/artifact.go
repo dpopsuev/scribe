@@ -80,6 +80,15 @@ const (
 	RelSatisfies  = "satisfies"
 )
 
+// IDConfig holds identity generation settings shared between config and protocol.
+type IDConfig struct {
+	IDFormat         string
+	IDTemplate       *IDTemplate
+	ScopeKeys        map[string]string
+	KindCodes        map[string]string
+	MutableCreatedAt bool
+}
+
 // Filter constrains artifact list/query operations.
 type Filter struct {
 	Kind        string
