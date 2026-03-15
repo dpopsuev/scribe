@@ -15,13 +15,13 @@ Work graph for AI agents. Scribe is a structured artifact store with native DAG 
 podman run -d --name scribe \
   -p 8080:8080 \
   -v scribe-data:/data \
-  quay.io/dpopsuev/scribe:0.5.0
+  quay.io/dpopsuev/scribe:latest
 ```
 
 ### Binary
 
 ```bash
-go install github.com/dpopsuev/scribe/cmd/scribe@v0.5.0
+go install github.com/dpopsuev/scribe/cmd/scribe@latest
 scribe serve                   # stdio (Cursor, Claude Desktop)
 scribe serve --transport http  # Streamable HTTP on :8080
 ```
@@ -90,7 +90,7 @@ Scribe solves this by giving agents a structured, persistent memory they can rea
 | Concept | What it is |
 |---|---|
 | **Artifact** | The universal record. Everything is an artifact with a kind, status, scope, and auto-generated ID (e.g. `TASK-2026-042`). |
-| **Kind** | The type of artifact. Canonical kinds: `goal`, `sprint`, `task`, `spec`, `bug`, `campaign`, `template`, `need`, `ref`, `doc`, `decision`. Enforced by vocabulary validation -- unknown kinds are rejected with a hint to register them via `scribe vocab add`. |
+| **Kind** | The type of artifact. Canonical kinds: `goal`, `sprint`, `task`, `spec`, `bug`, `campaign`, `template`, `need`, `ref`, `doc`, `decision`, `config`. Enforced by schema validation. |
 | **Task** | The primary unit of work. A task carries a goal statement, design sections, and dependency edges. Tasks **implement** specs and bugs. |
 | **Spec** | A specification: the *what* and *why*. Defines acceptance criteria. Tasks implement specs. |
 | **Bug** | A defect record. Like a spec, a bug is resolved by a task that implements it. |
@@ -101,7 +101,8 @@ Scribe solves this by giving agents a structured, persistent memory they can rea
 | **Campaign** | Cross-project mission container. Groups goals, specs, and tasks under a theme (e.g. "v1 stabilization"). |
 | **Template** | Meta-artifact (artifact about artifacts). Defines required sections and guidance for a kind. Artifacts link to templates via `satisfies`. |
 | **Need** | A requirement or capability gap. Justifies goals and specs. |
-| **Edge** | A directed relationship: `parent_of`, `depends_on`, `justifies`, `implements`, `documents`, `satisfies`. Edges form a DAG that agents can traverse. |
+| **Config** | Runtime configuration artifact. Sections are key-value pairs with cascading resolution (scoped > global). |
+| **Edge** | A directed relationship: `parent_of`, `depends_on`, `follows`, `justifies`, `implements`, `documents`, `satisfies`. Edges form a DAG that agents can traverse. |
 
 ### Artifact Relationships
 
@@ -288,11 +289,13 @@ block-beta
 
 ### Storage
 
-Single SQLite database (CGo-free via `modernc.org/sqlite`). Three tables:
+Single SQLite database (CGo-free via `modernc.org/sqlite`). Tables:
 
-- **artifacts** -- all fields as columns, JSON for arrays/maps (sections, labels, depends_on, links, extra).
+- **artifacts** -- UID primary key (crypto/rand hex), human-readable ID as unique index with auto-rename on collision. JSON for arrays/maps.
 - **edges** -- directed graph: `(from, to, relation)` with a unique constraint.
-- **sequences** -- auto-increment counters per ID prefix (CON, SPR, GOAL, ...).
+- **sequences** / **scoped_sequences** -- auto-increment counters with collision checks.
+
+Snapshots: automatic periodic backups with pluggable backend (local filesystem, future S3). Restore with pre-restore backup via `admin snapshot restore`.
 
 Default location: `~/.scribe/scribe.sqlite` (binary) or `/data/scribe.sqlite` (container).
 
@@ -312,9 +315,9 @@ The vocabulary is enforced: unknown kinds are rejected with a hint to register t
 
 | Tool | Description |
 |---|---|
-| `artifact` | Create, read, update, and manage work artifacts. Actions: `create`, `get`, `list`, `set`, `archive`, `attach_section`, `get_section`. |
-| `graph` | Navigate and modify artifact relationships. Actions: `tree` (hierarchy), `briefing` (full context chain), `link` (add edge), `unlink` (remove edge). Relations: parent_of, depends_on, justifies, implements, documents. |
-| `admin` | System administration and monitoring. Actions: `motd` (session context), `dashboard` (health/staleness), `set_goal` (north star), `vacuum` (cleanup), `detect` (orphans/overlaps). |
+| `artifact` | Create, read, update, and manage work artifacts. Actions: `create`, `batch_create`, `clone`, `get`, `list`, `set`, `update`, `archive`, `attach_section`, `get_section`, `detach_section`. Supports compact list (custom fields including depends_on, labels), count mode with group_by, and template auto-linking. |
+| `graph` | Navigate and modify artifact relationships. Actions: `tree` (hierarchy), `briefing` (full context chain), `topo_sort` (execution order by depends_on), `link` (add edge), `unlink` (remove edge). Relations: parent_of, depends_on, follows, justifies, implements, documents, satisfies. |
+| `admin` | System administration and monitoring. Actions: `motd` (session context with goals/reminders), `changelog` (recent changes), `dashboard` (health/staleness), `snapshot` (create/list/diff/restore), `set_goal` (north star), `vacuum` (cleanup), `detect` (orphans/overlaps), `lint` (schema consistency). |
 
 ## Configuration
 
@@ -383,7 +386,7 @@ podman run -d --name scribe \
   -p 8080:8080 \
   -v scribe-data:/data \
   -v ./scribe.yaml:/data/scribe.yaml \
-  quay.io/dpopsuev/scribe:0.5.0
+  quay.io/dpopsuev/scribe:latest
 ```
 
 ## Environment Variables

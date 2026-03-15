@@ -26,7 +26,9 @@ func NewServer(s store.Store, homeScopes, vocab []string, idc protocol.IDConfig,
 			Instructions: "Scribe is a work graph for AI agents with native DAG support. " +
 				"Use it to create, query, and manage structured artifacts (tasks, specs, goals, bugs, campaigns) " +
 				"with parent-child trees, dependency edges, named text sections, and lifecycle status tracking. " +
-				"Start with admin motd for context, then artifact list to explore.",
+				"Start with admin motd for context, then artifact list to explore. " +
+				"Use graph topo_sort for execution order. Use follows edges for ROI ordering. " +
+				"Templates auto-link via satisfies with cascading resolution (scoped > global).",
 		},
 	)
 	reg := directive.New()
