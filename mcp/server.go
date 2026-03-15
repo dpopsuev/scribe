@@ -19,7 +19,7 @@ import (
 
 // NewServer creates an MCP server exposing Scribe tools over the given store.
 // Returns both the server and a directive registry for CLI introspection.
-func NewServer(s store.Store, homeScopes, vocab []string, idc protocol.IDConfig, version string) (*sdkmcp.Server, *directive.Registry) {
+func NewServer(s store.Store, homeScopes, vocab []string, idc protocol.IDConfig, version string, snapshotter ...*store.Snapshotter) (*sdkmcp.Server, *directive.Registry) {
 	srv := sdkmcp.NewServer(
 		&sdkmcp.Implementation{Name: "scribe", Version: version},
 		&sdkmcp.ServerOptions{
@@ -30,8 +30,13 @@ func NewServer(s store.Store, homeScopes, vocab []string, idc protocol.IDConfig,
 		},
 	)
 	reg := directive.New()
+	var snap *store.Snapshotter
+	if len(snapshotter) > 0 && snapshotter[0] != nil {
+		snap = snapshotter[0]
+	}
 	h := &handler{
-		proto: protocol.New(s, nil, homeScopes, vocab, idc),
+		proto:       protocol.New(s, nil, homeScopes, vocab, idc),
+		snapshotter: snap,
 	}
 
 	directive.AddTool(reg, srv, directive.ToolMeta{
@@ -76,7 +81,8 @@ func ToolRegistry() *directive.Registry {
 }
 
 type handler struct {
-	proto *protocol.Protocol
+	proto       *protocol.Protocol
+	snapshotter *store.Snapshotter
 }
 
 // --- consolidated input types ---
@@ -146,7 +152,11 @@ type graphInput struct {
 }
 
 type adminInput struct {
-	Action string `json:"action" jsonschema:"required,motd | changelog | dashboard | set_goal | vacuum | detect | lint | check | set_scope_labels | list_scope_labels"`
+	Action string `json:"action" jsonschema:"required,motd | changelog | dashboard | snapshot | set_goal | vacuum | detect | lint | check | set_scope_labels | list_scope_labels"`
+
+	// Snapshot sub-action and params
+	SnapshotAction string `json:"snapshot_action,omitempty" jsonschema:"snapshot sub-action: create, list, diff"`
+	SnapshotName   string `json:"snapshot_name,omitempty" jsonschema:"snapshot label (create) or key (diff)"`
 
 	StaleDays int    `json:"stale_days,omitempty" jsonschema:"days without update to consider an artifact stale (dashboard)"`
 	Since     string `json:"since,omitempty" jsonschema:"RFC 3339 timestamp to show changes since (motd)"`
@@ -269,6 +279,8 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 		return h.handleMotd(ctx, req, motdInput{Since: in.Since})
 	case "changelog":
 		return h.handleChangelog(ctx, in.Since, in.Scope)
+	case "snapshot":
+		return h.handleSnapshot(ctx, in)
 	case "dashboard":
 		return h.handleDashboard(ctx, req, dashboardInput{StaleDays: in.StaleDays})
 	case "set_goal":
@@ -1077,6 +1089,67 @@ func (h *handler) handleChangelog(ctx context.Context, since, scope string) (*sd
 
 	header := fmt.Sprintf("Changes since %s (%d artifacts):\n", since[:10], len(arts))
 	return text(header + strings.Join(sections, "\n\n")), nil, nil
+}
+
+func (h *handler) handleSnapshot(ctx context.Context, in adminInput) (*sdkmcp.CallToolResult, any, error) {
+	if h.snapshotter == nil {
+		return nil, nil, fmt.Errorf("snapshot system not configured")
+	}
+
+	switch in.SnapshotAction {
+	case "create":
+		meta, err := h.snapshotter.Create(ctx, in.SnapshotName)
+		if err != nil {
+			return nil, nil, err
+		}
+		return text(fmt.Sprintf("snapshot created: %s (%d artifacts, %d bytes)",
+			meta.Key, meta.Artifacts, meta.SizeBytes)), nil, nil
+
+	case "list":
+		snapshots, err := h.snapshotter.List(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(snapshots) == 0 {
+			return text("no snapshots found"), nil, nil
+		}
+		var lines []string
+		for _, s := range snapshots {
+			name := s.Name
+			if name == "" {
+				name = "(auto)"
+			}
+			lines = append(lines, fmt.Sprintf("  %-20s %s  %d bytes",
+				name, s.Timestamp.Format("2006-01-02 15:04:05"), s.SizeBytes))
+		}
+		return text(fmt.Sprintf("Snapshots (%d):\n%s", len(snapshots), strings.Join(lines, "\n"))), nil, nil
+
+	case "diff":
+		if in.SnapshotName == "" {
+			return nil, nil, fmt.Errorf("snapshot_name required for diff")
+		}
+		diff, err := h.snapshotter.Diff(ctx, in.SnapshotName)
+		if err != nil {
+			return nil, nil, err
+		}
+		var parts []string
+		if len(diff.Added) > 0 {
+			parts = append(parts, fmt.Sprintf("Added (%d): %s", len(diff.Added), strings.Join(diff.Added, ", ")))
+		}
+		if len(diff.Removed) > 0 {
+			parts = append(parts, fmt.Sprintf("Removed (%d): %s", len(diff.Removed), strings.Join(diff.Removed, ", ")))
+		}
+		if len(diff.Modified) > 0 {
+			parts = append(parts, fmt.Sprintf("Modified (%d): %s", len(diff.Modified), strings.Join(diff.Modified, ", ")))
+		}
+		if len(parts) == 0 {
+			return text("no differences"), nil, nil
+		}
+		return text(strings.Join(parts, "\n")), nil, nil
+
+	default:
+		return nil, nil, fmt.Errorf("unknown snapshot action %q (valid: create, list, diff)", in.SnapshotAction)
+	}
 }
 
 type drainDiscoverInput struct {
