@@ -89,10 +89,11 @@ func DefaultSQLitePath() string {
 // SQLiteConfig holds tunable parameters for the SQLite store.
 // Path is not serialized to config files - use SCRIBE_DB env var or --db flag to override.
 type SQLiteConfig struct {
-	Path           string `json:"-" yaml:"-"` // Runtime only, not persisted to config
-	BusyTimeoutMs  int    `json:"busy_timeout_ms,omitempty" yaml:"busy_timeout_ms,omitempty"`
-	ReaderPoolSize int    `json:"reader_pool_size,omitempty" yaml:"reader_pool_size,omitempty"`
-	JournalMode    string `json:"journal_mode,omitempty" yaml:"journal_mode,omitempty"`
+	Path           string         `json:"-" yaml:"-"` // Runtime only, not persisted to config
+	BusyTimeoutMs  int            `json:"busy_timeout_ms,omitempty" yaml:"busy_timeout_ms,omitempty"`
+	ReaderPoolSize int            `json:"reader_pool_size,omitempty" yaml:"reader_pool_size,omitempty"`
+	JournalMode    string         `json:"journal_mode,omitempty" yaml:"journal_mode,omitempty"`
+	Snapshots      SnapshotConfig `json:"snapshots,omitempty" yaml:"snapshots,omitempty"`
 }
 
 func (c SQLiteConfig) busyTimeout() int {
@@ -120,7 +121,14 @@ func (c SQLiteConfig) journalMode() string {
 type SQLiteStore struct {
 	writer *sql.DB
 	reader *sql.DB
+	dbPath string
 }
+
+// Writer returns the writer connection for operations like WAL checkpoint.
+func (s *SQLiteStore) Writer() *sql.DB { return s.writer }
+
+// DBPath returns the database file path.
+func (s *SQLiteStore) DBPath() string { return s.dbPath }
 
 // OpenSQLite creates or opens a SQLite database at path.
 func OpenSQLite(path string) (*SQLiteStore, error) {
@@ -179,7 +187,14 @@ func OpenSQLiteConfig(cfg SQLiteConfig) (*SQLiteStore, error) {
 	reader.SetMaxOpenConns(cfg.readerPool())
 
 	log.Info("database opened")
-	return &SQLiteStore{writer: writer, reader: reader}, nil
+	st := &SQLiteStore{writer: writer, reader: reader, dbPath: path}
+
+	// Auto-snapshot if last snapshot is stale
+	backend := NewLocalSnapshotBackend(path, writer)
+	snapshotter := NewSnapshotter(backend, st)
+	snapshotter.AutoSnapshot(context.Background(), cfg.Snapshots)
+
+	return st, nil
 }
 
 func generateUID() string {
