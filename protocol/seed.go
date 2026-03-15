@@ -85,10 +85,10 @@ func parseTemplateFile(path string) (*model.Artifact, error) {
 	if err != nil {
 		return nil, err
 	}
-	content := string(data)
+	content := strings.ReplaceAll(string(data), "\r\n", "\n")
 	art := &model.Artifact{
-		Kind:   "template",
-		Status: "active",
+		Kind:   model.KindTemplate,
+		Status: model.StatusActive,
 	}
 
 	// Parse frontmatter
@@ -181,9 +181,9 @@ func parseConfigFile(path string) (*model.Artifact, error) {
 
 	art := &model.Artifact{
 		ID:     "CFG-SEED-" + strings.ToUpper(strings.ReplaceAll(base, "-", "_")),
-		Kind:   "config",
+		Kind:   model.KindConfig,
 		Scope:  scope,
-		Status: "active",
+		Status: model.StatusActive,
 		Title:  base + " config",
 	}
 

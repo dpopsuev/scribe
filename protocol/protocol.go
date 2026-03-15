@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -22,6 +24,13 @@ import (
 var (
 	ErrArchived    = errors.New("artifact is archived and read-only")
 	ErrNotArchived = errors.New("only archived artifacts can be deleted; use force to override")
+)
+
+// Config key constants for sticky filter defaults.
+const (
+	configKeyDefaultScope         = "default_scope"
+	configKeyDefaultExcludeStatus = "default_exclude_status"
+	configKeyDefaultSort          = "default_sort"
 )
 
 // Result is a per-ID outcome for batch operations.
@@ -321,17 +330,17 @@ type ListInput struct {
 func (p *Protocol) ListArtifacts(ctx context.Context, in ListInput) ([]*model.Artifact, error) {
 	// Apply sticky filter defaults from config artifacts
 	if in.Scope == "" {
-		if v := p.GetConfig(ctx, "default_scope", ""); v != "" {
+		if v := p.GetConfig(ctx, configKeyDefaultScope, ""); v != "" {
 			in.Scope = v
 		}
 	}
 	if in.ExcludeStatus == "" {
-		if v := p.GetConfig(ctx, "default_exclude_status", ""); v != "" {
+		if v := p.GetConfig(ctx, configKeyDefaultExcludeStatus, ""); v != "" {
 			in.ExcludeStatus = v
 		}
 	}
 	if in.Sort == "" {
-		if v := p.GetConfig(ctx, "default_sort", ""); v != "" {
+		if v := p.GetConfig(ctx, configKeyDefaultSort, ""); v != "" {
 			in.Sort = v
 		}
 	}
@@ -1903,10 +1912,8 @@ func (p *Protocol) VocabAdd(kind string) error {
 	if kind == "" {
 		return fmt.Errorf("kind is required")
 	}
-	for _, v := range p.vocab {
-		if v == kind {
-			return fmt.Errorf("kind %q is already registered", kind)
-		}
+	if slices.Contains(p.vocab, kind) {
+		return fmt.Errorf("kind %q is already registered", kind)
 	}
 	p.vocab = append(p.vocab, kind)
 	return nil
@@ -1917,14 +1924,7 @@ func (p *Protocol) VocabRemove(ctx context.Context, kind string) error {
 	if kind == "" {
 		return fmt.Errorf("kind is required")
 	}
-	found := false
-	for _, v := range p.vocab {
-		if v == kind {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if !slices.Contains(p.vocab, kind) {
 		return fmt.Errorf("kind %q is not registered", kind)
 	}
 	arts, err := p.store.List(ctx, model.Filter{Kind: kind})
@@ -1977,9 +1977,7 @@ func (p *Protocol) ListKindCodes() map[string]string {
 			result[kind] = def.Code
 		}
 	}
-	for kind, code := range p.kindCodes {
-		result[kind] = code
-	}
+	maps.Copy(result, p.kindCodes)
 	return result
 }
 
@@ -2046,7 +2044,7 @@ func (p *Protocol) Import(ctx context.Context, r io.Reader) (int, error) {
 func (p *Protocol) GetConfig(ctx context.Context, key, scope string) string {
 	// 1. Try scoped config
 	if scope != "" {
-		configs, _ := p.store.List(ctx, model.Filter{Kind: "config", Scope: scope, Status: model.StatusActive})
+		configs, _ := p.store.List(ctx, model.Filter{Kind: model.KindConfig, Scope: scope, Status: model.StatusActive})
 		for _, cfg := range configs {
 			for _, sec := range cfg.Sections {
 				if sec.Name == key {
@@ -2056,7 +2054,7 @@ func (p *Protocol) GetConfig(ctx context.Context, key, scope string) string {
 		}
 	}
 	// 2. Try global (scopeless) config
-	configs, _ := p.store.List(ctx, model.Filter{Kind: "config", Scope: "", Status: model.StatusActive})
+	configs, _ := p.store.List(ctx, model.Filter{Kind: model.KindConfig, Scope: "", Status: model.StatusActive})
 	for _, cfg := range configs {
 		for _, sec := range cfg.Sections {
 			if sec.Name == key {
@@ -2169,14 +2167,7 @@ func (p *Protocol) Check(ctx context.Context, scope string) (*CheckReport, error
 				continue
 			}
 			if len(kd.Relations.Outgoing) > 0 {
-				allowed := false
-				for _, o := range kd.Relations.Outgoing {
-					if o == rel {
-						allowed = true
-						break
-					}
-				}
-				if !allowed {
+				if !slices.Contains(kd.Relations.Outgoing, rel) {
 					report.Violations = append(report.Violations, CheckViolation{
 						ID: art.ID, Kind: art.Kind, Title: art.Title,
 						Category: "invalid_relation",
@@ -2190,14 +2181,7 @@ func (p *Protocol) Check(ctx context.Context, scope string) (*CheckReport, error
 					if err != nil {
 						continue
 					}
-					targetAllowed := false
-					for _, vt := range validTargets {
-						if vt == target.Kind {
-							targetAllowed = true
-							break
-						}
-					}
-					if !targetAllowed {
+					if !slices.Contains(validTargets, target.Kind) {
 						report.Violations = append(report.Violations, CheckViolation{
 							ID: art.ID, Kind: art.Kind, Title: art.Title,
 							Category: "invalid_relation",
@@ -2281,14 +2265,7 @@ func (p *Protocol) CheckFix(ctx context.Context, scope string) (*CheckReport, []
 				}
 				kd := p.schema.Kinds[art.Kind]
 				if len(kd.Relations.Outgoing) > 0 {
-					allowed := false
-					for _, o := range kd.Relations.Outgoing {
-						if o == rel {
-							allowed = true
-							break
-						}
-					}
-					if !allowed {
+					if !slices.Contains(kd.Relations.Outgoing, rel) {
 						delete(art.Links, rel)
 						fixes = append(fixes, fmt.Sprintf("removed disallowed %q link from %s", rel, v.ID))
 						changed = true
@@ -2303,14 +2280,7 @@ func (p *Protocol) CheckFix(ctx context.Context, scope string) (*CheckReport, []
 							keep = append(keep, tid)
 							continue
 						}
-						ok := false
-						for _, vt := range validTargets {
-							if vt == target.Kind {
-								ok = true
-								break
-							}
-						}
-						if ok {
+						if slices.Contains(validTargets, target.Kind) {
 							keep = append(keep, tid)
 						} else {
 							fixes = append(fixes, fmt.Sprintf("removed %s->%s (%s %s) target mismatch", v.ID, tid, rel, target.Kind))
