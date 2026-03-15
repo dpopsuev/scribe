@@ -90,7 +90,7 @@ Scribe solves this by giving agents a structured, persistent memory they can rea
 | Concept | What it is |
 |---|---|
 | **Artifact** | The universal record. Everything is an artifact with a kind, status, scope, and auto-generated ID (e.g. `TASK-2026-042`). |
-| **Kind** | The type of artifact. Canonical kinds: `goal`, `sprint`, `task`, `spec`, `bug`, `campaign`, `template`, `need`, `ref`, `doc`, `decision`, `config`. Enforced by schema validation. |
+| **Kind** | The type of artifact. Canonical kinds: `goal`, `sprint`, `task`, `spec`, `bug`, `campaign`, `template`, `need`, `ref`, `doc`, `decision`, `config`, `mirror`. Enforced by schema validation. |
 | **Task** | The primary unit of work. A task carries a goal statement, design sections, and dependency edges. Tasks **implement** specs and bugs. |
 | **Spec** | A specification: the *what* and *why*. Defines acceptance criteria. Tasks implement specs. |
 | **Bug** | A defect record. Like a spec, a bug is resolved by a task that implements it. |
@@ -274,18 +274,18 @@ block-beta
 
 ### Packages
 
-| Package | Churn | Role |
-|---|---|---|
-| `cmd/scribe` | 12 | CLI entry point. Every MCP tool has a CLI equivalent. |
-| `mcp` | 20 | MCP server. Thin handlers that delegate to `protocol`. |
-| `protocol` | 14 | All business logic. Both CLI and MCP are wrappers around this. |
-| `model` | 9 | Data model: `Artifact`, `Section`, `Edge`, `Filter`, `Schema`. |
-| `store` | 13 | Persistence interface + SQLite implementation. |
-| `render` | 1 | Markdown and table formatters for CLI and MCP output. |
-| `config` | 6 | Configuration loading, workspace definitions, schema. |
-| `directive` | 6 | MCP tool registry and input validation. |
-| `keygen` | 2 | Auto-generated ID sequences per artifact kind. |
-| `web` | 6 | Web UI for artifact browsing and sprint boards. |
+| Package | LOC | Churn | Role |
+|---|---|---|---|
+| `cmd/scribe` | 1880 | 19 | CLI entry point. Every MCP tool has a CLI equivalent. Capsule and seed-dir commands. |
+| `mcp` | 3215 | 44 | MCP server. Handlers for artifact, graph, and admin tools. Bulk ops, diff, top-N, impact. |
+| `protocol` | 4939 | 38 | All business logic. Capsule export/import, seed, config resolution, template conformance. |
+| `model` | 1048 | 25 | Data model: `Artifact`, `Section`, `Edge`, `Filter`, `Schema`, `IDConfig`. |
+| `store` | 2656 | 30 | Persistence interface + SQLite. Snapshots with pluggable backend. |
+| `render` | 281 | 2 | Markdown and table formatters for CLI and MCP output. |
+| `config` | 281 | 12 | Configuration loading, workspace definitions, seed_dir. |
+| `directive` | 119 | 6 | MCP tool registry and input validation. |
+| `keygen` | 214 | 2 | Auto-generated ID sequences per artifact kind. |
+| `web` | 371 | 7 | Web UI for artifact browsing and sprint boards. |
 
 ### Storage
 
@@ -315,9 +315,9 @@ The vocabulary is enforced: unknown kinds are rejected with a hint to register t
 
 | Tool | Description |
 |---|---|
-| `artifact` | Create, read, update, and manage work artifacts. Actions: `create`, `batch_create`, `clone`, `get`, `list`, `set`, `update`, `archive`, `attach_section`, `get_section`, `detach_section`. Supports compact list (custom fields including depends_on, labels), count mode with group_by, and template auto-linking. |
-| `graph` | Navigate and modify artifact relationships. Actions: `tree` (hierarchy), `briefing` (full context chain), `topo_sort` (execution order by depends_on), `link` (add edge), `unlink` (remove edge). Relations: parent_of, depends_on, follows, justifies, implements, documents, satisfies. |
-| `admin` | System administration and monitoring. Actions: `motd` (session context with goals/reminders), `changelog` (recent changes), `dashboard` (health/staleness), `snapshot` (create/list/diff/restore), `set_goal` (north star), `vacuum` (cleanup), `detect` (orphans/overlaps), `lint` (schema consistency). |
+| `artifact` | Create, read, update, and manage work artifacts. Actions: `create`, `batch_create`, `clone`, `get` (bulk via ids, section_filter), `list` (compact fields, count, group_by, top-N ranking), `set`, `update` (patch map), `archive`, `attach_section`, `get_section`, `detach_section`, `diff`. Template auto-linking with cascading resolution. |
+| `graph` | Navigate and modify artifact relationships. Actions: `tree`, `briefing`, `topo_sort`, `link`, `unlink`, `bulk_link`, `bulk_unlink`, `move` (re-parent), `replace` (swap target), `impact` (downstream analysis). Relations: parent_of, depends_on, follows, justifies, implements, documents, satisfies. |
+| `admin` | System administration and monitoring. Actions: `motd`, `changelog`, `dashboard`, `snapshot` (create/list/diff/restore), `set_goal`, `vacuum`, `detect`, `lint`, `check`, `seed`, `transfer_scope` (with dry_run), `set_scope_labels`, `list_scope_labels`. |
 
 ## Configuration
 
