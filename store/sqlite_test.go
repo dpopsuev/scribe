@@ -661,6 +661,144 @@ func TestNextSeq_ReseedOnOpen(t *testing.T) {
 	}
 }
 
+func TestUID_AssignedOnCreate(t *testing.T) {
+	s := openSQLite(t)
+	ctx := context.Background()
+
+	art := &model.Artifact{ID: "T-001", Kind: "task", Status: "draft", Title: "Test"}
+	if err := s.Put(ctx, art); err != nil {
+		t.Fatal(err)
+	}
+	if art.UID == "" {
+		t.Error("expected UID to be assigned on create")
+	}
+
+	got, _ := s.Get(ctx, "T-001")
+	if got.UID != art.UID {
+		t.Errorf("UID mismatch: put=%q get=%q", art.UID, got.UID)
+	}
+}
+
+func TestUID_ImmutableAcrossUpdates(t *testing.T) {
+	s := openSQLite(t)
+	ctx := context.Background()
+
+	art := &model.Artifact{ID: "T-001", Kind: "task", Status: "draft", Title: "Original"}
+	s.Put(ctx, art)
+	originalUID := art.UID
+
+	art.Title = "Updated"
+	s.Put(ctx, art)
+
+	got, _ := s.Get(ctx, "T-001")
+	if got.UID != originalUID {
+		t.Errorf("UID changed on update: %q -> %q", originalUID, got.UID)
+	}
+	if got.Title != "Updated" {
+		t.Errorf("title not updated: %q", got.Title)
+	}
+}
+
+func TestUID_CollisionAutoRenames(t *testing.T) {
+	s := openSQLite(t)
+	ctx := context.Background()
+
+	old := &model.Artifact{ID: "SCR-TSK-1", Kind: "task", Scope: "test", Status: "archived", Title: "Old Task"}
+	s.Put(ctx, old)
+	oldUID := old.UID
+
+	new := &model.Artifact{ID: "SCR-TSK-1", Kind: "task", Scope: "test", Status: "draft", Title: "New Task"}
+	if err := s.Put(ctx, new); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.Get(ctx, "SCR-TSK-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "New Task" {
+		t.Errorf("SCR-TSK-1 should be new task, got %q", got.Title)
+	}
+	if got.UID == oldUID {
+		t.Error("new artifact should have different UID from old")
+	}
+
+	renamed, err := s.Get(ctx, "SCR-TSK-2")
+	if err != nil {
+		t.Fatalf("old artifact should exist at SCR-TSK-2: %v", err)
+	}
+	if renamed.Title != "Old Task" {
+		t.Errorf("renamed artifact should keep old title, got %q", renamed.Title)
+	}
+	if renamed.UID != oldUID {
+		t.Errorf("renamed artifact should keep old UID: got %q want %q", renamed.UID, oldUID)
+	}
+}
+
+func TestUID_CollisionUpdatesEdges(t *testing.T) {
+	s := openSQLite(t)
+	ctx := context.Background()
+
+	s.Put(ctx, &model.Artifact{ID: "SCR-GOL-1", Kind: "goal", Scope: "test", Status: "active", Title: "Parent"})
+	s.Put(ctx, &model.Artifact{ID: "SCR-TSK-1", Kind: "task", Scope: "test", Status: "archived", Title: "Old Child", Parent: "SCR-GOL-1"})
+	oldUID := func() string {
+		a, _ := s.Get(ctx, "SCR-TSK-1")
+		return a.UID
+	}()
+
+	edges, _ := s.Neighbors(ctx, "SCR-GOL-1", model.RelParentOf, store.Outgoing)
+	if len(edges) != 1 || edges[0].To != "SCR-TSK-1" {
+		t.Fatalf("expected parent edge to SCR-TSK-1, got %v", edges)
+	}
+
+	s.Put(ctx, &model.Artifact{ID: "SCR-TSK-1", Kind: "task", Scope: "test", Status: "draft", Title: "New Child"})
+
+	edges, _ = s.Neighbors(ctx, "SCR-GOL-1", model.RelParentOf, store.Outgoing)
+	found := false
+	for _, e := range edges {
+		if e.To == "SCR-TSK-2" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("edge should point to renamed SCR-TSK-2, got %v", edges)
+	}
+
+	renamed, _ := s.Get(ctx, "SCR-TSK-2")
+	if renamed == nil {
+		t.Fatal("renamed artifact not found at SCR-TSK-2")
+	}
+	if renamed.UID != oldUID {
+		t.Errorf("renamed UID mismatch")
+	}
+}
+
+func TestUID_CollisionSkipsOccupiedIDs(t *testing.T) {
+	s := openSQLite(t)
+	ctx := context.Background()
+
+	for i := 1; i <= 3; i++ {
+		s.Put(ctx, &model.Artifact{
+			ID: fmt.Sprintf("SCR-TSK-%d", i), Kind: "task", Scope: "test",
+			Status: "archived", Title: fmt.Sprintf("Old %d", i),
+		})
+	}
+	oldUID := func() string {
+		a, _ := s.Get(ctx, "SCR-TSK-1")
+		return a.UID
+	}()
+
+	s.Put(ctx, &model.Artifact{ID: "SCR-TSK-1", Kind: "task", Scope: "test", Status: "draft", Title: "New"})
+
+	renamed, err := s.Get(ctx, "SCR-TSK-4")
+	if err != nil {
+		t.Fatalf("old SCR-TSK-1 should be renamed to SCR-TSK-4: %v", err)
+	}
+	if renamed.UID != oldUID {
+		t.Error("renamed artifact should keep original UID")
+	}
+}
+
 func TestScopeLabels_Store(t *testing.T) {
 	s := openSQLite(t)
 	ctx := context.Background()
