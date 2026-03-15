@@ -108,6 +108,11 @@ Scribe solves this by giving agents a structured, persistent memory they can rea
 
 ```mermaid
 graph LR
+    subgraph "Organizes Work"
+        CAMPAIGN["campaign"]
+        GOAL["goal"]
+    end
+
     subgraph "Defines Work"
         SPEC["spec"]
         BUG["bug"]
@@ -118,14 +123,7 @@ graph LR
         TASK["task"]
     end
 
-    subgraph "Organizes Work"
-        CAMPAIGN["campaign"]
-        GOAL["goal"]
-    end
-
-    subgraph "Guides Work"
-        TEMPLATE["template"]
-    end
+    TEMPLATE["template"]
 
     CAMPAIGN -- parent_of --> GOAL
     GOAL -- parent_of --> TASK
@@ -135,9 +133,12 @@ graph LR
     TASK -- implements --> BUG
     TASK -- depends_on --> TASK
     TASK -. follows .-> TASK
-    TASK -- satisfies --> TEMPLATE
-    SPEC -- satisfies --> TEMPLATE
     NEED -. justifies .-> SPEC
+    CAMPAIGN -. satisfies .-> TEMPLATE
+    GOAL -. satisfies .-> TEMPLATE
+    TASK -. satisfies .-> TEMPLATE
+    SPEC -. satisfies .-> TEMPLATE
+    BUG -. satisfies .-> TEMPLATE
 ```
 
 **Campaigns** are mission containers that group goals. **Goals** are north-star artifacts that parent specs, tasks, and bugs. **Specs** and **bugs** define *what* needs to happen. **Tasks** implement specs and resolve bugs. `depends_on` edges enforce execution order; `follows` edges suggest ROI order. The `detect` admin tool warns when a task has no spec/bug link, or when a spec/bug has no implementing task.
