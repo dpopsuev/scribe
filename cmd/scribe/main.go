@@ -85,6 +85,8 @@ func main() {
 		configCmd(),
 		exportCmd(),
 		importCmd(),
+		seedDirCmd(),
+		capsuleCmd(),
 	)
 
 	if err := root.Execute(); err != nil {
@@ -1154,6 +1156,20 @@ func serveCmd() *cobra.Command {
 			}
 			defer s.Close()
 
+			// Auto-seed from config seed_dir if DB has zero templates
+			if cfg.SeedDir != "" {
+				proto := protocol.New(s, cfg.Schema, nil, nil, cfg.ProtocolIDConfig())
+				templates, _ := proto.ListArtifacts(context.Background(), protocol.ListInput{Kind: "template"})
+				if len(templates) == 0 {
+					result, err := proto.Seed(context.Background(), cfg.SeedDir)
+					if err != nil {
+						slog.Warn("auto-seed failed", "dir", cfg.SeedDir, "error", err)
+					} else if len(result.Created) > 0 {
+						slog.Info("auto-seed completed", "dir", cfg.SeedDir, "created", len(result.Created))
+					}
+				}
+			}
+
 			t := cfg.Transport
 			if cmd.Flags().Changed("transport") {
 				t = transport
@@ -1756,6 +1772,108 @@ func importCmd() *cobra.Command {
 				return err
 			}
 			fmt.Fprintf(os.Stderr, "imported %d artifacts\n", n)
+			return nil
+		},
+	}
+}
+
+func capsuleCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "capsule",
+		Short: "Portable instance encapsulation: export, import, inspect",
+	}
+
+	var output string
+	exportCapsule := &cobra.Command{
+		Use:   "export",
+		Short: "Export entire Scribe instance to a .capsule file",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p, close := mustProto()
+			defer close()
+			f, err := os.Create(output)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			m, err := p.CapsuleExport(context.Background(), f, Version)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "capsule exported: %d artifacts, %d edges → %s\n",
+				m.ArtifactCount, m.EdgeCount, output)
+			return nil
+		},
+	}
+	exportCapsule.Flags().StringVarP(&output, "output", "o", "scribe.capsule", "output file path")
+
+	importCapsule := &cobra.Command{
+		Use:   "import <file>",
+		Short: "Import a .capsule file (replaces current state)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p, close := mustProto()
+			defer close()
+			f, err := os.Open(args[0])
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			m, err := p.CapsuleImport(context.Background(), f)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "capsule imported: %d artifacts, %d edges (version: %s)\n",
+				m.ArtifactCount, m.EdgeCount, m.Version)
+			return nil
+		},
+	}
+
+	inspectCapsule := &cobra.Command{
+		Use:   "inspect <file>",
+		Short: "Show capsule manifest without importing",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			f, err := os.Open(args[0])
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			m, err := protocol.CapsuleInspect(f)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("Version:    %s\n", m.Version)
+			fmt.Printf("Created:    %s\n", m.CreatedAt.Format("2006-01-02 15:04:05"))
+			fmt.Printf("Artifacts:  %d\n", m.ArtifactCount)
+			fmt.Printf("Edges:      %d\n", m.EdgeCount)
+			return nil
+		},
+	}
+
+	cmd.AddCommand(exportCapsule, importCapsule, inspectCapsule)
+	return cmd
+}
+
+func seedDirCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "seed-dir <dir>",
+		Short: "Seed templates and config from a directory (idempotent)",
+		Long:  "Reads templates from <dir>/templates/*.md and config from <dir>/config/*.yaml. Skips artifacts that already exist.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p, close := mustProto()
+			defer close()
+			result, err := p.Seed(context.Background(), args[0])
+			if err != nil {
+				return err
+			}
+			for _, id := range result.Created {
+				fmt.Printf("created %s\n", id)
+			}
+			for _, id := range result.Skipped {
+				fmt.Printf("skipped %s (exists)\n", id)
+			}
+			fmt.Fprintf(os.Stderr, "seed: %d created, %d skipped\n", len(result.Created), len(result.Skipped))
 			return nil
 		},
 	}

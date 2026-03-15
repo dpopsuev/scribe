@@ -178,7 +178,7 @@ type edgeInput struct {
 }
 
 type adminInput struct {
-	Action string `json:"action" jsonschema:"required,motd | changelog | dashboard | snapshot | set_goal | vacuum | detect | lint | check | set_scope_labels | list_scope_labels"`
+	Action string `json:"action" jsonschema:"required,motd | changelog | dashboard | snapshot | set_goal | vacuum | detect | lint | check | set_scope_labels | list_scope_labels | transfer_scope"`
 
 	// Snapshot sub-action and params
 	SnapshotAction string `json:"snapshot_action,omitempty" jsonschema:"snapshot sub-action: create, list, diff, restore"`
@@ -193,6 +193,9 @@ type adminInput struct {
 
 	Days  int  `json:"days,omitempty" jsonschema:"delete archived artifacts older than this many days (vacuum)"`
 	Force bool `json:"force,omitempty" jsonschema:"skip confirmation for destructive vacuum (vacuum)"`
+
+	Target  string `json:"target,omitempty" jsonschema:"destination scope (transfer_scope)"`
+	DryRun  bool   `json:"dry_run,omitempty" jsonschema:"preview without applying (transfer_scope)"`
 
 	Check   string `json:"check,omitempty" jsonschema:"orphans (default), overlaps, or all (detect)"`
 	Status  string `json:"status,omitempty" jsonschema:"filter by status (detect)"`
@@ -390,8 +393,22 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 			fmt.Fprintf(&b, "%-20s %s → %s\n", info.Scope, info.Key, labels)
 		}
 		return text(b.String()), nil, nil
+	case "transfer_scope":
+		if in.Scope == "" || in.Target == "" {
+			return nil, nil, fmt.Errorf("scope and target required for transfer_scope")
+		}
+		result, err := h.proto.BulkSetField(ctx, protocol.BulkMutationInput{
+			Scope: in.Scope, Kind: in.Kind, Status: in.Status, DryRun: in.DryRun,
+		}, "scope", in.Target)
+		if err != nil {
+			return nil, nil, err
+		}
+		if result.DryRun {
+			return text(fmt.Sprintf("dry run: would transfer %d artifacts from %s to %s", result.Count, in.Scope, in.Target)), nil, nil
+		}
+		return text(fmt.Sprintf("transferred %d artifacts from %s to %s", result.Count, in.Scope, in.Target)), nil, nil
 	default:
-		return nil, nil, fmt.Errorf("unknown admin action %q (valid: motd, dashboard, set_goal, vacuum, detect, lint, check, set_scope_labels, list_scope_labels)", in.Action)
+		return nil, nil, fmt.Errorf("unknown admin action %q", in.Action)
 	}
 }
 

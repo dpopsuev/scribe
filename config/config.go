@@ -59,6 +59,7 @@ type Config struct {
 	ScopeKeys        map[string]string   `yaml:"scope_keys"`
 	KindCodes        map[string]string   `yaml:"kind_codes"`
 	MutableCreatedAt *bool               `yaml:"mutable_created_at"`
+	SeedDir          string              `yaml:"seed_dir,omitempty"`
 	Defaults         Defaults            `yaml:"defaults,omitempty"`
 }
 
