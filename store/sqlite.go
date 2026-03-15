@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -18,7 +20,8 @@ import (
 
 const schema = `
 CREATE TABLE IF NOT EXISTS artifacts (
-	id          TEXT PRIMARY KEY,
+	uid         TEXT PRIMARY KEY,
+	id          TEXT NOT NULL UNIQUE,
 	kind        TEXT NOT NULL,
 	scope       TEXT NOT NULL DEFAULT '',
 	status      TEXT NOT NULL,
@@ -162,6 +165,7 @@ func OpenSQLiteConfig(cfg SQLiteConfig) (*SQLiteStore, error) {
 	writer.ExecContext(context.Background(),
 		"ALTER TABLE scope_keys ADD COLUMN labels TEXT NOT NULL DEFAULT ''")
 
+
 	// Reseed scoped sequences to avoid ID collisions with existing artifacts.
 	if err := reseedScopedSequences(writer); err != nil {
 		log.Warn("reseed scoped sequences failed", "error", err)
@@ -176,6 +180,12 @@ func OpenSQLiteConfig(cfg SQLiteConfig) (*SQLiteStore, error) {
 
 	log.Info("database opened")
 	return &SQLiteStore{writer: writer, reader: reader}, nil
+}
+
+func generateUID() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 // reseedScopedSequences scans all artifacts and ensures scoped_sequences
@@ -262,6 +272,9 @@ func (s *SQLiteStore) Put(ctx context.Context, art *model.Artifact) error {
 	if art.ID == "" {
 		return fmt.Errorf("artifact ID is required")
 	}
+	if art.UID == "" {
+		art.UID = generateUID()
+	}
 	now := time.Now().UTC()
 	if art.CreatedAt.IsZero() {
 		art.CreatedAt = now
@@ -277,8 +290,16 @@ func (s *SQLiteStore) Put(ctx context.Context, art *model.Artifact) error {
 	}
 	defer tx.Rollback()
 
+	// Check for human ID collision: same ID but different UID
 	var old *model.Artifact
 	old, _ = scanArtifact(tx.QueryRowContext(ctx, "SELECT * FROM artifacts WHERE id = ?", art.ID))
+	if old != nil && old.UID != "" && old.UID != art.UID {
+		// Collision: auto-rename the existing artifact
+		if err := s.autoRenameArtifact(ctx, tx, old); err != nil {
+			return fmt.Errorf("auto-rename collision on %s: %w", art.ID, err)
+		}
+		old = nil // treat as new insert after rename
+	}
 
 	dependsOn, _ := json.Marshal(art.DependsOn)
 	labels, _ := json.Marshal(art.Labels)
@@ -289,17 +310,17 @@ func (s *SQLiteStore) Put(ctx context.Context, art *model.Artifact) error {
 	extra, _ := json.Marshal(art.Extra)
 
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO artifacts (id, kind, scope, status, parent, title, goal, depends_on, labels, priority, sprint, sections, features, criteria, links, extra, created_at, updated_at, inserted_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET
-			kind=excluded.kind, scope=excluded.scope, status=excluded.status,
+		INSERT INTO artifacts (uid, id, kind, scope, status, parent, title, goal, depends_on, labels, priority, sprint, sections, features, criteria, links, extra, created_at, updated_at, inserted_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(uid) DO UPDATE SET
+			id=excluded.id, kind=excluded.kind, scope=excluded.scope, status=excluded.status,
 			parent=excluded.parent, title=excluded.title, goal=excluded.goal,
 			depends_on=excluded.depends_on, labels=excluded.labels,
 			priority=excluded.priority, sprint=excluded.sprint,
 			sections=excluded.sections, features=excluded.features,
 			criteria=excluded.criteria, links=excluded.links,
 			extra=excluded.extra, updated_at=excluded.updated_at`,
-		art.ID, art.Kind, art.Scope, art.Status, art.Parent, art.Title, art.Goal,
+		art.UID, art.ID, art.Kind, art.Scope, art.Status, art.Parent, art.Title, art.Goal,
 		string(dependsOn), string(labels), art.Priority, art.Sprint,
 		string(sections), string(features), string(criteria), string(links), string(extra),
 		art.CreatedAt.Format(time.RFC3339Nano), art.UpdatedAt.Format(time.RFC3339Nano),
@@ -313,6 +334,55 @@ func (s *SQLiteStore) Put(ctx context.Context, art *model.Artifact) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// autoRenameArtifact renames an existing artifact's human ID to the next free
+// sequence number, updating all edges that reference the old ID.
+func (s *SQLiteStore) autoRenameArtifact(ctx context.Context, tx *sql.Tx, existing *model.Artifact) error {
+	oldID := existing.ID
+
+	// Parse ID to find prefix and sequence number.
+	// Supports both "PREFIX-SEQ" (T-001) and "SCOPE-KIND-SEQ" (SCR-SPC-1) formats.
+	lastDash := strings.LastIndex(oldID, "-")
+	if lastDash < 0 {
+		return fmt.Errorf("cannot auto-rename ID without sequence number: %q", oldID)
+	}
+	prefix := oldID[:lastDash]
+	seq, err := strconv.ParseInt(oldID[lastDash+1:], 10, 64)
+	if err != nil {
+		return fmt.Errorf("cannot parse seq from ID %q: %w", oldID, err)
+	}
+
+	for {
+		seq++
+		candidateID := fmt.Sprintf("%s-%d", prefix, seq)
+		var exists int
+		err := tx.QueryRowContext(ctx, "SELECT 1 FROM artifacts WHERE id = ?", candidateID).Scan(&exists)
+		if err == sql.ErrNoRows {
+			_, err = tx.ExecContext(ctx, "UPDATE artifacts SET id = ? WHERE uid = ?", candidateID, existing.UID)
+			if err != nil {
+				return fmt.Errorf("rename %s -> %s: %w", oldID, candidateID, err)
+			}
+			_, err = tx.ExecContext(ctx, "UPDATE edges SET from_id = ? WHERE from_id = ?", candidateID, oldID)
+			if err != nil {
+				return err
+			}
+			_, err = tx.ExecContext(ctx, "UPDATE edges SET to_id = ? WHERE to_id = ?", candidateID, oldID)
+			if err != nil {
+				return err
+			}
+			_, err = tx.ExecContext(ctx, "UPDATE artifacts SET parent = ? WHERE parent = ?", candidateID, oldID)
+			if err != nil {
+				return err
+			}
+			slog.Warn("auto-renamed artifact on collision",
+				"old_id", oldID, "new_id", candidateID, "uid", existing.UID)
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+	}
 }
 
 func (s *SQLiteStore) Get(ctx context.Context, id string) (*model.Artifact, error) {
@@ -794,7 +864,7 @@ func scanRow(s rowScanner) (*model.Artifact, error) {
 	var createdAt, updatedAt, insertedAt string
 
 	err := s.Scan(
-		&art.ID, &art.Kind, &art.Scope, &art.Status, &art.Parent, &art.Title, &art.Goal,
+		&art.UID, &art.ID, &art.Kind, &art.Scope, &art.Status, &art.Parent, &art.Title, &art.Goal,
 		&dependsOn, &labels, &art.Priority, &art.Sprint,
 		&sections, &features, &criteria, &links, &extra,
 		&createdAt, &updatedAt, &insertedAt,
