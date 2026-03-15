@@ -549,6 +549,14 @@ func (p *Protocol) setStatusForce(ctx context.Context, art *model.Artifact, stat
 		}
 	}
 
+	if status == model.StatusActive {
+		if missing := p.schema.MissingRequiredFields(art); len(missing) > 0 {
+			return Result{ID: art.ID, Error: fmt.Sprintf(
+				"cannot activate %s: missing required fields: %s",
+				art.ID, strings.Join(missing, ", "))}
+		}
+	}
+
 	if p.schema.ActivationRequiresSections(art.Kind) && status == model.StatusActive {
 		shouldMissing := p.schema.MissingShouldSections(art.Kind, art.Sections)
 		if len(shouldMissing) > 0 {

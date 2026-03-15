@@ -27,6 +27,7 @@ type KindDef struct {
 	MustSections     []string `json:"must_sections,omitempty" yaml:"must_sections,omitempty"`
 	ShouldSections   []string `json:"should_sections,omitempty" yaml:"should_sections,omitempty"`
 	CouldSections    []string `json:"could_sections,omitempty" yaml:"could_sections,omitempty"`
+	RequiredFields   []string `json:"required_fields,omitempty" yaml:"required_fields,omitempty"`
 	IsGoalKind       bool     `json:"is_goal_kind,omitempty" yaml:"is_goal_kind,omitempty"`
 	ActiveStatus     string   `json:"active_status,omitempty" yaml:"active_status,omitempty"`
 	TrackInMotd      bool     `json:"track_in_motd,omitempty" yaml:"track_in_motd,omitempty"`
@@ -208,6 +209,36 @@ func (s *Schema) MissingShouldSections(kind string, have []Section) []string {
 	for _, name := range should {
 		if !present[name] {
 			missing = append(missing, name)
+		}
+	}
+	return missing
+}
+
+// MissingRequiredFields returns field names that are required for the kind but empty on the artifact.
+func (s *Schema) MissingRequiredFields(art *Artifact) []string {
+	kd, ok := s.Kinds[art.Kind]
+	if !ok || len(kd.RequiredFields) == 0 {
+		return nil
+	}
+	var missing []string
+	for _, f := range kd.RequiredFields {
+		switch f {
+		case FieldPriority:
+			if art.Priority == "" {
+				missing = append(missing, f)
+			}
+		case FieldScope:
+			if art.Scope == "" {
+				missing = append(missing, f)
+			}
+		case FieldParent:
+			if art.Parent == "" {
+				missing = append(missing, f)
+			}
+		case FieldGoal:
+			if art.Goal == "" {
+				missing = append(missing, f)
+			}
 		}
 	}
 	return missing
@@ -514,6 +545,7 @@ func DefaultSchema() *Schema {
 			ActivationRequiresSections: true,
 			MustSections:               []string{"context"},
 			ShouldSections:             []string{"checklist", "acceptance"},
+			RequiredFields:             []string{FieldPriority},
 			Children:                   []string{},
 			Relations: KindRelations{
 				Outgoing: []string{RelImplements, RelDependsOn, RelSatisfies},
