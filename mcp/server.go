@@ -557,10 +557,6 @@ func (h *handler) handleCreate(ctx context.Context, _ *sdkmcp.CallToolRequest, i
 	return text(b.String()), nil, nil
 }
 
-type idInput struct {
-	ID string `json:"id"`
-}
-
 type getInput struct {
 	ID            string   `json:"id"`
 	IncludeEdges  bool     `json:"include_edges,omitempty"`
@@ -898,29 +894,6 @@ func (h *handler) handleListCompact(ctx context.Context, in protocol.ListInput, 
 	return text(b.String()), nil, nil
 }
 
-type setFieldInput struct {
-	ID    string `json:"id"`
-	Field string `json:"field"`
-	Value string `json:"value"`
-	Force bool   `json:"force,omitempty"`
-}
-
-func (h *handler) handleSetField(ctx context.Context, _ *sdkmcp.CallToolRequest, in setFieldInput) (*sdkmcp.CallToolResult, any, error) {
-	results, err := h.proto.SetField(ctx, []string{in.ID}, in.Field, in.Value, protocol.SetFieldOptions{Force: in.Force})
-	if err != nil {
-		return nil, nil, err
-	}
-	r := results[0]
-	if !r.OK {
-		return nil, nil, fmt.Errorf("%s", r.Error)
-	}
-	msg := fmt.Sprintf("%s.%s = %s", r.ID, in.Field, in.Value)
-	if r.Error != "" {
-		msg += "\n" + r.Error
-	}
-	return text(msg), nil, nil
-}
-
 func (h *handler) handleBulkSetField(ctx context.Context, ids []string, field, value string, force bool) (*sdkmcp.CallToolResult, any, error) {
 	results, err := h.proto.SetField(ctx, ids, field, value, protocol.SetFieldOptions{Force: force})
 	if err != nil {
@@ -1163,25 +1136,6 @@ func (h *handler) handleClone(ctx context.Context, in artifactInput) (*sdkmcp.Ca
 	return text(fmt.Sprintf("cloned %s → %s\n%s", in.ID, art.ID, string(data))), nil, nil
 }
 
-type searchInput struct {
-	Query  string `json:"query"`
-	Scope  string `json:"scope,omitempty"`
-	Kind   string `json:"kind,omitempty"`
-	Status string `json:"status,omitempty"`
-}
-
-func (h *handler) handleSearch(ctx context.Context, _ *sdkmcp.CallToolRequest, in searchInput) (*sdkmcp.CallToolResult, any, error) {
-	li := protocol.ListInput{Kind: in.Kind, Scope: in.Scope, Status: in.Status}
-	matched, err := h.proto.SearchArtifacts(ctx, in.Query, li)
-	if err != nil {
-		return nil, nil, err
-	}
-	if len(matched) == 0 {
-		return text(fmt.Sprintf("no artifacts matching %q", in.Query)), nil, nil
-	}
-	return text(render.Table(matched)), nil, nil
-}
-
 type sectionInput struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
@@ -1303,17 +1257,6 @@ func (h *handler) handleArchive(ctx context.Context, _ *sdkmcp.CallToolRequest, 
 		}
 	}
 	return text(strings.Join(lines, "\n")), nil, nil
-}
-
-func (h *handler) handleBatchArchive(ctx context.Context, _ *sdkmcp.CallToolRequest, in protocol.BulkMutationInput) (*sdkmcp.CallToolResult, any, error) {
-	res, err := h.proto.BulkArchive(ctx, in)
-	if err != nil {
-		return nil, nil, err
-	}
-	if in.DryRun {
-		return text(fmt.Sprintf("dry run: would archive %d artifacts: %v", res.Count, res.AffectedIDs)), nil, nil
-	}
-	return text(fmt.Sprintf("archived %d artifacts", res.Count)), nil, nil
 }
 
 type vacuumInput struct {
@@ -1567,52 +1510,6 @@ func (h *handler) handleSnapshot(ctx context.Context, in adminInput) (*sdkmcp.Ca
 	}
 }
 
-type drainDiscoverInput struct {
-	Path   string `json:"path"`
-	Format string `json:"format,omitempty"`
-}
-
-func (h *handler) handleDrainDiscover(ctx context.Context, _ *sdkmcp.CallToolRequest, in drainDiscoverInput) (*sdkmcp.CallToolResult, any, error) {
-	entries, err := h.proto.DrainDiscover(ctx, in.Path)
-	if err != nil {
-		return nil, nil, err
-	}
-	if len(entries) == 0 {
-		return text("no .md files found"), nil, nil
-	}
-	if in.Format == "json" {
-		data, _ := json.MarshalIndent(entries, "", "  ")
-		return text(string(data)), nil, nil
-	}
-	var lines []string
-	for _, e := range entries {
-		lines = append(lines, fmt.Sprintf("%-50s  [dir: %-15s  %d bytes]", e.Path, e.Dir, e.SizeB))
-	}
-	lines = append(lines, fmt.Sprintf("\n%d files discovered. Read each and use create_artifact / attach_section to migrate.", len(entries)))
-	return text(strings.Join(lines, "\n")), nil, nil
-}
-
-type drainCleanupInput struct {
-	Path string `json:"path"`
-}
-
-func (h *handler) handleDrainCleanup(ctx context.Context, _ *sdkmcp.CallToolRequest, in drainCleanupInput) (*sdkmcp.CallToolResult, any, error) {
-	n, err := h.proto.DrainCleanup(ctx, in.Path)
-	if err != nil {
-		return nil, nil, err
-	}
-	return text(fmt.Sprintf("removed %d files", n)), nil, nil
-}
-
-func (h *handler) handleInventory(ctx context.Context, _ *sdkmcp.CallToolRequest, _ struct{}) (*sdkmcp.CallToolResult, any, error) {
-	inv, err := h.proto.Inventory(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	data, _ := json.MarshalIndent(inv, "", "  ")
-	return text(string(data)), nil, nil
-}
-
 type dashboardInput struct {
 	StaleDays int `json:"stale_days,omitempty"`
 }
@@ -1802,22 +1699,6 @@ func (h *handler) handleReplace(ctx context.Context, id, relation, oldTarget, ne
 	return text(fmt.Sprintf("replaced %s -[%s]-> %s with %s", id, relation, oldTarget, newTarget)), nil, nil
 }
 
-func (h *handler) handleUnlink(ctx context.Context, _ *sdkmcp.CallToolRequest, in linkInput) (*sdkmcp.CallToolResult, any, error) {
-	results, err := h.proto.UnlinkArtifacts(ctx, in.ID, in.Relation, in.Targets)
-	if err != nil {
-		return nil, nil, err
-	}
-	var lines []string
-	for _, r := range results {
-		if r.OK {
-			lines = append(lines, fmt.Sprintf("unlinked %s -[%s]-> %s", in.ID, in.Relation, r.ID))
-		} else {
-			lines = append(lines, fmt.Sprintf("%s -> error: %s", r.ID, r.Error))
-		}
-	}
-	return text(strings.Join(lines, "\n")), nil, nil
-}
-
 type detectInput struct {
 	Check   string `json:"check,omitempty"`
 	Scope   string `json:"scope,omitempty"`
@@ -1878,44 +1759,6 @@ func (h *handler) handleDetect(ctx context.Context, _ *sdkmcp.CallToolRequest, i
 	return text(strings.Join(parts, "\n\n")), nil, nil
 }
 
-func (h *handler) handleDetectOverlaps(ctx context.Context, _ *sdkmcp.CallToolRequest, in protocol.OverlapInput) (*sdkmcp.CallToolResult, any, error) {
-	report, err := h.proto.DetectOverlaps(ctx, in)
-	if err != nil {
-		return nil, nil, err
-	}
-	if len(report.Overlaps) == 0 {
-		return text(fmt.Sprintf("No overlaps found across %d %s artifacts.", report.TotalScanned, in.Status)), nil, nil
-	}
-	var b strings.Builder
-	for _, o := range report.Overlaps {
-		fmt.Fprintf(&b, "%s\n", o.Label)
-		for _, a := range o.Artifacts {
-			fmt.Fprintf(&b, "  %-16s %s\n", a.ID, a.Title)
-		}
-		b.WriteString("\n")
-	}
-	fmt.Fprintf(&b, "%d overlap(s) across %d artifacts", report.TotalOverlaps, report.TotalScanned)
-	return text(b.String()), nil, nil
-}
-
-// --- orphan handler ---
-
-func (h *handler) handleDetectOrphans(ctx context.Context, _ *sdkmcp.CallToolRequest, in protocol.OrphanInput) (*sdkmcp.CallToolResult, any, error) {
-	report, err := h.proto.DetectOrphans(ctx, in)
-	if err != nil {
-		return nil, nil, err
-	}
-	if len(report.Orphans) == 0 {
-		return text(fmt.Sprintf("No orphans found across %d artifacts.", report.TotalScanned)), nil, nil
-	}
-	var b strings.Builder
-	for _, o := range report.Orphans {
-		fmt.Fprintf(&b, "%-16s %-5s [%s] %s\n  → %s\n\n", o.ID, o.Kind, o.Status, o.Title, o.Reason)
-	}
-	fmt.Fprintf(&b, "%d orphan(s) across %d artifacts", report.TotalOrphans, report.TotalScanned)
-	return text(b.String()), nil, nil
-}
-
 func (h *handler) handleLint(_ context.Context) (*sdkmcp.CallToolResult, any, error) {
 	results := h.proto.Lint()
 	if len(results) == 0 {
@@ -1948,20 +1791,8 @@ func (h *handler) handleCheck(ctx context.Context, scope string) (*sdkmcp.CallTo
 
 // --- vocab handlers ---
 
-func (h *handler) handleVocabList(_ context.Context, _ *sdkmcp.CallToolRequest, _ struct{}) (*sdkmcp.CallToolResult, any, error) {
-	kinds := h.proto.VocabList()
-	return text(strings.Join(kinds, "\n")), nil, nil
-}
-
 type vocabKindInput struct {
 	Kind string `json:"kind"`
-}
-
-func (h *handler) handleVocabAdd(_ context.Context, _ *sdkmcp.CallToolRequest, in vocabKindInput) (*sdkmcp.CallToolResult, any, error) {
-	if err := h.proto.VocabAdd(in.Kind); err != nil {
-		return nil, nil, err
-	}
-	return text(fmt.Sprintf("registered kind %q", in.Kind)), nil, nil
 }
 
 func (h *handler) handleVocabRemove(ctx context.Context, _ *sdkmcp.CallToolRequest, in vocabKindInput) (*sdkmcp.CallToolResult, any, error) {

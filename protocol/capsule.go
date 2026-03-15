@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"bytes"
 	"io"
 	"time"
 
@@ -120,7 +121,7 @@ func (p *Protocol) CapsuleImport(ctx context.Context, r io.Reader) (*CapsuleMani
 	}
 
 	// Import artifacts
-	dec := json.NewDecoder(bytesReader(artsData))
+	dec := json.NewDecoder(bytes.NewReader(artsData))
 	for dec.More() {
 		var art model.Artifact
 		if err := dec.Decode(&art); err != nil {
@@ -133,7 +134,7 @@ func (p *Protocol) CapsuleImport(ctx context.Context, r io.Reader) (*CapsuleMani
 
 	// Import edges
 	if len(edgesData) > 0 {
-		dec = json.NewDecoder(bytesReader(edgesData))
+		dec = json.NewDecoder(bytes.NewReader(edgesData))
 		for dec.More() {
 			var e model.Edge
 			if err := dec.Decode(&e); err != nil {
@@ -192,20 +193,3 @@ func addTarEntry(tw *tar.Writer, name string, data []byte) error {
 	return err
 }
 
-type bytesReaderWrapper struct {
-	data []byte
-	pos  int
-}
-
-func bytesReader(data []byte) *bytesReaderWrapper {
-	return &bytesReaderWrapper{data: data}
-}
-
-func (r *bytesReaderWrapper) Read(p []byte) (int, error) {
-	if r.pos >= len(r.data) {
-		return 0, io.EOF
-	}
-	n := copy(p, r.data[r.pos:])
-	r.pos += n
-	return n, nil
-}

@@ -9,10 +9,8 @@ const (
 	StatusComplete  = "complete"
 	StatusCancelled = "cancelled"
 	StatusDismissed = "dismissed"
-	StatusPromoted  = "promoted"
 	StatusRetired   = "retired"
 	StatusArchived  = "archived"
-	StatusAccepted  = "accepted"
 )
 
 // Artifact kinds.
@@ -29,7 +27,6 @@ const (
 	KindDecision     = "decision"
 	KindConfig       = "config"
 	KindMirror       = "mirror"
-	KindSecurityCase = "security_case"
 )
 
 // Artifact field names (for SetField, update, etc.).
@@ -50,7 +47,6 @@ const (
 const (
 	DirOutbound = "outbound"
 	DirInbound  = "inbound"
-	DirBoth     = "both"
 	DirOutgoing = "outgoing"
 	DirIncoming = "incoming"
 )
