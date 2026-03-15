@@ -58,9 +58,11 @@ func NewServer(s store.Store, homeScopes, vocab []string, idc protocol.IDConfig,
 			"Actions: tree (parent-child hierarchy with optional relation/direction/depth), " +
 			"briefing (recursive traversal of ALL edges from any artifact, showing full context chain), " +
 			"topo_sort (topological order of descendants by depends_on for execution planning), " +
-			"link (add directed relationship), unlink (remove relationship). " +
+			"link (add directed relationship), unlink (remove relationship), " +
+			"bulk_link/bulk_unlink (array of edge tuples in one call), " +
+			"move (re-parent atomically), replace (swap edge target). " +
 			"Supported relations: parent_of, depends_on, follows, justifies, implements, documents.",
-		Keywords:   []string{"tree", "briefing", "topo_sort", "link", "unlink", "relation", "edge", "graph"},
+		Keywords:   []string{"tree", "briefing", "topo_sort", "link", "unlink", "bulk_link", "move", "replace", "relation", "edge", "graph"},
 		Categories: []string{"query", "graph"},
 	}, noOut(h.handleGraph))
 
@@ -137,23 +139,36 @@ type artifactInput struct {
 	Value string `json:"value,omitempty" jsonschema:"new value for the field; comma-separated for depends_on/labels (set)"`
 	Force bool   `json:"force,omitempty" jsonschema:"bypass transition validation for status changes (set)"`
 
-	IDs     []string `json:"ids,omitempty" jsonschema:"artifact IDs for bulk operations (set, archive)"`
+	SectionFilter []string `json:"section_filter,omitempty" jsonschema:"return only these sections by name (get)"`
+
+	IDs     []string `json:"ids,omitempty" jsonschema:"artifact IDs for bulk operations (get, set, archive)"`
 	Cascade bool     `json:"cascade,omitempty" jsonschema:"recursively archive child subtrees (archive)"`
 	DryRun  bool     `json:"dry_run,omitempty" jsonschema:"preview without applying changes (archive)"`
 
 	Name string `json:"name,omitempty" jsonschema:"section name (attach_section, get_section, detach_section)"`
 	Text string `json:"text,omitempty" jsonschema:"section body text (attach_section)"`
 
+	Patch     map[string]string `json:"patch,omitempty" jsonschema:"map of field->value for multi-field update in one call (update)"`
+
 	Artifacts []map[string]any `json:"artifacts,omitempty" jsonschema:"array of create inputs for batch_create"`
 }
 
 type graphInput struct {
-	Action    string   `json:"action" jsonschema:"required,tree | briefing | topo_sort | link | unlink"`
-	ID        string   `json:"id,omitempty" jsonschema:"root artifact ID for tree/briefing, or source artifact for link/unlink"`
+	Action    string   `json:"action" jsonschema:"required,tree | briefing | topo_sort | link | unlink | bulk_link | bulk_unlink | move | replace"`
+	ID        string   `json:"id,omitempty" jsonschema:"root artifact ID for tree/briefing, or source artifact for link/unlink/move/replace"`
 	Relation  string   `json:"relation,omitempty" jsonschema:"edge type: parent_of, depends_on, follows, justifies, implements, documents"`
 	Direction string   `json:"direction,omitempty" jsonschema:"traversal direction for tree: outbound (default) or inbound"`
 	Depth     int      `json:"depth,omitempty" jsonschema:"max traversal depth for tree (0 = unlimited)"`
 	Targets   []string `json:"targets,omitempty" jsonschema:"target artifact IDs to link/unlink"`
+	Target    string   `json:"target,omitempty" jsonschema:"new parent ID (move) or new target ID (replace)"`
+	OldTarget string   `json:"old_target,omitempty" jsonschema:"existing target to replace (replace)"`
+	Edges     []edgeInput `json:"edges,omitempty" jsonschema:"array of edge tuples for bulk_link/bulk_unlink"`
+}
+
+type edgeInput struct {
+	From     string `json:"from" jsonschema:"source artifact ID"`
+	Relation string `json:"relation" jsonschema:"edge type"`
+	To       string `json:"to" jsonschema:"target artifact ID"`
 }
 
 type adminInput struct {
@@ -207,7 +222,17 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 	case "clone":
 		return h.handleClone(ctx, in)
 	case "get":
-		return h.handleGet(ctx, req, getInput{ID: in.ID, IncludeEdges: in.IncludeEdges})
+		ids := in.IDs
+		if len(ids) == 0 && in.ID != "" {
+			ids = []string{in.ID}
+		}
+		if len(ids) == 0 {
+			return nil, nil, fmt.Errorf("id or ids required for get action")
+		}
+		if len(ids) == 1 {
+			return h.handleGet(ctx, req, getInput{ID: ids[0], IncludeEdges: in.IncludeEdges, SectionFilter: in.SectionFilter})
+		}
+		return h.handleBulkGet(ctx, ids, in.SectionFilter)
 	case "list":
 		li := protocol.ListInput{
 			Kind: in.Kind, Scope: in.Scope, Status: in.Status,
@@ -293,8 +318,22 @@ func (h *handler) handleGraph(ctx context.Context, req *sdkmcp.CallToolRequest, 
 		return h.handleLink(ctx, req, linkInput{
 			ID: in.ID, Relation: in.Relation, Targets: in.Targets, Unlink: true,
 		})
+	case "bulk_link":
+		return h.handleBulkEdge(ctx, in.Edges, false)
+	case "bulk_unlink":
+		return h.handleBulkEdge(ctx, in.Edges, true)
+	case "move":
+		if in.ID == "" || in.Target == "" {
+			return nil, nil, fmt.Errorf("id and target required for move")
+		}
+		return h.handleMove(ctx, in.ID, in.Target)
+	case "replace":
+		if in.ID == "" || in.Relation == "" || in.OldTarget == "" || in.Target == "" {
+			return nil, nil, fmt.Errorf("id, relation, old_target, and target required for replace")
+		}
+		return h.handleReplace(ctx, in.ID, in.Relation, in.OldTarget, in.Target)
 	default:
-		return nil, nil, fmt.Errorf("unknown graph action %q (valid: tree, briefing, topo_sort, link, unlink)", in.Action)
+		return nil, nil, fmt.Errorf("unknown graph action %q (valid: tree, briefing, topo_sort, link, unlink, bulk_link, bulk_unlink, move, replace)", in.Action)
 	}
 }
 
@@ -374,8 +413,26 @@ type idInput struct {
 }
 
 type getInput struct {
-	ID           string `json:"id"`
-	IncludeEdges bool   `json:"include_edges,omitempty"`
+	ID            string   `json:"id"`
+	IncludeEdges  bool     `json:"include_edges,omitempty"`
+	SectionFilter []string `json:"section_filter,omitempty"`
+}
+
+func filterSections(art *model.Artifact, filter []string) {
+	if len(filter) == 0 {
+		return
+	}
+	keep := make(map[string]bool, len(filter))
+	for _, f := range filter {
+		keep[f] = true
+	}
+	filtered := art.Sections[:0]
+	for _, s := range art.Sections {
+		if keep[s.Name] {
+			filtered = append(filtered, s)
+		}
+	}
+	art.Sections = filtered
 }
 
 func (h *handler) handleGet(ctx context.Context, _ *sdkmcp.CallToolRequest, in getInput) (*sdkmcp.CallToolResult, any, error) {
@@ -383,6 +440,7 @@ func (h *handler) handleGet(ctx context.Context, _ *sdkmcp.CallToolRequest, in g
 	if err != nil {
 		return nil, nil, err
 	}
+	filterSections(art, in.SectionFilter)
 	if !in.IncludeEdges {
 		return text(render.Markdown(art)), nil, nil
 	}
@@ -395,6 +453,20 @@ func (h *handler) handleGet(ctx context.Context, _ *sdkmcp.CallToolRequest, in g
 		Edges []protocol.EdgeSummary `json:"edges"`
 	}
 	data, _ := json.MarshalIndent(artWithEdges{Artifact: art, Edges: edges}, "", "  ")
+	return text(string(data)), nil, nil
+}
+
+func (h *handler) handleBulkGet(ctx context.Context, ids []string, sectionFilter []string) (*sdkmcp.CallToolResult, any, error) {
+	var arts []*model.Artifact
+	for _, id := range ids {
+		art, err := h.proto.GetArtifact(ctx, id)
+		if err != nil {
+			return nil, nil, fmt.Errorf("get %s: %w", id, err)
+		}
+		filterSections(art, sectionFilter)
+		arts = append(arts, art)
+	}
+	data, _ := json.MarshalIndent(arts, "", "  ")
 	return text(string(data)), nil, nil
 }
 
@@ -611,8 +683,11 @@ func (h *handler) handleUpdate(ctx context.Context, in artifactInput) (*sdkmcp.C
 
 	var lines []string
 
-	// Apply field updates
+	// Apply field updates — patch map takes precedence, then individual fields
 	fieldMap := map[string]string{}
+	for k, v := range in.Patch {
+		fieldMap[k] = v
+	}
 	if in.Status != "" {
 		fieldMap["status"] = in.Status
 	}
@@ -1283,6 +1358,75 @@ func (h *handler) handleLink(ctx context.Context, _ *sdkmcp.CallToolRequest, in 
 		}
 	}
 	return text(strings.Join(lines, "\n")), nil, nil
+}
+
+func (h *handler) handleBulkEdge(ctx context.Context, edges []edgeInput, unlink bool) (*sdkmcp.CallToolResult, any, error) {
+	if len(edges) == 0 {
+		return nil, nil, fmt.Errorf("edges array is required for bulk_link/bulk_unlink")
+	}
+	var lines []string
+	for _, e := range edges {
+		var results []protocol.Result
+		var err error
+		if unlink {
+			results, err = h.proto.UnlinkArtifacts(ctx, e.From, e.Relation, []string{e.To})
+		} else {
+			results, err = h.proto.LinkArtifacts(ctx, e.From, e.Relation, []string{e.To})
+		}
+		if err != nil {
+			lines = append(lines, fmt.Sprintf("%s -[%s]-> %s: error: %s", e.From, e.Relation, e.To, err))
+			continue
+		}
+		for _, r := range results {
+			if r.OK {
+				verb := "linked"
+				if unlink {
+					verb = "unlinked"
+				}
+				lines = append(lines, fmt.Sprintf("%s %s -[%s]-> %s", verb, e.From, e.Relation, e.To))
+			} else {
+				lines = append(lines, fmt.Sprintf("%s -[%s]-> %s: error: %s", e.From, e.Relation, e.To, r.Error))
+			}
+		}
+	}
+	return text(strings.Join(lines, "\n")), nil, nil
+}
+
+func (h *handler) handleMove(ctx context.Context, id, newParent string) (*sdkmcp.CallToolResult, any, error) {
+	art, err := h.proto.GetArtifact(ctx, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	oldParent := art.Parent
+	results, err := h.proto.SetField(ctx, []string{id}, "parent", newParent)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !results[0].OK {
+		return nil, nil, fmt.Errorf("move %s: %s", id, results[0].Error)
+	}
+	msg := fmt.Sprintf("moved %s: parent %s -> %s", id, oldParent, newParent)
+	return text(msg), nil, nil
+}
+
+func (h *handler) handleReplace(ctx context.Context, id, relation, oldTarget, newTarget string) (*sdkmcp.CallToolResult, any, error) {
+	// Unlink old
+	results, err := h.proto.UnlinkArtifacts(ctx, id, relation, []string{oldTarget})
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(results) > 0 && !results[0].OK {
+		return nil, nil, fmt.Errorf("unlink old: %s", results[0].Error)
+	}
+	// Link new
+	results, err = h.proto.LinkArtifacts(ctx, id, relation, []string{newTarget})
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(results) > 0 && !results[0].OK {
+		return nil, nil, fmt.Errorf("link new: %s", results[0].Error)
+	}
+	return text(fmt.Sprintf("replaced %s -[%s]-> %s with %s", id, relation, oldTarget, newTarget)), nil, nil
 }
 
 func (h *handler) handleUnlink(ctx context.Context, _ *sdkmcp.CallToolRequest, in linkInput) (*sdkmcp.CallToolResult, any, error) {
