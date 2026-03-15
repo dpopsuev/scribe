@@ -175,7 +175,7 @@ func TestComponentLabelGate_Passes(t *testing.T) {
 
 	_ = s.Put(ctx, &model.Artifact{
 		ID: "TASK-1", Kind: "task", Status: "draft", Title: "Labeled", Scope: "test",
-		Labels: []string{"locus:internal/arch"},
+		Priority: "medium", Labels: []string{"locus:internal/arch"},
 		Sections: []model.Section{
 			{Name: "context", Text: "some context"},
 			{Name: "checklist", Text: "items"},
@@ -200,7 +200,7 @@ func TestComponentLabelGate_NoTriggerSection(t *testing.T) {
 	ctx := context.Background()
 
 	_ = s.Put(ctx, &model.Artifact{
-		ID: "TASK-1", Kind: "task", Status: "draft", Title: "No trigger", Scope: "test",
+		ID: "TASK-1", Kind: "task", Status: "draft", Title: "No trigger", Scope: "test", Priority: "medium",
 		Sections: []model.Section{
 			{Name: "context", Text: "context"},
 			{Name: "checklist", Text: "items"},
@@ -224,7 +224,7 @@ func TestComponentLabelGate_DisabledByDefault(t *testing.T) {
 	ctx := context.Background()
 
 	_ = s.Put(ctx, &model.Artifact{
-		ID: "TASK-1", Kind: "task", Status: "draft", Title: "Ungated", Scope: "test",
+		ID: "TASK-1", Kind: "task", Status: "draft", Title: "Ungated", Scope: "test", Priority: "medium",
 		Sections: []model.Section{
 			{Name: "context", Text: "context"},
 			{Name: "checklist", Text: "items"},
@@ -1152,8 +1152,9 @@ func TestActivationGuard_PassesWithSections(t *testing.T) {
 	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
 
 	art, _ := p.CreateArtifact(context.Background(), protocol.CreateInput{
-		Kind:  "task",
-		Title: "Test guard with sections",
+		Kind:     "task",
+		Title:    "Test guard with sections",
+		Priority: "medium",
 	})
 
 	for _, sec := range []string{"context", "checklist", "acceptance"} {
