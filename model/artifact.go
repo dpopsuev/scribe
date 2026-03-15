@@ -73,6 +73,7 @@ type Edge struct {
 const (
 	RelParentOf   = "parent_of"
 	RelDependsOn  = "depends_on"
+	RelFollows    = "follows"
 	RelJustifies  = "justifies"
 	RelImplements = "implements"
 	RelDocuments  = "documents"

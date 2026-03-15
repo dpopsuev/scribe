@@ -633,8 +633,8 @@ func DefaultSchema() *Schema {
 		TerminalStatuses: []string{"complete", "cancelled", "dismissed", "retired", "archived"},
 		ReadonlyStatuses: []string{"archived"},
 		Relations: []string{
-			RelParentOf, RelDependsOn, RelJustifies,
-			RelImplements, RelDocuments, RelSatisfies,
+			RelParentOf, RelDependsOn, RelFollows,
+			RelJustifies, RelImplements, RelDocuments, RelSatisfies,
 		},
 		Guards: Guards{
 			ArchivedReadonly:                     true,

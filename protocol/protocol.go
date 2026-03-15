@@ -242,26 +242,39 @@ func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*model.A
 // findTemplateForKind looks up an active template in the given scope that matches
 // the artifact kind. Returns the template ID if exactly one match, empty string otherwise.
 func (p *Protocol) findTemplateForKind(ctx context.Context, kind, scope string) string {
-	if scope == "" {
-		return ""
-	}
-	templates, err := p.store.List(ctx, model.Filter{Kind: model.KindTemplate, Scope: scope, Status: model.StatusActive})
-	if err != nil || len(templates) == 0 {
-		return ""
-	}
 	// Match: template title contains the kind name (case-insensitive)
 	// e.g. "Spec Template" matches kind "spec", "Bug Template" matches kind "bug"
 	kindLower := strings.ToLower(kind)
-	var matches []string
-	for _, tpl := range templates {
-		if strings.Contains(strings.ToLower(tpl.Title), kindLower) {
-			matches = append(matches, tpl.ID)
+	match := func(templates []*model.Artifact) string {
+		var matches []string
+		for _, tpl := range templates {
+			if strings.Contains(strings.ToLower(tpl.Title), kindLower) {
+				matches = append(matches, tpl.ID)
+			}
+		}
+		if len(matches) == 1 {
+			return matches[0]
+		}
+		return ""
+	}
+
+	// 1. Try scoped templates first
+	if scope != "" {
+		templates, err := p.store.List(ctx, model.Filter{Kind: model.KindTemplate, Scope: scope, Status: model.StatusActive})
+		if err == nil && len(templates) > 0 {
+			if id := match(templates); id != "" {
+				return id
+			}
 		}
 	}
-	if len(matches) == 1 {
-		return matches[0]
+
+	// 2. Fall back to global (scopeless) templates
+	global, err := p.store.List(ctx, model.Filter{Kind: model.KindTemplate, Scope: "", Status: model.StatusActive})
+	if err == nil && len(global) > 0 {
+		return match(global)
 	}
-	return "" // zero or ambiguous matches
+
+	return ""
 }
 
 func (p *Protocol) GetArtifact(ctx context.Context, id string) (*model.Artifact, error) {
@@ -572,6 +585,21 @@ func (p *Protocol) setStatusForce(ctx context.Context, art *model.Artifact, stat
 		}
 	}
 
+	// Soft warning: check if followed artifacts are incomplete
+	var followsWarnings []string
+	if status == model.StatusActive {
+		edges, _ := p.store.Neighbors(ctx, art.ID, model.RelFollows, store.Outgoing)
+		for _, e := range edges {
+			preceded, err := p.store.Get(ctx, e.To)
+			if err != nil {
+				continue
+			}
+			if !p.schema.IsTerminal(preceded.Status) {
+				followsWarnings = append(followsWarnings, fmt.Sprintf("%s is %s", preceded.ID, preceded.Status))
+			}
+		}
+	}
+
 	art.Status = status
 	if err := p.store.Put(ctx, art); err != nil {
 		return Result{ID: art.ID, Error: err.Error()}
@@ -580,6 +608,9 @@ func (p *Protocol) setStatusForce(ctx context.Context, art *model.Artifact, stat
 	triggerStatus := p.schema.TriggerStatusFor(art.Kind)
 	r := Result{ID: art.ID, OK: true}
 	var info []string
+	if len(followsWarnings) > 0 {
+		info = append(info, fmt.Sprintf("warning: activating before followed artifacts complete: %s", strings.Join(followsWarnings, ", ")))
+	}
 	if p.schema.AutoArchiveOnJustifyComplete(art.Kind) && status == triggerStatus {
 		if extra := p.autoArchiveGoal(ctx, art); extra != "" {
 			info = append(info, extra)

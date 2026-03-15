@@ -1812,3 +1812,146 @@ func TestScopeLabels_DirectArtifactLabel(t *testing.T) {
 		t.Errorf("expected 1 artifact via direct label, got %d", len(arts))
 	}
 }
+
+func TestFollows_SoftWarningOnActivation(t *testing.T) {
+	s := openStore(t)
+	p := protocol.New(s, nil, []string{"test"}, nil, protocol.IDConfig{})
+	ctx := context.Background()
+	scopeSetup(t, s, "test")
+
+	taskSections := []model.Section{
+		{Name: "context", Text: "ctx"},
+		{Name: "checklist", Text: "- [ ] done"},
+		{Name: "acceptance", Text: "it works"},
+	}
+
+	// Create two tasks with required sections for activation
+	a1, _ := p.CreateArtifact(ctx, protocol.CreateInput{Kind: "task", Title: "First", Scope: "test", Priority: "medium", Sections: taskSections})
+	a2, _ := p.CreateArtifact(ctx, protocol.CreateInput{Kind: "task", Title: "Second", Scope: "test", Priority: "medium", Sections: taskSections})
+
+	// a2 follows a1 (a2 should be done after a1)
+	if _, err := p.LinkArtifacts(ctx, a2.ID, model.RelFollows, []string{a1.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Activate a2 while a1 is still draft → should succeed with warning (force to skip section checks)
+	results, _ := p.SetField(ctx, []string{a2.ID}, "status", "active", protocol.SetFieldOptions{Force: true})
+	if len(results) == 0 || !results[0].OK {
+		t.Fatalf("expected OK, got: %v", results)
+	}
+	if !strings.Contains(results[0].Error, "warning") || !strings.Contains(results[0].Error, a1.ID) {
+		t.Errorf("expected follows warning mentioning %s, got: %s", a1.ID, results[0].Error)
+	}
+
+	// Complete a1, then activate a3 which follows a1 → no warning
+	a3, _ := p.CreateArtifact(ctx, protocol.CreateInput{Kind: "task", Title: "Third", Scope: "test", Priority: "medium", Sections: taskSections})
+	p.SetField(ctx, []string{a1.ID}, "status", "complete", protocol.SetFieldOptions{Force: true})
+	if _, err := p.LinkArtifacts(ctx, a3.ID, model.RelFollows, []string{a1.ID}); err != nil {
+		t.Fatal(err)
+	}
+	results, _ = p.SetField(ctx, []string{a3.ID}, "status", "active", protocol.SetFieldOptions{Force: true})
+	if len(results) == 0 || !results[0].OK {
+		t.Fatalf("expected OK, got: %v", results)
+	}
+	if strings.Contains(results[0].Error, "warning") {
+		t.Errorf("expected no warning when followed artifact is complete, got: %s", results[0].Error)
+	}
+}
+
+func TestCascadingTemplate_GlobalFallback(t *testing.T) {
+	s := openStore(t)
+	p := protocol.New(s, nil, []string{"test"}, nil, protocol.IDConfig{})
+	ctx := context.Background()
+	scopeSetup(t, s, "test")
+
+	// Create a global (scopeless) template
+	globalTpl, err := p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind:  "template",
+		Title: "Bug Template",
+		Scope: "",
+		Sections: []model.Section{
+			{Name: "content", Text: "template content"},
+			{Name: "steps_to_reproduce", Text: "describe steps"},
+			{Name: "expected_behavior", Text: "what should happen"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.SetField(ctx, []string{globalTpl.ID}, "status", "active", protocol.SetFieldOptions{Force: true})
+
+	// Create a bug in scope "test" — should auto-link to global template
+	bug, err := p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind:  "bug",
+		Title: "Test Bug",
+		Scope: "test",
+		Sections: []model.Section{
+			{Name: "steps_to_reproduce", Text: "step 1"},
+			{Name: "expected_behavior", Text: "should work"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify auto-link
+	got, _ := p.GetArtifact(ctx, bug.ID)
+	if targets, ok := got.Links[model.RelSatisfies]; !ok || len(targets) == 0 {
+		t.Error("expected auto-link to global template via satisfies")
+	} else if targets[0] != globalTpl.ID {
+		t.Errorf("expected satisfies link to %s, got %s", globalTpl.ID, targets[0])
+	}
+}
+
+func TestCascadingTemplate_ScopedTakesPrecedence(t *testing.T) {
+	s := openStore(t)
+	p := protocol.New(s, nil, []string{"test"}, nil, protocol.IDConfig{})
+	ctx := context.Background()
+	scopeSetup(t, s, "test")
+
+	// Create global (scopeless) template directly via store to bypass scope inference
+	s.Put(ctx, &model.Artifact{
+		ID: "TPL-GLOBAL-1", Kind: "template", Scope: "", Status: "active",
+		Title: "Bug Template",
+		Sections: []model.Section{
+			{Name: "content", Text: "global"},
+		},
+	})
+
+	// Create scoped template via protocol
+	scopedTpl, err := p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind:  "template",
+		Title: "Bug Template",
+		Scope: "test",
+		Sections: []model.Section{
+			{Name: "content", Text: "scoped"},
+			{Name: "severity", Text: "describe severity"},
+		},
+	})
+	if err != nil {
+		t.Fatal("create scoped template:", err)
+	}
+	p.SetField(ctx, []string{scopedTpl.ID}, "status", "active", protocol.SetFieldOptions{Force: true})
+
+	// Create a bug — should link to scoped template, not global
+	bug, err := p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind:  "bug",
+		Title: "Test Bug",
+		Scope: "test",
+		Sections: []model.Section{
+			{Name: "severity", Text: "high"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, _ := p.GetArtifact(ctx, bug.ID)
+	targets := got.Links[model.RelSatisfies]
+	if len(targets) == 0 {
+		t.Fatal("expected auto-link to template")
+	}
+	if targets[0] != scopedTpl.ID {
+		t.Errorf("expected scoped template %s, got %s", scopedTpl.ID, targets[0])
+	}
+}
