@@ -26,7 +26,9 @@ const (
 	KindDoc        = "doc"
 	KindRef        = "ref"
 	KindTemplate   = "template"
-	KindDecision   = "decision"
+	KindDecision     = "decision"
+	KindConfig       = "config"
+	KindMirror       = "mirror"
 	KindSecurityCase = "security_case"
 )
 
