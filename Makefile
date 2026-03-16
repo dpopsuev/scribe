@@ -1,4 +1,4 @@
-.PHONY: build build-image push-image run restart version
+.PHONY: build build-image push-image run restart version release
 
 VERSION ?= $(shell git describe --tags --always --dirty)
 
@@ -31,3 +31,11 @@ test-e2e:
 
 test-e2e-llm:
 	go test -tags e2e -v -timeout 600s -run TestE2E_LLM .
+
+release:
+	@test -n "$(V)" || (echo "usage: make release V=v1.2.0" && exit 1)
+	sed -i 's|quay.io/dpopsuev/scribe:[^ "]*|quay.io/dpopsuev/scribe:$(V)|g' README.md
+	git add README.md && git commit -m "release: $(V)" || true
+	git tag $(V)
+	$(MAKE) build-image VERSION=$(V)
+	git push origin main --tags
