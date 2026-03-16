@@ -86,6 +86,7 @@ type MotdResult struct {
 	SchemaHash string            `json:"schema_hash,omitempty"`
 	Campaigns  []*model.Artifact `json:"campaigns,omitempty"`
 	Goals      []*model.Artifact `json:"goals,omitempty"`
+	Context    []string          `json:"context,omitempty"`  // domain docs/refs for session priming
 	Warnings   []string          `json:"warnings,omitempty"`
 }
 
@@ -1791,6 +1792,17 @@ func (p *Protocol) Motd(ctx context.Context) (*MotdResult, error) {
 	if unimplementedSpecs > 0 {
 		result.Warnings = append(result.Warnings,
 			fmt.Sprintf("%d spec/bug(s) have no implementing task", unimplementedSpecs))
+	}
+
+	// Context Resolver: surface active docs and refs for domain priming
+	for _, art := range all {
+		if p.schema.IsTerminal(art.Status) {
+			continue
+		}
+		if art.Kind == model.KindDoc || art.Kind == model.KindRef {
+			result.Context = append(result.Context,
+				fmt.Sprintf("[%s] %s: %s", art.Scope, art.ID, art.Title))
+		}
 	}
 
 	return result, nil

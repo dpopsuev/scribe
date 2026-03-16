@@ -46,6 +46,7 @@ func NewServer(s store.Store, homeScopes, vocab []string, idc protocol.IDConfig,
 		proto:       protocol.New(s, nil, homeScopes, vocab, idc),
 		snapshotter: snap,
 		version:     version,
+		readLog:     make(map[string]bool),
 	}
 
 	directive.AddTool(reg, srv, directive.ToolMeta{
@@ -100,6 +101,7 @@ type handler struct {
 	proto       *protocol.Protocol
 	snapshotter *store.Snapshotter
 	version     string
+	readLog     map[string]bool // tracks which artifact IDs have been read this session
 }
 
 // --- consolidated input types ---
@@ -589,6 +591,7 @@ func (h *handler) handleGet(ctx context.Context, _ *sdkmcp.CallToolRequest, in g
 	if err != nil {
 		return nil, nil, err
 	}
+	h.readLog[in.ID] = true
 	filterSections(art, in.SectionFilter)
 	if !in.IncludeEdges {
 		return text(render.Markdown(art)), nil, nil
@@ -899,6 +902,22 @@ func (h *handler) handleListCompact(ctx context.Context, in protocol.ListInput, 
 }
 
 func (h *handler) handleBulkSetField(ctx context.Context, ids []string, field, value string, force bool) (*sdkmcp.CallToolResult, any, error) {
+	// Activation prerequisite: must read implementing spec before activating task
+	if field == model.FieldStatus && value == model.StatusActive && !force {
+		for _, id := range ids {
+			art, err := h.proto.GetArtifact(ctx, id)
+			if err != nil || art.Kind != model.KindTask {
+				continue
+			}
+			if targets, ok := art.Links[model.RelImplements]; ok {
+				for _, specID := range targets {
+					if !h.readLog[specID] {
+						return nil, nil, fmt.Errorf("cannot activate %s: must read %s first (call get on implementing spec before activating)", id, specID)
+					}
+				}
+			}
+		}
+	}
 	results, err := h.proto.SetField(ctx, ids, field, value, protocol.SetFieldOptions{Force: force})
 	if err != nil {
 		return nil, nil, err
@@ -1388,6 +1407,14 @@ func (h *handler) handleMotd(ctx context.Context, _ *sdkmcp.CallToolRequest, in 
 			}
 			sections = append(sections, header+"\n"+strings.Join(lines, "\n"))
 		}
+	}
+
+	if len(m.Context) > 0 {
+		var lines []string
+		for _, c := range m.Context {
+			lines = append(lines, "  "+c)
+		}
+		sections = append(sections, "Domain Context:\n"+strings.Join(lines, "\n"))
 	}
 
 	if len(m.Warnings) > 0 {
