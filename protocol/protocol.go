@@ -1552,9 +1552,40 @@ func (p *Protocol) Motd(ctx context.Context) (*MotdResult, error) {
 	}
 
 	unknownCounts := make(map[string]int)
+	staleDrafts := 0
+	staleCutoff := time.Now().Add(-7 * 24 * time.Hour)
+	completableCampaigns := 0
+	unimplementedSpecs := 0
 	for _, art := range all {
 		if p.schema.UnknownKind(art.Kind) {
 			unknownCounts[art.Kind]++
+		}
+		// Stale drafts
+		if !p.schema.IsTerminal(art.Status) && !art.UpdatedAt.IsZero() && art.UpdatedAt.Before(staleCutoff) {
+			staleDrafts++
+		}
+		// Blocked campaigns
+		if !p.schema.IsTerminal(art.Status) && (art.Kind == model.KindCampaign || art.Kind == model.KindGoal) {
+			children, _ := p.store.Children(ctx, art.ID)
+			if len(children) > 0 {
+				allDone := true
+				for _, ch := range children {
+					if !p.schema.IsTerminal(ch.Status) {
+						allDone = false
+						break
+					}
+				}
+				if allDone {
+					completableCampaigns++
+				}
+			}
+		}
+		// Unimplemented specs
+		if !p.schema.IsTerminal(art.Status) && (art.Kind == model.KindSpec || art.Kind == model.KindBug) {
+			edges, _ := p.store.Neighbors(ctx, art.ID, model.RelImplements, store.Incoming)
+			if len(edges) == 0 {
+				unimplementedSpecs++
+			}
 		}
 	}
 	if len(unknownCounts) > 0 {
@@ -1570,6 +1601,18 @@ func (p *Protocol) Motd(ctx context.Context) (*MotdResult, error) {
 		result.Warnings = append(result.Warnings,
 			fmt.Sprintf("%d artifact(s) have unrecognized kinds: %s — consider updating schema or migrating",
 				total, strings.Join(kinds, ", ")))
+	}
+	if staleDrafts > 0 {
+		result.Warnings = append(result.Warnings,
+			fmt.Sprintf("%d artifact(s) stale (not updated in 7+ days)", staleDrafts))
+	}
+	if completableCampaigns > 0 {
+		result.Warnings = append(result.Warnings,
+			fmt.Sprintf("%d campaign/goal(s) completable (all children terminal)", completableCampaigns))
+	}
+	if unimplementedSpecs > 0 {
+		result.Warnings = append(result.Warnings,
+			fmt.Sprintf("%d spec/bug(s) have no implementing task", unimplementedSpecs))
 	}
 
 	return result, nil
@@ -2228,6 +2271,133 @@ func (p *Protocol) Check(ctx context.Context, scope string) (*CheckReport, error
 		}
 	}
 
+	// --- Additional detection categories ---
+
+	// Circular parent chains
+	for _, art := range arts {
+		visited := map[string]bool{art.ID: true}
+		cur := art.Parent
+		for cur != "" {
+			if visited[cur] {
+				report.Violations = append(report.Violations, CheckViolation{
+					ID: art.ID, Kind: art.Kind, Title: art.Title,
+					Category: "parent_cycle",
+					Detail:   fmt.Sprintf("circular parent chain detected at %s", cur),
+				})
+				break
+			}
+			visited[cur] = true
+			parent, err := p.store.Get(ctx, cur)
+			if err != nil {
+				break
+			}
+			cur = parent.Parent
+		}
+	}
+
+	// Stale drafts (non-terminal, not updated in 7+ days)
+	staleCutoff := time.Now().Add(-7 * 24 * time.Hour)
+	for _, art := range arts {
+		if p.schema.IsTerminal(art.Status) {
+			continue
+		}
+		if !art.UpdatedAt.IsZero() && art.UpdatedAt.Before(staleCutoff) {
+			report.Violations = append(report.Violations, CheckViolation{
+				ID: art.ID, Kind: art.Kind, Title: art.Title,
+				Category: "stale_draft",
+				Detail:   fmt.Sprintf("last updated %s", art.UpdatedAt.Format("2006-01-02")),
+			})
+		}
+	}
+
+	// Blocked campaigns/goals: all children terminal but parent not terminal
+	for _, art := range arts {
+		if p.schema.IsTerminal(art.Status) {
+			continue
+		}
+		if art.Kind != model.KindCampaign && art.Kind != model.KindGoal {
+			continue
+		}
+		children, _ := p.store.Children(ctx, art.ID)
+		if len(children) == 0 {
+			continue
+		}
+		allTerminal := true
+		for _, ch := range children {
+			if !p.schema.IsTerminal(ch.Status) {
+				allTerminal = false
+				break
+			}
+		}
+		if allTerminal {
+			report.Violations = append(report.Violations, CheckViolation{
+				ID: art.ID, Kind: art.Kind, Title: art.Title,
+				Category: "completable",
+				Detail:   fmt.Sprintf("all %d children are terminal but %s is %s", len(children), art.ID, art.Status),
+			})
+		}
+	}
+
+	// Spec/task mismatch
+	for _, art := range arts {
+		if p.schema.IsTerminal(art.Status) {
+			continue
+		}
+		if art.Kind == model.KindSpec || art.Kind == model.KindBug {
+			edges, _ := p.store.Neighbors(ctx, art.ID, model.RelImplements, store.Incoming)
+			if len(edges) == 0 {
+				report.Violations = append(report.Violations, CheckViolation{
+					ID: art.ID, Kind: art.Kind, Title: art.Title,
+					Category: "unimplemented_spec",
+					Detail:   fmt.Sprintf("no task implements this %s", art.Kind),
+				})
+			}
+		}
+	}
+
+	// Duplicate titles within scope+kind
+	type scopeKindTitle struct{ scope, kind, title string }
+	titleGroups := make(map[scopeKindTitle][]string)
+	for _, art := range arts {
+		if p.schema.IsTerminal(art.Status) {
+			continue
+		}
+		key := scopeKindTitle{art.Scope, art.Kind, art.Title}
+		titleGroups[key] = append(titleGroups[key], art.ID)
+	}
+	for key, ids := range titleGroups {
+		if len(ids) > 1 {
+			report.Violations = append(report.Violations, CheckViolation{
+				ID: ids[0], Kind: key.kind, Title: key.title,
+				Category: "duplicate_title",
+				Detail:   fmt.Sprintf("%d artifacts with identical title in scope %q: %s", len(ids), key.scope, strings.Join(ids, ", ")),
+			})
+		}
+	}
+
+	// Empty artifacts
+	for _, art := range arts {
+		if art.Status != model.StatusDraft {
+			continue
+		}
+		if art.Kind == model.KindTemplate || art.Kind == model.KindGoal || art.Kind == model.KindCampaign {
+			continue
+		}
+		if _, known := p.schema.Kinds[art.Kind]; !known {
+			continue // already flagged as unknown_kind
+		}
+		if art.Goal == "" && len(art.Sections) == 0 && art.Parent == "" {
+			edges, _ := p.store.Neighbors(ctx, art.ID, "", store.Outgoing)
+			if len(edges) == 0 {
+				report.Violations = append(report.Violations, CheckViolation{
+					ID: art.ID, Kind: art.Kind, Title: art.Title,
+					Category: "empty_artifact",
+					Detail:   "no goal, no sections, no parent, no outgoing edges",
+				})
+			}
+		}
+	}
+
 	sort.Slice(report.Violations, func(i, j int) bool {
 		return report.Violations[i].ID < report.Violations[j].ID
 	})
@@ -2296,14 +2466,14 @@ func (p *Protocol) CheckFix(ctx context.Context, scope string) (*CheckReport, []
 				_ = p.store.Put(ctx, art)
 			}
 
-		case "invalid_parent":
+		case "invalid_parent", "parent_cycle":
 			art, err := p.store.Get(ctx, v.ID)
 			if err != nil {
 				continue
 			}
 			art.Parent = ""
 			if err := p.store.Put(ctx, art); err == nil {
-				fixes = append(fixes, fmt.Sprintf("unset parent of %s", v.ID))
+				fixes = append(fixes, fmt.Sprintf("unset parent of %s (%s)", v.ID, v.Category))
 			}
 		}
 	}
