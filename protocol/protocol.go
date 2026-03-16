@@ -239,6 +239,22 @@ func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*model.A
 				"artifact_kind", art.Kind, "scope", scope, "template_id", tplID)
 		}
 	}
+	// Check mandatory outgoing edges
+	if kd, ok := p.schema.Kinds[art.Kind]; ok {
+		for _, reqRel := range kd.Relations.RequiredOutgoing {
+			hasEdge := false
+			if targets, ok := art.Links[reqRel]; ok && len(targets) > 0 {
+				hasEdge = true
+			}
+			if reqRel == model.RelDependsOn && len(art.DependsOn) > 0 {
+				hasEdge = true
+			}
+			if !hasEdge {
+				return nil, fmt.Errorf("%s requires a %s edge — provide via links or depends_on", art.Kind, reqRel)
+			}
+		}
+	}
+
 	if err := p.checkTemplateConformance(ctx, art); err != nil {
 		return nil, err
 	}
@@ -576,6 +592,12 @@ func (p *Protocol) setStatusForce(ctx context.Context, art *model.Artifact, stat
 		}
 	}
 
+	if p.schema.Guards.CompletionRequiresDependsOnComplete && status == model.StatusComplete {
+		if err := p.guardDependsOnComplete(ctx, art); err != nil {
+			return Result{ID: art.ID, Error: err.Error()}
+		}
+	}
+
 	if p.schema.IsReadonly(status) {
 		children, err := p.store.Children(ctx, art.ID)
 		if err != nil {
@@ -656,6 +678,24 @@ func (p *Protocol) setStatusForce(ctx context.Context, art *model.Artifact, stat
 		r.Error = strings.Join(info, "\n")
 	}
 	return r
+}
+
+func (p *Protocol) guardDependsOnComplete(ctx context.Context, art *model.Artifact) error {
+	var incomplete []string
+	for _, depID := range art.DependsOn {
+		dep, err := p.store.Get(ctx, depID)
+		if err != nil {
+			continue // dangling ref, not a blocker
+		}
+		if !p.schema.IsTerminal(dep.Status) {
+			incomplete = append(incomplete, fmt.Sprintf("%s [%s]", dep.ID, dep.Status))
+		}
+	}
+	if len(incomplete) > 0 {
+		return fmt.Errorf("cannot complete %s: %d incomplete dependencies: %s",
+			art.ID, len(incomplete), strings.Join(incomplete, ", "))
+	}
+	return nil
 }
 
 func (p *Protocol) guardChildrenComplete(ctx context.Context, art *model.Artifact) error {
