@@ -56,10 +56,11 @@ type Schema struct {
 
 // Guards defines global invariant guards that apply across all kinds.
 type Guards struct {
-	ArchivedReadonly                     bool `json:"archived_readonly" yaml:"archived_readonly"`
-	CompletionRequiresChildrenComplete   bool `json:"completion_requires_children_complete" yaml:"completion_requires_children_complete"`
-	DeleteRequiresArchived               bool `json:"delete_requires_archived" yaml:"delete_requires_archived"`
-	AutoCompleteParentOnChildrenTerminal bool `json:"auto_complete_parent_on_children_terminal" yaml:"auto_complete_parent_on_children_terminal"`
+	ArchivedReadonly                       bool `json:"archived_readonly" yaml:"archived_readonly"`
+	CompletionRequiresChildrenComplete     bool `json:"completion_requires_children_complete" yaml:"completion_requires_children_complete"`
+	CompletionRequiresDependsOnComplete    bool `json:"completion_requires_depends_on_complete" yaml:"completion_requires_depends_on_complete"`
+	DeleteRequiresArchived                 bool `json:"delete_requires_archived" yaml:"delete_requires_archived"`
+	AutoCompleteParentOnChildrenTerminal   bool `json:"auto_complete_parent_on_children_terminal" yaml:"auto_complete_parent_on_children_terminal"`
 }
 
 // Prefix returns the ID prefix for a kind. Canonical kinds use the schema,
@@ -654,10 +655,11 @@ func DefaultSchema() *Schema {
 			RelJustifies, RelImplements, RelDocuments, RelSatisfies,
 		},
 		Guards: Guards{
-			ArchivedReadonly:                     true,
-			CompletionRequiresChildrenComplete:   true,
-			DeleteRequiresArchived:               true,
-			AutoCompleteParentOnChildrenTerminal: true,
+			ArchivedReadonly:                      true,
+			CompletionRequiresChildrenComplete:    true,
+			CompletionRequiresDependsOnComplete:   true,
+			DeleteRequiresArchived:                true,
+			AutoCompleteParentOnChildrenTerminal:  true,
 		},
 		Priorities:      []string{"none", "low", "medium", "high", "critical"},
 		DefaultPriority: "none",
