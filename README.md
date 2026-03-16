@@ -15,7 +15,7 @@ Work graph for AI agents. Scribe is a structured artifact store with native DAG 
 podman run -d --name scribe \
   -p 8080:8080 \
   -v scribe-data:/data \
-  quay.io/dpopsuev/scribe:latest
+  quay.io/dpopsuev/scribe:v1.2.1
 ```
 
 ### Binary
@@ -387,7 +387,7 @@ podman run -d --name scribe \
   -p 8080:8080 \
   -v scribe-data:/data \
   -v ./scribe.yaml:/data/scribe.yaml \
-  quay.io/dpopsuev/scribe:latest
+  quay.io/dpopsuev/scribe:v1.2.1
 ```
 
 ## Environment Variables
