@@ -174,6 +174,14 @@ func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*model.A
 	if err != nil {
 		return nil, err
 	}
+	// Inherit defaults from parent
+	if in.Parent != "" {
+		if parent, err := p.store.Get(ctx, in.Parent); err == nil {
+			if in.Priority == "" && parent.Priority != "" {
+				in.Priority = parent.Priority
+			}
+		}
+	}
 	var id string
 	if in.ExplicitID != "" {
 		id = in.ExplicitID
@@ -257,6 +265,15 @@ func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*model.A
 
 	if err := p.checkTemplateConformance(ctx, art); err != nil {
 		return nil, err
+	}
+	// Duplicate awareness: warn if similar non-terminal artifact exists
+	if existing, _ := p.store.List(ctx, model.Filter{Kind: art.Kind, Scope: art.Scope}); len(existing) > 0 {
+		for _, e := range existing {
+			if !p.schema.IsTerminal(e.Status) && e.Title == art.Title {
+				slog.WarnContext(ctx, "duplicate title detected on create",
+					"new_id", art.ID, "existing_id", e.ID, "title", art.Title)
+			}
+		}
 	}
 	if err := p.store.Put(ctx, art); err != nil {
 		return nil, err
