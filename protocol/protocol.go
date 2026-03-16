@@ -631,10 +631,11 @@ func (p *Protocol) setStatus(ctx context.Context, art *model.Artifact, status st
 // What: the check function (returns error to block, nil to pass)
 // Where: kind filter (empty = all kinds)
 type transitionGuard struct {
-	name  string
-	when  string // target status ("complete", "active", ""), empty = always
-	where string // kind filter ("task", "spec", ""), empty = all
-	check func(ctx context.Context, p *Protocol, art *model.Artifact) error
+	name      string
+	when      string // target status ("complete", "active", ""), empty = always
+	where     string // kind filter ("task", "spec", ""), empty = all
+	forceable bool   // if true, force=true skips this guard
+	check     func(ctx context.Context, p *Protocol, art *model.Artifact) error
 }
 
 func (p *Protocol) setStatusForce(ctx context.Context, art *model.Artifact, status string, force bool) Result {
@@ -647,6 +648,9 @@ func (p *Protocol) setStatusForce(ctx context.Context, art *model.Artifact, stat
 	// Composable pre-transition guards
 	guards := p.transitionGuards()
 	for _, g := range guards {
+		if force && g.forceable {
+			continue
+		}
 		if g.when != "" && g.when != status {
 			continue
 		}
@@ -757,7 +761,7 @@ func (p *Protocol) transitionGuards() []transitionGuard {
 
 	// Template conformance on completion
 	guards = append(guards, transitionGuard{
-		name: "template_conformance_complete", when: model.StatusComplete,
+		name: "template_conformance_complete", when: model.StatusComplete, forceable: true,
 		check: func(ctx context.Context, p *Protocol, art *model.Artifact) error {
 			if err := p.checkTemplateConformance(ctx, art); err != nil {
 				return fmt.Errorf("cannot complete: %s", err)
@@ -787,7 +791,7 @@ func (p *Protocol) transitionGuards() []transitionGuard {
 
 	// Activation: required fields
 	guards = append(guards, transitionGuard{
-		name: "required_fields", when: model.StatusActive,
+		name: "required_fields", when: model.StatusActive, forceable: true,
 		check: func(ctx context.Context, p *Protocol, art *model.Artifact) error {
 			if missing := p.schema.MissingRequiredFields(art); len(missing) > 0 {
 				return fmt.Errorf("cannot activate %s: missing required fields: %s",
@@ -799,7 +803,7 @@ func (p *Protocol) transitionGuards() []transitionGuard {
 
 	// Activation: required sections
 	guards = append(guards, transitionGuard{
-		name: "required_sections", when: model.StatusActive,
+		name: "required_sections", when: model.StatusActive, forceable: true,
 		check: func(ctx context.Context, p *Protocol, art *model.Artifact) error {
 			if !p.schema.ActivationRequiresSections(art.Kind) {
 				return nil

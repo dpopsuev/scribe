@@ -200,6 +200,18 @@ func OpenSQLiteConfig(cfg SQLiteConfig) (*SQLiteStore, error) {
 		log.Warn("reseed scoped sequences failed", "error", err)
 	}
 
+	// Auto-rebuild FTS5 index if it exists but is empty while artifacts table has data
+	var artCount, ftsCount int
+	writer.QueryRow("SELECT COUNT(*) FROM artifacts").Scan(&artCount)
+	writer.QueryRow("SELECT COUNT(*) FROM artifacts_fts").Scan(&ftsCount)
+	if artCount > 0 && ftsCount == 0 {
+		if _, err := writer.Exec("INSERT INTO artifacts_fts(artifacts_fts) VALUES('rebuild')"); err != nil {
+			log.Warn("FTS5 rebuild failed", "error", err)
+		} else {
+			log.Info("FTS5 index rebuilt", "artifacts", artCount)
+		}
+	}
+
 	reader, err := sql.Open("sqlite", dsn+"&_pragma=query_only(on)")
 	if err != nil {
 		writer.Close()
