@@ -433,6 +433,35 @@ func (p *Protocol) SearchArtifacts(ctx context.Context, query string, in ListInp
 	if query == "" {
 		return nil, fmt.Errorf("query is required")
 	}
+
+	// Try FTS5 first, fall back to substring scan
+	ftsIDs, ftsErr := p.store.Search(ctx, query)
+	if ftsErr == nil && len(ftsIDs) > 0 {
+		var matched []*model.Artifact
+		for _, id := range ftsIDs {
+			art, err := p.store.Get(ctx, id)
+			if err != nil {
+				continue
+			}
+			// Apply filters
+			if in.Kind != "" && art.Kind != in.Kind {
+				continue
+			}
+			if in.Status != "" && art.Status != in.Status {
+				continue
+			}
+			if in.Scope != "" && art.Scope != in.Scope {
+				continue
+			}
+			if len(p.scopes) > 0 && in.Scope == "" && !slices.Contains(p.scopes, art.Scope) {
+				continue
+			}
+			matched = append(matched, art)
+		}
+		return matched, nil
+	}
+
+	// Fallback: in-memory substring scan
 	f := model.Filter{Kind: in.Kind, Status: in.Status}
 	if in.Scope != "" {
 		f.Scope = in.Scope

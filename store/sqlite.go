@@ -74,6 +74,27 @@ CREATE TABLE IF NOT EXISTS scoped_sequences (
 	next_val  INTEGER NOT NULL DEFAULT 1,
 	PRIMARY KEY (scope_key, kind_code)
 );
+
+CREATE VIRTUAL TABLE IF NOT EXISTS artifacts_fts USING fts5(
+	id, title, goal, sections,
+	content='artifacts',
+	content_rowid='rowid'
+);
+
+CREATE TRIGGER IF NOT EXISTS artifacts_ai AFTER INSERT ON artifacts BEGIN
+	INSERT INTO artifacts_fts(rowid, id, title, goal, sections)
+	VALUES (new.rowid, new.id, new.title, new.goal, new.sections);
+END;
+CREATE TRIGGER IF NOT EXISTS artifacts_ad AFTER DELETE ON artifacts BEGIN
+	INSERT INTO artifacts_fts(artifacts_fts, rowid, id, title, goal, sections)
+	VALUES ('delete', old.rowid, old.id, old.title, old.goal, old.sections);
+END;
+CREATE TRIGGER IF NOT EXISTS artifacts_au AFTER UPDATE ON artifacts BEGIN
+	INSERT INTO artifacts_fts(artifacts_fts, rowid, id, title, goal, sections)
+	VALUES ('delete', old.rowid, old.id, old.title, old.goal, old.sections);
+	INSERT INTO artifacts_fts(rowid, id, title, goal, sections)
+	VALUES (new.rowid, new.id, new.title, new.goal, new.sections);
+END;
 `
 
 // DefaultSQLitePath returns the default database path.
@@ -407,6 +428,24 @@ func (s *SQLiteStore) Get(ctx context.Context, id string) (*model.Artifact, erro
 		return nil, fmt.Errorf("artifact %s not found", id)
 	}
 	return art, nil
+}
+
+func (s *SQLiteStore) Search(ctx context.Context, query string) ([]string, error) {
+	rows, err := s.reader.QueryContext(ctx,
+		"SELECT id FROM artifacts_fts WHERE artifacts_fts MATCH ? ORDER BY rank",
+		query)
+	if err != nil {
+		return nil, fmt.Errorf("fts5 search: %w", err)
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
 }
 
 func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
