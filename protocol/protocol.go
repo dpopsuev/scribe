@@ -615,6 +615,13 @@ func (p *Protocol) setStatusForce(ctx context.Context, art *model.Artifact, stat
 		}
 	}
 
+	// Template conformance on completion: all template sections must be filled
+	if status == model.StatusComplete {
+		if err := p.checkTemplateConformance(ctx, art); err != nil {
+			return Result{ID: art.ID, Error: fmt.Sprintf("cannot complete: %s", err)}
+		}
+	}
+
 	if p.schema.IsReadonly(status) {
 		children, err := p.store.Children(ctx, art.ID)
 		if err != nil {
@@ -689,6 +696,33 @@ func (p *Protocol) setStatusForce(ctx context.Context, art *model.Artifact, stat
 	if p.schema.HasAutoActivateNext(art.Kind) && status == triggerStatus {
 		if extra := p.autoActivateNextSprint(ctx, art); extra != "" {
 			info = append(info, extra)
+		}
+	}
+	// Auto-enrichment: on task completion, update implementing spec
+	if art.Kind == model.KindTask && status == model.StatusComplete {
+		if targets, ok := art.Links[model.RelImplements]; ok {
+			for _, specID := range targets {
+				spec, err := p.store.Get(ctx, specID)
+				if err != nil || spec.Kind != model.KindSpec {
+					continue
+				}
+				entry := fmt.Sprintf("- %s: %s (completed)", art.ID, art.Title)
+				implText := ""
+				for _, sec := range spec.Sections {
+					if sec.Name == "implementation" {
+						implText = sec.Text
+						break
+					}
+				}
+				if !strings.Contains(implText, art.ID) {
+					if implText != "" {
+						implText += "\n"
+					}
+					implText += entry
+					p.AttachSection(ctx, specID, "implementation", implText)
+					info = append(info, fmt.Sprintf("enriched %s implementation section", specID))
+				}
+			}
 		}
 	}
 	if len(info) > 0 {
