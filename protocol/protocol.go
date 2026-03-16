@@ -596,6 +596,17 @@ func (p *Protocol) setStatus(ctx context.Context, art *model.Artifact, status st
 	return p.setStatusForce(ctx, art, status, false)
 }
 
+// transitionGuard is a composable pre-condition for status transitions.
+// When: target status to trigger on (empty = all)
+// What: the check function (returns error to block, nil to pass)
+// Where: kind filter (empty = all kinds)
+type transitionGuard struct {
+	name  string
+	when  string // target status ("complete", "active", ""), empty = always
+	where string // kind filter ("task", "spec", ""), empty = all
+	check func(ctx context.Context, p *Protocol, art *model.Artifact) error
+}
+
 func (p *Protocol) setStatusForce(ctx context.Context, art *model.Artifact, status string, force bool) Result {
 	if !force {
 		if reason, ok := p.schema.ValidTransition(art.Kind, art.Status, status); !ok {
@@ -603,57 +614,17 @@ func (p *Protocol) setStatusForce(ctx context.Context, art *model.Artifact, stat
 		}
 	}
 
-	if p.schema.Guards.CompletionRequiresChildrenComplete && status == model.StatusComplete {
-		if err := p.guardChildrenComplete(ctx, art); err != nil {
+	// Composable pre-transition guards
+	guards := p.transitionGuards()
+	for _, g := range guards {
+		if g.when != "" && g.when != status {
+			continue
+		}
+		if g.where != "" && g.where != art.Kind {
+			continue
+		}
+		if err := g.check(ctx, p, art); err != nil {
 			return Result{ID: art.ID, Error: err.Error()}
-		}
-	}
-
-	if p.schema.Guards.CompletionRequiresDependsOnComplete && status == model.StatusComplete {
-		if err := p.guardDependsOnComplete(ctx, art); err != nil {
-			return Result{ID: art.ID, Error: err.Error()}
-		}
-	}
-
-	// Template conformance on completion: all template sections must be filled
-	if status == model.StatusComplete {
-		if err := p.checkTemplateConformance(ctx, art); err != nil {
-			return Result{ID: art.ID, Error: fmt.Sprintf("cannot complete: %s", err)}
-		}
-	}
-
-	if p.schema.IsReadonly(status) {
-		children, err := p.store.Children(ctx, art.ID)
-		if err != nil {
-			return Result{ID: art.ID, Error: err.Error()}
-		}
-		for _, ch := range children {
-			if !p.schema.IsReadonly(ch.Status) {
-				return Result{ID: art.ID, Error: fmt.Sprintf("cannot archive %s: child %s is %s (use archive_artifact with cascade)", art.ID, ch.ID, ch.Status)}
-			}
-		}
-	}
-
-	if status == model.StatusActive {
-		if missing := p.schema.MissingRequiredFields(art); len(missing) > 0 {
-			return Result{ID: art.ID, Error: fmt.Sprintf(
-				"cannot activate %s: missing required fields: %s",
-				art.ID, strings.Join(missing, ", "))}
-		}
-	}
-
-	if p.schema.ActivationRequiresSections(art.Kind) && status == model.StatusActive {
-		shouldMissing := p.schema.MissingShouldSections(art.Kind, art.Sections)
-		if len(shouldMissing) > 0 {
-			return Result{ID: art.ID, Error: fmt.Sprintf(
-				"cannot activate %s: missing recommended sections: %s",
-				art.ID, strings.Join(shouldMissing, ", "))}
-		}
-		expMissing := p.schema.MissingSections(art.Kind, art.Sections)
-		if len(expMissing) > 0 {
-			return Result{ID: art.ID, Error: fmt.Sprintf(
-				"cannot activate %s: missing expected sections: %s",
-				art.ID, strings.Join(expMissing, ", "))}
 		}
 	}
 
@@ -729,6 +700,93 @@ func (p *Protocol) setStatusForce(ctx context.Context, art *model.Artifact, stat
 		r.Error = strings.Join(info, "\n")
 	}
 	return r
+}
+
+// transitionGuards returns the ordered list of composable pre-transition guards.
+// Each guard defines when (target status), where (kind), and what (check function).
+func (p *Protocol) transitionGuards() []transitionGuard {
+	var guards []transitionGuard
+
+	// Completion gates
+	if p.schema.Guards.CompletionRequiresChildrenComplete {
+		guards = append(guards, transitionGuard{
+			name: "children_complete", when: model.StatusComplete,
+			check: func(ctx context.Context, p *Protocol, art *model.Artifact) error {
+				return p.guardChildrenComplete(ctx, art)
+			},
+		})
+	}
+	if p.schema.Guards.CompletionRequiresDependsOnComplete {
+		guards = append(guards, transitionGuard{
+			name: "depends_on_complete", when: model.StatusComplete,
+			check: func(ctx context.Context, p *Protocol, art *model.Artifact) error {
+				return p.guardDependsOnComplete(ctx, art)
+			},
+		})
+	}
+
+	// Template conformance on completion
+	guards = append(guards, transitionGuard{
+		name: "template_conformance_complete", when: model.StatusComplete,
+		check: func(ctx context.Context, p *Protocol, art *model.Artifact) error {
+			if err := p.checkTemplateConformance(ctx, art); err != nil {
+				return fmt.Errorf("cannot complete: %s", err)
+			}
+			return nil
+		},
+	})
+
+	// Archive: children must be readonly
+	if p.schema.Guards.ArchivedReadonly {
+		guards = append(guards, transitionGuard{
+			name: "children_readonly", when: model.StatusArchived,
+			check: func(ctx context.Context, p *Protocol, art *model.Artifact) error {
+				children, err := p.store.Children(ctx, art.ID)
+				if err != nil {
+					return err
+				}
+				for _, ch := range children {
+					if !p.schema.IsReadonly(ch.Status) {
+						return fmt.Errorf("cannot archive %s: child %s is %s (use archive_artifact with cascade)", art.ID, ch.ID, ch.Status)
+					}
+				}
+				return nil
+			},
+		})
+	}
+
+	// Activation: required fields
+	guards = append(guards, transitionGuard{
+		name: "required_fields", when: model.StatusActive,
+		check: func(ctx context.Context, p *Protocol, art *model.Artifact) error {
+			if missing := p.schema.MissingRequiredFields(art); len(missing) > 0 {
+				return fmt.Errorf("cannot activate %s: missing required fields: %s",
+					art.ID, strings.Join(missing, ", "))
+			}
+			return nil
+		},
+	})
+
+	// Activation: required sections
+	guards = append(guards, transitionGuard{
+		name: "required_sections", when: model.StatusActive,
+		check: func(ctx context.Context, p *Protocol, art *model.Artifact) error {
+			if !p.schema.ActivationRequiresSections(art.Kind) {
+				return nil
+			}
+			if shouldMissing := p.schema.MissingShouldSections(art.Kind, art.Sections); len(shouldMissing) > 0 {
+				return fmt.Errorf("cannot activate %s: missing recommended sections: %s",
+					art.ID, strings.Join(shouldMissing, ", "))
+			}
+			if expMissing := p.schema.MissingSections(art.Kind, art.Sections); len(expMissing) > 0 {
+				return fmt.Errorf("cannot activate %s: missing expected sections: %s",
+					art.ID, strings.Join(expMissing, ", "))
+			}
+			return nil
+		},
+	})
+
+	return guards
 }
 
 func (p *Protocol) guardDependsOnComplete(ctx context.Context, art *model.Artifact) error {
