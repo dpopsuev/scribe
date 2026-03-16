@@ -33,6 +33,9 @@ type Store interface {
 	Neighbors(ctx context.Context, id string, rel string, dir Direction) ([]model.Edge, error)
 	Walk(ctx context.Context, root string, rel string, dir Direction, maxDepth int, fn WalkFn) error
 
+	// Search performs full-text search via FTS5 and returns matching artifact IDs.
+	Search(ctx context.Context, query string) ([]string, error)
+
 	// Children returns artifacts that have parentID as their parent.
 	Children(ctx context.Context, parentID string) ([]*model.Artifact, error)
 
