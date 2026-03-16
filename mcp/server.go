@@ -82,6 +82,10 @@ func NewServer(s store.Store, homeScopes, vocab []string, idc protocol.IDConfig,
 		Categories: []string{"lifecycle", "maintenance"},
 	}, noOut(h.handleAdmin))
 
+	// Note: admin tool handles both read and write actions.
+	// Read-only: motd, changelog, dashboard, detect, lint, check, list_scope_labels
+	// Mutating: set_goal, vacuum, snapshot (create/restore), set_scope_labels, transfer_scope, seed
+
 	return srv, reg
 }
 
