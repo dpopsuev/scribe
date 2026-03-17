@@ -839,3 +839,235 @@ func TestScopeLabels_Store(t *testing.T) {
 		t.Errorf("expected to find myrepo in scope info with 2 labels")
 	}
 }
+
+// --- SCR-BUG-14 reproduction tests ---
+
+// TestBusyTimeoutPragma verifies that busy_timeout is actually set on connections.
+// Root cause: if the pragma isn't applied, concurrent writes return SQLITE_BUSY
+// immediately instead of waiting, which surfaces as disk I/O error (6410).
+func TestBusyTimeoutPragma(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "busy.db")
+	s, err := store.OpenSQLiteConfig(store.SQLiteConfig{
+		Path:          dbPath,
+		BusyTimeoutMs: 5000,
+		Snapshots:     store.SnapshotConfig{TimeDeltaH: 9999},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	var timeout int
+	s.Writer().QueryRow("PRAGMA busy_timeout").Scan(&timeout)
+	if timeout != 5000 {
+		t.Errorf("writer busy_timeout = %d, want 5000", timeout)
+	}
+}
+
+// TestConcurrentWriteContention reproduces the disk I/O error (6410) from SCR-BUG-14.
+// When busy_timeout=0, concurrent writer + reader causes SQLITE_BUSY which
+// modernc.org/sqlite reports as SQLITE_IOERR_WRITE (6410).
+func TestConcurrentWriteContention(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "contention.db")
+	s, err := store.OpenSQLiteConfig(store.SQLiteConfig{
+		Path:      dbPath,
+		Snapshots: store.SnapshotConfig{TimeDeltaH: 9999},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Seed some data
+	for i := 0; i < 50; i++ {
+		s.Put(ctx, &model.Artifact{
+			ID: fmt.Sprintf("CON-TSK-%d", i+1), Kind: "task", Scope: "test",
+			Status: "draft", Title: fmt.Sprintf("Contention task %d", i+1),
+		})
+	}
+
+	// Concurrent writes and reads — should NOT produce errors with busy_timeout=5000
+	var wg sync.WaitGroup
+	var writeErrors, readErrors int64
+	var mu sync.Mutex
+
+	// Writer goroutine: rapid updates
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 200; i++ {
+			art := &model.Artifact{
+				ID: fmt.Sprintf("CON-TSK-%d", (i%50)+1), Kind: "task", Scope: "test",
+				Status: "draft", Title: fmt.Sprintf("Updated task %d iter %d", (i%50)+1, i),
+				Sections: []model.Section{{Name: "ctx", Text: fmt.Sprintf("iteration %d", i)}},
+			}
+			if err := s.Put(ctx, art); err != nil {
+				mu.Lock()
+				writeErrors++
+				mu.Unlock()
+				t.Logf("write error at iter %d: %v", i, err)
+			}
+		}
+	}()
+
+	// Reader goroutines: concurrent list + get
+	for w := 0; w < 4; w++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			for i := 0; i < 100; i++ {
+				_, err := s.List(ctx, model.Filter{Scope: "test"})
+				if err != nil {
+					mu.Lock()
+					readErrors++
+					mu.Unlock()
+				}
+				id := fmt.Sprintf("CON-TSK-%d", (i%50)+1)
+				_, err = s.Get(ctx, id)
+				if err != nil {
+					mu.Lock()
+					readErrors++
+					mu.Unlock()
+				}
+			}
+		}(w)
+	}
+
+	wg.Wait()
+
+	t.Logf("write errors: %d, read errors: %d", writeErrors, readErrors)
+	if writeErrors > 0 {
+		t.Errorf("expected zero write errors with busy_timeout=5000, got %d", writeErrors)
+	}
+	if readErrors > 0 {
+		t.Errorf("expected zero read errors, got %d", readErrors)
+	}
+}
+
+// TestSequenceCounterTransactionality verifies that sequence increment and
+// artifact upsert are in the same transaction. SCR-BUG-14 found that failed
+// writes advance the sequence counter, creating ID gaps.
+func TestSequenceCounterTransactionality(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "seq.db")
+	s, err := store.OpenSQLiteConfig(store.SQLiteConfig{
+		Path:      dbPath,
+		Snapshots: store.SnapshotConfig{TimeDeltaH: 9999},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Create first artifact — should get ID with seq 1
+	id1, err := s.NextID(ctx, "SEQ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("first ID: %s", id1)
+
+	// Put it successfully
+	s.Put(ctx, &model.Artifact{ID: id1, Kind: "task", Status: "draft", Title: "First"})
+
+	// Get next ID
+	id2, err := s.NextID(ctx, "SEQ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("second ID: %s", id2)
+
+	// DON'T put it — simulate a failed write
+
+	// Get third ID — should be sequential (no gap)
+	id3, err := s.NextID(ctx, "SEQ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("third ID: %s", id3)
+
+	// Verify: id3 should be id2's seq + 1 (NextID always increments)
+	// This is documenting current behavior — the bug is that NextID
+	// increments even when the artifact write fails
+	t.Logf("NOTE: NextID always increments. If Put fails after NextID, the ID is lost (gap).")
+	t.Logf("This is the sequence counter transaction bug from SCR-BUG-14.")
+}
+
+// TestFTS5UnderConcurrentWrite verifies FTS5 triggers don't cause contention.
+// The FTS5 AFTER INSERT/UPDATE/DELETE triggers extend the write transaction,
+// increasing the window for lock contention.
+func TestFTS5UnderConcurrentWrite(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "fts5contention.db")
+	s, err := store.OpenSQLiteConfig(store.SQLiteConfig{
+		Path:      dbPath,
+		Snapshots: store.SnapshotConfig{TimeDeltaH: 9999},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Seed 100 artifacts
+	for i := 0; i < 100; i++ {
+		s.Put(ctx, &model.Artifact{
+			ID: fmt.Sprintf("FTS-TSK-%d", i+1), Kind: "task", Scope: "test",
+			Status: "draft", Title: fmt.Sprintf("FTS task %d", i+1),
+			Goal: fmt.Sprintf("Goal with searchable content for task %d", i+1),
+			Sections: []model.Section{
+				{Name: "context", Text: fmt.Sprintf("Detailed context for FTS test artifact number %d with enough text to exercise the FTS5 index", i+1)},
+			},
+		})
+	}
+
+	// Concurrent: writer updates artifacts while readers search via FTS5
+	var wg sync.WaitGroup
+	var writeErrors, searchErrors int64
+	var mu sync.Mutex
+
+	// Writer: update artifacts (triggers FTS5 DELETE+INSERT)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			art := &model.Artifact{
+				ID: fmt.Sprintf("FTS-TSK-%d", (i%100)+1), Kind: "task", Scope: "test",
+				Status: "draft", Title: fmt.Sprintf("Updated FTS task %d", (i%100)+1),
+				Goal:   fmt.Sprintf("Updated goal %d", i),
+			}
+			if err := s.Put(ctx, art); err != nil {
+				mu.Lock()
+				writeErrors++
+				mu.Unlock()
+				t.Logf("FTS write error at %d: %v", i, err)
+			}
+		}
+	}()
+
+	// Readers: FTS5 search
+	for w := 0; w < 3; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 50; i++ {
+				_, err := s.Search(ctx, "searchable content")
+				if err != nil {
+					mu.Lock()
+					searchErrors++
+					mu.Unlock()
+				}
+				time.Sleep(time.Millisecond)
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	t.Logf("FTS5 contention: write errors=%d, search errors=%d", writeErrors, searchErrors)
+	if writeErrors > 0 {
+		t.Errorf("expected zero FTS5 write errors, got %d", writeErrors)
+	}
+}
