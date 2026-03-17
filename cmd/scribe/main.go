@@ -1352,7 +1352,7 @@ func serveCmd() *cobra.Command {
 						return wsSrv
 					},
 					&sdkmcp.StreamableHTTPOptions{
-						SessionTimeout: 30 * time.Minute,
+						SessionTimeout: sessionTimeout(),
 					},
 				)
 
@@ -1383,7 +1383,7 @@ func serveCmd() *cobra.Command {
 					httpSrv.Shutdown(shutCtx)
 				}()
 
-				slog.Info("listening", "addr", a, "session_timeout", "30m")
+				slog.Info("listening", "addr", a, "session_timeout", sessionTimeout())
 				if err := httpSrv.ListenAndServe(); err != http.ErrServerClosed {
 					return err
 				}
@@ -1570,6 +1570,16 @@ func sortArts(arts []*model.Artifact, field string) {
 			return arts[i].ID < arts[j].ID
 		}
 	})
+}
+
+func sessionTimeout() time.Duration {
+	if v := os.Getenv("SCRIBE_SESSION_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
+		slog.Warn("invalid SCRIBE_SESSION_TIMEOUT, using default", "value", v)
+	}
+	return 4 * time.Hour
 }
 
 func envOr(key, fallback string) string {

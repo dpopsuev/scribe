@@ -172,7 +172,7 @@ func OpenSQLiteConfig(cfg SQLiteConfig) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("mkdir %s: %w", filepath.Dir(path), err)
 	}
 
-	dsn := fmt.Sprintf("%s?_pragma=journal_mode(%s)&_pragma=busy_timeout(%d)&_pragma=foreign_keys(on)",
+	dsn := fmt.Sprintf("%s?_pragma=journal_mode(%s)&_pragma=busy_timeout(%d)&_pragma=foreign_keys(on)&_pragma=wal_autocheckpoint(100)&_pragma=journal_size_limit(67108864)&_pragma=cache_size(-64000)",
 		path, cfg.journalMode(), cfg.busyTimeout())
 
 	writer, err := sql.Open("sqlite", dsn)
@@ -220,6 +220,18 @@ func OpenSQLiteConfig(cfg SQLiteConfig) (*SQLiteStore, error) {
 	reader.SetMaxOpenConns(cfg.readerPool())
 
 	log.Info("database opened")
+
+	// Periodic WAL checkpoint every 60s to prevent WAL contention under batch writes
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			if _, err := writer.ExecContext(context.Background(), "PRAGMA wal_checkpoint(PASSIVE)"); err != nil {
+				log.Debug("WAL checkpoint failed", "error", err)
+			}
+		}
+	}()
+
 	st := &SQLiteStore{writer: writer, reader: reader, dbPath: path}
 
 	// Auto-snapshot if last snapshot is stale
