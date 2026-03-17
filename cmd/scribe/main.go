@@ -12,6 +12,8 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"runtime"
+	"runtime/pprof"
 	"sort"
 	"strconv"
 	"strings"
@@ -1124,6 +1126,111 @@ func initLogger() {
 	slog.SetDefault(slog.New(handler))
 }
 
+// crashDir returns the crash dump directory, creating it if needed.
+func crashDir() string {
+	dir := envOr("SCRIBE_CRASH_DIR", filepath.Join(envOr("SCRIBE_ROOT", filepath.Join(os.Getenv("HOME"), ".scribe")), "crash"))
+	os.MkdirAll(dir, 0o755)
+	return dir
+}
+
+// dumpHeapProfile writes a heap profile to the crash directory.
+func dumpHeapProfile(label string) string {
+	path := filepath.Join(crashDir(), fmt.Sprintf("%s-%s.pb.gz", label, time.Now().Format("20060102-150405")))
+	f, err := os.Create(path)
+	if err != nil {
+		slog.Error("crash dump: create file failed", "path", path, "error", err)
+		return ""
+	}
+	defer f.Close()
+	if err := pprof.WriteHeapProfile(f); err != nil {
+		slog.Error("crash dump: write heap profile failed", "error", err)
+		return ""
+	}
+	return path
+}
+
+// dumpGoroutineProfile writes a goroutine profile to the crash directory.
+func dumpGoroutineProfile(label string) string {
+	path := filepath.Join(crashDir(), fmt.Sprintf("%s-goroutine-%s.txt", label, time.Now().Format("20060102-150405")))
+	f, err := os.Create(path)
+	if err != nil {
+		slog.Error("crash dump: create goroutine file failed", "error", err)
+		return ""
+	}
+	defer f.Close()
+	if p := pprof.Lookup("goroutine"); p != nil {
+		p.WriteTo(f, 1)
+	}
+	return path
+}
+
+// startMemoryWatchdog launches a background goroutine that samples memory every 60s.
+// On threshold breach, it auto-captures heap profiles to the crash directory.
+func startMemoryWatchdog(ctx context.Context) {
+	warnMB := 512
+	critMB := 2048
+	if v := os.Getenv("SCRIBE_MEM_WARN_MB"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			warnMB = n
+		}
+	}
+	if v := os.Getenv("SCRIBE_MEM_CRIT_MB"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			critMB = n
+		}
+	}
+
+	slog.Info("memory watchdog started", "warn_mb", warnMB, "crit_mb", critMB)
+
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		warnFired := false
+		critFired := false
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				var m runtime.MemStats
+				runtime.ReadMemStats(&m)
+				heapMB := int(m.HeapAlloc / (1024 * 1024))
+				sysMB := int(m.HeapSys / (1024 * 1024))
+				goroutines := runtime.NumGoroutine()
+
+				slog.Debug("watchdog sample",
+					"heap_alloc_mb", heapMB,
+					"heap_sys_mb", sysMB,
+					"goroutines", goroutines,
+				)
+
+				if heapMB >= critMB && !critFired {
+					critFired = true
+					slog.Error("watchdog CRITICAL: heap exceeds critical threshold",
+						"heap_mb", heapMB, "threshold_mb", critMB)
+					heapPath := dumpHeapProfile("critical")
+					goroutinePath := dumpGoroutineProfile("critical")
+					slog.Error("crash dumps captured",
+						"heap", heapPath, "goroutine", goroutinePath)
+				} else if heapMB >= warnMB && !warnFired {
+					warnFired = true
+					slog.Warn("watchdog WARNING: heap exceeds warn threshold",
+						"heap_mb", heapMB, "threshold_mb", warnMB)
+					heapPath := dumpHeapProfile("warning")
+					slog.Warn("heap dump captured", "path", heapPath)
+				}
+
+				// Reset flags if memory drops back below thresholds
+				if heapMB < warnMB {
+					warnFired = false
+					critFired = false
+				}
+			}
+		}
+	}()
+}
+
 func serveCmd() *cobra.Command {
 	var scopes []string
 	var transport, addr string
@@ -1213,6 +1320,11 @@ func serveCmd() *cobra.Command {
 				}()
 			}
 
+			// Start memory watchdog
+			watchdogCtx, watchdogCancel := context.WithCancel(context.Background())
+			defer watchdogCancel()
+			startMemoryWatchdog(watchdogCtx)
+
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGTERM, syscall.SIGINT)
 			defer stop()
 
@@ -1257,6 +1369,15 @@ func serveCmd() *cobra.Command {
 				go func() {
 					<-ctx.Done()
 					slog.Info("shutdown signal received, draining connections")
+
+					// Capture crash dumps on shutdown
+					if heapPath := dumpHeapProfile("shutdown"); heapPath != "" {
+						slog.Info("shutdown heap dump captured", "path", heapPath)
+					}
+					if goroutinePath := dumpGoroutineProfile("shutdown"); goroutinePath != "" {
+						slog.Info("shutdown goroutine dump captured", "path", goroutinePath)
+					}
+
 					shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 					defer cancel()
 					httpSrv.Shutdown(shutCtx)
