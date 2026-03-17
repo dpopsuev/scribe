@@ -8,12 +8,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/pprof"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -651,6 +655,335 @@ func TestStress_ConnectionPool(t *testing.T) {
 	if statsAfter.OpenConnections > 10 {
 		t.Errorf("too many open connections: %d (expected <= 10)", statsAfter.OpenConnections)
 	}
+}
+
+// --- Stress Test 10: Long-Running HTTP Leak Hunt (SCR-BUG-14) ---
+//
+// This test reproduces production conditions:
+// - Real HTTP transport (not in-memory)
+// - Multiple concurrent sessions creating and abandoning connections
+// - Mixed workload: list, get, search, tree, briefing, create, motd
+// - Periodic session churn (new sessions every N seconds)
+// - pprof heap profiles captured at intervals for offline analysis
+//
+// Run with: go test -tags stress -v -timeout 600s -run TestStress_HTTPLeakHunt .
+// Duration controlled by STRESS_DURATION env var (default: 5m)
+// pprof profiles written to STRESS_PPROF_DIR env var (default: /tmp/scribe-pprof/)
+
+func TestStress_HTTPLeakHunt(t *testing.T) {
+	// Config
+	duration := 5 * time.Minute
+	if d := os.Getenv("STRESS_DURATION"); d != "" {
+		if parsed, err := time.ParseDuration(d); err == nil {
+			duration = parsed
+		}
+	}
+	pprofDir := os.Getenv("STRESS_PPROF_DIR")
+	if pprofDir == "" {
+		pprofDir = filepath.Join(os.TempDir(), "scribe-pprof")
+	}
+	os.MkdirAll(pprofDir, 0o755)
+	t.Logf("duration: %s, pprof dir: %s", duration, pprofDir)
+
+	// Setup: real HTTP server with session timeout
+	dbPath := filepath.Join(t.TempDir(), "leak-hunt.db")
+	s, err := store.OpenSQLite(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	seedArtifacts(t, s, 500)
+	t.Log("seeded 500 artifacts")
+
+	srv, _ := scribemcp.NewServer(s, []string{"stress"}, nil, protocol.IDConfig{}, "test")
+
+	handler := sdkmcp.NewStreamableHTTPHandler(
+		func(r *http.Request) *sdkmcp.Server { return srv },
+		&sdkmcp.StreamableHTTPOptions{SessionTimeout: 30 * time.Second},
+	)
+
+	// pprof endpoint on separate port (net/http/pprof registers on DefaultServeMux via _ import)
+	pprofListener, _ := net.Listen("tcp", "127.0.0.1:0")
+	pprofServer := &http.Server{Handler: http.DefaultServeMux}
+	go pprofServer.Serve(pprofListener)
+	t.Cleanup(func() { pprofServer.Close() })
+	t.Logf("pprof on http://%s/debug/pprof/", pprofListener.Addr())
+
+	// MCP HTTP server
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := &http.Server{Handler: handler}
+	go httpServer.Serve(listener)
+	t.Cleanup(func() { httpServer.Close() })
+	addr := "http://" + listener.Addr().String()
+	t.Logf("MCP server on %s", addr)
+
+	// Capture baseline
+	baseline := snapHeap()
+	t.Logf("BASELINE: HeapAlloc=%.1fMB HeapSys=%.1fMB Goroutines=%d",
+		mb(baseline.HeapAlloc), mb(baseline.HeapSys), baseline.Goroutines)
+	captureHeapProfile(t, pprofDir, "baseline")
+
+	// Workload generators
+	ctx, cancel := context.WithTimeout(context.Background(), duration)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	var totalCalls, totalSessions, totalErrors int64
+	var mu sync.Mutex
+
+	incCalls := func()    { mu.Lock(); totalCalls++; mu.Unlock() }
+	incSessions := func() { mu.Lock(); totalSessions++; mu.Unlock() }
+	incErrors := func()   { mu.Lock(); totalErrors++; mu.Unlock() }
+
+	// Worker: sustained session with mixed workload
+	sessionWorker := func(workerID int) {
+		defer wg.Done()
+		rng := rand.New(rand.NewSource(int64(workerID)))
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			// Open session
+			sid := httpInitSessionQuiet(addr)
+			if sid == "" {
+				incErrors()
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+			incSessions()
+
+			// Run 5-20 calls per session
+			numCalls := 5 + rng.Intn(16)
+			for j := 0; j < numCalls; j++ {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+
+				var toolErr bool
+				switch rng.Intn(8) {
+				case 0: // list
+					toolErr = httpToolCallQuiet(addr, sid, "artifact", map[string]any{
+						"action": "list", "scope": "stress", "limit": 50,
+					})
+				case 1: // get
+					id := fmt.Sprintf("STR-TSK-%d", rng.Intn(500)+1)
+					toolErr = httpToolCallQuiet(addr, sid, "artifact", map[string]any{
+						"action": "get", "id": id,
+					})
+				case 2: // search
+					toolErr = httpToolCallQuiet(addr, sid, "artifact", map[string]any{
+						"action": "list", "query": "stress task",
+					})
+				case 3: // tree
+					id := fmt.Sprintf("STR-TSK-%d", rng.Intn(50)+1)
+					toolErr = httpToolCallQuiet(addr, sid, "graph", map[string]any{
+						"action": "tree", "id": id,
+					})
+				case 4: // briefing
+					id := fmt.Sprintf("STR-TSK-%d", rng.Intn(10)+1)
+					toolErr = httpToolCallQuiet(addr, sid, "graph", map[string]any{
+						"action": "briefing", "id": id,
+					})
+				case 5: // motd
+					toolErr = httpToolCallQuiet(addr, sid, "admin", map[string]any{
+						"action": "motd",
+					})
+				case 6: // create
+					toolErr = httpToolCallQuiet(addr, sid, "artifact", map[string]any{
+						"action": "create", "kind": "task", "title": fmt.Sprintf("leak-hunt-%d-%d", workerID, j),
+						"scope": "stress", "priority": "low",
+					})
+				case 7: // compact list
+					toolErr = httpToolCallQuiet(addr, sid, "artifact", map[string]any{
+						"action": "list", "scope": "stress",
+						"fields": []string{"id", "title", "status"},
+						"limit":  20,
+					})
+				}
+				if toolErr {
+					incErrors()
+				} else {
+					incCalls()
+				}
+				time.Sleep(time.Duration(10+rng.Intn(50)) * time.Millisecond)
+			}
+
+			// 50% chance: abandon session (no cleanup)
+			// 50% chance: let it timeout naturally
+			// This simulates real agent behavior (disconnect, crash, etc.)
+		}
+	}
+
+	// Start 4 concurrent session workers
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go sessionWorker(i)
+	}
+
+	// Monitor loop: snapshot heap + capture pprof at intervals
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	snapCount := 0
+
+	for {
+		select {
+		case <-ctx.Done():
+			goto done
+		case <-ticker.C:
+			snapCount++
+			snap := snapHeap()
+			mu.Lock()
+			calls, sessions, errors := totalCalls, totalSessions, totalErrors
+			mu.Unlock()
+
+			growth := float64(snap.HeapAlloc) - float64(baseline.HeapAlloc)
+			t.Logf("SNAP %d (%.0fs): HeapAlloc=%.1fMB HeapSys=%.1fMB Goroutines=%d growth=%.1fMB calls=%d sessions=%d errors=%d",
+				snapCount, float64(snapCount)*30,
+				mb(snap.HeapAlloc), mb(snap.HeapSys), snap.Goroutines,
+				mb(uint64(max(0, int64(growth)))),
+				calls, sessions, errors)
+
+			label := fmt.Sprintf("snap_%03d_%ds", snapCount, snapCount*30)
+			captureHeapProfile(t, pprofDir, label)
+
+			// WAL size check
+			walPath := dbPath + "-wal"
+			if info, err := os.Stat(walPath); err == nil {
+				t.Logf("  WAL: %.1fMB", float64(info.Size())/(1024*1024))
+			}
+
+			// Fail fast if heap is clearly leaking
+			if mb(snap.HeapAlloc) > 500 {
+				t.Fatalf("LEAK DETECTED: HeapAlloc=%.1fMB exceeds 500MB at snap %d", mb(snap.HeapAlloc), snapCount)
+			}
+		}
+	}
+
+done:
+	cancel()
+	wg.Wait()
+
+	// Final measurements
+	afterLoad := snapHeap()
+	captureHeapProfile(t, pprofDir, "after_load")
+
+	t.Logf("AFTER LOAD: HeapAlloc=%.1fMB HeapSys=%.1fMB Goroutines=%d",
+		mb(afterLoad.HeapAlloc), mb(afterLoad.HeapSys), afterLoad.Goroutines)
+
+	// Wait for session cleanup (30s timeout + buffer)
+	t.Log("waiting 35s for session timeout cleanup...")
+	time.Sleep(35 * time.Second)
+
+	afterCleanup := snapHeap()
+	captureHeapProfile(t, pprofDir, "after_cleanup")
+
+	mu.Lock()
+	calls, sessions, errors := totalCalls, totalSessions, totalErrors
+	mu.Unlock()
+
+	t.Logf("AFTER CLEANUP: HeapAlloc=%.1fMB HeapSys=%.1fMB Goroutines=%d",
+		mb(afterCleanup.HeapAlloc), mb(afterCleanup.HeapSys), afterCleanup.Goroutines)
+
+	// Summary
+	growth := float64(afterCleanup.HeapAlloc) - float64(baseline.HeapAlloc)
+	goroutineLeak := afterCleanup.Goroutines - baseline.Goroutines
+
+	t.Logf("SUMMARY:")
+	t.Logf("  duration:    %s", duration)
+	t.Logf("  calls:       %d", calls)
+	t.Logf("  sessions:    %d", sessions)
+	t.Logf("  errors:      %d", errors)
+	t.Logf("  baseline:    %.1fMB heap, %d goroutines", mb(baseline.HeapAlloc), baseline.Goroutines)
+	t.Logf("  peak:        %.1fMB heap, %d goroutines", mb(afterLoad.HeapAlloc), afterLoad.Goroutines)
+	t.Logf("  settled:     %.1fMB heap, %d goroutines", mb(afterCleanup.HeapAlloc), afterCleanup.Goroutines)
+	t.Logf("  heap growth: %.1fMB", mb(uint64(max(0, int64(growth)))))
+	t.Logf("  goroutine leak: %d", goroutineLeak)
+	t.Logf("  pprof profiles: %s/", pprofDir)
+
+	// Assertions
+	if goroutineLeak > 20 {
+		t.Errorf("GOROUTINE LEAK: %d goroutines above baseline after cleanup", goroutineLeak)
+	}
+	if growth > 100*1024*1024 { // 100MB retained after cleanup
+		t.Errorf("MEMORY LEAK: %.1fMB retained after cleanup (baseline was %.1fMB)",
+			mb(afterCleanup.HeapAlloc), mb(baseline.HeapAlloc))
+	}
+}
+
+func captureHeapProfile(t *testing.T, dir, label string) {
+	t.Helper()
+	path := filepath.Join(dir, label+".pb.gz")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Logf("pprof write failed: %v", err)
+		return
+	}
+	defer f.Close()
+	if err := pprof.WriteHeapProfile(f); err != nil {
+		t.Logf("pprof capture failed: %v", err)
+	}
+}
+
+// Quiet variants that don't fatal on error (for concurrent workers)
+func httpInitSessionQuiet(addr string) string {
+	body := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"stress","version":"0.1"}}}`
+	resp, err := httpPostQuiet(addr, body, "")
+	if err != nil {
+		return ""
+	}
+	sid := resp.Header.Get("Mcp-Session-Id")
+	resp.Body.Close()
+	if sid == "" {
+		return ""
+	}
+	resp2, _ := httpPostQuiet(addr, `{"jsonrpc":"2.0","method":"notifications/initialized"}`, sid)
+	if resp2 != nil {
+		resp2.Body.Close()
+	}
+	return sid
+}
+
+func httpToolCallQuiet(addr, sid, tool string, args map[string]any) bool {
+	params := map[string]any{"name": tool, "arguments": args}
+	payload := map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": params}
+	data, _ := json.Marshal(payload)
+	resp, err := httpPostQuiet(addr, string(data), sid)
+	if err != nil {
+		return true // error
+	}
+	io.Copy(io.Discard, resp.Body) // drain body to prevent connection leak
+	resp.Body.Close()
+	return false
+}
+
+func httpPostQuiet(addr, body, sid string) (*http.Response, error) {
+	req, _ := http.NewRequest("POST", addr+"/", bytes.NewReader([]byte(body)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	if sid != "" {
+		req.Header.Set("Mcp-Session-Id", sid)
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != 200 {
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	return resp, nil
 }
 
 func httpPost(addr, body, sid string) (*http.Response, error) {
