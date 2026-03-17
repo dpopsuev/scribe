@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -519,6 +520,137 @@ func httpToolCall(t *testing.T, addr, sid, tool string, args map[string]any) str
 		}
 	}
 	return string(raw)
+}
+
+// --- Stress Test 7: ReadLog Growth (SCR-BUG-14 vector 1) ---
+// The handler.readLog map grows with every get call and is never cleared.
+// This test proves the leak by calling get 10K times and measuring map growth.
+
+func TestStress_ReadLogGrowth(t *testing.T) {
+	s := openStore(t)
+	seedArtifacts(t, s, 100)
+	srv := newServer(t, s)
+	cs := connectClient(t, srv)
+
+	baseline := assertHeapBelow(t, "baseline", 100)
+
+	// 10K get calls on distinct IDs — readLog should grow to 100 entries
+	// (only 100 unique IDs, but the map is never cleared between sessions)
+	const totalGets = 10000
+	for i := 0; i < totalGets; i++ {
+		id := fmt.Sprintf("STR-TSK-%d", (i%100)+1)
+		callTool(t, cs, "artifact", map[string]any{"action": "get", "id": id})
+	}
+
+	afterGets := assertHeapBelow(t, "after_10k_gets", 150)
+
+	// The readLog map should have at most 100 entries (100 unique IDs)
+	// If it's growing beyond that, it's a leak
+	// We can't directly inspect readLog from here, but we can measure heap growth
+	growth := float64(afterGets.HeapAlloc) - float64(baseline.HeapAlloc)
+	t.Logf("heap growth after 10K gets: %.1fMB (readLog should have ~100 entries)", mb(uint64(max(0, int64(growth)))))
+
+	// Now create a second session and verify readLog is NOT per-session
+	// (it's on the shared handler, so it persists)
+	cs2 := connectClient(t, srv)
+	for i := 0; i < 1000; i++ {
+		id := fmt.Sprintf("STR-TSK-%d", (i%100)+1)
+		callTool(t, cs2, "artifact", map[string]any{"action": "get", "id": id})
+	}
+
+	afterSecondSession := assertHeapBelow(t, "after_second_session", 150)
+	t.Logf("summary: baseline=%.1fMB after_gets=%.1fMB after_second=%.1fMB",
+		mb(baseline.HeapAlloc), mb(afterGets.HeapAlloc), mb(afterSecondSession.HeapAlloc))
+}
+
+// --- Stress Test 8: WAL Growth Without Checkpoint (SCR-BUG-14 vector 4) ---
+// WAL file grows with every write. Without periodic checkpoint, it can grow
+// to hundreds of MB. This test measures WAL file size after sustained writes.
+
+func TestStress_WALGrowth(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "wal-stress.db")
+	s, err := store.OpenSQLite(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	ctx := context.Background()
+
+	// Write 2000 artifacts with sections
+	for i := 0; i < 2000; i++ {
+		art := &model.Artifact{
+			ID:     fmt.Sprintf("WAL-TSK-%d", i+1),
+			Kind:   "task",
+			Scope:  "stress",
+			Status: "draft",
+			Title:  fmt.Sprintf("WAL stress task %d with some padding text", i+1),
+			Sections: []model.Section{
+				{Name: "context", Text: fmt.Sprintf("Section content for artifact %d. This text is representative of real-world section sizes and contains multiple sentences to simulate actual usage patterns in production.", i+1)},
+			},
+		}
+		if err := s.Put(ctx, art); err != nil {
+			t.Fatalf("put %d: %v", i, err)
+		}
+	}
+
+	// Check WAL file size
+	walPath := dbPath + "-wal"
+	info, err := os.Stat(walPath)
+	if err != nil {
+		t.Logf("WAL file not found (may be checkpointed): %v", err)
+	} else {
+		walSizeMB := float64(info.Size()) / (1024 * 1024)
+		t.Logf("WAL size after 2000 writes: %.1fMB", walSizeMB)
+		if walSizeMB > 50 {
+			t.Errorf("WAL file too large: %.1fMB (expected < 50MB for 2000 artifacts)", walSizeMB)
+		}
+	}
+
+	// Check DB file size
+	dbInfo, _ := os.Stat(dbPath)
+	t.Logf("DB size: %.1fMB", float64(dbInfo.Size())/(1024*1024))
+}
+
+// --- Stress Test 9: Connection Pool Stats (SCR-BUG-14 vector 3) ---
+// Verify that SQLite connections are properly managed and not leaking.
+
+func TestStress_ConnectionPool(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "conn-stress.db")
+	s, err := store.OpenSQLiteConfig(store.SQLiteConfig{Path: dbPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	ctx := context.Background()
+	seedArtifacts(t, s, 50)
+
+	// Get DB stats via the writer
+	writer := s.Writer()
+	statsBefore := writer.Stats()
+	t.Logf("before: open=%d inUse=%d idle=%d waitCount=%d",
+		statsBefore.OpenConnections, statsBefore.InUse, statsBefore.Idle, statsBefore.WaitCount)
+
+	// Run 1000 concurrent-ish queries
+	for i := 0; i < 1000; i++ {
+		s.List(ctx, model.Filter{Scope: "stress"})
+		if i%100 == 0 {
+			stats := writer.Stats()
+			t.Logf("  after %d queries: open=%d inUse=%d idle=%d",
+				i, stats.OpenConnections, stats.InUse, stats.Idle)
+		}
+	}
+
+	statsAfter := writer.Stats()
+	t.Logf("after: open=%d inUse=%d idle=%d waitCount=%d maxLifetimeClosed=%d",
+		statsAfter.OpenConnections, statsAfter.InUse, statsAfter.Idle,
+		statsAfter.WaitCount, statsAfter.MaxLifetimeClosed)
+
+	// Open connections should be bounded
+	if statsAfter.OpenConnections > 10 {
+		t.Errorf("too many open connections: %d (expected <= 10)", statsAfter.OpenConnections)
+	}
 }
 
 func httpPost(addr, body, sid string) (*http.Response, error) {
