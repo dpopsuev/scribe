@@ -80,21 +80,6 @@ CREATE VIRTUAL TABLE IF NOT EXISTS artifacts_fts USING fts5(
 	content='artifacts',
 	content_rowid='rowid'
 );
-
-CREATE TRIGGER IF NOT EXISTS artifacts_ai AFTER INSERT ON artifacts BEGIN
-	INSERT INTO artifacts_fts(rowid, id, title, goal, sections)
-	VALUES (new.rowid, new.id, new.title, new.goal, new.sections);
-END;
-CREATE TRIGGER IF NOT EXISTS artifacts_ad AFTER DELETE ON artifacts BEGIN
-	INSERT INTO artifacts_fts(artifacts_fts, rowid, id, title, goal, sections)
-	VALUES ('delete', old.rowid, old.id, old.title, old.goal, old.sections);
-END;
-CREATE TRIGGER IF NOT EXISTS artifacts_au AFTER UPDATE ON artifacts BEGIN
-	INSERT INTO artifacts_fts(artifacts_fts, rowid, id, title, goal, sections)
-	VALUES ('delete', old.rowid, old.id, old.title, old.goal, old.sections);
-	INSERT INTO artifacts_fts(rowid, id, title, goal, sections)
-	VALUES (new.rowid, new.id, new.title, new.goal, new.sections);
-END;
 `
 
 // DefaultSQLitePath returns the default database path.
@@ -200,16 +185,9 @@ func OpenSQLiteConfig(cfg SQLiteConfig) (*SQLiteStore, error) {
 		log.Warn("reseed scoped sequences failed", "error", err)
 	}
 
-	// Auto-rebuild FTS5 index if it exists but is empty while artifacts table has data
-	var artCount, ftsCount int
-	writer.QueryRow("SELECT COUNT(*) FROM artifacts").Scan(&artCount)
-	writer.QueryRow("SELECT COUNT(*) FROM artifacts_fts").Scan(&ftsCount)
-	if artCount > 0 && ftsCount == 0 {
-		if _, err := writer.Exec("INSERT INTO artifacts_fts(artifacts_fts) VALUES('rebuild')"); err != nil {
-			log.Warn("FTS5 rebuild failed", "error", err)
-		} else {
-			log.Info("FTS5 index rebuilt", "artifacts", artCount)
-		}
+	// Always rebuild FTS5 on startup — guarantees consistency after crash or unclean shutdown
+	if _, err := writer.Exec("INSERT INTO artifacts_fts(artifacts_fts) VALUES('rebuild')"); err != nil {
+		log.Warn("FTS5 rebuild failed", "error", err)
 	}
 
 	reader, err := sql.Open("sqlite", dsn+"&_pragma=query_only(on)")
@@ -393,7 +371,47 @@ func (s *SQLiteStore) Put(ctx context.Context, art *model.Artifact) error {
 	if err := reconcileEdgesSQL(ctx, tx, old, art); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	// Update FTS5 index outside the main transaction to avoid WAL contention
+	s.updateFTS(ctx, art)
+	return nil
+}
+
+// updateFTS updates the FTS5 index for an artifact. Runs outside the main
+// transaction to prevent FTS5 shadow table writes from extending the WAL lock window.
+func (s *SQLiteStore) updateFTS(ctx context.Context, art *model.Artifact) {
+	var rowid int64
+	if err := s.writer.QueryRowContext(ctx, "SELECT rowid FROM artifacts WHERE uid = ?", art.UID).Scan(&rowid); err != nil {
+		return
+	}
+	sectionsJSON, _ := json.Marshal(art.Sections)
+
+	// Delete old entry then insert new — retry once on failure
+	for attempt := 0; attempt < 2; attempt++ {
+		s.writer.ExecContext(ctx,
+			"INSERT INTO artifacts_fts(artifacts_fts, rowid, id, title, goal, sections) VALUES ('delete', ?, ?, ?, ?, ?)",
+			rowid, art.ID, art.Title, art.Goal, string(sectionsJSON))
+		_, err := s.writer.ExecContext(ctx,
+			"INSERT INTO artifacts_fts(rowid, id, title, goal, sections) VALUES (?, ?, ?, ?, ?)",
+			rowid, art.ID, art.Title, art.Goal, string(sectionsJSON))
+		if err == nil {
+			return
+		}
+		if attempt == 0 {
+			slog.Debug("FTS5 update retry", "id", art.ID, "error", err)
+		}
+	}
+}
+
+// deleteFTS removes an artifact from the FTS5 index by rowid.
+func (s *SQLiteStore) deleteFTS(ctx context.Context, rowid int64, art *model.Artifact) {
+	sectionsJSON, _ := json.Marshal(art.Sections)
+	s.writer.ExecContext(ctx,
+		"INSERT INTO artifacts_fts(artifacts_fts, rowid, id, title, goal, sections) VALUES ('delete', ?, ?, ?, ?, ?)",
+		rowid, art.ID, art.Title, art.Goal, string(sectionsJSON))
 }
 
 // autoRenameArtifact renames an existing artifact's human ID to the next free
@@ -473,6 +491,11 @@ func (s *SQLiteStore) Search(ctx context.Context, query string) ([]string, error
 }
 
 func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
+	// Capture artifact data + rowid for FTS5 cleanup before deletion
+	art, _ := s.Get(ctx, id)
+	var rowid int64
+	s.writer.QueryRowContext(ctx, "SELECT rowid FROM artifacts WHERE id = ?", id).Scan(&rowid)
+
 	tx, err := s.writer.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -497,7 +520,15 @@ func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
 		slog.Warn("cleanDanglingRefs", "deleted_id", id, "error", err)
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	// Clean FTS5 index after commit
+	if art != nil && rowid > 0 {
+		s.deleteFTS(ctx, rowid, art)
+	}
+	return nil
 }
 
 // cleanDanglingRefs removes a deleted ID from other artifacts' DependsOn and Links JSON fields.
