@@ -1591,7 +1591,7 @@ func sessionTimeout() time.Duration {
 		}
 		slog.Warn("invalid SCRIBE_SESSION_TIMEOUT, using default", "value", v)
 	}
-	return 4 * time.Hour
+	return 8 * time.Hour
 }
 
 func envOr(key, fallback string) string {

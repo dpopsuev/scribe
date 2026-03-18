@@ -2267,6 +2267,286 @@ func TestCompletionGates_ForceOverride(t *testing.T) {
 	}
 }
 
+func TestTemplateHooks_PrefixArtifactsCreated(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+
+	// Create template with prefix_artifacts in Extra
+	tpl := &model.Artifact{
+		ID: "TPL-1", Kind: "template", Status: "active", Title: "Goal Template",
+		Scope: "test",
+		Sections: []model.Section{{Name: "content", Text: "template body"}},
+		Extra: map[string]any{
+			"prefix_artifacts": []any{
+				map[string]any{
+					"kind":     "task",
+					"title":    "Architecture audit",
+					"goal":     "Baseline architecture",
+					"priority": "high",
+					"sections": map[string]any{
+						"context": "Audit the architecture",
+					},
+				},
+				map[string]any{
+					"kind":     "task",
+					"title":    "Code hygiene baseline",
+					"priority": "medium",
+				},
+			},
+		},
+	}
+	if err := s.Put(ctx, tpl); err != nil {
+		t.Fatal(err)
+	}
+
+	p := protocol.New(s, nil, []string{"test"}, nil, protocol.IDConfig{})
+
+	// Create goal satisfying the template (goals can have task children)
+	goal, err := p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind:  "goal",
+		Title: "Test Goal",
+		Scope: "test",
+		Links: map[string][]string{model.RelSatisfies: {"TPL-1"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Check children were created
+	children, err := s.Children(ctx, goal.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(children) != 2 {
+		t.Fatalf("expected 2 auto-generated children, got %d", len(children))
+	}
+
+	// Verify labels
+	for _, ch := range children {
+		found := false
+		for _, l := range ch.Labels {
+			if l == "auto-generated" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("child %s missing auto-generated label", ch.ID)
+		}
+	}
+
+	// Verify follows edges exist between prefix artifacts
+	edges, _ := s.Neighbors(ctx, children[1].ID, model.RelFollows, store.Outgoing)
+	if len(edges) != 1 {
+		t.Errorf("expected follows edge from second to first prefix artifact, got %d edges", len(edges))
+	}
+}
+
+func TestTemplateHooks_SkipHooks(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+
+	tpl := &model.Artifact{
+		ID: "TPL-1", Kind: "template", Status: "active", Title: "Goal Template",
+		Scope: "test",
+		Sections: []model.Section{{Name: "content", Text: "body"}},
+		Extra: map[string]any{
+			"prefix_artifacts": []any{
+				map[string]any{"kind": "task", "title": "Should not exist"},
+			},
+		},
+	}
+	s.Put(ctx, tpl)
+
+	p := protocol.New(s, nil, []string{"test"}, nil, protocol.IDConfig{})
+
+	goal, err := p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind:      "goal",
+		Title:     "No Hooks Goal",
+		Scope:     "test",
+		Links:     map[string][]string{model.RelSatisfies: {"TPL-1"}},
+		SkipHooks: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	children, _ := s.Children(ctx, goal.ID)
+	if len(children) != 0 {
+		t.Errorf("skip_hooks should prevent auto-generation, got %d children", len(children))
+	}
+}
+
+func TestTemplateHooks_SuffixArtifactsCreated(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+
+	tpl := &model.Artifact{
+		ID: "TPL-1", Kind: "template", Status: "active", Title: "Goal Template",
+		Scope: "test",
+		Sections: []model.Section{{Name: "content", Text: "body"}},
+		Extra: map[string]any{
+			"prefix_artifacts": []any{
+				map[string]any{"kind": "task", "title": "Prefix Task"},
+			},
+			"suffix_artifacts": []any{
+				map[string]any{"kind": "task", "title": "Suffix Task 1"},
+				map[string]any{"kind": "task", "title": "Suffix Task 2"},
+			},
+		},
+	}
+	s.Put(ctx, tpl)
+
+	p := protocol.New(s, nil, []string{"test"}, nil, protocol.IDConfig{})
+
+	goal, err := p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind:  "goal",
+		Title: "Full Hooks Goal",
+		Scope: "test",
+		Links: map[string][]string{model.RelSatisfies: {"TPL-1"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	children, _ := s.Children(ctx, goal.ID)
+	if len(children) != 3 {
+		t.Fatalf("expected 3 children (1 prefix + 2 suffix), got %d", len(children))
+	}
+}
+
+func TestStashStore_PutGetDelete(t *testing.T) {
+	ss := protocol.NewStashStore(0, 0)
+
+	id, err := ss.Put(protocol.CreateInput{Kind: "task", Title: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id == "" {
+		t.Fatal("expected stash ID")
+	}
+
+	stash, err := ss.Get(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stash.Input.Title != "test" {
+		t.Errorf("expected title 'test', got %q", stash.Input.Title)
+	}
+
+	ss.Delete(id)
+	_, err = ss.Get(id)
+	if err == nil {
+		t.Fatal("expected error after delete")
+	}
+}
+
+func TestStashStore_Limit(t *testing.T) {
+	ss := protocol.NewStashStore(0, 3)
+
+	for i := 0; i < 3; i++ {
+		_, err := ss.Put(protocol.CreateInput{Title: "t"})
+		if err != nil {
+			t.Fatalf("put %d: %v", i, err)
+		}
+	}
+
+	_, err := ss.Put(protocol.CreateInput{Title: "overflow"})
+	if err == nil {
+		t.Fatal("expected stash limit error")
+	}
+	if !strings.Contains(err.Error(), "limit exceeded") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestMergeInput_SectionsDeduped(t *testing.T) {
+	base := protocol.CreateInput{
+		Kind:  "spec",
+		Title: "My Spec",
+		Sections: []model.Section{
+			{Name: "problem", Text: "original"},
+			{Name: "decision", Text: "original decision"},
+		},
+	}
+	patch := protocol.CreateInput{
+		Sections: []model.Section{
+			{Name: "problem", Text: "updated problem"},
+			{Name: "acceptance", Text: "new acceptance"},
+		},
+	}
+
+	merged := protocol.MergeInput(base, patch)
+
+	if len(merged.Sections) != 3 {
+		t.Fatalf("expected 3 sections, got %d", len(merged.Sections))
+	}
+	for _, sec := range merged.Sections {
+		switch sec.Name {
+		case "problem":
+			if sec.Text != "updated problem" {
+				t.Errorf("problem not overridden: %q", sec.Text)
+			}
+		case "decision":
+			if sec.Text != "original decision" {
+				t.Errorf("decision should be preserved: %q", sec.Text)
+			}
+		case "acceptance":
+			if sec.Text != "new acceptance" {
+				t.Errorf("acceptance not added: %q", sec.Text)
+			}
+		}
+	}
+}
+
+func TestStash_CreateFailStashesAndPromote(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+
+	// Create template requiring sections
+	s.Put(ctx, &model.Artifact{
+		ID: "TPL-1", Kind: "template", Status: "active", Title: "Spec Template",
+		Scope: "test",
+		Sections: []model.Section{
+			{Name: "content", Text: "body"},
+			{Name: "problem", Text: "describe problem"},
+			{Name: "decision", Text: "what was decided"},
+		},
+	})
+
+	p := protocol.New(s, nil, []string{"test"}, nil, protocol.IDConfig{})
+
+	// Create with missing sections — should fail and stash
+	_, err := p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind:     "spec",
+		Title:    "Incomplete Spec",
+		Scope:    "test",
+		Links:    map[string][]string{model.RelSatisfies: {"TPL-1"}},
+		Sections: []model.Section{{Name: "problem", Text: "the problem"}},
+	})
+	if err == nil {
+		t.Fatal("expected template validation error")
+	}
+	if !strings.Contains(err.Error(), "stash_id=") {
+		t.Fatalf("expected stash_id in error, got: %v", err)
+	}
+
+	// Extract stash ID from error
+	errMsg := err.Error()
+	idx := strings.Index(errMsg, "stash_id=")
+	stashID := errMsg[idx+len("stash_id=") : len(errMsg)-1]
+
+	// Promote with missing section
+	art, err := p.PromoteStash(ctx, stashID, protocol.CreateInput{
+		Sections: []model.Section{{Name: "decision", Text: "we decided X"}},
+	})
+	if err != nil {
+		t.Fatalf("promote should succeed: %v", err)
+	}
+	if art.Title != "Incomplete Spec" {
+		t.Errorf("expected original title, got %q", art.Title)
+	}
+}
+
 func TestInferScope_NonTemplateStillRequiresScope(t *testing.T) {
 	s := openStore(t)
 	p := protocol.New(s, nil, []string{"proj1", "proj2"}, nil, protocol.IDConfig{})

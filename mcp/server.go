@@ -107,7 +107,7 @@ type handler struct {
 // --- consolidated input types ---
 
 type artifactInput struct {
-	Action string `json:"action" jsonschema:"required,create | batch_create | clone | get | list | set | update | archive | de-archive | attach_section | get_section | detach_section | diff"`
+	Action string `json:"action" jsonschema:"required,create | batch_create | clone | get | list | set | update | archive | de-archive | attach_section | get_section | detach_section | diff | promote_stash"`
 
 	ID    string `json:"id,omitempty" jsonschema:"artifact ID (required for get, set, update, archive, *_section)"`
 	Kind  string `json:"kind,omitempty" jsonschema:"artifact kind such as task, spec, bug, goal, campaign"`
@@ -166,6 +166,8 @@ type artifactInput struct {
 	Patch     map[string]string `json:"patch,omitempty" jsonschema:"map of field->value for multi-field update in one call (update)"`
 
 	Artifacts []map[string]any `json:"artifacts,omitempty" jsonschema:"array of create inputs for batch_create"`
+	SkipHooks bool             `json:"skip_hooks,omitempty" jsonschema:"suppress template hook auto-generation on create"`
+	StashID   string           `json:"stash_id,omitempty" jsonschema:"stash ID from failed create, used with promote_stash to retry with fixes"`
 }
 
 type graphInput struct {
@@ -235,7 +237,7 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 			Priority: in.Priority,
 			DependsOn: in.DependsOn, Labels: in.Labels, Prefix: in.Prefix,
 			Links: in.Links, Extra: in.Extra, CreatedAt: in.CreatedAt,
-			Sections: sections,
+			Sections: sections, SkipHooks: in.SkipHooks,
 		})
 	case "batch_create":
 		return h.handleBatchCreate(ctx, in)
@@ -328,6 +330,26 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		return h.handleGetSection(ctx, req, getSectionInput{ID: in.ID, Name: in.Name})
 	case "detach_section":
 		return h.handleDetachSection(ctx, req, getSectionInput{ID: in.ID, Name: in.Name})
+	case "promote_stash":
+		if in.StashID == "" {
+			return nil, nil, fmt.Errorf("stash_id is required for promote_stash")
+		}
+		var sections []model.Section
+		for _, sec := range in.Sections {
+			if name, ok := sec["name"]; ok {
+				sections = append(sections, model.Section{Name: name, Text: sec["text"]})
+			}
+		}
+		art, err := h.proto.PromoteStash(ctx, in.StashID, protocol.CreateInput{
+			Kind: in.Kind, Title: in.Title, Scope: in.Scope,
+			Goal: in.Goal, Parent: in.Parent, Status: in.Status,
+			Priority: in.Priority, Labels: in.Labels,
+			Links: in.Links, Sections: sections,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return text(fmt.Sprintf("promoted stash to %s: %s [%s|%s]", art.ID, art.Title, art.Kind, art.Status)), nil, nil
 	case "diff":
 		if in.ID == "" || in.Against == "" {
 			return nil, nil, fmt.Errorf("id and against required for diff")
