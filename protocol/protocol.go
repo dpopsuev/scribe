@@ -459,6 +459,83 @@ func (p *Protocol) GetArtifact(ctx context.Context, id string) (*model.Artifact,
 	return p.store.Get(ctx, id)
 }
 
+// CompletionScore computes a 0.0-1.0 progress score for an artifact.
+// Components: checklist items, child completion, section coverage.
+func (p *Protocol) CompletionScore(ctx context.Context, art *model.Artifact) float64 {
+	// Terminal artifacts are 100% complete by definition
+	if p.schema.IsTerminal(art.Status) {
+		return 1.0
+	}
+
+	type component struct {
+		score  float64
+		weight float64
+	}
+	var comps []component
+
+	// 1. Checklist: count [x]/[~] vs [ ]/[-] in any section
+	var checked, total int
+	for _, sec := range art.Sections {
+		for _, line := range strings.Split(sec.Text, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "- [x]") || strings.HasPrefix(trimmed, "- [~]") {
+				checked++
+				total++
+			} else if strings.HasPrefix(trimmed, "- [ ]") || strings.HasPrefix(trimmed, "- [-]") {
+				total++
+			}
+		}
+	}
+	if total > 0 {
+		comps = append(comps, component{float64(checked) / float64(total), 0.4})
+	}
+
+	// 2. Children: ratio of terminal to total
+	children, err := p.store.Children(ctx, art.ID)
+	if err == nil && len(children) > 0 {
+		done := 0
+		for _, ch := range children {
+			if p.schema.IsTerminal(ch.Status) {
+				done++
+			}
+		}
+		comps = append(comps, component{float64(done) / float64(len(children)), 0.4})
+	}
+
+	// 3. Sections: filled should-sections
+	shouldSections := p.schema.GetShouldSections(art.Kind)
+	if len(shouldSections) > 0 {
+		filled := 0
+		have := make(map[string]bool)
+		for _, s := range art.Sections {
+			if strings.TrimSpace(s.Text) != "" {
+				have[s.Name] = true
+			}
+		}
+		for _, name := range shouldSections {
+			if have[name] {
+				filled++
+			}
+		}
+		comps = append(comps, component{float64(filled) / float64(len(shouldSections)), 0.2})
+	}
+
+	if len(comps) == 0 {
+		return 0.0
+	}
+
+	// Normalize weights and compute
+	var totalWeight float64
+	for _, c := range comps {
+		totalWeight += c.weight
+	}
+	var score float64
+	for _, c := range comps {
+		score += c.score * (c.weight / totalWeight)
+	}
+	return score
+}
+
 func (p *Protocol) DeleteArtifact(ctx context.Context, id string, force bool) error {
 	if p.schema.Guards.DeleteRequiresArchived && !force {
 		art, err := p.store.Get(ctx, id)

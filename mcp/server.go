@@ -643,8 +643,15 @@ func (h *handler) handleGet(ctx context.Context, _ *sdkmcp.CallToolRequest, in g
 	}
 	h.readLog[in.ID] = true
 	filterSections(art, in.SectionFilter)
+
+	score := h.proto.CompletionScore(ctx, art)
+
 	if !in.IncludeEdges {
-		return text(render.Markdown(art)), nil, nil
+		md := render.Markdown(art)
+		if score > 0 {
+			md += fmt.Sprintf("\n\n**Completion Score:** %.0f%%", score*100)
+		}
+		return text(md), nil, nil
 	}
 	edges, err := h.proto.GetArtifactEdges(ctx, in.ID)
 	if err != nil {
@@ -652,9 +659,10 @@ func (h *handler) handleGet(ctx context.Context, _ *sdkmcp.CallToolRequest, in g
 	}
 	type artWithEdges struct {
 		*model.Artifact
-		Edges []protocol.EdgeSummary `json:"edges"`
+		Edges           []protocol.EdgeSummary `json:"edges"`
+		CompletionScore float64                `json:"completion_score"`
 	}
-	data, _ := json.MarshalIndent(artWithEdges{Artifact: art, Edges: edges}, "", "  ")
+	data, _ := json.MarshalIndent(artWithEdges{Artifact: art, Edges: edges, CompletionScore: score}, "", "  ")
 	return text(string(data)), nil, nil
 }
 
