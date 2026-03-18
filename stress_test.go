@@ -1004,3 +1004,115 @@ func httpPost(addr, body, sid string) (*http.Response, error) {
 	}
 	return resp, nil
 }
+
+// --- Stress Test: Server Cache Growth (SCR-BUG-14 vector 2) ---
+
+func TestStress_ServerCacheGrowth(t *testing.T) {
+	s := openStore(t)
+	seedArtifacts(t, s, 50)
+	srv := newServer(t, s)
+
+	baseline := assertHeapBelow(t, "baseline", 100)
+
+	// Create sequential sessions with many operations each
+	const sessions = 10
+	const opsPerSession = 200
+	for i := 0; i < sessions; i++ {
+		cs := connectClient(t, srv)
+		for j := 0; j < opsPerSession; j++ {
+			id := fmt.Sprintf("STR-TSK-%d", (j%50)+1)
+			callTool(t, cs, "artifact", map[string]any{"action": "get", "id": id})
+		}
+	}
+
+	afterSessions := assertHeapBelow(t, "after_10_sessions", 200)
+	growth := float64(afterSessions.HeapAlloc) - float64(baseline.HeapAlloc)
+	t.Logf("heap growth after %d sessions × %d ops: %.1fMB", sessions, opsPerSession, mb(uint64(max(0, int64(growth)))))
+
+	// Each in-memory transport session spawns ~4 goroutines (read/write/handle per side).
+	// 10 sessions = ~40 goroutines expected. Allow generous headroom.
+	maxGoroutines := baseline.Goroutines + sessions*5 + 10
+	if afterSessions.Goroutines > maxGoroutines {
+		t.Errorf("goroutine leak: baseline=%d after=%d (max=%d)",
+			baseline.Goroutines, afterSessions.Goroutines, maxGoroutines)
+	}
+}
+
+// --- Stress Test: SQLite Pragma Hardening ---
+
+func TestStress_SQLitePragmaHardening(t *testing.T) {
+	for i := 0; i < 10; i++ {
+		tmpPath := filepath.Join(t.TempDir(), fmt.Sprintf("cycle-%d.db", i))
+		ss, err := store.OpenSQLite(tmpPath)
+		if err != nil {
+			t.Fatalf("open cycle %d: %v", i, err)
+		}
+		ctx := context.Background()
+		if err := ss.Put(ctx, &model.Artifact{
+			ID: fmt.Sprintf("CYC-%d", i), Kind: "task", Scope: "test",
+			Status: "draft", Title: fmt.Sprintf("Cycle %d", i),
+		}); err != nil {
+			ss.Close()
+			t.Fatalf("put cycle %d: %v", i, err)
+		}
+		if art, err := ss.Get(ctx, fmt.Sprintf("CYC-%d", i)); err != nil || art.Title != fmt.Sprintf("Cycle %d", i) {
+			ss.Close()
+			t.Fatalf("get cycle %d failed", i)
+		}
+		ss.Close()
+	}
+}
+
+// --- Stress Test: Sustained Write Contention ---
+
+func TestStress_WriteContention(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "contention.db")
+	s, err := store.OpenSQLiteConfig(store.SQLiteConfig{
+		Path:          dbPath,
+		BusyTimeoutMs: 5000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+	const writers = 5
+	const writesPerWriter = 200
+	var mu sync.Mutex
+	var writeErrors []string
+
+	var wg sync.WaitGroup
+	for w := 0; w < writers; w++ {
+		wg.Add(1)
+		go func(wIdx int) {
+			defer wg.Done()
+			for i := 0; i < writesPerWriter; i++ {
+				id := fmt.Sprintf("W%d-TSK-%d", wIdx, i)
+				if err := s.Put(ctx, &model.Artifact{
+					ID: id, Kind: "task", Scope: "test",
+					Status: "draft", Title: fmt.Sprintf("Writer %d Task %d", wIdx, i),
+					Sections: []model.Section{
+						{Name: "context", Text: fmt.Sprintf("Content from writer %d, iteration %d", wIdx, i)},
+					},
+				}); err != nil {
+					mu.Lock()
+					writeErrors = append(writeErrors, fmt.Sprintf("w%d/i%d: %v", wIdx, i, err))
+					mu.Unlock()
+				}
+			}
+		}(w)
+	}
+	wg.Wait()
+
+	if len(writeErrors) > 0 {
+		t.Errorf("%d write errors (expected 0 with busy_timeout):\n%s",
+			len(writeErrors), strings.Join(writeErrors[:min(5, len(writeErrors))], "\n"))
+	}
+
+	all, _ := s.List(ctx, model.Filter{Kind: "task"})
+	expected := writers * writesPerWriter
+	if len(all) != expected {
+		t.Errorf("expected %d artifacts, got %d", expected, len(all))
+	}
+}

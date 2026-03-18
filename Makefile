@@ -26,6 +26,9 @@ run:
 
 restart: build-image run
 
+test-stress:
+	go test -tags stress -v -timeout 300s -run TestStress .
+
 test-e2e:
 	go test -tags e2e -v -timeout 600s -run TestE2E_Deterministic .
 
