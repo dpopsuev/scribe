@@ -2547,6 +2547,62 @@ func TestStash_CreateFailStashesAndPromote(t *testing.T) {
 	}
 }
 
+func TestCompletionScore_Checklist(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	p := protocol.New(s, nil, []string{"test"}, nil, protocol.IDConfig{})
+
+	art, _ := p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind: "task", Title: "Scored Task", Scope: "test",
+		Sections: []model.Section{
+			{Name: "checklist", Text: "- [x] Done\n- [x] Also done\n- [ ] Not done\n- [ ] Also not done"},
+		},
+	})
+
+	score := p.CompletionScore(ctx, art)
+	// 2/4 checked = 0.5, only checklist component
+	if score < 0.45 || score > 0.55 {
+		t.Errorf("expected ~0.5, got %.2f", score)
+	}
+}
+
+func TestCompletionScore_Children(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	p := protocol.New(s, nil, []string{"test"}, nil, protocol.IDConfig{})
+
+	goal, _ := p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind: "goal", Title: "Parent Goal", Scope: "test",
+	})
+	p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind: "task", Title: "Done Task", Scope: "test", Parent: goal.ID, Status: "complete",
+	})
+	p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind: "task", Title: "WIP Task", Scope: "test", Parent: goal.ID,
+	})
+
+	score := p.CompletionScore(ctx, goal)
+	// 1/2 children complete = 0.5
+	if score < 0.45 || score > 0.55 {
+		t.Errorf("expected ~0.5, got %.2f", score)
+	}
+}
+
+func TestCompletionScore_TerminalArtifact(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	p := protocol.New(s, nil, []string{"test"}, nil, protocol.IDConfig{})
+
+	art, _ := p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind: "task", Title: "Completed", Scope: "test", Status: "complete",
+	})
+
+	score := p.CompletionScore(ctx, art)
+	if score != 1.0 {
+		t.Errorf("terminal artifact should score 1.0, got %.2f", score)
+	}
+}
+
 func TestInferScope_NonTemplateStillRequiresScope(t *testing.T) {
 	s := openStore(t)
 	p := protocol.New(s, nil, []string{"proj1", "proj2"}, nil, protocol.IDConfig{})
