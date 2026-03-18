@@ -537,6 +537,41 @@ func (s *Schema) Hash() string {
 	return fmt.Sprintf("%x", h[:8])
 }
 
+// MergeDefaults fills in missing fields from the provided default schema.
+// User-defined kinds override defaults; default kinds fill gaps.
+func (s *Schema) MergeDefaults(defaults *Schema) {
+	if s.Kinds == nil {
+		s.Kinds = defaults.Kinds
+	} else {
+		for k, v := range defaults.Kinds {
+			if _, exists := s.Kinds[k]; !exists {
+				s.Kinds[k] = v
+			}
+		}
+	}
+	if len(s.Statuses) == 0 {
+		s.Statuses = defaults.Statuses
+	}
+	if len(s.TerminalStatuses) == 0 {
+		s.TerminalStatuses = defaults.TerminalStatuses
+	}
+	if len(s.ReadonlyStatuses) == 0 {
+		s.ReadonlyStatuses = defaults.ReadonlyStatuses
+	}
+	if len(s.Relations) == 0 {
+		s.Relations = defaults.Relations
+	}
+	if len(s.Priorities) == 0 {
+		s.Priorities = defaults.Priorities
+	}
+	if s.DefaultPriority == "" {
+		s.DefaultPriority = defaults.DefaultPriority
+	}
+	if s.Guards == (Guards{}) {
+		s.Guards = defaults.Guards
+	}
+}
+
 // DefaultSchema returns the built-in schema with the canonical kind vocabulary.
 func DefaultSchema() *Schema {
 	return &Schema{

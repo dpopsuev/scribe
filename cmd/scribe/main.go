@@ -1287,13 +1287,25 @@ func serveCmd() *cobra.Command {
 			}
 			homeScopes := scopes
 			if len(homeScopes) == 0 {
-				homeScopes = cfg.Scopes
+				homeScopes = cfg.ResolvedScopes()
 			}
 			if len(homeScopes) == 0 {
 				homeScopes = detectScopes()
 			}
 
 			idc := cfg.ProtocolIDConfig()
+
+			// Populate scope_keys from ScopeConfigs
+			if len(cfg.ScopeConfigs) > 0 {
+				for name, sc := range cfg.ScopeConfigs {
+					if sc.Key != "" {
+						_ = s.SetScopeKey(context.Background(), name, sc.Key, false)
+					}
+					if len(sc.Labels) > 0 {
+						_ = s.SetScopeLabels(context.Background(), name, sc.Labels)
+					}
+				}
+			}
 
 			if ws := os.Getenv("SCRIBE_WORKSPACE"); ws != "" && cfg.Workspaces != nil {
 				if wsScopes, ok := cfg.Workspaces[ws]; ok {

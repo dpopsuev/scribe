@@ -78,7 +78,8 @@ func (d *staticDefaults) GetTreeMaxDepth() int      { return d.treeDepth }
 // Use model.IDConfig for the core struct — this wrapper adds runtime behavior.
 type IDConfig struct {
 	model.IDConfig
-	Defaults DefaultsProvider
+	Defaults      DefaultsProvider
+	ScopePolicies map[string]model.ScopePolicy
 }
 
 // MotdResult is the message-of-the-day payload.
@@ -103,6 +104,7 @@ type Protocol struct {
 	kindCodes        map[string]string
 	mutableCreatedAt bool
 	defaults         DefaultsProvider
+	scopePolicies    map[string]model.ScopePolicy
 }
 
 // New creates a Protocol with the given store, schema, home scopes,
@@ -125,6 +127,7 @@ func New(s store.Store, schema *model.Schema, scopes, vocab []string, idc IDConf
 	} else {
 		p.defaults = defaultDefaults
 	}
+	p.scopePolicies = idc.ScopePolicies
 	return p
 }
 
@@ -174,6 +177,15 @@ func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*model.A
 	scope, err := p.inferScope(ctx, in.Scope, in.Parent, in.Kind)
 	if err != nil {
 		return nil, err
+	}
+	// Enforce scope policy
+	if policy, ok := p.scopePolicies[scope]; ok {
+		if len(policy.AllowedKinds) > 0 && !slices.Contains(policy.AllowedKinds, in.Kind) {
+			return nil, fmt.Errorf("kind %q not allowed in scope %q (allowed: %s)", in.Kind, scope, strings.Join(policy.AllowedKinds, ", "))
+		}
+		if in.Priority == "" && policy.DefaultPriority != "" {
+			in.Priority = policy.DefaultPriority
+		}
 	}
 	// Inherit defaults from parent
 	if in.Parent != "" {
@@ -1435,6 +1447,15 @@ func (p *Protocol) GetArtifactEdges(ctx context.Context, id string) ([]EdgeSumma
 func (p *Protocol) inferScope(ctx context.Context, explicit, parentID, kind string) (string, error) {
 	if explicit != "" {
 		return explicit, nil
+	}
+	// Templates and config artifacts can be global (scopeless)
+	if kind == model.KindTemplate || kind == model.KindConfig {
+		if parentID != "" {
+			if parent, err := p.store.Get(ctx, parentID); err == nil && parent.Scope != "" {
+				return parent.Scope, nil
+			}
+		}
+		return "", nil
 	}
 	if parentID != "" {
 		if parent, err := p.store.Get(ctx, parentID); err == nil && parent.Scope != "" {

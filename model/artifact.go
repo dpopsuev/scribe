@@ -80,6 +80,12 @@ const (
 	RelSatisfies  = "satisfies"
 )
 
+// ScopePolicy defines per-scope constraints enforced at artifact creation.
+type ScopePolicy struct {
+	AllowedKinds    []string `json:"allowed_kinds,omitempty" yaml:"allowed_kinds,omitempty"`
+	DefaultPriority string   `json:"default_priority,omitempty" yaml:"default_priority,omitempty"`
+}
+
 // IDConfig holds identity generation settings shared between config and protocol.
 type IDConfig struct {
 	IDFormat         string
