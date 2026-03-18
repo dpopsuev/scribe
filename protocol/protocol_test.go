@@ -2064,3 +2064,129 @@ func TestCascadingTemplate_ScopedTakesPrecedence(t *testing.T) {
 		t.Errorf("expected scoped template %s, got %s", scopedTpl.ID, targets[0])
 	}
 }
+
+func TestScopeAllowedKinds_Blocks(t *testing.T) {
+	s := openStore(t)
+	p := protocol.New(s, nil, []string{"proj"}, nil, protocol.IDConfig{
+		ScopePolicies: map[string]model.ScopePolicy{
+			"proj": {AllowedKinds: []string{"task", "bug"}},
+		},
+	})
+	ctx := context.Background()
+
+	// task should succeed
+	_, err := p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind: "task", Title: "allowed", Scope: "proj",
+	})
+	if err != nil {
+		t.Fatalf("task should be allowed: %v", err)
+	}
+
+	// spec should be blocked
+	_, err = p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind: "spec", Title: "blocked", Scope: "proj",
+	})
+	if err == nil {
+		t.Fatal("spec should be blocked by scope policy")
+	}
+	if !strings.Contains(err.Error(), "not allowed in scope") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestScopeDefaultPriority_Applied(t *testing.T) {
+	s := openStore(t)
+	p := protocol.New(s, nil, []string{"proj"}, nil, protocol.IDConfig{
+		ScopePolicies: map[string]model.ScopePolicy{
+			"proj": {DefaultPriority: "high"},
+		},
+	})
+	ctx := context.Background()
+
+	art, err := p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind: "task", Title: "gets default priority", Scope: "proj",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if art.Priority != "high" {
+		t.Errorf("expected priority 'high', got %q", art.Priority)
+	}
+
+	// Explicit priority should not be overridden
+	art2, err := p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind: "task", Title: "explicit priority", Scope: "proj", Priority: "low",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if art2.Priority != "low" {
+		t.Errorf("expected explicit priority 'low', got %q", art2.Priority)
+	}
+}
+
+func TestInferScope_TemplateAllowsEmpty(t *testing.T) {
+	s := openStore(t)
+	p := protocol.New(s, nil, []string{"proj1", "proj2"}, nil, protocol.IDConfig{})
+	ctx := context.Background()
+
+	// Template without explicit scope should succeed (empty scope)
+	art, err := p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind: "template", Title: "Task Template",
+		Sections: []model.Section{{Name: "content", Text: "template body"}},
+	})
+	if err != nil {
+		t.Fatalf("template should allow empty scope: %v", err)
+	}
+	if art.Scope != "" {
+		t.Errorf("expected empty scope for template, got %q", art.Scope)
+	}
+}
+
+func TestInferScope_ConfigAllowsEmpty(t *testing.T) {
+	s := openStore(t)
+	p := protocol.New(s, nil, []string{"proj1", "proj2"}, nil, protocol.IDConfig{})
+	ctx := context.Background()
+
+	art, err := p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind: "config", Title: "Runtime Config",
+	})
+	if err != nil {
+		t.Fatalf("config should allow empty scope: %v", err)
+	}
+	if art.Scope != "" {
+		t.Errorf("expected empty scope for config, got %q", art.Scope)
+	}
+}
+
+func TestInferScope_TemplateWithExplicitScope(t *testing.T) {
+	s := openStore(t)
+	p := protocol.New(s, nil, []string{"proj1", "proj2"}, nil, protocol.IDConfig{})
+	ctx := context.Background()
+
+	// Template with explicit scope should use it
+	tpl, err := p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind: "template", Title: "Scoped Template", Scope: "proj1",
+		Sections: []model.Section{{Name: "content", Text: "body"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tpl.Scope != "proj1" {
+		t.Errorf("expected template scope 'proj1', got %q", tpl.Scope)
+	}
+}
+
+func TestInferScope_NonTemplateStillRequiresScope(t *testing.T) {
+	s := openStore(t)
+	p := protocol.New(s, nil, []string{"proj1", "proj2"}, nil, protocol.IDConfig{})
+	ctx := context.Background()
+
+	// Regular kind without scope should still fail with multiple scopes
+	_, err := p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind: "task", Title: "needs scope",
+	})
+	if err == nil {
+		t.Fatal("task without scope should fail when multiple scopes available")
+	}
+}

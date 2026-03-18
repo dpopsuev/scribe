@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 
 	"github.com/dpopsuev/scribe/model"
 	"github.com/dpopsuev/scribe/protocol"
@@ -45,14 +46,23 @@ type DBConfig struct {
 	SQLite store.SQLiteConfig `yaml:"sqlite,omitempty"`
 }
 
+// ScopeConfig defines per-scope settings in YAML.
+type ScopeConfig struct {
+	Key             string   `yaml:"key,omitempty"`
+	Labels          []string `yaml:"labels,omitempty"`
+	AllowedKinds    []string `yaml:"allowed_kinds,omitempty"`
+	DefaultPriority string   `yaml:"default_priority,omitempty"`
+}
+
 // Config is the top-level configuration loaded from scribe.yaml.
 type Config struct {
 	DB               DBConfig            `yaml:"db"`
 	LogLevel         string              `yaml:"log_level,omitempty"`
 	Transport        string              `yaml:"transport"`
 	Addr             string              `yaml:"addr"`
-	Scopes           []string            `yaml:"scopes"`
-	Workspaces       map[string][]string `yaml:"workspaces,omitempty"`
+	Scopes           []string               `yaml:"scopes"`
+	ScopeConfigs     map[string]ScopeConfig `yaml:"scope_configs,omitempty"`
+	Workspaces       map[string][]string    `yaml:"workspaces,omitempty"`
 	Schema           *model.Schema       `yaml:"schema"`
 	IDFormat         string              `yaml:"id_format"`
 	IDTemplate       *model.IDTemplate   `yaml:"id_template,omitempty"`
@@ -176,8 +186,9 @@ func (c *Config) IsMutableCreatedAt() bool {
 
 func (c *Config) ProtocolIDConfig() protocol.IDConfig {
 	return protocol.IDConfig{
-		IDConfig: c.ModelIDConfig(),
-		Defaults: c.Defaults,
+		IDConfig:      c.ModelIDConfig(),
+		Defaults:      c.Defaults,
+		ScopePolicies: c.ScopePolicies(),
 	}
 }
 
@@ -240,6 +251,8 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Schema == nil {
 		c.Schema = model.DefaultSchema()
+	} else {
+		c.Schema.MergeDefaults(model.DefaultSchema())
 	}
 }
 
@@ -263,6 +276,34 @@ func Save(cfg *Config) error {
 		return fmt.Errorf("marshal config: %w", err)
 	}
 	return os.WriteFile(path, data, 0o644)
+}
+
+// ResolvedScopes returns scope names from ScopeConfigs if defined, otherwise Scopes.
+func (c *Config) ResolvedScopes() []string {
+	if len(c.ScopeConfigs) > 0 {
+		scopes := make([]string, 0, len(c.ScopeConfigs))
+		for name := range c.ScopeConfigs {
+			scopes = append(scopes, name)
+		}
+		sort.Strings(scopes)
+		return scopes
+	}
+	return c.Scopes
+}
+
+// ScopePolicies converts ScopeConfigs to model.ScopePolicy map.
+func (c *Config) ScopePolicies() map[string]model.ScopePolicy {
+	if len(c.ScopeConfigs) == 0 {
+		return nil
+	}
+	policies := make(map[string]model.ScopePolicy, len(c.ScopeConfigs))
+	for name, sc := range c.ScopeConfigs {
+		policies[name] = model.ScopePolicy{
+			AllowedKinds:    sc.AllowedKinds,
+			DefaultPriority: sc.DefaultPriority,
+		}
+	}
+	return policies
 }
 
 func (c *Config) applyEnvOverrides() {
