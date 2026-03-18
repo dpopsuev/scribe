@@ -105,6 +105,7 @@ type Protocol struct {
 	mutableCreatedAt bool
 	defaults         DefaultsProvider
 	scopePolicies    map[string]model.ScopePolicy
+	stash            *StashStore
 }
 
 // New creates a Protocol with the given store, schema, home scopes,
@@ -128,11 +129,34 @@ func New(s store.Store, schema *model.Schema, scopes, vocab []string, idc IDConf
 		p.defaults = defaultDefaults
 	}
 	p.scopePolicies = idc.ScopePolicies
+	p.stash = NewStashStore(0, 0) // use defaults
 	return p
 }
 
 func (p *Protocol) Schema() *model.Schema { return p.schema }
 func (p *Protocol) Store() store.Store    { return p.store }
+func (p *Protocol) Stash() *StashStore    { return p.stash }
+
+// PromoteStash merges patch into a stashed artifact and creates it.
+func (p *Protocol) PromoteStash(ctx context.Context, stashID string, patch CreateInput) (*model.Artifact, error) {
+	stashed, err := p.stash.Get(stashID)
+	if err != nil {
+		return nil, err
+	}
+	merged := MergeInput(stashed.Input, patch)
+	art, err := p.CreateArtifact(ctx, merged)
+	if err != nil {
+		// Re-stash with merged state (update in place)
+		p.stash.Delete(stashID)
+		newID, stashErr := p.stash.Put(merged)
+		if stashErr != nil {
+			return nil, fmt.Errorf("%w (stash unavailable: %v)", err, stashErr)
+		}
+		return nil, fmt.Errorf("%w [stash_id=%s]", err, newID)
+	}
+	p.stash.Delete(stashID)
+	return art, nil
+}
 
 // --- CRUD ---
 
@@ -152,6 +176,7 @@ type CreateInput struct {
 	CreatedAt  string              `json:"created_at,omitempty"`
 	ExplicitID string              `json:"explicit_id,omitempty"`
 	Sections   []model.Section     `json:"sections,omitempty"`
+	SkipHooks  bool                `json:"skip_hooks,omitempty"`
 }
 
 func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*model.Artifact, error) {
@@ -284,6 +309,10 @@ func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*model.A
 		}
 
 		if err := p.checkTemplateConformance(ctx, art); err != nil {
+			// Stash the partial artifact for patch-based recovery
+			if stashID, stashErr := p.stash.Put(in); stashErr == nil {
+				return nil, fmt.Errorf("%w [stash_id=%s]", err, stashID)
+			}
 			return nil, err
 		}
 		// Duplicate awareness: warn if similar non-terminal artifact exists
@@ -299,7 +328,93 @@ func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*model.A
 	if err := p.store.Put(ctx, art); err != nil {
 		return nil, err
 	}
+
+	// Execute template hooks (prefix/suffix auto-generation)
+	if !skipGuards && !in.SkipHooks {
+		p.executeTemplateHooks(ctx, art)
+	}
+
 	return art, nil
+}
+
+// executeTemplateHooks creates prefix/suffix child artifacts from template hooks.
+func (p *Protocol) executeTemplateHooks(ctx context.Context, art *model.Artifact) {
+	tplIDs, ok := art.Links[model.RelSatisfies]
+	if !ok || len(tplIDs) == 0 {
+		return
+	}
+	tpl, err := p.store.Get(ctx, tplIDs[0])
+	if err != nil || tpl.Extra == nil {
+		return
+	}
+
+	var prevID string
+	prevID = p.createHookArtifacts(ctx, art, tpl.Extra["prefix_artifacts"], prevID)
+	p.createHookArtifacts(ctx, art, tpl.Extra["suffix_artifacts"], prevID)
+}
+
+// createHookArtifacts creates child artifacts from a template hook array.
+// Returns the ID of the last created artifact (for follows chaining).
+func (p *Protocol) createHookArtifacts(ctx context.Context, parent *model.Artifact, raw any, prevID string) string {
+	specs, ok := raw.([]any)
+	if !ok || len(specs) == 0 {
+		return prevID
+	}
+
+	for _, spec := range specs {
+		m, ok := spec.(map[string]any)
+		if !ok {
+			continue
+		}
+		kind, _ := m["kind"].(string)
+		title, _ := m["title"].(string)
+		if kind == "" || title == "" {
+			continue
+		}
+		goal, _ := m["goal"].(string)
+		priority, _ := m["priority"].(string)
+
+		var sections []model.Section
+		if secMap, ok := m["sections"].(map[string]any); ok {
+			for name, text := range secMap {
+				if s, ok := text.(string); ok {
+					sections = append(sections, model.Section{Name: name, Text: s})
+				}
+			}
+		}
+
+		child, err := p.CreateArtifact(ctx, CreateInput{
+			Kind:      kind,
+			Title:     title,
+			Goal:      goal,
+			Scope:     parent.Scope,
+			Parent:    parent.ID,
+			Priority:  priority,
+			Labels:    []string{"auto-generated"},
+			Sections:  sections,
+			SkipHooks: true, // prevent recursive hook execution
+		})
+		if err != nil {
+			slog.WarnContext(ctx, "template hook: failed to create artifact",
+				"parent", parent.ID, "title", title, "error", err)
+			continue
+		}
+
+		// Wire follows edge from previous hook artifact
+		if prevID != "" {
+			if err := p.store.AddEdge(ctx, model.Edge{
+				From: child.ID, To: prevID, Relation: model.RelFollows,
+			}); err != nil {
+				slog.WarnContext(ctx, "template hook: failed to add follows edge",
+					"from", child.ID, "to", prevID, "error", err)
+			}
+		}
+		prevID = child.ID
+
+		slog.DebugContext(ctx, "template hook: created artifact",
+			"parent", parent.ID, "child", child.ID, "title", title)
+	}
+	return prevID
 }
 
 // findTemplateForKind looks up an active template in the given scope that matches
