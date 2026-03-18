@@ -237,42 +237,50 @@ func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*model.A
 			art.CreatedAt = t
 		}
 	}
-	// Auto-link template if no satisfies link provided
-	if art.Links == nil || len(art.Links[model.RelSatisfies]) == 0 {
-		if tplID := p.findTemplateForKind(ctx, art.Kind, scope); tplID != "" {
-			if art.Links == nil {
-				art.Links = make(map[string][]string)
-			}
-			art.Links[model.RelSatisfies] = []string{tplID}
-			slog.DebugContext(ctx, "auto-linked template",
-				"artifact_kind", art.Kind, "scope", scope, "template_id", tplID)
-		}
-	}
-	// Check mandatory outgoing edges
+	// Skip template, edge enforcement, and duplicate checks for SkipGuards kinds (e.g. mirror)
+	skipGuards := false
 	if kd, ok := p.schema.Kinds[art.Kind]; ok {
-		for _, reqRel := range kd.Relations.RequiredOutgoing {
-			hasEdge := false
-			if targets, ok := art.Links[reqRel]; ok && len(targets) > 0 {
-				hasEdge = true
-			}
-			if reqRel == model.RelDependsOn && len(art.DependsOn) > 0 {
-				hasEdge = true
-			}
-			if !hasEdge {
-				return nil, fmt.Errorf("%s requires a %s edge — provide via links or depends_on", art.Kind, reqRel)
-			}
-		}
+		skipGuards = kd.SkipGuards
 	}
 
-	if err := p.checkTemplateConformance(ctx, art); err != nil {
-		return nil, err
-	}
-	// Duplicate awareness: warn if similar non-terminal artifact exists
-	if existing, _ := p.store.List(ctx, model.Filter{Kind: art.Kind, Scope: art.Scope}); len(existing) > 0 {
-		for _, e := range existing {
-			if !p.schema.IsTerminal(e.Status) && e.Title == art.Title {
-				slog.WarnContext(ctx, "duplicate title detected on create",
-					"new_id", art.ID, "existing_id", e.ID, "title", art.Title)
+	if !skipGuards {
+		// Auto-link template if no satisfies link provided
+		if art.Links == nil || len(art.Links[model.RelSatisfies]) == 0 {
+			if tplID := p.findTemplateForKind(ctx, art.Kind, scope); tplID != "" {
+				if art.Links == nil {
+					art.Links = make(map[string][]string)
+				}
+				art.Links[model.RelSatisfies] = []string{tplID}
+				slog.DebugContext(ctx, "auto-linked template",
+					"artifact_kind", art.Kind, "scope", scope, "template_id", tplID)
+			}
+		}
+		// Check mandatory outgoing edges
+		if kd, ok := p.schema.Kinds[art.Kind]; ok {
+			for _, reqRel := range kd.Relations.RequiredOutgoing {
+				hasEdge := false
+				if targets, ok := art.Links[reqRel]; ok && len(targets) > 0 {
+					hasEdge = true
+				}
+				if reqRel == model.RelDependsOn && len(art.DependsOn) > 0 {
+					hasEdge = true
+				}
+				if !hasEdge {
+					return nil, fmt.Errorf("%s requires a %s edge — provide via links or depends_on", art.Kind, reqRel)
+				}
+			}
+		}
+
+		if err := p.checkTemplateConformance(ctx, art); err != nil {
+			return nil, err
+		}
+		// Duplicate awareness: warn if similar non-terminal artifact exists
+		if existing, _ := p.store.List(ctx, model.Filter{Kind: art.Kind, Scope: art.Scope}); len(existing) > 0 {
+			for _, e := range existing {
+				if !p.schema.IsTerminal(e.Status) && e.Title == art.Title {
+					slog.WarnContext(ctx, "duplicate title detected on create",
+						"new_id", art.ID, "existing_id", e.ID, "title", art.Title)
+				}
 			}
 		}
 	}
@@ -645,20 +653,22 @@ func (p *Protocol) setStatusForce(ctx context.Context, art *model.Artifact, stat
 		}
 	}
 
-	// Composable pre-transition guards
-	guards := p.transitionGuards()
-	for _, g := range guards {
-		if force && g.forceable {
-			continue
-		}
-		if g.when != "" && g.when != status {
-			continue
-		}
-		if g.where != "" && g.where != art.Kind {
-			continue
-		}
-		if err := g.check(ctx, p, art); err != nil {
-			return Result{ID: art.ID, Error: err.Error()}
+	// Composable pre-transition guards (skipped entirely for SkipGuards kinds like mirror)
+	if kd, ok := p.schema.Kinds[art.Kind]; !ok || !kd.SkipGuards {
+		guards := p.transitionGuards()
+		for _, g := range guards {
+			if force && g.forceable {
+				continue
+			}
+			if g.when != "" && g.when != status {
+				continue
+			}
+			if g.where != "" && g.where != art.Kind {
+				continue
+			}
+			if err := g.check(ctx, p, art); err != nil {
+				return Result{ID: art.ID, Error: err.Error()}
+			}
 		}
 	}
 
@@ -1561,6 +1571,41 @@ func (p *Protocol) ArchiveArtifact(ctx context.Context, ids []string, cascade bo
 			continue
 		}
 		results = append(results, Result{ID: id, OK: true})
+	}
+	return results, nil
+}
+
+// DeArchive restores archived artifacts to draft status, bypassing ArchivedReadonly guard.
+func (p *Protocol) DeArchive(ctx context.Context, ids []string, cascade bool) ([]Result, error) {
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("ids is required")
+	}
+	var results []Result
+	for _, id := range ids {
+		art, err := p.store.Get(ctx, id)
+		if err != nil {
+			results = append(results, Result{ID: id, Error: err.Error()})
+			continue
+		}
+		if !p.schema.IsReadonly(art.Status) {
+			results = append(results, Result{ID: id, Error: fmt.Sprintf("%s is not archived (status: %s)", id, art.Status)})
+			continue
+		}
+		art.Status = model.StatusDraft
+		if err := p.store.Put(ctx, art); err != nil {
+			results = append(results, Result{ID: id, Error: err.Error()})
+			continue
+		}
+		results = append(results, Result{ID: id, OK: true})
+		if cascade {
+			children, _ := p.store.Children(ctx, id)
+			for _, ch := range children {
+				if p.schema.IsReadonly(ch.Status) {
+					ch.Status = model.StatusDraft
+					p.store.Put(ctx, ch)
+				}
+			}
+		}
 	}
 	return results, nil
 }

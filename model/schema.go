@@ -38,8 +38,9 @@ type KindDef struct {
 
 	Transitions map[string][]string `json:"transitions,omitempty" yaml:"transitions,omitempty"`
 
-	Relations KindRelations `json:"relations,omitempty" yaml:"relations,omitempty"`
-	Children  []string      `json:"children,omitempty" yaml:"children,omitempty"`
+	Relations  KindRelations `json:"relations,omitempty" yaml:"relations,omitempty"`
+	Children   []string      `json:"children,omitempty" yaml:"children,omitempty"`
+	SkipGuards bool          `json:"skip_guards,omitempty" yaml:"skip_guards,omitempty"`
 }
 
 // Schema is the single source of truth for the Scribe data model.
@@ -633,7 +634,8 @@ func DefaultSchema() *Schema {
 			Children: []string{},
 		},
 		"mirror": {Prefix: "MIR", Code: "MIR", Protected: true,
-			Children: []string{},
+			SkipGuards: true,
+			Children:   []string{},
 		},
 		"template": {Prefix: "TPL", Code: "TPL", Protected: true,
 			MustSections: []string{"content"},

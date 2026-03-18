@@ -107,7 +107,7 @@ type handler struct {
 // --- consolidated input types ---
 
 type artifactInput struct {
-	Action string `json:"action" jsonschema:"required,create | batch_create | clone | get | list | set | update | archive | attach_section | get_section | detach_section | diff"`
+	Action string `json:"action" jsonschema:"required,create | batch_create | clone | get | list | set | update | archive | de-archive | attach_section | get_section | detach_section | diff"`
 
 	ID    string `json:"id,omitempty" jsonschema:"artifact ID (required for get, set, update, archive, *_section)"`
 	Kind  string `json:"kind,omitempty" jsonschema:"artifact kind such as task, spec, bug, goal, campaign"`
@@ -291,6 +291,27 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 			Kind: in.Kind, Status: in.Status, IDPrefix: in.IDPrefix,
 			ExcludeKind: in.ExcludeKind, DryRun: in.DryRun,
 		})
+	case "de-archive":
+		ids := in.IDs
+		if len(ids) == 0 && in.ID != "" {
+			ids = []string{in.ID}
+		}
+		if len(ids) == 0 {
+			return nil, nil, fmt.Errorf("id or ids required for de-archive")
+		}
+		results, err := h.proto.DeArchive(ctx, ids, in.Cascade)
+		if err != nil {
+			return nil, nil, err
+		}
+		var lines []string
+		for _, r := range results {
+			if r.OK {
+				lines = append(lines, fmt.Sprintf("%s -> restored to draft", r.ID))
+			} else {
+				lines = append(lines, fmt.Sprintf("%s -> error: %s", r.ID, r.Error))
+			}
+		}
+		return text(strings.Join(lines, "\n")), nil, nil
 	case "attach_section":
 		if len(in.Sections) > 0 {
 			return h.handleBatchAttachSections(ctx, in.ID, in.Sections)
