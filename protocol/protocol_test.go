@@ -2177,6 +2177,96 @@ func TestInferScope_TemplateWithExplicitScope(t *testing.T) {
 	}
 }
 
+func TestCompletionGates_BlocksWithoutSections(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	// Add completion gates to task kind
+	taskDef := schema.Kinds["task"]
+	taskDef.CompletionGates = []string{"test_matrix"}
+	schema.Kinds["task"] = taskDef
+
+	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
+	ctx := context.Background()
+
+	art, err := p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind: "task", Title: "Gated Task", Scope: "test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Try to complete without the gated section
+	results, err := p.SetField(ctx, []string{art.ID}, "status", "complete")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results[0].OK {
+		t.Fatal("expected completion to be blocked by gate")
+	}
+	if !strings.Contains(results[0].Error, "test_matrix") {
+		t.Errorf("expected error to mention test_matrix, got: %s", results[0].Error)
+	}
+}
+
+func TestCompletionGates_AllowsWithFilledSection(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	taskDef := schema.Kinds["task"]
+	taskDef.CompletionGates = []string{"test_matrix"}
+	schema.Kinds["task"] = taskDef
+
+	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
+	ctx := context.Background()
+
+	art, err := p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind: "task", Title: "Gated Task", Scope: "test",
+		Sections: []model.Section{
+			{Name: "context", Text: "background"},
+			{Name: "test_matrix", Text: "sensor_test.go:TestFlakeSensor"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := p.SetField(ctx, []string{art.ID}, "status", "complete",
+		protocol.SetFieldOptions{Force: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !results[0].OK {
+		t.Errorf("expected completion to succeed with filled gate, got error: %s", results[0].Error)
+	}
+}
+
+func TestCompletionGates_ForceOverride(t *testing.T) {
+	s := openStore(t)
+	schema := model.DefaultSchema()
+	taskDef := schema.Kinds["task"]
+	taskDef.CompletionGates = []string{"test_matrix"}
+	schema.Kinds["task"] = taskDef
+
+	p := protocol.New(s, schema, []string{"test"}, nil, protocol.IDConfig{})
+	ctx := context.Background()
+
+	art, err := p.CreateArtifact(ctx, protocol.CreateInput{
+		Kind: "task", Title: "Force Complete", Scope: "test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Force should bypass the gate
+	results, err := p.SetField(ctx, []string{art.ID}, "status", "complete",
+		protocol.SetFieldOptions{Force: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !results[0].OK {
+		t.Errorf("force should bypass gate, got error: %s", results[0].Error)
+	}
+}
+
 func TestInferScope_NonTemplateStillRequiresScope(t *testing.T) {
 	s := openStore(t)
 	p := protocol.New(s, nil, []string{"proj1", "proj2"}, nil, protocol.IDConfig{})
