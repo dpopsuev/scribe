@@ -32,6 +32,8 @@ type KindDef struct {
 	ActiveStatus     string   `json:"active_status,omitempty" yaml:"active_status,omitempty"`
 	TrackInMotd      bool     `json:"track_in_motd,omitempty" yaml:"track_in_motd,omitempty"`
 
+	CompletionGates              []string `json:"completion_gates,omitempty" yaml:"completion_gates,omitempty"`
+
 	TriggerStatus                string `json:"trigger_status,omitempty" yaml:"trigger_status,omitempty"`
 	ActivationRequiresSections   bool   `json:"activation_requires_sections,omitempty" yaml:"activation_requires_sections,omitempty"`
 	AutoArchiveOnJustifyComplete bool   `json:"auto_archive_on_justify_complete,omitempty" yaml:"auto_archive_on_justify_complete,omitempty"`
@@ -250,6 +252,28 @@ func (s *Schema) MissingRequiredFields(art *Artifact) []string {
 			if art.Goal == "" {
 				missing = append(missing, f)
 			}
+		}
+	}
+	return missing
+}
+
+// MissingCompletionGates returns section names from completion_gates that are
+// missing or empty on the artifact. Returns nil if the kind has no gates.
+func (s *Schema) MissingCompletionGates(art *Artifact) []string {
+	kd, ok := s.Kinds[art.Kind]
+	if !ok || len(kd.CompletionGates) == 0 {
+		return nil
+	}
+	filled := make(map[string]bool, len(art.Sections))
+	for _, sec := range art.Sections {
+		if strings.TrimSpace(sec.Text) != "" {
+			filled[sec.Name] = true
+		}
+	}
+	var missing []string
+	for _, gate := range kd.CompletionGates {
+		if !filled[gate] {
+			missing = append(missing, gate)
 		}
 	}
 	return missing

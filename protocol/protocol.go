@@ -792,6 +792,18 @@ func (p *Protocol) transitionGuards() []transitionGuard {
 		},
 	})
 
+	// Completion gates: kind-defined sections that must be non-empty
+	guards = append(guards, transitionGuard{
+		name: "completion_gates", when: model.StatusComplete, forceable: true,
+		check: func(ctx context.Context, p *Protocol, art *model.Artifact) error {
+			if missing := p.schema.MissingCompletionGates(art); len(missing) > 0 {
+				return fmt.Errorf("cannot complete %s: gated sections missing or empty: %s",
+					art.ID, strings.Join(missing, ", "))
+			}
+			return nil
+		},
+	})
+
 	// Archive: children must be readonly
 	if p.schema.Guards.ArchivedReadonly {
 		guards = append(guards, transitionGuard{

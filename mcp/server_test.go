@@ -1229,3 +1229,222 @@ func TestClone_NonexistentSource(t *testing.T) {
 		t.Error("expected error for nonexistent source")
 	}
 }
+
+// --- SCR-SPC-74: MCP schema validation for complex types ---
+
+func TestMCPSchema_ArrayTypes(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	s.Put(ctx, &model.Artifact{ID: "T-001", Kind: "task", Scope: "test", Status: "draft", Title: "T1"})
+	s.Put(ctx, &model.Artifact{ID: "T-002", Kind: "task", Scope: "test", Status: "draft", Title: "T2"})
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	// ids array (get)
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "get",
+		"ids":    []any{"T-001", "T-002"},
+	})
+	if !strings.Contains(text, "T1") || !strings.Contains(text, "T2") {
+		t.Errorf("ids array failed: %s", text)
+	}
+
+	// fields array (list)
+	text = callTool(t, cs, "artifact", map[string]any{
+		"action": "list",
+		"fields": []any{"id", "title"},
+	})
+	if !strings.Contains(text, "T-001") {
+		t.Errorf("fields array failed: %s", text)
+	}
+
+	// sections array (create)
+	text = callTool(t, cs, "artifact", map[string]any{
+		"action": "create",
+		"kind":   "task",
+		"title":  "With Sections",
+		"scope":  "test",
+		"sections": []any{
+			map[string]any{"name": "context", "text": "Background"},
+		},
+	})
+	if !strings.Contains(text, "With Sections") {
+		t.Errorf("sections array failed: %s", text)
+	}
+
+	// artifacts array (batch_create)
+	text = callTool(t, cs, "artifact", map[string]any{
+		"action": "batch_create",
+		"artifacts": []any{
+			map[string]any{"kind": "task", "title": "Batch 1", "scope": "test"},
+			map[string]any{"kind": "task", "title": "Batch 2", "scope": "test"},
+		},
+	})
+	if !strings.Contains(text, "created 2") {
+		t.Errorf("artifacts array failed: %s", text)
+	}
+}
+
+func TestMCPSchema_BooleanTypes(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	s.Put(ctx, &model.Artifact{ID: "T-001", Kind: "task", Scope: "test", Status: "draft", Title: "T1"})
+	s.Put(ctx, &model.Artifact{ID: "T-002", Kind: "task", Scope: "test", Status: "draft", Title: "T2"})
+	s.AddEdge(ctx, model.Edge{From: "T-001", To: "T-002", Relation: "depends_on"})
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	// include_edges boolean (get)
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action":        "get",
+		"id":            "T-001",
+		"include_edges": true,
+	})
+	if !strings.Contains(text, "depends_on") {
+		t.Errorf("include_edges boolean failed — edges not shown: %s", text)
+	}
+
+	// count boolean (list)
+	text = callTool(t, cs, "artifact", map[string]any{
+		"action": "list",
+		"count":  true,
+		"kind":   "task",
+	})
+	if text != "2" {
+		t.Errorf("count boolean failed: got %q, want 2", text)
+	}
+
+	// force boolean (set)
+	text = callTool(t, cs, "artifact", map[string]any{
+		"action": "set",
+		"id":     "T-001",
+		"field":  "status",
+		"value":  "complete",
+		"force":  true,
+	})
+	if !strings.Contains(text, "status = complete") {
+		t.Errorf("force boolean failed: %s", text)
+	}
+}
+
+// --- SCR-TSK-177: Batch update ---
+
+func TestBatchUpdate_MultipleIDs(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	for i := 1; i <= 3; i++ {
+		s.Put(ctx, &model.Artifact{
+			ID: fmt.Sprintf("T-%03d", i), Kind: "task", Scope: "test",
+			Status: "draft", Title: fmt.Sprintf("Task %d", i),
+		})
+	}
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action":   "update",
+		"ids":      []any{"T-001", "T-002", "T-003"},
+		"priority": "high",
+		"sprint":   "SPR-1",
+	})
+
+	for i := 1; i <= 3; i++ {
+		id := fmt.Sprintf("T-%03d", i)
+		if !strings.Contains(text, id+".priority = high") {
+			t.Errorf("expected %s.priority = high in result: %s", id, text)
+		}
+		if !strings.Contains(text, id+".sprint = SPR-1") {
+			t.Errorf("expected %s.sprint = SPR-1 in result: %s", id, text)
+		}
+		art, _ := s.Get(ctx, id)
+		if art.Priority != "high" || art.Sprint != "SPR-1" {
+			t.Errorf("%s: priority=%q sprint=%q", id, art.Priority, art.Sprint)
+		}
+	}
+}
+
+func TestBatchUpdate_WithPatch(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	s.Put(ctx, &model.Artifact{ID: "T-001", Kind: "task", Scope: "test", Status: "draft", Title: "T1"})
+	s.Put(ctx, &model.Artifact{ID: "T-002", Kind: "task", Scope: "test", Status: "draft", Title: "T2"})
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "update",
+		"ids":    []any{"T-001", "T-002"},
+		"patch":  map[string]any{"priority": "critical", "sprint": "SPR-2"},
+	})
+
+	if !strings.Contains(text, "T-001.priority = critical") || !strings.Contains(text, "T-002.priority = critical") {
+		t.Errorf("expected priority updates: %s", text)
+	}
+
+	for _, id := range []string{"T-001", "T-002"} {
+		art, _ := s.Get(ctx, id)
+		if art.Priority != "critical" || art.Sprint != "SPR-2" {
+			t.Errorf("%s: priority=%q sprint=%q", id, art.Priority, art.Sprint)
+		}
+	}
+}
+
+func TestBatchUpdate_SingleIDBackwardCompat(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	s.Put(ctx, &model.Artifact{ID: "T-001", Kind: "task", Scope: "test", Status: "draft", Title: "T1"})
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action":   "update",
+		"id":       "T-001",
+		"priority": "medium",
+	})
+
+	if !strings.Contains(text, "T-001.priority = medium") {
+		t.Errorf("single id backward compat failed: %s", text)
+	}
+}
+
+func TestMCPSchema_ObjectTypes(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	s.Put(ctx, &model.Artifact{ID: "T-001", Kind: "task", Scope: "test", Status: "draft", Title: "T1"})
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	// patch object (update)
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "update",
+		"id":     "T-001",
+		"patch":  map[string]any{"priority": "high", "title": "Updated"},
+	})
+	if !strings.Contains(text, "priority = high") {
+		t.Errorf("patch object failed: %s", text)
+	}
+
+	// links object (create)
+	s.Put(ctx, &model.Artifact{ID: "TPL-1", Kind: "template", Status: "active", Title: "Task Template",
+		Sections: []model.Section{{Name: "content", Text: "body"}, {Name: "context", Text: "ctx"}},
+	})
+	text = callTool(t, cs, "artifact", map[string]any{
+		"action": "create",
+		"kind":   "task",
+		"title":  "With Links",
+		"scope":  "test",
+		"links":  map[string]any{"satisfies": []any{"TPL-1"}},
+		"sections": []any{
+			map[string]any{"name": "context", "text": "Background"},
+		},
+	})
+	if !strings.Contains(text, "With Links") {
+		t.Errorf("links object failed: %s", text)
+	}
+}

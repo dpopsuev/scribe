@@ -284,7 +284,14 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		}
 		return h.handleBulkSetField(ctx, ids, in.Field, in.Value, in.Force)
 	case "update":
-		return h.handleUpdate(ctx, in)
+		ids := in.IDs
+		if len(ids) == 0 && in.ID != "" {
+			ids = []string{in.ID}
+		}
+		if len(ids) == 0 {
+			return nil, nil, fmt.Errorf("id or ids required for update action")
+		}
+		return h.handleBatchUpdate(ctx, in, ids)
 	case "archive":
 		return h.handleArchive(ctx, req, archiveInput{
 			IDs: in.IDs, Cascade: in.Cascade, Scope: in.Scope,
@@ -978,14 +985,8 @@ func (h *handler) handleBatchAttachSections(ctx context.Context, id string, sect
 	return text(fmt.Sprintf("%s: %d sections added, %d replaced", id, added, replaced)), nil, nil
 }
 
-func (h *handler) handleUpdate(ctx context.Context, in artifactInput) (*sdkmcp.CallToolResult, any, error) {
-	if in.ID == "" {
-		return nil, nil, fmt.Errorf("id is required for update action")
-	}
-
-	var lines []string
-
-	// Apply field updates — patch map takes precedence, then individual fields
+func (h *handler) handleBatchUpdate(ctx context.Context, in artifactInput, ids []string) (*sdkmcp.CallToolResult, any, error) {
+	// Build field map — patch map takes precedence, then individual fields
 	fieldMap := map[string]string{}
 	for k, v := range in.Patch {
 		fieldMap[k] = v
@@ -1015,38 +1016,43 @@ func (h *handler) handleUpdate(ctx context.Context, in artifactInput) (*sdkmcp.C
 		fieldMap["kind"] = in.Kind
 	}
 
-	for field, value := range fieldMap {
-		results, err := h.proto.SetField(ctx, []string{in.ID}, field, value, protocol.SetFieldOptions{Force: in.Force})
-		if err != nil {
-			return nil, nil, fmt.Errorf("set %s: %w", field, err)
-		}
-		r := results[0]
-		if !r.OK {
-			return nil, nil, fmt.Errorf("set %s: %s", field, r.Error)
-		}
-		lines = append(lines, fmt.Sprintf("%s.%s = %s", in.ID, field, value))
-	}
-
-	// Apply section attaches
-	for _, sec := range in.Sections {
-		name, ok := sec["name"]
-		if !ok || name == "" {
-			continue
-		}
-		t := sec["text"]
-		replaced, err := h.proto.AttachSection(ctx, in.ID, name, t)
-		if err != nil {
-			return nil, nil, fmt.Errorf("section %q: %w", name, err)
-		}
-		action := "added"
-		if replaced {
-			action = "replaced"
-		}
-		lines = append(lines, fmt.Sprintf("%s: section %q %s", in.ID, name, action))
-	}
-
-	if len(lines) == 0 {
+	if len(fieldMap) == 0 && len(in.Sections) == 0 {
 		return nil, nil, fmt.Errorf("update requires at least one field or section to change")
+	}
+
+	var lines []string
+	for _, id := range ids {
+		for field, value := range fieldMap {
+			results, err := h.proto.SetField(ctx, []string{id}, field, value, protocol.SetFieldOptions{Force: in.Force})
+			if err != nil {
+				lines = append(lines, fmt.Sprintf("%s -> error: set %s: %v", id, field, err))
+				continue
+			}
+			r := results[0]
+			if !r.OK {
+				lines = append(lines, fmt.Sprintf("%s -> error: set %s: %s", id, field, r.Error))
+				continue
+			}
+			lines = append(lines, fmt.Sprintf("%s.%s = %s", id, field, value))
+		}
+
+		for _, sec := range in.Sections {
+			name, ok := sec["name"]
+			if !ok || name == "" {
+				continue
+			}
+			t := sec["text"]
+			replaced, err := h.proto.AttachSection(ctx, id, name, t)
+			if err != nil {
+				lines = append(lines, fmt.Sprintf("%s -> error: section %q: %v", id, name, err))
+				continue
+			}
+			action := "added"
+			if replaced {
+				action = "replaced"
+			}
+			lines = append(lines, fmt.Sprintf("%s: section %q %s", id, name, action))
+		}
 	}
 
 	return text(strings.Join(lines, "\n")), nil, nil

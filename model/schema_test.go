@@ -86,6 +86,72 @@ func TestMergeDefaults_UserStatusesPreserved(t *testing.T) {
 	}
 }
 
+func TestMissingCompletionGates_AllFilled(t *testing.T) {
+	s := &Schema{
+		Kinds: map[string]KindDef{
+			"task": {CompletionGates: []string{"test_matrix", "acceptance"}},
+		},
+	}
+	art := &Artifact{
+		Kind: "task",
+		Sections: []Section{
+			{Name: "test_matrix", Text: "file:Symbol"},
+			{Name: "acceptance", Text: "criteria"},
+		},
+	}
+	if missing := s.MissingCompletionGates(art); len(missing) != 0 {
+		t.Errorf("expected no missing gates, got %v", missing)
+	}
+}
+
+func TestMissingCompletionGates_SomeMissing(t *testing.T) {
+	s := &Schema{
+		Kinds: map[string]KindDef{
+			"task": {CompletionGates: []string{"test_matrix", "acceptance"}},
+		},
+	}
+	art := &Artifact{
+		Kind: "task",
+		Sections: []Section{
+			{Name: "test_matrix", Text: "file:Symbol"},
+		},
+	}
+	missing := s.MissingCompletionGates(art)
+	if len(missing) != 1 || missing[0] != "acceptance" {
+		t.Errorf("expected [acceptance], got %v", missing)
+	}
+}
+
+func TestMissingCompletionGates_EmptySectionBlocks(t *testing.T) {
+	s := &Schema{
+		Kinds: map[string]KindDef{
+			"task": {CompletionGates: []string{"test_matrix"}},
+		},
+	}
+	art := &Artifact{
+		Kind: "task",
+		Sections: []Section{
+			{Name: "test_matrix", Text: "   "},
+		},
+	}
+	missing := s.MissingCompletionGates(art)
+	if len(missing) != 1 {
+		t.Errorf("empty/whitespace section should count as missing, got %v", missing)
+	}
+}
+
+func TestMissingCompletionGates_NoGatesDefined(t *testing.T) {
+	s := &Schema{
+		Kinds: map[string]KindDef{
+			"task": {},
+		},
+	}
+	art := &Artifact{Kind: "task"}
+	if missing := s.MissingCompletionGates(art); len(missing) != 0 {
+		t.Errorf("no gates defined should return nil, got %v", missing)
+	}
+}
+
 func TestMergeDefaults_NilSchema(t *testing.T) {
 	custom := &Schema{}
 	custom.MergeDefaults(DefaultSchema())
