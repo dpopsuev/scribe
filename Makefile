@@ -1,4 +1,4 @@
-.PHONY: build build-image push-image run restart version release
+.PHONY: build build-image push-image run restart version release fmt vet lint lint-new test preflight install-hooks
 
 VERSION ?= $(shell git describe --tags --always --dirty)
 
@@ -25,6 +25,29 @@ run:
 	@sleep 1 && podman logs scribe 2>&1 | tail -3
 
 restart: build-image run
+
+fmt:
+	go fmt ./...
+
+vet:
+	go vet ./...
+
+test:
+	go test ./... -count=1
+
+lint:
+	golangci-lint run ./...
+
+lint-new:
+	golangci-lint run --new-from-rev=HEAD ./...
+
+preflight: fmt vet lint test
+
+install-hooks:
+	@echo '#!/bin/sh' > .git/hooks/pre-commit
+	@echo 'make lint-new' >> .git/hooks/pre-commit
+	@chmod +x .git/hooks/pre-commit
+	@echo "pre-commit hook installed (runs make lint-new)"
 
 test-stress:
 	go test -tags stress -v -timeout 300s -run TestStress .
