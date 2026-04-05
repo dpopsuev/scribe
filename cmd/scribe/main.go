@@ -25,7 +25,6 @@ import (
 	"github.com/dpopsuev/scribe/directive"
 	parchment "github.com/dpopsuev/scribe/internal/parchment"
 	"github.com/dpopsuev/scribe/mcp"
-	"github.com/dpopsuev/scribe/render"
 	"github.com/dpopsuev/scribe/web"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
@@ -184,7 +183,7 @@ func showCmd() *cobra.Command {
 				enc.SetIndent("", "  ")
 				return enc.Encode(art)
 			default:
-				fmt.Print(render.Markdown(art))
+				fmt.Print(parchment.RenderMarkdown(art))
 				return nil
 			}
 		},
@@ -235,11 +234,11 @@ func listCmd() *cobra.Command {
 							}
 						}
 					}
-					fmt.Print(render.GroupedTableByScopeLabel(arts, scopeLabels))
+					fmt.Print(parchment.RenderGroupedTableByScopeLabel(arts, scopeLabels))
 				} else if in.GroupBy != "" {
-					fmt.Print(render.GroupedTable(arts, in.GroupBy))
+					fmt.Print(parchment.RenderGroupedTable(arts, in.GroupBy))
 				} else {
-					fmt.Print(render.Table(arts))
+					fmt.Print(parchment.RenderTable(arts))
 				}
 				return nil
 			}
@@ -569,7 +568,7 @@ func searchCmd() *cobra.Command {
 				enc.SetIndent("", "  ")
 				return enc.Encode(matched)
 			default:
-				fmt.Print(render.Table(matched))
+				fmt.Print(parchment.RenderTable(matched))
 				return nil
 			}
 		},
