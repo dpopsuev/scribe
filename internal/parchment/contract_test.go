@@ -2,7 +2,10 @@ package parchment
 
 import (
 	"context"
+	"database/sql"
 	"testing"
+
+	_ "modernc.org/sqlite"
 )
 
 // Compile-time interface verification.
@@ -169,6 +172,116 @@ func TestMemoryStore_Contract(t *testing.T) {
 		t.Helper()
 		return NewMemoryStore()
 	})
+}
+
+// TestSQLiteStore_MigrationCompat verifies that a database created with the
+// old schema (without components/annotations columns) works after migration.
+// Regression test for SELECT * column ordering bug.
+func TestSQLiteStore_MigrationCompat(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := t.TempDir() + "/migrate.db"
+
+	// Create a DB with the OLD schema (no components/annotations columns).
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS artifacts (
+		uid TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, kind TEXT NOT NULL,
+		scope TEXT NOT NULL DEFAULT '', status TEXT NOT NULL,
+		parent TEXT NOT NULL DEFAULT '', title TEXT NOT NULL,
+		goal TEXT NOT NULL DEFAULT '', depends_on TEXT NOT NULL DEFAULT '[]',
+		labels TEXT NOT NULL DEFAULT '[]', priority TEXT NOT NULL DEFAULT '',
+		sprint TEXT NOT NULL DEFAULT '', sections TEXT NOT NULL DEFAULT '[]',
+		features TEXT NOT NULL DEFAULT '[]', criteria TEXT NOT NULL DEFAULT '[]',
+		links TEXT NOT NULL DEFAULT '{}', extra TEXT NOT NULL DEFAULT '{}',
+		created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+		inserted_at TEXT NOT NULL DEFAULT ''
+	)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS edges (
+		from_id TEXT NOT NULL, relation TEXT NOT NULL, to_id TEXT NOT NULL,
+		PRIMARY KEY (from_id, relation, to_id))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS sequences (
+		prefix TEXT PRIMARY KEY, next_val INTEGER NOT NULL DEFAULT 1)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS scope_keys (
+		scope TEXT PRIMARY KEY, key TEXT UNIQUE NOT NULL, auto INTEGER NOT NULL DEFAULT 0,
+		labels TEXT NOT NULL DEFAULT '')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS scoped_sequences (
+		scope_key TEXT NOT NULL, kind_code TEXT NOT NULL, next_val INTEGER NOT NULL DEFAULT 1,
+		PRIMARY KEY (scope_key, kind_code))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Insert an artifact using the old schema (no components/annotations).
+	now := "2026-04-05T12:00:00Z"
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO artifacts (uid, id, kind, scope, status, parent, title, goal,
+		depends_on, labels, priority, sprint, sections, features, criteria, links, extra,
+		created_at, updated_at, inserted_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]', '', '', '[]', '[]', '[]', '{}', '{}', ?, ?, ?)`,
+		"old-uid", "OLD-TSK-1", "task", "test", "draft", "", "old artifact", "",
+		now, now, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	// Now open with the real OpenSQLite (triggers migration).
+	s, err := OpenSQLite(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	// Read the old artifact — must not produce scan errors.
+	art, err := s.Get(ctx, "OLD-TSK-1")
+	if err != nil {
+		t.Fatalf("failed to read migrated artifact: %v", err)
+	}
+	if art.Title != "old artifact" {
+		t.Errorf("title = %q, want %q", art.Title, "old artifact")
+	}
+	if art.CreatedAt.IsZero() {
+		t.Error("created_at should be parsed correctly after migration")
+	}
+
+	// Write a new artifact with the new fields.
+	err = s.Put(ctx, &Artifact{
+		UID: "new-uid", ID: "NEW-TSK-1", Kind: "task", Status: "draft",
+		Title:       "new artifact",
+		Components:  ComponentMap{Files: []string{"test.go"}},
+		Annotations: []Annotation{{Kind: "+", Comment: "good"}},
+		CreatedAt:   art.CreatedAt, UpdatedAt: art.CreatedAt,
+	})
+	if err != nil {
+		t.Fatalf("failed to write new artifact: %v", err)
+	}
+
+	// Read it back — verify components + annotations round-trip.
+	got, err := s.Get(ctx, "NEW-TSK-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Components.Files) != 1 || got.Components.Files[0] != "test.go" {
+		t.Errorf("components = %+v, want [test.go]", got.Components)
+	}
+	if len(got.Annotations) != 1 || got.Annotations[0].Kind != "+" {
+		t.Errorf("annotations = %+v, want [{+ good}]", got.Annotations)
+	}
 }
 
 // TestMemoryStore_SaveLoad verifies atomic JSON persistence round-trip.
