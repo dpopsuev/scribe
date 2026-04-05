@@ -15,6 +15,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/dominikbraun/graph"
 )
 
 var (
@@ -1472,7 +1474,7 @@ func (p *Protocol) ArtifactTree(ctx context.Context, in TreeInput) (*TreeNode, e
 // of the root artifact, ordered by depends_on edges (Kahn's algorithm).
 // Artifacts with no dependencies come first. Returns error if a cycle is detected.
 func (p *Protocol) TopoSort(ctx context.Context, rootID string) ([]TopoEntry, error) {
-	// Collect all descendants via parent_of
+	// Collect all descendants via parent_of (flatten tree).
 	children, err := p.store.Children(ctx, rootID)
 	if err != nil {
 		return nil, err
@@ -1481,61 +1483,49 @@ func (p *Protocol) TopoSort(ctx context.Context, rootID string) ([]TopoEntry, er
 		return nil, nil
 	}
 
-	// Build ID set and lookup
 	arts := make(map[string]*Artifact, len(children))
 	for _, ch := range children {
 		arts[ch.ID] = ch
-		// Also include grandchildren (flatten tree)
 		gc, _ := p.store.Children(ctx, ch.ID)
 		for _, g := range gc {
 			arts[g.ID] = g
 		}
 	}
 
-	// Build adjacency: inDegree and dependents map
-	inDegree := make(map[string]int, len(arts))
-	dependents := make(map[string][]string) // X -> [things that depend on X]
+	// Build graph using dominikbraun/graph.
+	g := graph.New(graph.StringHash, graph.Directed(), graph.PreventCycles())
 	for id := range arts {
-		inDegree[id] = 0
+		_ = g.AddVertex(id)
 	}
 	for id, art := range arts {
 		for _, dep := range art.DependsOn {
 			if _, ok := arts[dep]; ok {
-				inDegree[id]++
-				dependents[dep] = append(dependents[dep], id)
+				// Edge: dep → id (id depends on dep, so dep must come first).
+				_ = g.AddEdge(dep, id)
 			}
 		}
 	}
 
-	// Kahn's algorithm
-	var queue []string
-	for id, deg := range inDegree {
-		if deg == 0 {
-			queue = append(queue, id)
+	order, err := graph.TopologicalSort(g)
+	if err != nil {
+		// Cycle detected — return partial results.
+		partial := make([]TopoEntry, 0, len(arts))
+		for id, art := range arts {
+			partial = append(partial, TopoEntry{
+				ID: id, Kind: art.Kind, Status: art.Status,
+				Title: art.Title, Priority: art.Priority,
+			})
 		}
+		return partial, fmt.Errorf("cycle detected in dependency graph: %w", err)
 	}
-	sort.Strings(queue) // deterministic order for ties
 
-	var result []TopoEntry
-	for len(queue) > 0 {
-		id := queue[0]
-		queue = queue[1:]
+	result := make([]TopoEntry, 0, len(order))
+	for _, id := range order {
 		art := arts[id]
 		result = append(result, TopoEntry{
 			ID: id, Kind: art.Kind, Status: art.Status,
 			Title: art.Title, Priority: art.Priority,
 		})
-		for _, dep := range dependents[id] {
-			inDegree[dep]--
-			if inDegree[dep] == 0 {
-				queue = append(queue, dep)
-				sort.Strings(queue)
-			}
-		}
-	}
-
-	if len(result) < len(arts) {
-		return result, fmt.Errorf("cycle detected: %d of %d artifacts could not be sorted", len(arts)-len(result), len(arts))
 	}
 	return result, nil
 }
