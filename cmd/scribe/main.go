@@ -21,9 +21,9 @@ import (
 	"syscall"
 	"time"
 
+	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/config"
 	"github.com/dpopsuev/scribe/directive"
-	parchment "github.com/dpopsuev/scribe/internal/parchment"
 	"github.com/dpopsuev/scribe/mcp"
 	"github.com/dpopsuev/scribe/web"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -1558,7 +1558,6 @@ func vocabCmd() *cobra.Command {
 	cmd.AddCommand(listVocabCmd, addVocabCmd, removeVocabCmd)
 	return cmd
 }
-
 
 // --- sort helper ---
 

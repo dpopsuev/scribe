@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	parchment "github.com/dpopsuev/scribe/internal/parchment"
+	parchment "github.com/dpopsuev/parchment"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/renderer/html"

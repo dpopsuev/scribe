@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
+	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/directive"
-	parchment "github.com/dpopsuev/scribe/internal/parchment"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -125,26 +125,26 @@ type artifactInput struct {
 
 	IncludeEdges bool `json:"include_edges,omitempty" jsonschema:"if true, get returns resolved neighbor summaries"`
 
-	Sprint         string `json:"sprint,omitempty" jsonschema:"filter by sprint ID (list)"`
-	IDPrefix       string `json:"id_prefix,omitempty" jsonschema:"filter by ID prefix (list, archive)"`
-	ExcludeKind    string `json:"exclude_kind,omitempty" jsonschema:"exclude artifacts of this kind (list, archive)"`
+	Sprint         string   `json:"sprint,omitempty" jsonschema:"filter by sprint ID (list)"`
+	IDPrefix       string   `json:"id_prefix,omitempty" jsonschema:"filter by ID prefix (list, archive)"`
+	ExcludeKind    string   `json:"exclude_kind,omitempty" jsonschema:"exclude artifacts of this kind (list, archive)"`
 	ExcludeStatus  string   `json:"exclude_status,omitempty" jsonschema:"exclude artifacts with this status (list)"`
 	LabelsOr       []string `json:"labels_or,omitempty" jsonschema:"at least one label must match - OR semantics (list)"`
 	ExcludeLabels  []string `json:"exclude_labels,omitempty" jsonschema:"exclude artifacts matching any of these labels (list)"`
 	GroupBy        string   `json:"group_by,omitempty" jsonschema:"group results by field: status, scope, kind, sprint, scope_label (list)"`
-	Sort           string `json:"sort,omitempty" jsonschema:"sort results by: id, title, status, scope, kind, sprint (list)"`
-	Limit          int    `json:"limit,omitempty" jsonschema:"max results to return (list)"`
-	Offset         int    `json:"offset,omitempty" jsonschema:"skip first N results for pagination (list)"`
+	Sort           string   `json:"sort,omitempty" jsonschema:"sort results by: id, title, status, scope, kind, sprint (list)"`
+	Limit          int      `json:"limit,omitempty" jsonschema:"max results to return (list)"`
+	Offset         int      `json:"offset,omitempty" jsonschema:"skip first N results for pagination (list)"`
 	Count          bool     `json:"count,omitempty" jsonschema:"return count instead of full artifacts (list)"`
 	Top            int      `json:"top,omitempty" jsonschema:"return N most relevant artifacts ranked by status+priority+recency (list)"`
 	Fields         []string `json:"fields,omitempty" jsonschema:"return only these columns: id, kind, scope, status, title, parent, priority, sprint, depends_on, labels (list)"`
-	Query          string `json:"query,omitempty" jsonschema:"substring search across title, goal, and section text (list)"`
-	CreatedAfter   string `json:"created_after,omitempty" jsonschema:"RFC 3339 lower bound on created_at (list)"`
-	CreatedBefore  string `json:"created_before,omitempty" jsonschema:"RFC 3339 upper bound on created_at (list)"`
-	UpdatedAfter   string `json:"updated_after,omitempty" jsonschema:"RFC 3339 lower bound on updated_at (list)"`
-	UpdatedBefore  string `json:"updated_before,omitempty" jsonschema:"RFC 3339 upper bound on updated_at (list)"`
-	InsertedAfter  string `json:"inserted_after,omitempty" jsonschema:"RFC 3339 lower bound on inserted_at (list)"`
-	InsertedBefore string `json:"inserted_before,omitempty" jsonschema:"RFC 3339 upper bound on inserted_at (list)"`
+	Query          string   `json:"query,omitempty" jsonschema:"substring search across title, goal, and section text (list)"`
+	CreatedAfter   string   `json:"created_after,omitempty" jsonschema:"RFC 3339 lower bound on created_at (list)"`
+	CreatedBefore  string   `json:"created_before,omitempty" jsonschema:"RFC 3339 upper bound on created_at (list)"`
+	UpdatedAfter   string   `json:"updated_after,omitempty" jsonschema:"RFC 3339 lower bound on updated_at (list)"`
+	UpdatedBefore  string   `json:"updated_before,omitempty" jsonschema:"RFC 3339 upper bound on updated_at (list)"`
+	InsertedAfter  string   `json:"inserted_after,omitempty" jsonschema:"RFC 3339 lower bound on inserted_at (list)"`
+	InsertedBefore string   `json:"inserted_before,omitempty" jsonschema:"RFC 3339 upper bound on inserted_at (list)"`
 
 	Field string `json:"field,omitempty" jsonschema:"field to update: title, goal, scope, status, parent, priority, sprint, kind, depends_on, labels (set)"`
 	Value string `json:"value,omitempty" jsonschema:"new value for the field; comma-separated for depends_on/labels (set)"`
@@ -160,7 +160,7 @@ type artifactInput struct {
 	Name string `json:"name,omitempty" jsonschema:"section name (attach_section, get_section, detach_section)"`
 	Text string `json:"text,omitempty" jsonschema:"section body text (attach_section)"`
 
-	Patch     map[string]string `json:"patch,omitempty" jsonschema:"map of field->value for multi-field update in one call (update)"`
+	Patch map[string]string `json:"patch,omitempty" jsonschema:"map of field->value for multi-field update in one call (update)"`
 
 	Artifacts []map[string]any `json:"artifacts,omitempty" jsonschema:"array of create inputs for batch_create"`
 	SkipHooks bool             `json:"skip_hooks,omitempty" jsonschema:"suppress template hook auto-generation on create"`
@@ -168,14 +168,14 @@ type artifactInput struct {
 }
 
 type graphInput struct {
-	Action    string   `json:"action" jsonschema:"required,tree | briefing | topo_sort | next | link | unlink | bulk_link | bulk_unlink | move | replace | impact"`
-	ID        string   `json:"id,omitempty" jsonschema:"root artifact ID for tree/briefing, or source artifact for link/unlink/move/replace"`
-	Relation  string   `json:"relation,omitempty" jsonschema:"edge type: parent_of, depends_on, follows, justifies, implements, documents"`
-	Direction string   `json:"direction,omitempty" jsonschema:"traversal direction for tree: outbound (default) or inbound"`
-	Depth     int      `json:"depth,omitempty" jsonschema:"max traversal depth for tree (0 = unlimited)"`
-	Targets   []string `json:"targets,omitempty" jsonschema:"target artifact IDs to link/unlink"`
-	Target    string   `json:"target,omitempty" jsonschema:"new parent ID (move) or new target ID (replace)"`
-	OldTarget string   `json:"old_target,omitempty" jsonschema:"existing target to replace (replace)"`
+	Action    string      `json:"action" jsonschema:"required,tree | briefing | topo_sort | next | link | unlink | bulk_link | bulk_unlink | move | replace | impact"`
+	ID        string      `json:"id,omitempty" jsonschema:"root artifact ID for tree/briefing, or source artifact for link/unlink/move/replace"`
+	Relation  string      `json:"relation,omitempty" jsonschema:"edge type: parent_of, depends_on, follows, justifies, implements, documents"`
+	Direction string      `json:"direction,omitempty" jsonschema:"traversal direction for tree: outbound (default) or inbound"`
+	Depth     int         `json:"depth,omitempty" jsonschema:"max traversal depth for tree (0 = unlimited)"`
+	Targets   []string    `json:"targets,omitempty" jsonschema:"target artifact IDs to link/unlink"`
+	Target    string      `json:"target,omitempty" jsonschema:"new parent ID (move) or new target ID (replace)"`
+	OldTarget string      `json:"old_target,omitempty" jsonschema:"existing target to replace (replace)"`
 	Edges     []edgeInput `json:"edges,omitempty" jsonschema:"array of edge tuples for bulk_link/bulk_unlink"`
 	Format    string      `json:"format,omitempty" jsonschema:"output format: text (default) or json (tree, briefing, topo_sort)"`
 }
@@ -204,8 +204,8 @@ type adminInput struct {
 	Days  int  `json:"days,omitempty" jsonschema:"delete archived artifacts older than this many days (vacuum)"`
 	Force bool `json:"force,omitempty" jsonschema:"skip confirmation for destructive vacuum (vacuum)"`
 
-	Target  string `json:"target,omitempty" jsonschema:"destination scope (transfer_scope)"`
-	DryRun  bool   `json:"dry_run,omitempty" jsonschema:"preview without applying (transfer_scope)"`
+	Target string `json:"target,omitempty" jsonschema:"destination scope (transfer_scope)"`
+	DryRun bool   `json:"dry_run,omitempty" jsonschema:"preview without applying (transfer_scope)"`
 
 	Check   string `json:"check,omitempty" jsonschema:"orphans (default), overlaps, or all (detect)"`
 	Status  string `json:"status,omitempty" jsonschema:"filter by status (detect)"`
@@ -231,7 +231,7 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		return h.handleCreate(ctx, req, parchment.CreateInput{
 			Kind: in.Kind, Title: in.Title, Scope: in.Scope,
 			Goal: in.Goal, Parent: in.Parent, Status: in.Status,
-			Priority: in.Priority,
+			Priority:  in.Priority,
 			DependsOn: in.DependsOn, Labels: in.Labels, Prefix: in.Prefix,
 			Links: in.Links, Extra: in.Extra, CreatedAt: in.CreatedAt,
 			Sections: sections, SkipHooks: in.SkipHooks,
@@ -657,7 +657,7 @@ func (h *handler) handleGet(ctx context.Context, _ *sdkmcp.CallToolRequest, in g
 	type artWithEdges struct {
 		*parchment.Artifact
 		Edges           []parchment.EdgeSummary `json:"edges"`
-		CompletionScore float64                `json:"completion_score"`
+		CompletionScore float64                 `json:"completion_score"`
 	}
 	data, _ := json.MarshalIndent(artWithEdges{Artifact: art, Edges: edges, CompletionScore: score}, "", "  ")
 	return text(string(data)), nil, nil
@@ -1120,7 +1120,7 @@ func (h *handler) handleBatchCreate(ctx context.Context, in artifactInput) (*sdk
 		art, err := h.proto.CreateArtifact(ctx, parchment.CreateInput{
 			Kind: ci.Kind, Title: ci.Title, Scope: ci.Scope,
 			Goal: ci.Goal, Parent: ci.Parent, Status: ci.Status,
-			Priority: ci.Priority,
+			Priority:  ci.Priority,
 			DependsOn: ci.DependsOn, Labels: ci.Labels, Prefix: ci.Prefix,
 			Links: ci.Links, Extra: ci.Extra, CreatedAt: ci.CreatedAt,
 			Sections: sections,
