@@ -3,6 +3,7 @@ package parchment
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -281,6 +282,45 @@ func TestSQLiteStore_MigrationCompat(t *testing.T) {
 	}
 	if len(got.Annotations) != 1 || got.Annotations[0].Kind != "+" {
 		t.Errorf("annotations = %+v, want [{+ good}]", got.Annotations)
+	}
+}
+
+// TestSQLiteStore_ListDoesNotSilentlyDropRows verifies that List returns
+// all artifacts even when the schema has extra/unexpected columns.
+// Regression test for silent row drop bug — List used to `continue` on
+// scan errors without logging, causing 4,623 artifacts to vanish.
+func TestSQLiteStore_ListDoesNotSilentlyDropRows(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := t.TempDir() + "/nodrop.db"
+
+	s, err := OpenSQLite(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	// Insert 50 artifacts.
+	for i := range 50 {
+		err := s.Put(ctx, &Artifact{
+			UID:    fmt.Sprintf("u%d", i),
+			ID:     fmt.Sprintf("ND-TSK-%d", i),
+			Kind:   "task",
+			Status: "draft",
+			Title:  fmt.Sprintf("task %d", i),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// List all — must get exactly 50 back.
+	arts, err := s.List(ctx, Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(arts) != 50 {
+		t.Errorf("expected 50 artifacts, got %d — rows may be silently dropped", len(arts))
 	}
 }
 
