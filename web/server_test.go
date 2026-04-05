@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	parchment "github.com/dpopsuev/scribe/internal/parchment"
+	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/web"
 )
 

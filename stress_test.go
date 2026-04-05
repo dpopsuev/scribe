@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	parchment "github.com/dpopsuev/scribe/internal/parchment"
+	parchment "github.com/dpopsuev/parchment"
 	scribemcp "github.com/dpopsuev/scribe/mcp"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )

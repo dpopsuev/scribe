@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"sort"
 
-	parchment "github.com/dpopsuev/scribe/internal/parchment"
+	parchment "github.com/dpopsuev/parchment"
 	"gopkg.in/yaml.v3"
 )
 
