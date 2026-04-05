@@ -335,7 +335,7 @@ func (s *SQLiteStore) Put(ctx context.Context, art *Artifact) error {
 
 	// Check for human ID collision: same ID but different UID
 	var old *Artifact
-	old, _ = scanArtifact(tx.QueryRowContext(ctx, "SELECT * FROM artifacts WHERE id = ?", art.ID))
+	old, _ = scanArtifact(tx.QueryRowContext(ctx, "SELECT "+artifactColumns+" FROM artifacts WHERE id = ?", art.ID))
 	if old != nil && old.UID != "" && old.UID != art.UID {
 		// Collision: auto-rename the existing artifact
 		if err := s.autoRenameArtifact(ctx, tx, old); err != nil {
@@ -473,7 +473,7 @@ func (s *SQLiteStore) autoRenameArtifact(ctx context.Context, tx *sql.Tx, existi
 }
 
 func (s *SQLiteStore) Get(ctx context.Context, id string) (*Artifact, error) {
-	row := s.reader.QueryRowContext(ctx, "SELECT * FROM artifacts WHERE id = ?", id)
+	row := s.reader.QueryRowContext(ctx, "SELECT "+artifactColumns+" FROM artifacts WHERE id = ?", id)
 	art, err := scanArtifact(row)
 	if err != nil {
 		return nil, fmt.Errorf("artifact %s not found", id)
@@ -679,7 +679,7 @@ func (s *SQLiteStore) List(ctx context.Context, f Filter) ([]*Artifact, error) {
 		args = append(args, f.InsertedBefore)
 	}
 
-	q := "SELECT * FROM artifacts"
+	q := "SELECT " + artifactColumns + " FROM artifacts"
 	if len(clauses) > 0 {
 		q += " WHERE " + strings.Join(clauses, " AND ")
 	}
@@ -1053,6 +1053,10 @@ func scanArtifact(row *sql.Row) (*Artifact, error) {
 func scanArtifactRows(rows *sql.Rows) (*Artifact, error) {
 	return scanRow(rows)
 }
+
+// artifactColumns is the explicit column list for SELECT queries.
+// Must match the scan order in scanRow exactly.
+const artifactColumns = `uid, id, kind, scope, status, parent, title, goal, depends_on, labels, priority, sprint, sections, features, criteria, links, extra, components, annotations, created_at, updated_at, inserted_at`
 
 func scanRow(s rowScanner) (*Artifact, error) {
 	var art Artifact
