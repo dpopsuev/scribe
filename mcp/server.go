@@ -11,7 +11,6 @@ import (
 
 	"github.com/dpopsuev/scribe/directive"
 	parchment "github.com/dpopsuev/scribe/internal/parchment"
-	"github.com/dpopsuev/scribe/render"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -645,7 +644,7 @@ func (h *handler) handleGet(ctx context.Context, _ *sdkmcp.CallToolRequest, in g
 	score := h.proto.CompletionScore(ctx, art)
 
 	if !in.IncludeEdges {
-		md := render.Markdown(art)
+		md := parchment.RenderMarkdown(art)
 		if score > 0 {
 			md += fmt.Sprintf("\n\n**Completion Score:** %.0f%%", score*100)
 		}
@@ -771,12 +770,12 @@ func (h *handler) handleList(ctx context.Context, _ *sdkmcp.CallToolRequest, in 
 				}
 			}
 		}
-		return text(render.GroupedTableByScopeLabel(arts, scopeLabels)), nil, nil
+		return text(parchment.RenderGroupedTableByScopeLabel(arts, scopeLabels)), nil, nil
 	}
 	if in.GroupBy != "" {
-		return text(render.GroupedTable(arts, in.GroupBy)), nil, nil
+		return text(parchment.RenderGroupedTable(arts, in.GroupBy)), nil, nil
 	}
-	out := render.Table(arts)
+	out := parchment.RenderTable(arts)
 	if off > 0 || (in.Limit > 0 && in.Limit < total) {
 		out += fmt.Sprintf("\n(showing %d of %d total)", len(arts), total)
 	}
