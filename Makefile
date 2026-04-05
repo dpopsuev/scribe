@@ -35,6 +35,12 @@ vet:
 test:
 	go test ./... -count=1
 
+test-race:
+	go test -race ./... -count=1
+
+test-bench:
+	go test ./internal/parchment/ -bench=. -benchmem -count=1
+
 lint:
 	golangci-lint run ./...
 
