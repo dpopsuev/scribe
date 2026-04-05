@@ -1,4 +1,4 @@
-package model
+package parchment
 
 import (
 	"fmt"
@@ -8,23 +8,23 @@ import (
 
 // Artifact is the universal record for all work graph nodes.
 type Artifact struct {
-	UID       string              `json:"uid,omitempty"`
-	ID        string              `json:"id"`
-	Kind      string              `json:"kind"`
-	Scope     string              `json:"scope,omitempty"`
-	Status    string              `json:"status"`
-	Parent    string              `json:"parent,omitempty"`
-	Title     string              `json:"title"`
-	Goal      string              `json:"goal,omitempty"`
-	DependsOn []string            `json:"depends_on,omitempty"`
-	Labels    []string            `json:"labels,omitempty"`
-	Priority  string              `json:"priority,omitempty"`
-	Sprint    string              `json:"sprint,omitempty"`
-	Sections  []Section           `json:"sections,omitempty"`
-	Features  []Feature           `json:"features,omitempty"`
-	Criteria  []Criterion         `json:"criteria,omitempty"`
-	Links     map[string][]string `json:"links,omitempty"`
-	Extra     map[string]any      `json:"extra,omitempty"`
+	UID        string              `json:"uid,omitempty"`
+	ID         string              `json:"id"`
+	Kind       string              `json:"kind"`
+	Scope      string              `json:"scope,omitempty"`
+	Status     string              `json:"status"`
+	Parent     string              `json:"parent,omitempty"`
+	Title      string              `json:"title"`
+	Goal       string              `json:"goal,omitempty"`
+	DependsOn  []string            `json:"depends_on,omitempty"`
+	Labels     []string            `json:"labels,omitempty"`
+	Priority   string              `json:"priority,omitempty"`
+	Sprint     string              `json:"sprint,omitempty"`
+	Sections   []Section           `json:"sections,omitempty"`
+	Features   []Feature           `json:"features,omitempty"`
+	Criteria   []Criterion         `json:"criteria,omitempty"`
+	Links      map[string][]string `json:"links,omitempty"`
+	Extra      map[string]any      `json:"extra,omitempty"`
 	CreatedAt  time.Time           `json:"created_at"`
 	UpdatedAt  time.Time           `json:"updated_at"`
 	InsertedAt time.Time           `json:"inserted_at"`
@@ -97,25 +97,25 @@ type IDConfig struct {
 
 // Filter constrains artifact list/query operations.
 type Filter struct {
-	Kind        string
-	ExcludeKind string
-	ExcludeStatus string   // exclude artifacts with this status
-	IDPrefix      string   // match artifacts whose ID starts with this prefix
-	Scope         string
-	Scopes        []string // multi-scope IN filter (takes precedence over Scope when non-empty)
-	Status        string
-	Parent        string
-	Sprint        string
+	Kind            string
+	ExcludeKind     string
+	ExcludeStatus   string // exclude artifacts with this status
+	IDPrefix        string // match artifacts whose ID starts with this prefix
+	Scope           string
+	Scopes          []string // multi-scope IN filter (takes precedence over Scope when non-empty)
+	Status          string
+	Parent          string
+	Sprint          string
 	Labels          []string
 	LabelsOr        []string
 	ExcludeLabels   []string
 	ScopeLabelIndex map[string][]string // populated at query time: label -> matching scopes
 	CreatedAfter    string
-	CreatedBefore string
-	UpdatedAfter  string
-	UpdatedBefore string
-	InsertedAfter  string
-	InsertedBefore string
+	CreatedBefore   string
+	UpdatedAfter    string
+	UpdatedBefore   string
+	InsertedAfter   string
+	InsertedBefore  string
 }
 
 // Matches reports whether art satisfies all non-zero filter fields.

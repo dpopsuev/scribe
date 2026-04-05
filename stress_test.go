@@ -21,10 +21,8 @@ import (
 	"testing"
 	"time"
 
+	parchment "github.com/dpopsuev/scribe/internal/parchment"
 	scribemcp "github.com/dpopsuev/scribe/mcp"
-	"github.com/dpopsuev/scribe/model"
-	"github.com/dpopsuev/scribe/protocol"
-	"github.com/dpopsuev/scribe/store"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -56,9 +54,9 @@ func mb(b uint64) float64 {
 	return float64(b) / (1024 * 1024)
 }
 
-func openStore(t *testing.T) *store.SQLiteStore {
+func openStore(t *testing.T) *parchment.SQLiteStore {
 	t.Helper()
-	s, err := store.OpenSQLite(filepath.Join(t.TempDir(), "stress.db"))
+	s, err := parchment.OpenSQLite(filepath.Join(t.TempDir(), "stress.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,9 +64,9 @@ func openStore(t *testing.T) *store.SQLiteStore {
 	return s
 }
 
-func newServer(t *testing.T, s store.Store) *sdkmcp.Server {
+func newServer(t *testing.T, s parchment.Store) *sdkmcp.Server {
 	t.Helper()
-	srv, _ := scribemcp.NewServer(s, []string{"stress"}, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, []string{"stress"}, nil, parchment.ProtocolConfig{}, "test")
 	return srv
 }
 
@@ -109,18 +107,18 @@ func callTool(t *testing.T, cs *sdkmcp.ClientSession, name string, args map[stri
 	return ""
 }
 
-func seedArtifacts(t *testing.T, s store.Store, count int) {
+func seedArtifacts(t *testing.T, s parchment.Store, count int) {
 	t.Helper()
 	ctx := context.Background()
 	for i := 0; i < count; i++ {
-		art := &model.Artifact{
+		art := &parchment.Artifact{
 			ID:     fmt.Sprintf("STR-TSK-%d", i+1),
 			Kind:   "task",
 			Scope:  "stress",
 			Status: "draft",
 			Title:  fmt.Sprintf("Stress task %d", i+1),
 			Goal:   fmt.Sprintf("Goal for task %d with some filler text to make it non-trivial", i+1),
-			Sections: []model.Section{
+			Sections: []parchment.Section{
 				{Name: "context", Text: fmt.Sprintf("Context for task %d. This section contains enough text to be representative of real artifacts with multiple paragraphs of content.", i+1)},
 			},
 		}
@@ -135,7 +133,7 @@ func seedArtifacts(t *testing.T, s store.Store, count int) {
 	for i := 1; i < count; i++ {
 		parentID := fmt.Sprintf("STR-TSK-%d", ((i-1)/3)+1)
 		childID := fmt.Sprintf("STR-TSK-%d", i+1)
-		s.AddEdge(ctx, model.Edge{From: parentID, Relation: model.RelParentOf, To: childID})
+		s.AddEdge(ctx, parchment.Edge{From: parentID, Relation: parchment.RelParentOf, To: childID})
 	}
 }
 
@@ -217,7 +215,7 @@ func TestStress_BriefingHeavy(t *testing.T) {
 	for i := 10; i < 300; i += 7 {
 		target := fmt.Sprintf("STR-TSK-%d", (i%50)+1)
 		source := fmt.Sprintf("STR-TSK-%d", i+1)
-		s.AddEdge(ctx, model.Edge{From: source, Relation: model.RelDependsOn, To: target})
+		s.AddEdge(ctx, parchment.Edge{From: source, Relation: parchment.RelDependsOn, To: target})
 	}
 
 	srv := newServer(t, s)
@@ -253,7 +251,7 @@ func TestStress_SessionAccumulation(t *testing.T) {
 	seedArtifacts(t, s, 50)
 
 	sessionTimeout := 5 * time.Second // short timeout for test
-	srv, _ := scribemcp.NewServer(s, []string{"stress"}, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, []string{"stress"}, nil, parchment.ProtocolConfig{}, "test")
 
 	handler := sdkmcp.NewStreamableHTTPHandler(
 		func(r *http.Request) *sdkmcp.Server { return srv },
@@ -318,7 +316,7 @@ func TestStress_SessionAccumulation_NoTimeout(t *testing.T) {
 	s := openStore(t)
 	seedArtifacts(t, s, 50)
 
-	srv, _ := scribemcp.NewServer(s, []string{"stress"}, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, []string{"stress"}, nil, parchment.ProtocolConfig{}, "test")
 
 	// BUG REPRODUCTION: nil options = no session timeout
 	handler := sdkmcp.NewStreamableHTTPHandler(
@@ -573,7 +571,7 @@ func TestStress_ReadLogGrowth(t *testing.T) {
 
 func TestStress_WALGrowth(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "wal-stress.db")
-	s, err := store.OpenSQLite(dbPath)
+	s, err := parchment.OpenSQLite(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -583,13 +581,13 @@ func TestStress_WALGrowth(t *testing.T) {
 
 	// Write 2000 artifacts with sections
 	for i := 0; i < 2000; i++ {
-		art := &model.Artifact{
+		art := &parchment.Artifact{
 			ID:     fmt.Sprintf("WAL-TSK-%d", i+1),
 			Kind:   "task",
 			Scope:  "stress",
 			Status: "draft",
 			Title:  fmt.Sprintf("WAL stress task %d with some padding text", i+1),
-			Sections: []model.Section{
+			Sections: []parchment.Section{
 				{Name: "context", Text: fmt.Sprintf("Section content for artifact %d. This text is representative of real-world section sizes and contains multiple sentences to simulate actual usage patterns in production.", i+1)},
 			},
 		}
@@ -621,7 +619,7 @@ func TestStress_WALGrowth(t *testing.T) {
 
 func TestStress_ConnectionPool(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "conn-stress.db")
-	s, err := store.OpenSQLiteConfig(store.SQLiteConfig{Path: dbPath})
+	s, err := parchment.OpenSQLiteConfig(parchment.SQLiteConfig{Path: dbPath})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -638,7 +636,7 @@ func TestStress_ConnectionPool(t *testing.T) {
 
 	// Run 1000 concurrent-ish queries
 	for i := 0; i < 1000; i++ {
-		s.List(ctx, model.Filter{Scope: "stress"})
+		s.List(ctx, parchment.Filter{Scope: "stress"})
 		if i%100 == 0 {
 			stats := writer.Stats()
 			t.Logf("  after %d queries: open=%d inUse=%d idle=%d",
@@ -687,7 +685,7 @@ func TestStress_HTTPLeakHunt(t *testing.T) {
 
 	// Setup: real HTTP server with session timeout
 	dbPath := filepath.Join(t.TempDir(), "leak-hunt.db")
-	s, err := store.OpenSQLite(dbPath)
+	s, err := parchment.OpenSQLite(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -696,7 +694,7 @@ func TestStress_HTTPLeakHunt(t *testing.T) {
 	seedArtifacts(t, s, 500)
 	t.Log("seeded 500 artifacts")
 
-	srv, _ := scribemcp.NewServer(s, []string{"stress"}, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, []string{"stress"}, nil, parchment.ProtocolConfig{}, "test")
 
 	handler := sdkmcp.NewStreamableHTTPHandler(
 		func(r *http.Request) *sdkmcp.Server { return srv },
@@ -1043,12 +1041,12 @@ func TestStress_ServerCacheGrowth(t *testing.T) {
 func TestStress_SQLitePragmaHardening(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		tmpPath := filepath.Join(t.TempDir(), fmt.Sprintf("cycle-%d.db", i))
-		ss, err := store.OpenSQLite(tmpPath)
+		ss, err := parchment.OpenSQLite(tmpPath)
 		if err != nil {
 			t.Fatalf("open cycle %d: %v", i, err)
 		}
 		ctx := context.Background()
-		if err := ss.Put(ctx, &model.Artifact{
+		if err := ss.Put(ctx, &parchment.Artifact{
 			ID: fmt.Sprintf("CYC-%d", i), Kind: "task", Scope: "test",
 			Status: "draft", Title: fmt.Sprintf("Cycle %d", i),
 		}); err != nil {
@@ -1067,7 +1065,7 @@ func TestStress_SQLitePragmaHardening(t *testing.T) {
 
 func TestStress_WriteContention(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "contention.db")
-	s, err := store.OpenSQLiteConfig(store.SQLiteConfig{
+	s, err := parchment.OpenSQLiteConfig(parchment.SQLiteConfig{
 		Path:          dbPath,
 		BusyTimeoutMs: 5000,
 	})
@@ -1089,10 +1087,10 @@ func TestStress_WriteContention(t *testing.T) {
 			defer wg.Done()
 			for i := 0; i < writesPerWriter; i++ {
 				id := fmt.Sprintf("W%d-TSK-%d", wIdx, i)
-				if err := s.Put(ctx, &model.Artifact{
+				if err := s.Put(ctx, &parchment.Artifact{
 					ID: id, Kind: "task", Scope: "test",
 					Status: "draft", Title: fmt.Sprintf("Writer %d Task %d", wIdx, i),
-					Sections: []model.Section{
+					Sections: []parchment.Section{
 						{Name: "context", Text: fmt.Sprintf("Content from writer %d, iteration %d", wIdx, i)},
 					},
 				}); err != nil {
@@ -1110,7 +1108,7 @@ func TestStress_WriteContention(t *testing.T) {
 			len(writeErrors), strings.Join(writeErrors[:min(5, len(writeErrors))], "\n"))
 	}
 
-	all, _ := s.List(ctx, model.Filter{Kind: "task"})
+	all, _ := s.List(ctx, parchment.Filter{Kind: "task"})
 	expected := writers * writesPerWriter
 	if len(all) != expected {
 		t.Errorf("expected %d artifacts, got %d", expected, len(all))

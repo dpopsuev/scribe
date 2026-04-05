@@ -8,16 +8,14 @@ import (
 	"testing"
 	"time"
 
+	parchment "github.com/dpopsuev/scribe/internal/parchment"
 	scribemcp "github.com/dpopsuev/scribe/mcp"
-	"github.com/dpopsuev/scribe/model"
-	"github.com/dpopsuev/scribe/protocol"
-	"github.com/dpopsuev/scribe/store"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func openStore(t *testing.T) *store.SQLiteStore {
+func openStore(t *testing.T) *parchment.SQLiteStore {
 	t.Helper()
-	s, err := store.OpenSQLite(filepath.Join(t.TempDir(), "test.db"))
+	s, err := parchment.OpenSQLite(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,10 +23,10 @@ func openStore(t *testing.T) *store.SQLiteStore {
 	return s
 }
 
-func seedArtifacts(t *testing.T, s store.Store) {
+func seedArtifacts(t *testing.T, s parchment.Store) {
 	t.Helper()
 	ctx := context.Background()
-	for _, a := range []*model.Artifact{
+	for _, a := range []*parchment.Artifact{
 		{ID: "TASK-2026-001", Kind: "task", Scope: "origami", Status: "draft", Title: "Origami A"},
 		{ID: "TASK-2026-002", Kind: "task", Scope: "origami", Status: "draft", Title: "Origami B"},
 		{ID: "TASK-2026-003", Kind: "task", Scope: "mos", Status: "draft", Title: "Mos A"},
@@ -77,7 +75,7 @@ func TestScopedList_HomeScopes(t *testing.T) {
 	s := openStore(t)
 	seedArtifacts(t, s)
 
-	srv, _ := scribemcp.NewServer(s, []string{"origami", "mos"}, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, []string{"origami", "mos"}, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -100,7 +98,7 @@ func TestScopedList_ExplicitScope(t *testing.T) {
 	s := openStore(t)
 	seedArtifacts(t, s)
 
-	srv, _ := scribemcp.NewServer(s, []string{"origami"}, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, []string{"origami"}, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -121,7 +119,7 @@ func TestScopedCreate_DefaultScope(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 
-	srv, _ := scribemcp.NewServer(s, []string{"origami"}, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, []string{"origami"}, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -134,7 +132,7 @@ func TestScopedCreate_DefaultScope(t *testing.T) {
 		t.Errorf("expected TASK- ID in created artifact, got: %s", text)
 	}
 
-	arts, _ := s.List(ctx, model.Filter{Scope: "origami"})
+	arts, _ := s.List(ctx, parchment.Filter{Scope: "origami"})
 	found := false
 	for _, a := range arts {
 		if a.Title == "Auto-scoped task" {
@@ -151,7 +149,7 @@ func TestScopedList_HomeScoped_KindFilter(t *testing.T) {
 	s := openStore(t)
 	seedArtifacts(t, s)
 
-	srv, _ := scribemcp.NewServer(s, []string{"mos"}, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, []string{"mos"}, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -172,7 +170,7 @@ func TestCrossScopeGet(t *testing.T) {
 	s := openStore(t)
 	seedArtifacts(t, s)
 
-	srv, _ := scribemcp.NewServer(s, []string{"mos"}, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, []string{"mos"}, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -189,7 +187,7 @@ func TestNoHomeScopes_ShowsAll(t *testing.T) {
 	s := openStore(t)
 	seedArtifacts(t, s)
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -206,11 +204,11 @@ func TestArtifactTree_MixedScope_ShowsLabels(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 
-	_ = s.Put(ctx, &model.Artifact{ID: "SPR-1", Kind: "sprint", Scope: "origami", Status: "active", Title: "Sprint One"})
-	_ = s.Put(ctx, &model.Artifact{ID: "TASK-1", Kind: "task", Scope: "origami", Status: "draft", Title: "Origami Work", Parent: "SPR-1"})
-	_ = s.Put(ctx, &model.Artifact{ID: "TASK-2", Kind: "task", Scope: "scribe", Status: "draft", Title: "Scribe Work", Parent: "SPR-1"})
+	_ = s.Put(ctx, &parchment.Artifact{ID: "SPR-1", Kind: "sprint", Scope: "origami", Status: "active", Title: "Sprint One"})
+	_ = s.Put(ctx, &parchment.Artifact{ID: "TASK-1", Kind: "task", Scope: "origami", Status: "draft", Title: "Origami Work", Parent: "SPR-1"})
+	_ = s.Put(ctx, &parchment.Artifact{ID: "TASK-2", Kind: "task", Scope: "scribe", Status: "draft", Title: "Scribe Work", Parent: "SPR-1"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "graph", map[string]any{"action": "tree", "id": "SPR-1"})
@@ -227,11 +225,11 @@ func TestArtifactTree_SingleScope_OmitsLabels(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 
-	_ = s.Put(ctx, &model.Artifact{ID: "SPR-1", Kind: "sprint", Scope: "origami", Status: "active", Title: "Sprint One"})
-	_ = s.Put(ctx, &model.Artifact{ID: "TASK-1", Kind: "task", Scope: "origami", Status: "draft", Title: "Work A", Parent: "SPR-1"})
-	_ = s.Put(ctx, &model.Artifact{ID: "TASK-2", Kind: "task", Scope: "origami", Status: "draft", Title: "Work B", Parent: "SPR-1"})
+	_ = s.Put(ctx, &parchment.Artifact{ID: "SPR-1", Kind: "sprint", Scope: "origami", Status: "active", Title: "Sprint One"})
+	_ = s.Put(ctx, &parchment.Artifact{ID: "TASK-1", Kind: "task", Scope: "origami", Status: "draft", Title: "Work A", Parent: "SPR-1"})
+	_ = s.Put(ctx, &parchment.Artifact{ID: "TASK-2", Kind: "task", Scope: "origami", Status: "draft", Title: "Work B", Parent: "SPR-1"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "graph", map[string]any{"action": "tree", "id": "SPR-1"})
@@ -248,12 +246,12 @@ func TestBriefing_EdgeAwareOutput(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 
-	_ = s.Put(ctx, &model.Artifact{ID: "CAM-1", Kind: "campaign", Scope: "go4", Status: "active", Title: "Gang of Four"})
-	_ = s.Put(ctx, &model.Artifact{ID: "TSK-1", Kind: "task", Scope: "go4", Status: "draft", Title: "Remove MCP clients", Parent: "CAM-1"})
-	_ = s.Put(ctx, &model.Artifact{ID: "BUG-1", Kind: "bug", Scope: "limes", Status: "draft", Title: "Hardcoded deps"})
-	_ = s.AddEdge(ctx, model.Edge{From: "TSK-1", To: "BUG-1", Relation: "implements"})
+	_ = s.Put(ctx, &parchment.Artifact{ID: "CAM-1", Kind: "campaign", Scope: "go4", Status: "active", Title: "Gang of Four"})
+	_ = s.Put(ctx, &parchment.Artifact{ID: "TSK-1", Kind: "task", Scope: "go4", Status: "draft", Title: "Remove MCP clients", Parent: "CAM-1"})
+	_ = s.Put(ctx, &parchment.Artifact{ID: "BUG-1", Kind: "bug", Scope: "limes", Status: "draft", Title: "Hardcoded deps"})
+	_ = s.AddEdge(ctx, parchment.Edge{From: "TSK-1", To: "BUG-1", Relation: "implements"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "graph", map[string]any{"action": "briefing", "id": "CAM-1"})
@@ -279,11 +277,11 @@ func TestBriefing_IncomingEdgeArrow(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 
-	_ = s.Put(ctx, &model.Artifact{ID: "SPC-1", Kind: "spec", Scope: "scribe", Status: "draft", Title: "Spec"})
-	_ = s.Put(ctx, &model.Artifact{ID: "TSK-1", Kind: "task", Scope: "scribe", Status: "draft", Title: "Task"})
-	_ = s.AddEdge(ctx, model.Edge{From: "TSK-1", To: "SPC-1", Relation: "implements"})
+	_ = s.Put(ctx, &parchment.Artifact{ID: "SPC-1", Kind: "spec", Scope: "scribe", Status: "draft", Title: "Spec"})
+	_ = s.Put(ctx, &parchment.Artifact{ID: "TSK-1", Kind: "task", Scope: "scribe", Status: "draft", Title: "Task"})
+	_ = s.AddEdge(ctx, parchment.Edge{From: "TSK-1", To: "SPC-1", Relation: "implements"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "graph", map[string]any{"action": "briefing", "id": "SPC-1"})
@@ -300,11 +298,11 @@ func TestTree_EdgeLabelsShownWhenPresent(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 
-	_ = s.Put(ctx, &model.Artifact{ID: "TSK-1", Kind: "task", Scope: "scribe", Status: "draft", Title: "Task"})
-	_ = s.Put(ctx, &model.Artifact{ID: "SPC-1", Kind: "spec", Scope: "scribe", Status: "draft", Title: "Spec"})
-	_ = s.AddEdge(ctx, model.Edge{From: "TSK-1", To: "SPC-1", Relation: "implements"})
+	_ = s.Put(ctx, &parchment.Artifact{ID: "TSK-1", Kind: "task", Scope: "scribe", Status: "draft", Title: "Task"})
+	_ = s.Put(ctx, &parchment.Artifact{ID: "SPC-1", Kind: "spec", Scope: "scribe", Status: "draft", Title: "Spec"})
+	_ = s.AddEdge(ctx, parchment.Edge{From: "TSK-1", To: "SPC-1", Relation: "implements"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "graph", map[string]any{
@@ -321,12 +319,12 @@ func TestTree_EdgeLabelsShownWhenPresent(t *testing.T) {
 
 // --- Template enforcement tests ---
 
-func createMCPTemplate(t *testing.T, s store.Store) {
+func createMCPTemplate(t *testing.T, s parchment.Store) {
 	t.Helper()
 	ctx := context.Background()
-	err := s.Put(ctx, &model.Artifact{
+	err := s.Put(ctx, &parchment.Artifact{
 		ID: "SCR-TPL-1", Kind: "template", Status: "active", Title: "Task Template", Scope: "test",
-		Sections: []model.Section{
+		Sections: []parchment.Section{
 			{Name: "content", Text: "full raw template markdown"},
 			{Name: "context", Text: "Background and motivation"},
 			{Name: "checklist", Text: "Ordered steps for execution"},
@@ -338,12 +336,12 @@ func createMCPTemplate(t *testing.T, s store.Store) {
 	}
 }
 
-func createMCPRealisticTemplate(t *testing.T, s store.Store) {
+func createMCPRealisticTemplate(t *testing.T, s parchment.Store) {
 	t.Helper()
 	ctx := context.Background()
-	err := s.Put(ctx, &model.Artifact{
+	err := s.Put(ctx, &parchment.Artifact{
 		ID: "TPL-2026-002", Kind: "template", Status: "active", Title: "Eight Section Template", Scope: "test",
-		Sections: []model.Section{
+		Sections: []parchment.Section{
 			{Name: "content", Text: "full raw template markdown"},
 			{Name: "overview", Text: "High-level summary"},
 			{Name: "context", Text: "Background and motivation"},
@@ -364,7 +362,7 @@ func TestTemplate_MCPCreateWithZeroSections(t *testing.T) {
 	s := openStore(t)
 	createMCPTemplate(t, s)
 
-	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	ctx := context.Background()
@@ -408,7 +406,7 @@ func TestTemplate_MCPCreateWithAllSections(t *testing.T) {
 	s := openStore(t)
 	createMCPTemplate(t, s)
 
-	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -436,7 +434,7 @@ func TestTemplate_MCPCreateWithPartialSections(t *testing.T) {
 	s := openStore(t)
 	createMCPTemplate(t, s)
 
-	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	ctx := context.Background()
@@ -486,7 +484,7 @@ func TestTemplate_MCPCreateWithRealisticTemplate(t *testing.T) {
 	s := openStore(t)
 	createMCPRealisticTemplate(t, s)
 
-	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -521,15 +519,15 @@ func TestTemplate_MCPLinkSatisfiesBlocksMissingSections(t *testing.T) {
 	createMCPTemplate(t, s)
 
 	// Create artifact with incomplete sections (only 1 of 3 required)
-	s.Put(ctx, &model.Artifact{
+	s.Put(ctx, &parchment.Artifact{
 		ID: "SPEC-2026-001", Kind: "spec", Status: "draft", Title: "Incomplete Spec", Scope: "test",
-		Sections: []model.Section{
+		Sections: []parchment.Section{
 			{Name: "context", Text: "Background info"},
 			// Missing checklist and acceptance
 		},
 	})
 
-	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	// Try to link to template via MCP - should fail
@@ -576,16 +574,16 @@ func TestTemplate_MCPLinkSatisfiesAllowsConformant(t *testing.T) {
 	createMCPTemplate(t, s)
 
 	// Create artifact with all required sections
-	s.Put(ctx, &model.Artifact{
+	s.Put(ctx, &parchment.Artifact{
 		ID: "SPEC-2026-002", Kind: "spec", Status: "draft", Title: "Complete Spec", Scope: "test",
-		Sections: []model.Section{
+		Sections: []parchment.Section{
 			{Name: "context", Text: "Background info"},
 			{Name: "checklist", Text: "Steps to follow"},
 			{Name: "acceptance", Text: "Acceptance criteria"},
 		},
 	})
 
-	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	// Link to template via MCP - should succeed
@@ -620,13 +618,13 @@ func TestBulkSetField(t *testing.T) {
 	ctx := context.Background()
 
 	for i := 1; i <= 5; i++ {
-		s.Put(ctx, &model.Artifact{
+		s.Put(ctx, &parchment.Artifact{
 			ID: fmt.Sprintf("TASK-2026-%03d", i), Kind: "task", Scope: "test",
 			Status: "draft", Title: fmt.Sprintf("Task %d", i),
 		})
 	}
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -651,9 +649,9 @@ func TestBulkSetField(t *testing.T) {
 func TestBulkSetField_SingleID(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	s.Put(ctx, &model.Artifact{ID: "TASK-2026-001", Kind: "task", Scope: "test", Status: "draft", Title: "T1"})
+	s.Put(ctx, &parchment.Artifact{ID: "TASK-2026-001", Kind: "task", Scope: "test", Status: "draft", Title: "T1"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -672,9 +670,9 @@ func TestBulkSetField_SingleID(t *testing.T) {
 func TestBatchAttachSections(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	s.Put(ctx, &model.Artifact{ID: "SPEC-2026-001", Kind: "spec", Scope: "test", Status: "draft", Title: "S1"})
+	s.Put(ctx, &parchment.Artifact{ID: "SPEC-2026-001", Kind: "spec", Scope: "test", Status: "draft", Title: "S1"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -700,9 +698,9 @@ func TestBatchAttachSections(t *testing.T) {
 func TestBatchAttachSections_SingleFallback(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	s.Put(ctx, &model.Artifact{ID: "SPEC-2026-001", Kind: "spec", Scope: "test", Status: "draft", Title: "S1"})
+	s.Put(ctx, &parchment.Artifact{ID: "SPEC-2026-001", Kind: "spec", Scope: "test", Status: "draft", Title: "S1"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -721,7 +719,7 @@ func TestBatchAttachSections_SingleFallback(t *testing.T) {
 func TestBatchCreate(t *testing.T) {
 	s := openStore(t)
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -745,7 +743,7 @@ func TestBatchCreate_IntraBatchParent(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -761,7 +759,7 @@ func TestBatchCreate_IntraBatchParent(t *testing.T) {
 	}
 
 	// Verify parent was resolved
-	arts, _ := s.List(ctx, model.Filter{Kind: "task"})
+	arts, _ := s.List(ctx, parchment.Filter{Kind: "task"})
 	found := false
 	for _, a := range arts {
 		if a.Title == "Child Task" && a.Parent != "" && a.Parent != "$0" {
@@ -778,9 +776,9 @@ func TestBatchCreate_IntraBatchParent(t *testing.T) {
 func TestUpdate_FieldsAndSections(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	s.Put(ctx, &model.Artifact{ID: "TASK-2026-001", Kind: "task", Scope: "test", Status: "draft", Title: "T1"})
+	s.Put(ctx, &parchment.Artifact{ID: "TASK-2026-001", Kind: "task", Scope: "test", Status: "draft", Title: "T1"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -811,9 +809,9 @@ func TestUpdate_FieldsAndSections(t *testing.T) {
 func TestUpdate_FieldsOnly(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	s.Put(ctx, &model.Artifact{ID: "TASK-2026-001", Kind: "task", Scope: "test", Status: "draft", Title: "T1", Priority: "low"})
+	s.Put(ctx, &parchment.Artifact{ID: "TASK-2026-001", Kind: "task", Scope: "test", Status: "draft", Title: "T1", Priority: "low"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -838,9 +836,9 @@ func TestUpdate_FieldsOnly(t *testing.T) {
 func TestMotd_ShowsOpenBugs(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	s.Put(ctx, &model.Artifact{ID: "BUG-2026-001", Kind: "bug", Scope: "test", Status: "open", Title: "Critical bug", Priority: "critical"})
+	s.Put(ctx, &parchment.Artifact{ID: "BUG-2026-001", Kind: "bug", Scope: "test", Status: "open", Title: "Critical bug", Priority: "critical"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "admin", map[string]any{"action": "motd"})
@@ -861,9 +859,9 @@ func TestMotd_ShowsChangedSince(t *testing.T) {
 	ctx := context.Background()
 
 	since := time.Now().UTC().Add(-1 * time.Hour).Format(time.RFC3339)
-	s.Put(ctx, &model.Artifact{ID: "TASK-2026-001", Kind: "task", Scope: "test", Status: "active", Title: "Recent task"})
+	s.Put(ctx, &parchment.Artifact{ID: "TASK-2026-001", Kind: "task", Scope: "test", Status: "active", Title: "Recent task"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "admin", map[string]any{"action": "motd", "since": since})
@@ -879,10 +877,10 @@ func TestMotd_ShowsChangedSince(t *testing.T) {
 func TestMotd_ShowsActiveSummary(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	s.Put(ctx, &model.Artifact{ID: "TASK-2026-001", Kind: "task", Scope: "test", Status: "active", Title: "Active"})
-	s.Put(ctx, &model.Artifact{ID: "TASK-2026-002", Kind: "task", Scope: "test", Status: "draft", Title: "Draft"})
+	s.Put(ctx, &parchment.Artifact{ID: "TASK-2026-001", Kind: "task", Scope: "test", Status: "active", Title: "Active"})
+	s.Put(ctx, &parchment.Artifact{ID: "TASK-2026-002", Kind: "task", Scope: "test", Status: "draft", Title: "Draft"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "admin", map[string]any{"action": "motd"})
@@ -898,13 +896,13 @@ func TestListCount(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 	for i := 1; i <= 5; i++ {
-		s.Put(ctx, &model.Artifact{
+		s.Put(ctx, &parchment.Artifact{
 			ID: fmt.Sprintf("TASK-2026-%03d", i), Kind: "task", Scope: "test",
 			Status: "draft", Title: fmt.Sprintf("Task %d", i),
 		})
 	}
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -920,11 +918,11 @@ func TestListCount(t *testing.T) {
 func TestListCount_GroupBy(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	s.Put(ctx, &model.Artifact{ID: "T-001", Kind: "task", Scope: "test", Status: "draft", Title: "T1"})
-	s.Put(ctx, &model.Artifact{ID: "T-002", Kind: "task", Scope: "test", Status: "active", Title: "T2"})
-	s.Put(ctx, &model.Artifact{ID: "T-003", Kind: "task", Scope: "test", Status: "draft", Title: "T3"})
+	s.Put(ctx, &parchment.Artifact{ID: "T-001", Kind: "task", Scope: "test", Status: "draft", Title: "T1"})
+	s.Put(ctx, &parchment.Artifact{ID: "T-002", Kind: "task", Scope: "test", Status: "active", Title: "T2"})
+	s.Put(ctx, &parchment.Artifact{ID: "T-003", Kind: "task", Scope: "test", Status: "draft", Title: "T3"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -943,10 +941,10 @@ func TestChangelog(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 	since := time.Now().UTC().Add(-1 * time.Hour).Format(time.RFC3339)
-	s.Put(ctx, &model.Artifact{ID: "T-001", Kind: "task", Scope: "test", Status: "active", Title: "Changed"})
-	s.Put(ctx, &model.Artifact{ID: "T-002", Kind: "task", Scope: "test", Status: "draft", Title: "Also changed"})
+	s.Put(ctx, &parchment.Artifact{ID: "T-001", Kind: "task", Scope: "test", Status: "active", Title: "Changed"})
+	s.Put(ctx, &parchment.Artifact{ID: "T-002", Kind: "task", Scope: "test", Status: "draft", Title: "Also changed"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "admin", map[string]any{
@@ -965,10 +963,10 @@ func TestChangelog_ScopeFilter(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 	since := time.Now().UTC().Add(-1 * time.Hour).Format(time.RFC3339)
-	s.Put(ctx, &model.Artifact{ID: "T-001", Kind: "task", Scope: "alpha", Status: "active", Title: "Alpha"})
-	s.Put(ctx, &model.Artifact{ID: "T-002", Kind: "task", Scope: "beta", Status: "draft", Title: "Beta"})
+	s.Put(ctx, &parchment.Artifact{ID: "T-001", Kind: "task", Scope: "alpha", Status: "active", Title: "Alpha"})
+	s.Put(ctx, &parchment.Artifact{ID: "T-002", Kind: "task", Scope: "beta", Status: "draft", Title: "Beta"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "admin", map[string]any{
@@ -987,7 +985,7 @@ func TestChangelog_ScopeFilter(t *testing.T) {
 func TestChangelog_NoChanges(t *testing.T) {
 	s := openStore(t)
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	future := time.Now().UTC().Add(1 * time.Hour).Format(time.RFC3339)
@@ -1008,16 +1006,16 @@ func TestAutoLinkTemplate(t *testing.T) {
 
 	// Create a template for specs in scope "test"
 	s.SetScopeKey(ctx, "test", "TST", false)
-	s.Put(ctx, &model.Artifact{
+	s.Put(ctx, &parchment.Artifact{
 		ID: "TST-TPL-1", Kind: "template", Scope: "test", Status: "active",
 		Title: "Spec Template",
-		Sections: []model.Section{
+		Sections: []parchment.Section{
 			{Name: "problem", Text: "Describe the problem"},
 			{Name: "decision", Text: "What was decided"},
 		},
 	})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	// Create a spec WITHOUT explicit satisfies link — should auto-link
@@ -1036,7 +1034,7 @@ func TestAutoLinkTemplate(t *testing.T) {
 	}
 
 	// Verify the satisfies link was auto-added
-	arts, _ := s.List(ctx, model.Filter{Kind: "spec", Scope: "test"})
+	arts, _ := s.List(ctx, parchment.Filter{Kind: "spec", Scope: "test"})
 	found := false
 	for _, a := range arts {
 		if a.Title == "Auto-linked Spec" && len(a.Links["satisfies"]) == 1 && a.Links["satisfies"][0] == "TST-TPL-1" {
@@ -1053,18 +1051,18 @@ func TestAutoLinkTemplate_ExplicitOverride(t *testing.T) {
 	ctx := context.Background()
 
 	s.SetScopeKey(ctx, "test", "TST", false)
-	s.Put(ctx, &model.Artifact{
+	s.Put(ctx, &parchment.Artifact{
 		ID: "TST-TPL-1", Kind: "template", Scope: "test", Status: "active",
 		Title:    "Spec Template",
-		Sections: []model.Section{{Name: "problem", Text: "Describe"}},
+		Sections: []parchment.Section{{Name: "problem", Text: "Describe"}},
 	})
-	s.Put(ctx, &model.Artifact{
+	s.Put(ctx, &parchment.Artifact{
 		ID: "TST-TPL-2", Kind: "template", Scope: "test", Status: "active",
 		Title:    "Custom Template",
-		Sections: []model.Section{{Name: "overview", Text: "Describe"}},
+		Sections: []parchment.Section{{Name: "overview", Text: "Describe"}},
 	})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	// Create with explicit satisfies — should NOT auto-link
@@ -1082,7 +1080,7 @@ func TestAutoLinkTemplate_ExplicitOverride(t *testing.T) {
 		t.Fatalf("create failed: %s", text)
 	}
 
-	arts, _ := s.List(ctx, model.Filter{Kind: "spec", Scope: "test"})
+	arts, _ := s.List(ctx, parchment.Filter{Kind: "spec", Scope: "test"})
 	for _, a := range arts {
 		if a.Title == "Explicit Spec" {
 			if len(a.Links["satisfies"]) != 1 || a.Links["satisfies"][0] != "TST-TPL-2" {
@@ -1095,7 +1093,7 @@ func TestAutoLinkTemplate_ExplicitOverride(t *testing.T) {
 func TestAutoLinkTemplate_NoTemplateInScope(t *testing.T) {
 	s := openStore(t)
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	// Create spec in scope with no templates — should succeed without error
@@ -1115,10 +1113,10 @@ func TestAutoLinkTemplate_NoTemplateInScope(t *testing.T) {
 func TestListCompact(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	s.Put(ctx, &model.Artifact{ID: "T-001", Kind: "task", Scope: "alpha", Status: "draft", Title: "First"})
-	s.Put(ctx, &model.Artifact{ID: "T-002", Kind: "spec", Scope: "beta", Status: "active", Title: "Second"})
+	s.Put(ctx, &parchment.Artifact{ID: "T-001", Kind: "task", Scope: "alpha", Status: "draft", Title: "First"})
+	s.Put(ctx, &parchment.Artifact{ID: "T-002", Kind: "spec", Scope: "beta", Status: "active", Title: "Second"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -1140,7 +1138,7 @@ func TestListCompact(t *testing.T) {
 func TestListCompact_InvalidField(t *testing.T) {
 	s := openStore(t)
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	ctx := context.Background()
@@ -1162,17 +1160,17 @@ func TestListCompact_InvalidField(t *testing.T) {
 func TestClone(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	s.Put(ctx, &model.Artifact{
+	s.Put(ctx, &parchment.Artifact{
 		ID: "SPEC-001", Kind: "spec", Scope: "alpha", Status: "active",
 		Title: "Original Spec", Goal: "Original goal",
-		Sections: []model.Section{
+		Sections: []parchment.Section{
 			{Name: "problem", Text: "The problem"},
 			{Name: "decision", Text: "The decision"},
 		},
 		Labels: []string{"backend", "api"},
 	})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -1189,7 +1187,7 @@ func TestClone(t *testing.T) {
 	}
 
 	// Verify clone has sections
-	arts, _ := s.List(ctx, model.Filter{Scope: "beta", Kind: "spec"})
+	arts, _ := s.List(ctx, parchment.Filter{Scope: "beta", Kind: "spec"})
 	if len(arts) != 1 {
 		t.Fatalf("expected 1 cloned spec, got %d", len(arts))
 	}
@@ -1214,7 +1212,7 @@ func TestClone(t *testing.T) {
 func TestClone_NonexistentSource(t *testing.T) {
 	s := openStore(t)
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	ctx := context.Background()
@@ -1235,10 +1233,10 @@ func TestClone_NonexistentSource(t *testing.T) {
 func TestMCPSchema_ArrayTypes(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	s.Put(ctx, &model.Artifact{ID: "T-001", Kind: "task", Scope: "test", Status: "draft", Title: "T1"})
-	s.Put(ctx, &model.Artifact{ID: "T-002", Kind: "task", Scope: "test", Status: "draft", Title: "T2"})
+	s.Put(ctx, &parchment.Artifact{ID: "T-001", Kind: "task", Scope: "test", Status: "draft", Title: "T1"})
+	s.Put(ctx, &parchment.Artifact{ID: "T-002", Kind: "task", Scope: "test", Status: "draft", Title: "T2"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	// ids array (get)
@@ -1289,11 +1287,11 @@ func TestMCPSchema_ArrayTypes(t *testing.T) {
 func TestMCPSchema_BooleanTypes(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	s.Put(ctx, &model.Artifact{ID: "T-001", Kind: "task", Scope: "test", Status: "draft", Title: "T1"})
-	s.Put(ctx, &model.Artifact{ID: "T-002", Kind: "task", Scope: "test", Status: "draft", Title: "T2"})
-	s.AddEdge(ctx, model.Edge{From: "T-001", To: "T-002", Relation: "depends_on"})
+	s.Put(ctx, &parchment.Artifact{ID: "T-001", Kind: "task", Scope: "test", Status: "draft", Title: "T1"})
+	s.Put(ctx, &parchment.Artifact{ID: "T-002", Kind: "task", Scope: "test", Status: "draft", Title: "T2"})
+	s.AddEdge(ctx, parchment.Edge{From: "T-001", To: "T-002", Relation: "depends_on"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	// include_edges boolean (get)
@@ -1335,13 +1333,13 @@ func TestBatchUpdate_MultipleIDs(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 	for i := 1; i <= 3; i++ {
-		s.Put(ctx, &model.Artifact{
+		s.Put(ctx, &parchment.Artifact{
 			ID: fmt.Sprintf("T-%03d", i), Kind: "task", Scope: "test",
 			Status: "draft", Title: fmt.Sprintf("Task %d", i),
 		})
 	}
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -1369,10 +1367,10 @@ func TestBatchUpdate_MultipleIDs(t *testing.T) {
 func TestBatchUpdate_WithPatch(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	s.Put(ctx, &model.Artifact{ID: "T-001", Kind: "task", Scope: "test", Status: "draft", Title: "T1"})
-	s.Put(ctx, &model.Artifact{ID: "T-002", Kind: "task", Scope: "test", Status: "draft", Title: "T2"})
+	s.Put(ctx, &parchment.Artifact{ID: "T-001", Kind: "task", Scope: "test", Status: "draft", Title: "T1"})
+	s.Put(ctx, &parchment.Artifact{ID: "T-002", Kind: "task", Scope: "test", Status: "draft", Title: "T2"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -1396,9 +1394,9 @@ func TestBatchUpdate_WithPatch(t *testing.T) {
 func TestBatchUpdate_SingleIDBackwardCompat(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	s.Put(ctx, &model.Artifact{ID: "T-001", Kind: "task", Scope: "test", Status: "draft", Title: "T1"})
+	s.Put(ctx, &parchment.Artifact{ID: "T-001", Kind: "task", Scope: "test", Status: "draft", Title: "T1"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
@@ -1415,9 +1413,9 @@ func TestBatchUpdate_SingleIDBackwardCompat(t *testing.T) {
 func TestMCPSchema_ObjectTypes(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	s.Put(ctx, &model.Artifact{ID: "T-001", Kind: "task", Scope: "test", Status: "draft", Title: "T1"})
+	s.Put(ctx, &parchment.Artifact{ID: "T-001", Kind: "task", Scope: "test", Status: "draft", Title: "T1"})
 
-	srv, _ := scribemcp.NewServer(s, nil, nil, protocol.IDConfig{}, "test")
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	// patch object (update)
@@ -1431,8 +1429,8 @@ func TestMCPSchema_ObjectTypes(t *testing.T) {
 	}
 
 	// links object (create)
-	s.Put(ctx, &model.Artifact{ID: "TPL-1", Kind: "template", Status: "active", Title: "Task Template",
-		Sections: []model.Section{{Name: "content", Text: "body"}, {Name: "context", Text: "ctx"}},
+	s.Put(ctx, &parchment.Artifact{ID: "TPL-1", Kind: "template", Status: "active", Title: "Task Template",
+		Sections: []parchment.Section{{Name: "content", Text: "body"}, {Name: "context", Text: "ctx"}},
 	})
 	text = callTool(t, cs, "artifact", map[string]any{
 		"action": "create",

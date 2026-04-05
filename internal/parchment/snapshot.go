@@ -1,4 +1,4 @@
-package store
+package parchment
 
 import (
 	"context"
@@ -6,8 +6,6 @@ import (
 	"log/slog"
 	"sort"
 	"time"
-
-	"github.com/dpopsuev/scribe/model"
 )
 
 // SnapshotMeta describes a single snapshot.
@@ -95,7 +93,7 @@ func (s *Snapshotter) List(ctx context.Context) ([]SnapshotMeta, error) {
 // Diff compares the current database against a snapshot.
 func (s *Snapshotter) Diff(ctx context.Context, key string) (*SnapshotDiff, error) {
 	// Read current artifact index
-	arts, err := s.store.List(ctx, model.Filter{})
+	arts, err := s.store.List(ctx, Filter{})
 	if err != nil {
 		return nil, fmt.Errorf("read current artifacts: %w", err)
 	}
@@ -188,4 +186,3 @@ func (s *Snapshotter) AutoSnapshot(ctx context.Context, cfg SnapshotConfig) {
 		}
 	}
 }
-

@@ -7,8 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/dpopsuev/scribe/model"
-	"github.com/dpopsuev/scribe/protocol"
+	parchment "github.com/dpopsuev/scribe/internal/parchment"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/renderer/html"
@@ -23,12 +22,12 @@ var md = goldmark.New(
 )
 
 type Server struct {
-	proto *protocol.Protocol
+	proto *parchment.Protocol
 	pages map[string]*template.Template
 	mux   *http.ServeMux
 }
 
-func NewServer(proto *protocol.Protocol) *Server {
+func NewServer(proto *parchment.Protocol) *Server {
 	s := &Server{proto: proto, pages: make(map[string]*template.Template)}
 
 	funcMap := template.FuncMap{
@@ -76,7 +75,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	in := protocol.ListInput{
+	in := parchment.ListInput{
 		Kind:   q.Get("kind"),
 		Scope:  q.Get("scope"),
 		Status: q.Get("status"),
@@ -108,7 +107,7 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	tree, err := s.proto.ArtifactTree(r.Context(), protocol.TreeInput{ID: id})
+	tree, err := s.proto.ArtifactTree(r.Context(), parchment.TreeInput{ID: id})
 	if err != nil {
 		http.Error(w, "Artifact not found", http.StatusNotFound)
 		return
@@ -121,10 +120,10 @@ func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("q")
-	var results []*model.Artifact
+	var results []*parchment.Artifact
 	if q != "" {
 		var err error
-		results, err = s.proto.SearchArtifacts(r.Context(), q, protocol.ListInput{})
+		results, err = s.proto.SearchArtifacts(r.Context(), q, parchment.ListInput{})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

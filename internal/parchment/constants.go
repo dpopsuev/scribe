@@ -1,4 +1,4 @@
-package model
+package parchment
 
 // Artifact statuses.
 const (
@@ -15,18 +15,18 @@ const (
 
 // Artifact kinds.
 const (
-	KindTask       = "task"
-	KindSpec       = "spec"
-	KindBug        = "bug"
-	KindGoal       = "goal"
-	KindCampaign   = "campaign"
-	KindNeed       = "need"
-	KindDoc        = "doc"
-	KindRef        = "ref"
-	KindTemplate   = "template"
-	KindDecision     = "decision"
-	KindConfig       = "config"
-	KindMirror       = "mirror"
+	KindTask     = "task"
+	KindSpec     = "spec"
+	KindBug      = "bug"
+	KindGoal     = "goal"
+	KindCampaign = "campaign"
+	KindNeed     = "need"
+	KindDoc      = "doc"
+	KindRef      = "ref"
+	KindTemplate = "template"
+	KindDecision = "decision"
+	KindConfig   = "config"
+	KindMirror   = "mirror"
 )
 
 // Artifact field names (for SetField, update, etc.).

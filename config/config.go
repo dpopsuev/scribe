@@ -8,9 +8,7 @@ import (
 	"regexp"
 	"sort"
 
-	"github.com/dpopsuev/scribe/model"
-	"github.com/dpopsuev/scribe/protocol"
-	"github.com/dpopsuev/scribe/store"
+	parchment "github.com/dpopsuev/scribe/internal/parchment"
 	"gopkg.in/yaml.v3"
 )
 
@@ -43,7 +41,7 @@ func (d Defaults) GetTreeMaxDepth() int      { return orDefault(d.TreeMaxDepth, 
 
 // DBConfig supports both a simple path string and a structured SQLite config.
 type DBConfig struct {
-	SQLite store.SQLiteConfig `yaml:"sqlite,omitempty"`
+	SQLite parchment.SQLiteConfig `yaml:"sqlite,omitempty"`
 }
 
 // ScopeConfig defines per-scope settings in YAML.
@@ -56,21 +54,21 @@ type ScopeConfig struct {
 
 // Config is the top-level configuration loaded from scribe.yaml.
 type Config struct {
-	DB               DBConfig            `yaml:"db"`
-	LogLevel         string              `yaml:"log_level,omitempty"`
-	Transport        string              `yaml:"transport"`
-	Addr             string              `yaml:"addr"`
+	DB               DBConfig               `yaml:"db"`
+	LogLevel         string                 `yaml:"log_level,omitempty"`
+	Transport        string                 `yaml:"transport"`
+	Addr             string                 `yaml:"addr"`
 	Scopes           []string               `yaml:"scopes"`
 	ScopeConfigs     map[string]ScopeConfig `yaml:"scope_configs,omitempty"`
 	Workspaces       map[string][]string    `yaml:"workspaces,omitempty"`
-	Schema           *model.Schema       `yaml:"schema"`
-	IDFormat         string              `yaml:"id_format"`
-	IDTemplate       *model.IDTemplate   `yaml:"id_template,omitempty"`
-	ScopeKeys        map[string]string   `yaml:"scope_keys"`
-	KindCodes        map[string]string   `yaml:"kind_codes"`
-	MutableCreatedAt *bool               `yaml:"mutable_created_at"`
-	SeedDir          string              `yaml:"seed_dir,omitempty"`
-	Defaults         Defaults            `yaml:"defaults,omitempty"`
+	Schema           *parchment.Schema      `yaml:"schema"`
+	IDFormat         string                 `yaml:"id_format"`
+	IDTemplate       *parchment.IDTemplate  `yaml:"id_template,omitempty"`
+	ScopeKeys        map[string]string      `yaml:"scope_keys"`
+	KindCodes        map[string]string      `yaml:"kind_codes"`
+	MutableCreatedAt *bool                  `yaml:"mutable_created_at"`
+	SeedDir          string                 `yaml:"seed_dir,omitempty"`
+	Defaults         Defaults               `yaml:"defaults,omitempty"`
 }
 
 // DBPath returns the resolved database path.
@@ -78,12 +76,12 @@ func (c *Config) DBPath() string {
 	if c.DB.SQLite.Path != "" {
 		return c.DB.SQLite.Path
 	}
-	return store.DefaultSQLitePath()
+	return parchment.DefaultSQLitePath()
 }
 
 // SQLiteConfig returns the full SQLite configuration.
 // Path is handled by OpenSQLiteConfig which falls back to DefaultSQLitePath if empty.
-func (c *Config) SQLiteConfig() store.SQLiteConfig {
+func (c *Config) SQLiteConfig() parchment.SQLiteConfig {
 	return c.DB.SQLite
 }
 
@@ -170,10 +168,10 @@ func generateFirstRun(cfg *Config) error {
 
 func defaults() Config {
 	return Config{
-		DB:        DBConfig{SQLite: store.SQLiteConfig{Path: store.DefaultSQLitePath()}},
+		DB:        DBConfig{SQLite: parchment.SQLiteConfig{Path: parchment.DefaultSQLitePath()}},
 		Transport: "stdio",
 		Addr:      ":8080",
-		Schema:    model.DefaultSchema(),
+		Schema:    parchment.DefaultSchema(),
 	}
 }
 
@@ -184,16 +182,21 @@ func (c *Config) IsMutableCreatedAt() bool {
 	return c.IDFormat == "scoped"
 }
 
-func (c *Config) ProtocolIDConfig() protocol.IDConfig {
-	return protocol.IDConfig{
-		IDConfig:      c.ModelIDConfig(),
-		Defaults:      c.Defaults,
-		ScopePolicies: c.ScopePolicies(),
+func (c *Config) ProtocolIDConfig() parchment.ProtocolConfig {
+	mc := c.ModelIDConfig()
+	return parchment.ProtocolConfig{
+		IDFormat:         mc.IDFormat,
+		IDTemplate:       mc.IDTemplate,
+		ScopeKeys:        mc.ScopeKeys,
+		KindCodes:        mc.KindCodes,
+		MutableCreatedAt: mc.MutableCreatedAt,
+		Defaults:         c.Defaults,
+		ScopePolicies:    c.ScopePolicies(),
 	}
 }
 
-func (c *Config) ModelIDConfig() model.IDConfig {
-	mc := model.IDConfig{
+func (c *Config) ModelIDConfig() parchment.IDConfig {
+	mc := parchment.IDConfig{
 		IDFormat:         c.IDFormat,
 		ScopeKeys:        c.ScopeKeys,
 		KindCodes:        c.KindCodes,
@@ -202,7 +205,7 @@ func (c *Config) ModelIDConfig() model.IDConfig {
 	if c.IDTemplate != nil {
 		mc.IDTemplate = c.IDTemplate
 	} else {
-		t := model.PresetScoped()
+		t := parchment.PresetScoped()
 		mc.IDTemplate = &t
 	}
 	return mc
@@ -250,9 +253,9 @@ func (c *Config) applyDefaults() {
 		c.Addr = ":8080"
 	}
 	if c.Schema == nil {
-		c.Schema = model.DefaultSchema()
+		c.Schema = parchment.DefaultSchema()
 	} else {
-		c.Schema.MergeDefaults(model.DefaultSchema())
+		c.Schema.MergeDefaults(parchment.DefaultSchema())
 	}
 }
 
@@ -291,14 +294,14 @@ func (c *Config) ResolvedScopes() []string {
 	return c.Scopes
 }
 
-// ScopePolicies converts ScopeConfigs to model.ScopePolicy map.
-func (c *Config) ScopePolicies() map[string]model.ScopePolicy {
+// ScopePolicies converts ScopeConfigs to parchment.ScopePolicy map.
+func (c *Config) ScopePolicies() map[string]parchment.ScopePolicy {
 	if len(c.ScopeConfigs) == 0 {
 		return nil
 	}
-	policies := make(map[string]model.ScopePolicy, len(c.ScopeConfigs))
+	policies := make(map[string]parchment.ScopePolicy, len(c.ScopeConfigs))
 	for name, sc := range c.ScopeConfigs {
-		policies[name] = model.ScopePolicy{
+		policies[name] = parchment.ScopePolicy{
 			AllowedKinds:    sc.AllowedKinds,
 			DefaultPriority: sc.DefaultPriority,
 		}

@@ -10,16 +10,14 @@ import (
 	"time"
 
 	"github.com/dpopsuev/scribe/directive"
-	"github.com/dpopsuev/scribe/model"
-	"github.com/dpopsuev/scribe/protocol"
+	parchment "github.com/dpopsuev/scribe/internal/parchment"
 	"github.com/dpopsuev/scribe/render"
-	"github.com/dpopsuev/scribe/store"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // NewServer creates an MCP server exposing Scribe tools over the given store.
 // Returns both the server and a directive registry for CLI introspection.
-func NewServer(s store.Store, homeScopes, vocab []string, idc protocol.IDConfig, version string, snapshotter ...*store.Snapshotter) (*sdkmcp.Server, *directive.Registry) {
+func NewServer(s parchment.Store, homeScopes, vocab []string, idc parchment.ProtocolConfig, version string, snapshotter ...*parchment.Snapshotter) (*sdkmcp.Server, *directive.Registry) {
 	srv := sdkmcp.NewServer(
 		&sdkmcp.Implementation{Name: "scribe", Version: version},
 		&sdkmcp.ServerOptions{
@@ -38,12 +36,12 @@ func NewServer(s store.Store, homeScopes, vocab []string, idc protocol.IDConfig,
 		},
 	)
 	reg := directive.New()
-	var snap *store.Snapshotter
+	var snap *parchment.Snapshotter
 	if len(snapshotter) > 0 && snapshotter[0] != nil {
 		snap = snapshotter[0]
 	}
 	h := &handler{
-		proto:       protocol.New(s, nil, homeScopes, vocab, idc),
+		proto:       parchment.New(s, nil, homeScopes, vocab, idc),
 		snapshotter: snap,
 		version:     version,
 		readLog:     make(map[string]bool),
@@ -93,13 +91,13 @@ func NewServer(s store.Store, homeScopes, vocab []string, idc protocol.IDConfig,
 // ToolRegistry returns a populated directive registry without requiring
 // a database connection. Useful for CLI introspection (scribe tools).
 func ToolRegistry() *directive.Registry {
-	_, reg := NewServer(nil, nil, nil, protocol.IDConfig{}, "dev")
+	_, reg := NewServer(nil, nil, nil, parchment.ProtocolConfig{}, "dev")
 	return reg
 }
 
 type handler struct {
-	proto       *protocol.Protocol
-	snapshotter *store.Snapshotter
+	proto       *parchment.Protocol
+	snapshotter *parchment.Snapshotter
 	version     string
 	readLog     map[string]bool // tracks which artifact IDs have been read this session
 }
@@ -222,16 +220,16 @@ type adminInput struct {
 func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolRequest, in artifactInput) (*sdkmcp.CallToolResult, any, error) {
 	switch in.Action {
 	case "create":
-		// Convert MCP sections format to model.Section
-		var sections []model.Section
+		// Convert MCP sections format to parchment.Section
+		var sections []parchment.Section
 		for _, sec := range in.Sections {
 			if name, ok := sec["name"]; ok {
 				text := sec["text"] // empty string if not present
-				sections = append(sections, model.Section{Name: name, Text: text})
+				sections = append(sections, parchment.Section{Name: name, Text: text})
 			}
 		}
 
-		return h.handleCreate(ctx, req, protocol.CreateInput{
+		return h.handleCreate(ctx, req, parchment.CreateInput{
 			Kind: in.Kind, Title: in.Title, Scope: in.Scope,
 			Goal: in.Goal, Parent: in.Parent, Status: in.Status,
 			Priority: in.Priority,
@@ -256,7 +254,7 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		}
 		return h.handleBulkGet(ctx, ids, in.SectionFilter)
 	case "list":
-		li := protocol.ListInput{
+		li := parchment.ListInput{
 			Kind: in.Kind, Scope: in.Scope, Status: in.Status,
 			Parent: in.Parent, Sprint: in.Sprint, IDPrefix: in.IDPrefix,
 			ExcludeKind: in.ExcludeKind, ExcludeStatus: in.ExcludeStatus,
@@ -334,13 +332,13 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		if in.StashID == "" {
 			return nil, nil, fmt.Errorf("stash_id is required for promote_stash")
 		}
-		var sections []model.Section
+		var sections []parchment.Section
 		for _, sec := range in.Sections {
 			if name, ok := sec["name"]; ok {
-				sections = append(sections, model.Section{Name: name, Text: sec["text"]})
+				sections = append(sections, parchment.Section{Name: name, Text: sec["text"]})
 			}
 		}
-		art, err := h.proto.PromoteStash(ctx, in.StashID, protocol.CreateInput{
+		art, err := h.proto.PromoteStash(ctx, in.StashID, parchment.CreateInput{
 			Kind: in.Kind, Title: in.Title, Scope: in.Scope,
 			Goal: in.Goal, Parent: in.Parent, Status: in.Status,
 			Priority: in.Priority, Labels: in.Labels,
@@ -363,7 +361,7 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 func (h *handler) handleGraph(ctx context.Context, req *sdkmcp.CallToolRequest, in graphInput) (*sdkmcp.CallToolResult, any, error) {
 	switch in.Action {
 	case "tree":
-		tree, err := h.proto.ArtifactTree(ctx, protocol.TreeInput{
+		tree, err := h.proto.ArtifactTree(ctx, parchment.TreeInput{
 			ID: in.ID, Relation: in.Relation, Direction: in.Direction, Depth: in.Depth,
 		})
 		if err != nil {
@@ -373,7 +371,7 @@ func (h *handler) handleGraph(ctx context.Context, req *sdkmcp.CallToolRequest, 
 			data, _ := json.MarshalIndent(tree, "", "  ")
 			return text(string(data)), nil, nil
 		}
-		return h.handleTree(ctx, req, protocol.TreeInput{
+		return h.handleTree(ctx, req, parchment.TreeInput{
 			ID: in.ID, Relation: in.Relation, Direction: in.Direction, Depth: in.Depth,
 		})
 	case "link":
@@ -382,7 +380,7 @@ func (h *handler) handleGraph(ctx context.Context, req *sdkmcp.CallToolRequest, 
 		})
 	case "briefing":
 		if in.Format == "json" {
-			tree, err := h.proto.ArtifactTree(ctx, protocol.TreeInput{
+			tree, err := h.proto.ArtifactTree(ctx, parchment.TreeInput{
 				ID: in.ID, Relation: "*", Direction: "both",
 			})
 			if err != nil {
@@ -429,7 +427,7 @@ func (h *handler) handleGraph(ctx context.Context, req *sdkmcp.CallToolRequest, 
 			return nil, nil, err
 		}
 		schema := h.proto.Schema()
-		var ready []protocol.TopoEntry
+		var ready []parchment.TopoEntry
 		for _, e := range entries {
 			if schema.IsTerminal(e.Status) {
 				continue
@@ -509,7 +507,7 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 	case "dashboard":
 		return h.handleDashboard(ctx, req, dashboardInput{StaleDays: in.StaleDays})
 	case "set_goal":
-		return h.handleSetGoal(ctx, req, protocol.SetGoalInput{
+		return h.handleSetGoal(ctx, req, parchment.SetGoalInput{
 			Title: in.Title, Scope: in.Scope, Kind: in.Kind,
 		})
 	case "vacuum":
@@ -567,7 +565,7 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 		if in.Scope == "" || in.Target == "" {
 			return nil, nil, fmt.Errorf("scope and target required for transfer_scope")
 		}
-		result, err := h.proto.BulkSetField(ctx, protocol.BulkMutationInput{
+		result, err := h.proto.BulkSetField(ctx, parchment.BulkMutationInput{
 			Scope: in.Scope, Kind: in.Kind, Status: in.Status, DryRun: in.DryRun,
 		}, "scope", in.Target)
 		if err != nil {
@@ -584,7 +582,7 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 
 // --- handlers (thin wrappers) ---
 
-func (h *handler) handleCreate(ctx context.Context, _ *sdkmcp.CallToolRequest, in protocol.CreateInput) (*sdkmcp.CallToolResult, any, error) {
+func (h *handler) handleCreate(ctx context.Context, _ *sdkmcp.CallToolRequest, in parchment.CreateInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: value semantics intentional, changing to pointer would require updating all callers
 	art, err := h.proto.CreateArtifact(ctx, in)
 	if err != nil {
 		return nil, nil, err
@@ -619,7 +617,7 @@ type getInput struct {
 	SectionFilter []string `json:"section_filter,omitempty"`
 }
 
-func filterSections(art *model.Artifact, filter []string) {
+func filterSections(art *parchment.Artifact, filter []string) {
 	if len(filter) == 0 {
 		return
 	}
@@ -658,8 +656,8 @@ func (h *handler) handleGet(ctx context.Context, _ *sdkmcp.CallToolRequest, in g
 		return nil, nil, err
 	}
 	type artWithEdges struct {
-		*model.Artifact
-		Edges           []protocol.EdgeSummary `json:"edges"`
+		*parchment.Artifact
+		Edges           []parchment.EdgeSummary `json:"edges"`
 		CompletionScore float64                `json:"completion_score"`
 	}
 	data, _ := json.MarshalIndent(artWithEdges{Artifact: art, Edges: edges, CompletionScore: score}, "", "  ")
@@ -722,7 +720,7 @@ func (h *handler) handleDiff(ctx context.Context, idA, idB string) (*sdkmcp.Call
 }
 
 func (h *handler) handleBulkGet(ctx context.Context, ids []string, sectionFilter []string) (*sdkmcp.CallToolResult, any, error) {
-	var arts []*model.Artifact
+	arts := make([]*parchment.Artifact, 0, len(ids))
 	for _, id := range ids {
 		art, err := h.proto.GetArtifact(ctx, id)
 		if err != nil {
@@ -735,8 +733,8 @@ func (h *handler) handleBulkGet(ctx context.Context, ids []string, sectionFilter
 	return text(string(data)), nil, nil
 }
 
-func (h *handler) handleList(ctx context.Context, _ *sdkmcp.CallToolRequest, in protocol.ListInput, offset ...int) (*sdkmcp.CallToolResult, any, error) {
-	var arts []*model.Artifact
+func (h *handler) handleList(ctx context.Context, _ *sdkmcp.CallToolRequest, in parchment.ListInput, offset ...int) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: value semantics intentional, changing to pointer would require updating all callers
+	var arts []*parchment.Artifact
 	var err error
 	if in.Query != "" {
 		arts, err = h.proto.SearchArtifacts(ctx, in.Query, in)
@@ -785,8 +783,8 @@ func (h *handler) handleList(ctx context.Context, _ *sdkmcp.CallToolRequest, in 
 	return text(out), nil, nil
 }
 
-func (h *handler) handleListCount(ctx context.Context, in protocol.ListInput) (*sdkmcp.CallToolResult, any, error) {
-	var arts []*model.Artifact
+func (h *handler) handleListCount(ctx context.Context, in parchment.ListInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: value semantics intentional, changing to pointer would require updating all callers
+	var arts []*parchment.Artifact
 	var err error
 	if in.Query != "" {
 		arts, err = h.proto.SearchArtifacts(ctx, in.Query, in)
@@ -825,7 +823,7 @@ func (h *handler) handleListCount(ctx context.Context, in protocol.ListInput) (*
 	return text(fmt.Sprintf("%d", len(arts))), nil, nil
 }
 
-func relevanceScore(a *model.Artifact) int {
+func relevanceScore(a *parchment.Artifact) int {
 	score := 0
 	// Status weight: active > draft > complete > archived
 	switch a.Status {
@@ -861,8 +859,8 @@ func relevanceScore(a *model.Artifact) int {
 	return score
 }
 
-func (h *handler) handleListTop(ctx context.Context, in protocol.ListInput, top int) (*sdkmcp.CallToolResult, any, error) {
-	var arts []*model.Artifact
+func (h *handler) handleListTop(ctx context.Context, in parchment.ListInput, top int) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: value semantics intentional, changing to pointer would require updating all callers
+	var arts []*parchment.Artifact
 	var err error
 	if in.Query != "" {
 		arts, err = h.proto.SearchArtifacts(ctx, in.Query, in)
@@ -882,22 +880,22 @@ func (h *handler) handleListTop(ctx context.Context, in protocol.ListInput, top 
 	return text(string(data)), nil, nil
 }
 
-var validFields = map[string]func(*model.Artifact) string{
-	"id":         func(a *model.Artifact) string { return a.ID },
-	"kind":       func(a *model.Artifact) string { return a.Kind },
-	"scope":      func(a *model.Artifact) string { return a.Scope },
-	"status":     func(a *model.Artifact) string { return a.Status },
-	"title":      func(a *model.Artifact) string { return a.Title },
-	"parent":     func(a *model.Artifact) string { return a.Parent },
-	"priority":   func(a *model.Artifact) string { return a.Priority },
-	"sprint":     func(a *model.Artifact) string { return a.Sprint },
-	"depends_on": func(a *model.Artifact) string { return strings.Join(a.DependsOn, ",") },
-	"labels":     func(a *model.Artifact) string { return strings.Join(a.Labels, ",") },
+var validFields = map[string]func(*parchment.Artifact) string{
+	"id":         func(a *parchment.Artifact) string { return a.ID },
+	"kind":       func(a *parchment.Artifact) string { return a.Kind },
+	"scope":      func(a *parchment.Artifact) string { return a.Scope },
+	"status":     func(a *parchment.Artifact) string { return a.Status },
+	"title":      func(a *parchment.Artifact) string { return a.Title },
+	"parent":     func(a *parchment.Artifact) string { return a.Parent },
+	"priority":   func(a *parchment.Artifact) string { return a.Priority },
+	"sprint":     func(a *parchment.Artifact) string { return a.Sprint },
+	"depends_on": func(a *parchment.Artifact) string { return strings.Join(a.DependsOn, ",") },
+	"labels":     func(a *parchment.Artifact) string { return strings.Join(a.Labels, ",") },
 }
 
-func (h *handler) handleListCompact(ctx context.Context, in protocol.ListInput, fields []string, offset ...int) (*sdkmcp.CallToolResult, any, error) {
+func (h *handler) handleListCompact(ctx context.Context, in parchment.ListInput, fields []string, offset ...int) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: value semantics intentional, changing to pointer would require updating all callers
 	// Validate fields
-	var getters []func(*model.Artifact) string
+	getters := make([]func(*parchment.Artifact) string, 0, len(fields))
 	for _, f := range fields {
 		g, ok := validFields[f]
 		if !ok {
@@ -906,7 +904,7 @@ func (h *handler) handleListCompact(ctx context.Context, in protocol.ListInput, 
 		getters = append(getters, g)
 	}
 
-	var arts []*model.Artifact
+	var arts []*parchment.Artifact
 	var err error
 	if in.Query != "" {
 		arts, err = h.proto.SearchArtifacts(ctx, in.Query, in)
@@ -961,13 +959,13 @@ func (h *handler) handleListCompact(ctx context.Context, in protocol.ListInput, 
 
 func (h *handler) handleBulkSetField(ctx context.Context, ids []string, field, value string, force bool) (*sdkmcp.CallToolResult, any, error) {
 	// Activation prerequisite: must read implementing spec before activating task
-	if field == model.FieldStatus && value == model.StatusActive && !force {
+	if field == parchment.FieldStatus && value == parchment.StatusActive && !force {
 		for _, id := range ids {
 			art, err := h.proto.GetArtifact(ctx, id)
-			if err != nil || art.Kind != model.KindTask {
+			if err != nil || art.Kind != parchment.KindTask {
 				continue
 			}
-			if targets, ok := art.Links[model.RelImplements]; ok {
+			if targets, ok := art.Links[parchment.RelImplements]; ok {
 				for _, specID := range targets {
 					if !h.readLog[specID] {
 						return nil, nil, fmt.Errorf("cannot activate %s: must read %s first (call get on implementing spec before activating)", id, specID)
@@ -976,7 +974,7 @@ func (h *handler) handleBulkSetField(ctx context.Context, ids []string, field, v
 			}
 		}
 	}
-	results, err := h.proto.SetField(ctx, ids, field, value, protocol.SetFieldOptions{Force: force})
+	results, err := h.proto.SetField(ctx, ids, field, value, parchment.SetFieldOptions{Force: force})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1053,7 +1051,7 @@ func (h *handler) handleBatchUpdate(ctx context.Context, in artifactInput, ids [
 	var lines []string
 	for _, id := range ids {
 		for field, value := range fieldMap {
-			results, err := h.proto.SetField(ctx, []string{id}, field, value, protocol.SetFieldOptions{Force: in.Force})
+			results, err := h.proto.SetField(ctx, []string{id}, field, value, parchment.SetFieldOptions{Force: in.Force})
 			if err != nil {
 				lines = append(lines, fmt.Sprintf("%s -> error: set %s: %v", id, field, err))
 				continue
@@ -1094,7 +1092,7 @@ func (h *handler) handleBatchCreate(ctx context.Context, in artifactInput) (*sdk
 		return nil, nil, fmt.Errorf("artifacts array is required for batch_create")
 	}
 
-	var created []*model.Artifact
+	created := make([]*parchment.Artifact, 0, len(rawArtifacts))
 	idRefs := make(map[string]string)
 
 	for i, raw := range rawArtifacts {
@@ -1113,14 +1111,14 @@ func (h *handler) handleBatchCreate(ctx context.Context, in artifactInput) (*sdk
 			}
 		}
 
-		var sections []model.Section
+		var sections []parchment.Section
 		for _, sec := range ci.Sections {
 			if name, ok := sec["name"]; ok {
-				sections = append(sections, model.Section{Name: name, Text: sec["text"]})
+				sections = append(sections, parchment.Section{Name: name, Text: sec["text"]})
 			}
 		}
 
-		art, err := h.proto.CreateArtifact(ctx, protocol.CreateInput{
+		art, err := h.proto.CreateArtifact(ctx, parchment.CreateInput{
 			Kind: ci.Kind, Title: ci.Title, Scope: ci.Scope,
 			Goal: ci.Goal, Parent: ci.Parent, Status: ci.Status,
 			Priority: ci.Priority,
@@ -1182,9 +1180,9 @@ func (h *handler) handleClone(ctx context.Context, in artifactInput) (*sdkmcp.Ca
 	}
 
 	// Copy sections from source
-	var sections []model.Section
+	sections := make([]parchment.Section, 0, len(source.Sections))
 	for _, s := range source.Sections {
-		sections = append(sections, model.Section{Name: s.Name, Text: s.Text})
+		sections = append(sections, parchment.Section{Name: s.Name, Text: s.Text})
 	}
 
 	// Copy extra from source
@@ -1196,7 +1194,7 @@ func (h *handler) handleClone(ctx context.Context, in artifactInput) (*sdkmcp.Ca
 		}
 	}
 
-	art, err := h.proto.CreateArtifact(ctx, protocol.CreateInput{
+	art, err := h.proto.CreateArtifact(ctx, parchment.CreateInput{
 		Kind:     kind,
 		Title:    title,
 		Scope:    scope,
@@ -1258,7 +1256,7 @@ func (h *handler) handleDetachSection(ctx context.Context, _ *sdkmcp.CallToolReq
 	return text(fmt.Sprintf("%s: section %q removed", in.ID, in.Name)), nil, nil
 }
 
-func (h *handler) handleTree(ctx context.Context, _ *sdkmcp.CallToolRequest, in protocol.TreeInput) (*sdkmcp.CallToolResult, any, error) {
+func (h *handler) handleTree(ctx context.Context, _ *sdkmcp.CallToolRequest, in parchment.TreeInput) (*sdkmcp.CallToolResult, any, error) {
 	tree, err := h.proto.ArtifactTree(ctx, in)
 	if err != nil {
 		return nil, nil, err
@@ -1270,7 +1268,7 @@ func (h *handler) handleTree(ctx context.Context, _ *sdkmcp.CallToolRequest, in 
 }
 
 func (h *handler) handleBriefing(ctx context.Context, id string) (*sdkmcp.CallToolResult, any, error) {
-	tree, err := h.proto.ArtifactTree(ctx, protocol.TreeInput{
+	tree, err := h.proto.ArtifactTree(ctx, parchment.TreeInput{
 		ID:        id,
 		Relation:  "*",
 		Direction: "both",
@@ -1284,7 +1282,7 @@ func (h *handler) handleBriefing(ctx context.Context, id string) (*sdkmcp.CallTo
 	return text(b.String()), nil, nil
 }
 
-func (h *handler) handleSetGoal(ctx context.Context, _ *sdkmcp.CallToolRequest, in protocol.SetGoalInput) (*sdkmcp.CallToolResult, any, error) {
+func (h *handler) handleSetGoal(ctx context.Context, _ *sdkmcp.CallToolRequest, in parchment.SetGoalInput) (*sdkmcp.CallToolResult, any, error) {
 	res, err := h.proto.SetGoal(ctx, in)
 	if err != nil {
 		return nil, nil, err
@@ -1311,7 +1309,7 @@ type archiveInput struct {
 
 func (h *handler) handleArchive(ctx context.Context, _ *sdkmcp.CallToolRequest, in archiveInput) (*sdkmcp.CallToolResult, any, error) {
 	if len(in.IDs) == 0 && (in.Scope != "" || in.Kind != "" || in.Status != "" || in.IDPrefix != "" || in.ExcludeKind != "") {
-		bulk := protocol.BulkMutationInput{
+		bulk := parchment.BulkMutationInput{
 			Scope: in.Scope, Kind: in.Kind, Status: in.Status,
 			IDPrefix: in.IDPrefix, ExcludeKind: in.ExcludeKind, DryRun: in.DryRun,
 		}
@@ -1362,9 +1360,9 @@ func (h *handler) handleVacuum(ctx context.Context, _ *sdkmcp.CallToolRequest, i
 }
 
 func (h *handler) handleMotdCompact(ctx context.Context) (*sdkmcp.CallToolResult, any, error) {
-	active, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{Status: model.StatusActive})
-	draft, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{Status: model.StatusDraft})
-	bugs, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{Kind: model.KindBug, Status: model.StatusOpen})
+	active, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{Status: parchment.StatusActive})
+	draft, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{Status: parchment.StatusDraft})
+	bugs, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{Kind: parchment.KindBug, Status: parchment.StatusOpen})
 
 	msg := fmt.Sprintf("Scribe %s | %d active, %d draft, %d open bugs",
 		h.version, len(active), len(draft), len(bugs))
@@ -1384,7 +1382,7 @@ func (h *handler) handleMotd(ctx context.Context, _ *sdkmcp.CallToolRequest, in 
 	sections = append(sections, fmt.Sprintf("Scribe %s", h.version))
 
 	// Open bugs — fires first
-	bugs, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{Kind: model.KindBug, Status: model.StatusOpen})
+	bugs, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{Kind: parchment.KindBug, Status: parchment.StatusOpen})
 	if len(bugs) > 0 {
 		var lines []string
 		for _, b := range bugs {
@@ -1421,15 +1419,15 @@ func (h *handler) handleMotd(ctx context.Context, _ *sdkmcp.CallToolRequest, in 
 	}
 
 	// Active work summary
-	active, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{Status: model.StatusActive})
-	draft, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{Status: model.StatusDraft})
+	active, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{Status: parchment.StatusActive})
+	draft, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{Status: parchment.StatusDraft})
 	if len(active) > 0 || len(draft) > 0 {
 		sections = append(sections, fmt.Sprintf("Active Work: %d active, %d draft", len(active), len(draft)))
 	}
 
 	// Stale drafts (>7 days without update)
 	staleThreshold := time.Now().UTC().Add(-7 * 24 * time.Hour).Format(time.RFC3339)
-	stale, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{Status: model.StatusDraft, UpdatedBefore: staleThreshold})
+	stale, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{Status: parchment.StatusDraft, UpdatedBefore: staleThreshold})
 	if len(stale) > 0 {
 		var lines []string
 		limit := len(stale)
@@ -1448,7 +1446,7 @@ func (h *handler) handleMotd(ctx context.Context, _ *sdkmcp.CallToolRequest, in 
 
 	// Changed since (session delta)
 	if in.Since != "" {
-		changed, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{UpdatedAfter: in.Since, ExcludeStatus: model.StatusArchived})
+		changed, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{UpdatedAfter: in.Since, ExcludeStatus: parchment.StatusArchived})
 		if len(changed) > 0 {
 			var lines []string
 			limit := len(changed)
@@ -1491,9 +1489,9 @@ func (h *handler) handleChangelog(ctx context.Context, since, scope string) (*sd
 	if since == "" {
 		return nil, nil, fmt.Errorf("since parameter is required for changelog (RFC 3339 timestamp)")
 	}
-	li := protocol.ListInput{
+	li := parchment.ListInput{
 		UpdatedAfter:  since,
-		ExcludeStatus: model.StatusArchived,
+		ExcludeStatus: parchment.StatusArchived,
 		Scope:         scope,
 	}
 	arts, err := h.proto.ListArtifacts(ctx, li)
@@ -1505,7 +1503,7 @@ func (h *handler) handleChangelog(ctx context.Context, since, scope string) (*sd
 	}
 
 	// Group by scope
-	byScope := make(map[string][]*model.Artifact)
+	byScope := make(map[string][]*parchment.Artifact)
 	for _, a := range arts {
 		s := a.Scope
 		if s == "" {
@@ -1623,7 +1621,7 @@ type linkInput struct {
 }
 
 func (h *handler) handleLink(ctx context.Context, _ *sdkmcp.CallToolRequest, in linkInput) (*sdkmcp.CallToolResult, any, error) {
-	var results []protocol.Result
+	var results []parchment.Result
 	var err error
 	if in.Unlink {
 		results, err = h.proto.UnlinkArtifacts(ctx, in.ID, in.Relation, in.Targets)
@@ -1658,7 +1656,7 @@ func (h *handler) handleImpact(ctx context.Context, id string) (*sdkmcp.CallTool
 	lines = append(lines, fmt.Sprintf("Impact analysis for %s [%s] %s:", id, art.Status, art.Title))
 
 	// Children (parent_of)
-	children, _ := h.proto.ListArtifacts(ctx, protocol.ListInput{Parent: id})
+	children, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{Parent: id})
 	if len(children) > 0 {
 		lines = append(lines, fmt.Sprintf("\nChildren (%d):", len(children)))
 		for _, ch := range children {
@@ -1724,7 +1722,7 @@ func (h *handler) handleBulkEdge(ctx context.Context, edges []edgeInput, unlink 
 	}
 	var lines []string
 	for _, e := range edges {
-		var results []protocol.Result
+		var results []parchment.Result
 		var err error
 		if unlink {
 			results, err = h.proto.UnlinkArtifacts(ctx, e.From, e.Relation, []string{e.To})
@@ -1803,7 +1801,7 @@ func (h *handler) handleDetect(ctx context.Context, _ *sdkmcp.CallToolRequest, i
 	var parts []string
 
 	if check == "overlaps" || check == "all" {
-		report, err := h.proto.DetectOverlaps(ctx, protocol.OverlapInput{
+		report, err := h.proto.DetectOverlaps(ctx, parchment.OverlapInput{
 			Kind: in.Kind, Status: in.Status, Project: in.Project,
 		})
 		if err != nil {
@@ -1826,7 +1824,7 @@ func (h *handler) handleDetect(ctx context.Context, _ *sdkmcp.CallToolRequest, i
 	}
 
 	if check == "orphans" || check == "all" {
-		report, err := h.proto.DetectOrphans(ctx, protocol.OrphanInput{
+		report, err := h.proto.DetectOrphans(ctx, parchment.OrphanInput{
 			Scope: in.Scope, Status: in.Status,
 		})
 		if err != nil {
@@ -1892,10 +1890,10 @@ func (h *handler) handleVocabRemove(ctx context.Context, _ *sdkmcp.CallToolReque
 
 // --- rendering helpers ---
 
-func countDistinctScopes(node *protocol.TreeNode) int {
+func countDistinctScopes(node *parchment.TreeNode) int {
 	scopes := map[string]struct{}{}
-	var walk func(n *protocol.TreeNode)
-	walk = func(n *protocol.TreeNode) {
+	var walk func(n *parchment.TreeNode)
+	walk = func(n *parchment.TreeNode) {
 		if n.Scope != "" {
 			scopes[n.Scope] = struct{}{}
 		}
@@ -1907,7 +1905,7 @@ func countDistinctScopes(node *protocol.TreeNode) int {
 	return len(scopes)
 }
 
-func renderTree(node *protocol.TreeNode, prefix string, last, showScope bool, b *strings.Builder) {
+func renderTree(node *parchment.TreeNode, prefix string, last, showScope bool, b *strings.Builder) {
 	connector := "├── "
 	if last {
 		connector = "└── "
@@ -1941,7 +1939,7 @@ func renderTree(node *protocol.TreeNode, prefix string, last, showScope bool, b 
 	}
 }
 
-func renderBriefing(node *protocol.TreeNode, prefix string, last, showScope bool, b *strings.Builder) {
+func renderBriefing(node *parchment.TreeNode, prefix string, last, showScope bool, b *strings.Builder) {
 	connector := "├── "
 	if last {
 		connector = "└── "
@@ -1984,7 +1982,7 @@ func renderBriefing(node *protocol.TreeNode, prefix string, last, showScope bool
 	}
 }
 
-func sortArtifacts(arts []*model.Artifact, field string) {
+func sortArtifacts(arts []*parchment.Artifact, field string) {
 	sort.Slice(arts, func(i, j int) bool {
 		switch field {
 		case "title":

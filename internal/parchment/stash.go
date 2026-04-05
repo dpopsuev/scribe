@@ -1,4 +1,4 @@
-package protocol
+package parchment
 
 import (
 	"crypto/rand"

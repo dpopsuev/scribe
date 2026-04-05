@@ -1,17 +1,14 @@
-package protocol
+package parchment
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
-	"bytes"
 	"io"
 	"time"
-
-	"github.com/dpopsuev/scribe/model"
-	"github.com/dpopsuev/scribe/store"
 )
 
 // CapsuleManifest describes the contents of a capsule file.
@@ -31,7 +28,7 @@ func (p *Protocol) CapsuleExport(ctx context.Context, w io.Writer, version strin
 	defer tw.Close()
 
 	// Export artifacts as JSON-lines
-	arts, err := p.store.List(ctx, model.Filter{})
+	arts, err := p.store.List(ctx, Filter{})
 	if err != nil {
 		return nil, fmt.Errorf("list artifacts: %w", err)
 	}
@@ -49,7 +46,7 @@ func (p *Protocol) CapsuleExport(ctx context.Context, w io.Writer, version strin
 	edgeCount := 0
 	var edgesBuf []byte
 	for _, art := range arts {
-		edges, _ := p.store.Neighbors(ctx, art.ID, "", store.Both)
+		edges, _ := p.store.Neighbors(ctx, art.ID, "", Both)
 		for _, e := range edges {
 			if e.From == art.ID { // only outgoing to avoid duplicates
 				line, _ := json.Marshal(e)
@@ -123,7 +120,7 @@ func (p *Protocol) CapsuleImport(ctx context.Context, r io.Reader) (*CapsuleMani
 	// Import artifacts
 	dec := json.NewDecoder(bytes.NewReader(artsData))
 	for dec.More() {
-		var art model.Artifact
+		var art Artifact
 		if err := dec.Decode(&art); err != nil {
 			return manifest, fmt.Errorf("decode artifact: %w", err)
 		}
@@ -136,7 +133,7 @@ func (p *Protocol) CapsuleImport(ctx context.Context, r io.Reader) (*CapsuleMani
 	if len(edgesData) > 0 {
 		dec = json.NewDecoder(bytes.NewReader(edgesData))
 		for dec.More() {
-			var e model.Edge
+			var e Edge
 			if err := dec.Decode(&e); err != nil {
 				return manifest, fmt.Errorf("decode edge: %w", err)
 			}
@@ -192,4 +189,3 @@ func addTarEntry(tw *tar.Writer, name string, data []byte) error {
 	_, err := tw.Write(data)
 	return err
 }
-
