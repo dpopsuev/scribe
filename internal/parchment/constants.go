@@ -1,5 +1,10 @@
 package parchment
 
+import "errors"
+
+// Sentinel errors.
+var ErrArtifactNotFound = errors.New("artifact not found")
+
 // Artifact statuses.
 const (
 	StatusDraft     = "draft"

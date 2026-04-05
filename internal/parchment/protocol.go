@@ -1289,6 +1289,73 @@ func (p *Protocol) wouldCycle(ctx context.Context, from, to string) (bool, []str
 	return false, nil
 }
 
+// Cascade finds all artifacts transitively affected by a change to the given artifact.
+// Two-phase detection: explicit dependency edges + spatial overlap (ComponentMap file intersection).
+// Returns the IDs of affected artifacts (excludes the changed artifact itself).
+func (p *Protocol) Cascade(ctx context.Context, changedID string) []string {
+	changed, err := p.store.Get(ctx, changedID)
+	if err != nil {
+		return nil
+	}
+
+	affected := make(map[string]bool)
+
+	// Phase 1: Follow depends_on edges transitively.
+	p.cascadeDeps(ctx, changedID, affected)
+
+	// Phase 2: Find spatial overlaps via ComponentMap file intersection.
+	p.cascadeOverlaps(ctx, changed, affected)
+
+	ids := make([]string, 0, len(affected))
+	for id := range affected {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func (p *Protocol) cascadeDeps(ctx context.Context, changedID string, affected map[string]bool) {
+	// Walk incoming depends_on edges: find artifacts that depend on changedID.
+	_ = p.store.Walk(ctx, changedID, RelDependsOn, Incoming, 0, func(_ int, e Edge) bool {
+		depID := e.From
+		if !affected[depID] {
+			affected[depID] = true
+			// Recurse: anything depending on the dependent is also affected.
+			p.cascadeDeps(ctx, depID, affected)
+		}
+		return true
+	})
+}
+
+func (p *Protocol) cascadeOverlaps(ctx context.Context, changed *Artifact, affected map[string]bool) {
+	changedFiles := make(map[string]bool, len(changed.Components.Files))
+	for _, f := range changed.Components.Files {
+		changedFiles[f] = true
+	}
+	if len(changedFiles) == 0 {
+		return
+	}
+
+	// Scan all artifacts for file overlap. This is O(n) — acceptable for
+	// artifact counts typical in Scribe (< 10K). For larger scales, build
+	// a file→artifact index.
+	all, err := p.store.List(ctx, Filter{})
+	if err != nil {
+		return
+	}
+	for _, art := range all {
+		if art.ID == changed.ID || affected[art.ID] {
+			continue
+		}
+		for _, f := range art.Components.Files {
+			if changedFiles[f] {
+				affected[art.ID] = true
+				break
+			}
+		}
+	}
+}
+
 func (p *Protocol) LinkArtifacts(ctx context.Context, sourceID, relation string, targetIDs []string) ([]Result, error) {
 	if sourceID == "" {
 		return nil, fmt.Errorf("source ID is required")

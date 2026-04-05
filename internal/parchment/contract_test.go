@@ -162,3 +162,50 @@ func TestSQLiteStore_Contract(t *testing.T) {
 		return s
 	})
 }
+
+// TestMemoryStore_Contract runs the full Store contract against MemoryStore.
+func TestMemoryStore_Contract(t *testing.T) {
+	storeContract(t, func(t *testing.T) Store {
+		t.Helper()
+		return NewMemoryStore()
+	})
+}
+
+// TestMemoryStore_SaveLoad verifies atomic JSON persistence round-trip.
+func TestMemoryStore_SaveLoad(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	m := NewMemoryStore()
+
+	m.Put(ctx, &Artifact{UID: "u1", ID: "SL-1", Kind: "task", Status: "draft", Title: "persist me"}) //nolint:errcheck // test seeding
+	m.AddEdge(ctx, Edge{From: "SL-1", To: "SL-2", Relation: RelDependsOn})                           //nolint:errcheck // test seeding
+	m.SetScopeKey(ctx, "test", "TST", false)                                                         //nolint:errcheck // test seeding
+
+	path := t.TempDir() + "/store.json"
+	if err := m.Save(path); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded := NewMemoryStore()
+	if err := loaded.Load(path); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := loaded.Get(ctx, "SL-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "persist me" {
+		t.Errorf("title = %q, want %q", got.Title, "persist me")
+	}
+
+	edges, _ := loaded.Neighbors(ctx, "SL-1", RelDependsOn, Outgoing)
+	if len(edges) != 1 {
+		t.Errorf("expected 1 edge, got %d", len(edges))
+	}
+
+	key, _, _ := loaded.GetScopeKey(ctx, "test")
+	if key != "TST" {
+		t.Errorf("scope key = %q, want TST", key)
+	}
+}
