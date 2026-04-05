@@ -695,6 +695,7 @@ func (s *SQLiteStore) List(ctx context.Context, f Filter) ([]*Artifact, error) {
 	for rows.Next() {
 		art, err := scanArtifactRows(rows)
 		if err != nil {
+			slog.WarnContext(ctx, "list: scan row failed, skipping artifact", slog.Any("err", err)) //nolint:sloglint // consistent with existing patterns in this file
 			continue
 		}
 		if !f.MatchLabels(art) {
