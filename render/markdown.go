@@ -5,11 +5,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/dpopsuev/scribe/model"
+	parchment "github.com/dpopsuev/scribe/internal/parchment"
 )
 
 // Markdown renders an artifact as a human-readable markdown document.
-func Markdown(art *model.Artifact) string {
+func Markdown(art *parchment.Artifact) string { //nolint:gocyclo // pre-existing complexity, moved from protocol/
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "# %s: %s\n\n", art.ID, art.Title)
@@ -90,7 +90,7 @@ func Markdown(art *model.Artifact) string {
 
 // Table renders a list of artifacts as an aligned text table.
 // Columns auto-expand: sprint, parent, and depends_on only appear when at least one row has a value.
-func Table(arts []*model.Artifact) string {
+func Table(arts []*parchment.Artifact) string {
 	if len(arts) == 0 {
 		return "No artifacts found.\n"
 	}
@@ -138,7 +138,7 @@ func Table(arts []*model.Artifact) string {
 
 // GroupedTable renders artifacts grouped by a field, with counts and one-line summaries.
 // Optional statusOrder overrides the default status ordering.
-func GroupedTable(arts []*model.Artifact, field string, statusOrder ...[]string) string {
+func GroupedTable(arts []*parchment.Artifact, field string, statusOrder ...[]string) string {
 	if len(arts) == 0 {
 		return "No artifacts found.\n"
 	}
@@ -149,7 +149,7 @@ func GroupedTable(arts []*model.Artifact, field string, statusOrder ...[]string)
 	} else {
 		groupOrder = groupOrderForField(field)
 	}
-	groups := make(map[string][]*model.Artifact)
+	groups := make(map[string][]*parchment.Artifact)
 	for _, a := range arts {
 		key := groupKey(a, field)
 		groups[key] = append(groups[key], a)
@@ -206,7 +206,7 @@ func GroupedTable(arts []*model.Artifact, field string, statusOrder ...[]string)
 	return b.String()
 }
 
-func groupKey(a *model.Artifact, field string) string {
+func groupKey(a *parchment.Artifact, field string) string {
 	switch field {
 	case "status":
 		return a.Status
@@ -231,11 +231,11 @@ func groupOrderForField(field string) []string {
 // GroupedTableByScopeLabel groups artifacts by the labels of their scope.
 // An artifact may appear in multiple groups if its scope has multiple labels.
 // Artifacts whose scope has no labels are grouped under "(unlabeled)".
-func GroupedTableByScopeLabel(arts []*model.Artifact, scopeLabels map[string][]string) string {
+func GroupedTableByScopeLabel(arts []*parchment.Artifact, scopeLabels map[string][]string) string {
 	if len(arts) == 0 {
 		return "No artifacts found.\n"
 	}
-	groups := make(map[string][]*model.Artifact)
+	groups := make(map[string][]*parchment.Artifact)
 	for _, a := range arts {
 		labels := scopeLabels[a.Scope]
 		if len(labels) == 0 {

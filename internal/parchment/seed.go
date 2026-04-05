@@ -1,4 +1,4 @@
-package protocol
+package parchment
 
 import (
 	"bufio"
@@ -8,8 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/dpopsuev/scribe/model"
 )
 
 // SeedResult contains the outcome of a seed operation.
@@ -80,15 +78,15 @@ func (p *Protocol) Seed(ctx context.Context, dir string) (*SeedResult, error) {
 // parseTemplateFile reads a markdown file with YAML frontmatter and H2 sections.
 // Frontmatter fields: id, title, scope, labels
 // H2 headings become section name/text pairs.
-func parseTemplateFile(path string) (*model.Artifact, error) {
+func parseTemplateFile(path string) (*Artifact, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 	content := strings.ReplaceAll(string(data), "\r\n", "\n")
-	art := &model.Artifact{
-		Kind:   model.KindTemplate,
-		Status: model.StatusActive,
+	art := &Artifact{
+		Kind:   KindTemplate,
+		Status: StatusActive,
 	}
 
 	// Parse frontmatter
@@ -135,7 +133,7 @@ func parseTemplateFile(path string) (*model.Artifact, error) {
 	}
 
 	// Parse H2 sections
-	art.Sections = append(art.Sections, model.Section{Name: "content", Text: content})
+	art.Sections = append(art.Sections, Section{Name: "content", Text: content})
 	scanner := bufio.NewScanner(strings.NewReader(content))
 	var currentSection string
 	var currentText strings.Builder
@@ -143,7 +141,7 @@ func parseTemplateFile(path string) (*model.Artifact, error) {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "## ") {
 			if currentSection != "" {
-				art.Sections = append(art.Sections, model.Section{
+				art.Sections = append(art.Sections, Section{
 					Name: currentSection,
 					Text: strings.TrimSpace(currentText.String()),
 				})
@@ -156,7 +154,7 @@ func parseTemplateFile(path string) (*model.Artifact, error) {
 		}
 	}
 	if currentSection != "" {
-		art.Sections = append(art.Sections, model.Section{
+		art.Sections = append(art.Sections, Section{
 			Name: currentSection,
 			Text: strings.TrimSpace(currentText.String()),
 		})
@@ -167,7 +165,7 @@ func parseTemplateFile(path string) (*model.Artifact, error) {
 
 // parseConfigFile reads a YAML file where each top-level key becomes a section.
 // Filename (without extension) becomes the scope. "global" = no scope.
-func parseConfigFile(path string) (*model.Artifact, error) {
+func parseConfigFile(path string) (*Artifact, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -179,11 +177,11 @@ func parseConfigFile(path string) (*model.Artifact, error) {
 		scope = ""
 	}
 
-	art := &model.Artifact{
+	art := &Artifact{
 		ID:     "CFG-SEED-" + strings.ToUpper(strings.ReplaceAll(base, "-", "_")),
-		Kind:   model.KindConfig,
+		Kind:   KindConfig,
 		Scope:  scope,
-		Status: model.StatusActive,
+		Status: StatusActive,
 		Title:  base + " config",
 	}
 
@@ -197,7 +195,7 @@ func parseConfigFile(path string) (*model.Artifact, error) {
 		if len(parts) == 2 {
 			name := strings.TrimSpace(parts[0])
 			value := strings.TrimSpace(parts[1])
-			art.Sections = append(art.Sections, model.Section{Name: name, Text: value})
+			art.Sections = append(art.Sections, Section{Name: name, Text: value})
 		}
 	}
 

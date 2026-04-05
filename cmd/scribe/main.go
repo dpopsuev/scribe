@@ -23,12 +23,10 @@ import (
 
 	"github.com/dpopsuev/scribe/config"
 	"github.com/dpopsuev/scribe/directive"
+	parchment "github.com/dpopsuev/scribe/internal/parchment"
 	"github.com/dpopsuev/scribe/mcp"
-	"github.com/dpopsuev/scribe/web"
-	"github.com/dpopsuev/scribe/model"
-	"github.com/dpopsuev/scribe/protocol"
 	"github.com/dpopsuev/scribe/render"
-	"github.com/dpopsuev/scribe/store"
+	"github.com/dpopsuev/scribe/web"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 )
@@ -108,19 +106,19 @@ func mustConfig() *config.Config {
 	return cfg
 }
 
-func mustProto() (*protocol.Protocol, func()) {
+func mustProto() (proto *parchment.Protocol, cleanup func()) {
 	cfg := mustConfig()
-	s, err := store.OpenSQLiteConfig(cfg.SQLiteConfig())
+	s, err := parchment.OpenSQLiteConfig(cfg.SQLiteConfig())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: open store: %v\n", err)
 		os.Exit(1)
 	}
-	return protocol.New(s, cfg.Schema, nil, nil, cfg.ProtocolIDConfig()), func() { s.Close() }
+	return parchment.New(s, cfg.Schema, nil, nil, cfg.ProtocolIDConfig()), func() { s.Close() }
 }
 
-func mustStore() *store.SQLiteStore {
+func mustStore() *parchment.SQLiteStore {
 	cfg := mustConfig()
-	s, err := store.OpenSQLiteConfig(cfg.SQLiteConfig())
+	s, err := parchment.OpenSQLiteConfig(cfg.SQLiteConfig())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: open store: %v\n", err)
 		os.Exit(1)
@@ -131,7 +129,7 @@ func mustStore() *store.SQLiteStore {
 // --- create ---
 
 func createCmd() *cobra.Command {
-	var in protocol.CreateInput
+	var in parchment.CreateInput
 	var explicitID string
 	cmd := &cobra.Command{
 		Use:   "create",
@@ -198,7 +196,7 @@ func showCmd() *cobra.Command {
 // --- list ---
 
 func listCmd() *cobra.Command {
-	var in protocol.ListInput
+	var in parchment.ListInput
 	var format string
 	var count bool
 	cmd := &cobra.Command{
@@ -432,7 +430,7 @@ func treeCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, close := mustProto()
 			defer close()
-			tree, err := p.ArtifactTree(context.Background(), protocol.TreeInput{ID: args[0]})
+			tree, err := p.ArtifactTree(context.Background(), parchment.TreeInput{ID: args[0]})
 			if err != nil {
 				return err
 			}
@@ -451,7 +449,7 @@ func treeCmd() *cobra.Command {
 	return cmd
 }
 
-func printTree(node *protocol.TreeNode, prefix string, last bool, b *strings.Builder) {
+func printTree(node *parchment.TreeNode, prefix string, last bool, b *strings.Builder) {
 	connector := "├── "
 	if last {
 		connector = "└── "
@@ -484,7 +482,7 @@ func briefingCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, close := mustProto()
 			defer close()
-			tree, err := p.ArtifactTree(context.Background(), protocol.TreeInput{
+			tree, err := p.ArtifactTree(context.Background(), parchment.TreeInput{
 				ID:        args[0],
 				Relation:  "*",
 				Direction: "both",
@@ -507,7 +505,7 @@ func briefingCmd() *cobra.Command {
 	return cmd
 }
 
-func printBriefing(node *protocol.TreeNode, prefix string, last bool, b *strings.Builder) {
+func printBriefing(node *parchment.TreeNode, prefix string, last bool, b *strings.Builder) {
 	connector := "├── "
 	if last {
 		connector = "└── "
@@ -556,7 +554,7 @@ func searchCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, close := mustProto()
 			defer close()
-			li := protocol.ListInput{Kind: kind, Scope: scope, Status: status}
+			li := parchment.ListInput{Kind: kind, Scope: scope, Status: status}
 			matched, err := p.SearchArtifacts(context.Background(), args[0], li)
 			if err != nil {
 				return err
@@ -590,7 +588,7 @@ func goalCmd() *cobra.Command {
 		Use:   "goal",
 		Short: "Manage the current goal (short-term north star)",
 	}
-	var in protocol.SetGoalInput
+	var in parchment.SetGoalInput
 	setGoalCmd := &cobra.Command{
 		Use:   "set <title>",
 		Short: "Set the current goal (retires any previous, creates a root delivery artifact)",
@@ -654,7 +652,7 @@ func archiveCmd() *cobra.Command {
 			defer close()
 			hasFilter := scope != "" || kind != "" || status != "" || idPrefix != "" || excludeKind != ""
 			if hasFilter && len(args) == 0 {
-				in := protocol.BulkMutationInput{
+				in := parchment.BulkMutationInput{
 					Scope: scope, Kind: kind, Status: status,
 					IDPrefix: idPrefix, ExcludeKind: excludeKind, DryRun: dryRun,
 				}
@@ -1039,7 +1037,7 @@ func overlapsCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, close := mustProto()
 			defer close()
-			in := protocol.OverlapInput{Kind: kind, Status: status, Project: project}
+			in := parchment.OverlapInput{Kind: kind, Status: status, Project: project}
 			report, err := p.DetectOverlaps(context.Background(), in)
 			if err != nil {
 				return err
@@ -1081,7 +1079,7 @@ func orphansCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, close := mustProto()
 			defer close()
-			in := protocol.OrphanInput{Scope: scope, Status: status}
+			in := parchment.OrphanInput{Scope: scope, Status: status}
 			report, err := p.DetectOrphans(context.Background(), in)
 			if err != nil {
 				return err
@@ -1256,7 +1254,7 @@ func serveCmd() *cobra.Command {
 				"id_format", cfg.IDFormat,
 			)
 
-			s, err := store.OpenSQLiteConfig(cfg.SQLiteConfig())
+			s, err := parchment.OpenSQLiteConfig(cfg.SQLiteConfig())
 			if err != nil {
 				slog.Error("failed to open store", "db", cfg.DBPath(), "error", err)
 				return fmt.Errorf("open store: %w", err)
@@ -1265,8 +1263,8 @@ func serveCmd() *cobra.Command {
 
 			// Auto-seed from config seed_dir if DB has zero templates
 			if cfg.SeedDir != "" {
-				proto := protocol.New(s, cfg.Schema, nil, nil, cfg.ProtocolIDConfig())
-				templates, _ := proto.ListArtifacts(context.Background(), protocol.ListInput{Kind: "template"})
+				proto := parchment.New(s, cfg.Schema, nil, nil, cfg.ProtocolIDConfig())
+				templates, _ := proto.ListArtifacts(context.Background(), parchment.ListInput{Kind: "template"})
 				if len(templates) == 0 {
 					result, err := proto.Seed(context.Background(), cfg.SeedDir)
 					if err != nil {
@@ -1322,7 +1320,7 @@ func serveCmd() *cobra.Command {
 			)
 
 			if enableUI {
-				proto := protocol.New(s, nil, homeScopes, nil, idc)
+				proto := parchment.New(s, nil, homeScopes, nil, idc)
 				uiSrv := web.NewServer(proto)
 				go func() {
 					slog.Info("UI listening", "addr", uiAddr)
@@ -1457,7 +1455,7 @@ func reseedCmd() *cobra.Command {
 			s := mustStore()
 			defer s.Close()
 			ctx := context.Background()
-			arts, err := s.List(ctx, model.Filter{})
+			arts, err := s.List(ctx, parchment.Filter{})
 			if err != nil {
 				return err
 			}
@@ -1565,7 +1563,7 @@ func vocabCmd() *cobra.Command {
 
 // --- sort helper ---
 
-func sortArts(arts []*model.Artifact, field string) {
+func sortArts(arts []*parchment.Artifact, field string) {
 	sort.Slice(arts, func(i, j int) bool {
 		switch field {
 		case "title":
@@ -1670,7 +1668,7 @@ func uiCmd() *cobra.Command {
 		Short: "Start the read-only web UI (standalone, no MCP server)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg := mustConfig()
-			s, err := store.OpenSQLiteConfig(cfg.SQLiteConfig())
+			s, err := parchment.OpenSQLiteConfig(cfg.SQLiteConfig())
 			if err != nil {
 				return fmt.Errorf("open store: %w", err)
 			}
@@ -1680,7 +1678,7 @@ func uiCmd() *cobra.Command {
 			if len(scopes) == 0 {
 				scopes = detectScopes()
 			}
-			proto := protocol.New(s, cfg.Schema, scopes, nil, cfg.ProtocolIDConfig())
+			proto := parchment.New(s, cfg.Schema, scopes, nil, cfg.ProtocolIDConfig())
 			uiSrv := web.NewServer(proto)
 
 			fmt.Fprintf(os.Stderr, "scribe: UI listening on %s\n", addr)
@@ -1981,7 +1979,7 @@ func capsuleCmd() *cobra.Command {
 				return err
 			}
 			defer f.Close()
-			m, err := protocol.CapsuleInspect(f)
+			m, err := parchment.CapsuleInspect(f)
 			if err != nil {
 				return err
 			}

@@ -1,4 +1,4 @@
-package model
+package parchment
 
 import (
 	"crypto/sha256"
@@ -32,7 +32,7 @@ type KindDef struct {
 	ActiveStatus     string   `json:"active_status,omitempty" yaml:"active_status,omitempty"`
 	TrackInMotd      bool     `json:"track_in_motd,omitempty" yaml:"track_in_motd,omitempty"`
 
-	CompletionGates              []string `json:"completion_gates,omitempty" yaml:"completion_gates,omitempty"`
+	CompletionGates []string `json:"completion_gates,omitempty" yaml:"completion_gates,omitempty"`
 
 	TriggerStatus                string `json:"trigger_status,omitempty" yaml:"trigger_status,omitempty"`
 	ActivationRequiresSections   bool   `json:"activation_requires_sections,omitempty" yaml:"activation_requires_sections,omitempty"`
@@ -59,11 +59,11 @@ type Schema struct {
 
 // Guards defines global invariant guards that apply across all kinds.
 type Guards struct {
-	ArchivedReadonly                       bool `json:"archived_readonly" yaml:"archived_readonly"`
-	CompletionRequiresChildrenComplete     bool `json:"completion_requires_children_complete" yaml:"completion_requires_children_complete"`
-	CompletionRequiresDependsOnComplete    bool `json:"completion_requires_depends_on_complete" yaml:"completion_requires_depends_on_complete"`
-	DeleteRequiresArchived                 bool `json:"delete_requires_archived" yaml:"delete_requires_archived"`
-	AutoCompleteParentOnChildrenTerminal   bool `json:"auto_complete_parent_on_children_terminal" yaml:"auto_complete_parent_on_children_terminal"`
+	ArchivedReadonly                     bool `json:"archived_readonly" yaml:"archived_readonly"`
+	CompletionRequiresChildrenComplete   bool `json:"completion_requires_children_complete" yaml:"completion_requires_children_complete"`
+	CompletionRequiresDependsOnComplete  bool `json:"completion_requires_depends_on_complete" yaml:"completion_requires_depends_on_complete"`
+	DeleteRequiresArchived               bool `json:"delete_requires_archived" yaml:"delete_requires_archived"`
+	AutoCompleteParentOnChildrenTerminal bool `json:"auto_complete_parent_on_children_terminal" yaml:"auto_complete_parent_on_children_terminal"`
 }
 
 // Prefix returns the ID prefix for a kind. Canonical kinds use the schema,
@@ -433,7 +433,7 @@ func (s *Schema) ValidRelation(rel string) bool {
 
 // LintResult describes a single linter finding.
 type LintResult struct {
-	Level   string `json:"level"`   // "error" or "warn"
+	Level   string `json:"level"` // "error" or "warn"
 	Message string `json:"message"`
 }
 
@@ -600,109 +600,109 @@ func (s *Schema) MergeDefaults(defaults *Schema) {
 func DefaultSchema() *Schema {
 	return &Schema{
 		Kinds: map[string]KindDef{
-		"goal": {Prefix: "GOAL", Code: "GOL", Protected: true,
-			IsGoalKind: true, ActiveStatus: "current", TrackInMotd: true,
-			AutoArchiveOnJustifyComplete: true,
-			Children:                     []string{"task", "spec", "bug", "need", "ref", "doc", "decision"},
-			Relations: KindRelations{
-				Incoming:  []string{RelParentOf},
-				Outgoing:  []string{RelSatisfies},
-				Targets:   map[string][]string{RelSatisfies: {"template"}},
+			"goal": {Prefix: "GOAL", Code: "GOL", Protected: true,
+				IsGoalKind: true, ActiveStatus: "current", TrackInMotd: true,
+				AutoArchiveOnJustifyComplete: true,
+				Children:                     []string{"task", "spec", "bug", "need", "ref", "doc", "decision"},
+				Relations: KindRelations{
+					Incoming: []string{RelParentOf},
+					Outgoing: []string{RelSatisfies},
+					Targets:  map[string][]string{RelSatisfies: {"template"}},
+				},
 			},
-		},
-		"task": {Prefix: "TASK", Code: "TSK",
-			TriggerStatus:              "complete",
-			ActivationRequiresSections: true,
-			MustSections:               []string{"context"},
-			ShouldSections:             []string{"checklist", "acceptance"},
-			CouldSections:              []string{"current_architecture", "desired_architecture"},
-			RequiredFields:             []string{FieldPriority},
-			Children:                   []string{},
-			Relations: KindRelations{
-				Outgoing: []string{RelImplements, RelDependsOn, RelSatisfies},
-				Targets:  map[string][]string{RelImplements: {"spec", "bug"}, RelSatisfies: {"template"}},
+			"task": {Prefix: "TASK", Code: "TSK",
+				TriggerStatus:              "complete",
+				ActivationRequiresSections: true,
+				MustSections:               []string{"context"},
+				ShouldSections:             []string{"checklist", "acceptance"},
+				CouldSections:              []string{"current_architecture", "desired_architecture"},
+				RequiredFields:             []string{FieldPriority},
+				Children:                   []string{},
+				Relations: KindRelations{
+					Outgoing: []string{RelImplements, RelDependsOn, RelSatisfies},
+					Targets:  map[string][]string{RelImplements: {"spec", "bug"}, RelSatisfies: {"template"}},
+				},
 			},
-		},
-		"spec": {Prefix: "SPEC", Code: "SPC", Protected: true,
-			ActivationRequiresSections: true,
-			MustSections:               []string{"problem"},
-			ShouldSections:             []string{"decision", "acceptance"},
-			CouldSections:              []string{"architecture", "current_architecture", "desired_architecture"},
-			Children:                   []string{},
-			Relations: KindRelations{
-				Incoming: []string{RelImplements, RelJustifies},
-				Outgoing: []string{RelSatisfies},
-				Targets:  map[string][]string{RelSatisfies: {"template"}},
+			"spec": {Prefix: "SPEC", Code: "SPC", Protected: true,
+				ActivationRequiresSections: true,
+				MustSections:               []string{"problem"},
+				ShouldSections:             []string{"decision", "acceptance"},
+				CouldSections:              []string{"architecture", "current_architecture", "desired_architecture"},
+				Children:                   []string{},
+				Relations: KindRelations{
+					Incoming: []string{RelImplements, RelJustifies},
+					Outgoing: []string{RelSatisfies},
+					Targets:  map[string][]string{RelSatisfies: {"template"}},
+				},
 			},
-		},
-		"bug": {Prefix: "BUG", Code: "BUG", Protected: true,
-			MustSections:   []string{"observed"},
-			ShouldSections: []string{"reproduction"},
-			Children:       []string{},
-			Relations: KindRelations{
-				Incoming: []string{RelImplements},
-				Outgoing: []string{RelSatisfies},
-				Targets:  map[string][]string{RelSatisfies: {"template"}},
+			"bug": {Prefix: "BUG", Code: "BUG", Protected: true,
+				MustSections:   []string{"observed"},
+				ShouldSections: []string{"reproduction"},
+				Children:       []string{},
+				Relations: KindRelations{
+					Incoming: []string{RelImplements},
+					Outgoing: []string{RelSatisfies},
+					Targets:  map[string][]string{RelSatisfies: {"template"}},
+				},
 			},
-		},
-		"need": {Prefix: "NEED", Code: "NED", Protected: true,
-			MustSections:   []string{"problem"},
-			ShouldSections: []string{"value", "acceptance"},
-			Children:       []string{},
-			Relations: KindRelations{
-				Outgoing: []string{RelJustifies, RelSatisfies},
-				Targets:  map[string][]string{RelJustifies: {"spec"}, RelSatisfies: {"template"}},
+			"need": {Prefix: "NEED", Code: "NED", Protected: true,
+				MustSections:   []string{"problem"},
+				ShouldSections: []string{"value", "acceptance"},
+				Children:       []string{},
+				Relations: KindRelations{
+					Outgoing: []string{RelJustifies, RelSatisfies},
+					Targets:  map[string][]string{RelJustifies: {"spec"}, RelSatisfies: {"template"}},
+				},
 			},
-		},
-		"ref": {Prefix: "REF", Code: "REF", Protected: true,
-			ShouldSections: []string{"summary", "source"},
-			Children:       []string{},
-			Relations: KindRelations{
-				Outgoing:         []string{RelDocuments, RelSatisfies},
-				RequiredOutgoing: []string{RelDocuments},
-				Targets:          map[string][]string{RelSatisfies: {"template"}},
+			"ref": {Prefix: "REF", Code: "REF", Protected: true,
+				ShouldSections: []string{"summary", "source"},
+				Children:       []string{},
+				Relations: KindRelations{
+					Outgoing:         []string{RelDocuments, RelSatisfies},
+					RequiredOutgoing: []string{RelDocuments},
+					Targets:          map[string][]string{RelSatisfies: {"template"}},
+				},
 			},
-		},
-		"doc": {Prefix: "DOC", Code: "DOC", Protected: true,
-			ShouldSections: []string{"overview"},
-			CouldSections:  []string{"content"},
-			Children:       []string{},
-			Relations: KindRelations{
-				Outgoing:         []string{RelDocuments, RelSatisfies},
-				RequiredOutgoing: []string{RelDocuments},
-				Targets:          map[string][]string{RelSatisfies: {"template"}},
+			"doc": {Prefix: "DOC", Code: "DOC", Protected: true,
+				ShouldSections: []string{"overview"},
+				CouldSections:  []string{"content"},
+				Children:       []string{},
+				Relations: KindRelations{
+					Outgoing:         []string{RelDocuments, RelSatisfies},
+					RequiredOutgoing: []string{RelDocuments},
+					Targets:          map[string][]string{RelSatisfies: {"template"}},
+				},
 			},
-		},
-		"decision": {Prefix: "ADR", Code: "ADR", Protected: true, Children: []string{},
-			Relations: KindRelations{
-				Outgoing: []string{RelSatisfies},
-				Targets:  map[string][]string{RelSatisfies: {"template"}},
+			"decision": {Prefix: "ADR", Code: "ADR", Protected: true, Children: []string{},
+				Relations: KindRelations{
+					Outgoing: []string{RelSatisfies},
+					Targets:  map[string][]string{RelSatisfies: {"template"}},
+				},
 			},
-		},
-		"campaign": {Prefix: "CMP", Code: "CMP", Protected: true,
-			ActiveStatus:   "active", TrackInMotd: true,
-			MustSections:   []string{"mission"},
-			ShouldSections: []string{"goals", "success_criteria"},
-			Children:       []string{"goal"},
-			Relations: KindRelations{
-				Outgoing: []string{RelParentOf, RelSatisfies},
-				Targets:  map[string][]string{RelSatisfies: {"template"}},
+			"campaign": {Prefix: "CMP", Code: "CMP", Protected: true,
+				ActiveStatus: "active", TrackInMotd: true,
+				MustSections:   []string{"mission"},
+				ShouldSections: []string{"goals", "success_criteria"},
+				Children:       []string{"goal"},
+				Relations: KindRelations{
+					Outgoing: []string{RelParentOf, RelSatisfies},
+					Targets:  map[string][]string{RelSatisfies: {"template"}},
+				},
 			},
-		},
-		"config": {Prefix: "CFG", Code: "CFG", Protected: true,
-			Children: []string{},
-		},
-		"mirror": {Prefix: "MIR", Code: "MIR", Protected: true,
-			SkipGuards: true,
-			Children:   []string{},
-		},
-		"template": {Prefix: "TPL", Code: "TPL", Protected: true,
-			MustSections: []string{"content"},
-			Children:     []string{},
-			Relations: KindRelations{
-				Incoming: []string{RelSatisfies},
+			"config": {Prefix: "CFG", Code: "CFG", Protected: true,
+				Children: []string{},
 			},
-		},
+			"mirror": {Prefix: "MIR", Code: "MIR", Protected: true,
+				SkipGuards: true,
+				Children:   []string{},
+			},
+			"template": {Prefix: "TPL", Code: "TPL", Protected: true,
+				MustSections: []string{"content"},
+				Children:     []string{},
+				Relations: KindRelations{
+					Incoming: []string{RelSatisfies},
+				},
+			},
 		},
 		Statuses: []string{
 			"draft", "active", "current", "open",
@@ -716,11 +716,11 @@ func DefaultSchema() *Schema {
 			RelJustifies, RelImplements, RelDocuments, RelSatisfies,
 		},
 		Guards: Guards{
-			ArchivedReadonly:                      true,
-			CompletionRequiresChildrenComplete:    true,
-			CompletionRequiresDependsOnComplete:   true,
-			DeleteRequiresArchived:                true,
-			AutoCompleteParentOnChildrenTerminal:  true,
+			ArchivedReadonly:                     true,
+			CompletionRequiresChildrenComplete:   true,
+			CompletionRequiresDependsOnComplete:  true,
+			DeleteRequiresArchived:               true,
+			AutoCompleteParentOnChildrenTerminal: true,
 		},
 		Priorities:      []string{"none", "low", "medium", "high", "critical"},
 		DefaultPriority: "none",

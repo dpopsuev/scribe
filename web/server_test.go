@@ -7,44 +7,42 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dpopsuev/scribe/model"
-	"github.com/dpopsuev/scribe/protocol"
-	"github.com/dpopsuev/scribe/store"
+	parchment "github.com/dpopsuev/scribe/internal/parchment"
 	"github.com/dpopsuev/scribe/web"
 )
 
 func setup(t *testing.T) *web.Server {
 	t.Helper()
 	dir := t.TempDir()
-	s, err := store.OpenSQLite(dir + "/test.db")
+	s, err := parchment.OpenSQLite(dir + "/test.db")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.Close() })
 
 	ctx := context.Background()
-	s.Put(ctx, &model.Artifact{
+	s.Put(ctx, &parchment.Artifact{
 		ID: "TASK-2026-001", Kind: "task", Scope: "test",
 		Status: "active", Title: "Test Task",
-		Sections: []model.Section{
+		Sections: []parchment.Section{
 			{Name: "design", Text: "## Overview\n\nThis is a **test** design."},
 		},
 	})
-	s.Put(ctx, &model.Artifact{
+	s.Put(ctx, &parchment.Artifact{
 		ID: "CMP-2026-001", Kind: "campaign", Scope: "test",
 		Status: "active", Title: "Test Campaign",
 	})
-	s.Put(ctx, &model.Artifact{
+	s.Put(ctx, &parchment.Artifact{
 		ID: "GOL-2026-001", Kind: "goal", Scope: "test",
 		Status: "current", Title: "Test Goal",
 	})
-	s.Put(ctx, &model.Artifact{
+	s.Put(ctx, &parchment.Artifact{
 		ID: "TASK-2026-002", Kind: "task", Scope: "test",
 		Status: "active", Title: "Child Task",
 		Parent: "GOL-2026-001",
 	})
 
-	proto := protocol.New(s, nil, []string{"test"}, nil, protocol.IDConfig{})
+	proto := parchment.New(s, nil, []string{"test"}, nil, parchment.ProtocolConfig{})
 	return web.NewServer(proto)
 }
 

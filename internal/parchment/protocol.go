@@ -1,4 +1,4 @@
-package protocol
+package parchment
 
 import (
 	"context"
@@ -15,10 +15,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/dpopsuev/scribe/keygen"
-	"github.com/dpopsuev/scribe/model"
-	"github.com/dpopsuev/scribe/store"
 )
 
 var (
@@ -62,7 +58,7 @@ type DefaultsProvider interface {
 	GetTreeMaxDepth() int
 }
 
-// defaultDefaults is used when IDConfig.Defaults is nil.
+// defaultDefaults is used when ProtocolConfig.Defaults is nil.
 var defaultDefaults = &staticDefaults{vacuum: 90, stale: 30, staleCap: 10, motdHours: 48, treeDepth: 10}
 
 type staticDefaults struct{ vacuum, stale, staleCap, motdHours, treeDepth int }
@@ -73,46 +69,49 @@ func (d *staticDefaults) GetDashboardStaleCap() int { return d.staleCap }
 func (d *staticDefaults) GetMotdRecentHours() int   { return d.motdHours }
 func (d *staticDefaults) GetTreeMaxDepth() int      { return d.treeDepth }
 
-// IDConfig configures scoped ID generation, key resolution, and field mutability.
-// IDConfig is an alias for model.IDConfig extended with a DefaultsProvider.
-// Use model.IDConfig for the core struct — this wrapper adds runtime behavior.
-type IDConfig struct {
-	model.IDConfig
-	Defaults      DefaultsProvider
-	ScopePolicies map[string]model.ScopePolicy
+// ProtocolConfig configures scoped ID generation, key resolution, field mutability,
+// and runtime defaults for the Protocol.
+type ProtocolConfig struct {
+	IDFormat         string
+	IDTemplate       *IDTemplate
+	ScopeKeys        map[string]string
+	KindCodes        map[string]string
+	MutableCreatedAt bool
+	Defaults         DefaultsProvider
+	ScopePolicies    map[string]ScopePolicy
 }
 
 // MotdResult is the message-of-the-day payload.
 type MotdResult struct {
-	SchemaHash string            `json:"schema_hash,omitempty"`
-	Campaigns  []*model.Artifact `json:"campaigns,omitempty"`
-	Goals      []*model.Artifact `json:"goals,omitempty"`
-	Context    []string          `json:"context,omitempty"`  // domain docs/refs for session priming
-	Warnings   []string          `json:"warnings,omitempty"`
+	SchemaHash string      `json:"schema_hash,omitempty"`
+	Campaigns  []*Artifact `json:"campaigns,omitempty"`
+	Goals      []*Artifact `json:"goals,omitempty"`
+	Context    []string    `json:"context,omitempty"` // domain docs/refs for session priming
+	Warnings   []string    `json:"warnings,omitempty"`
 }
 
 // Protocol implements all Scribe business logic.
 // Both MCP and CLI are thin wrappers around this.
 type Protocol struct {
-	store            store.Store
-	schema           *model.Schema
+	store            Store
+	schema           *Schema
 	scopes           []string
 	vocab            []string
 	idFormat         string
-	idTemplate       *model.IDTemplate
+	idTemplate       *IDTemplate
 	scopeKeys        map[string]string
 	kindCodes        map[string]string
 	mutableCreatedAt bool
 	defaults         DefaultsProvider
-	scopePolicies    map[string]model.ScopePolicy
+	scopePolicies    map[string]ScopePolicy
 	stash            *StashStore
 }
 
 // New creates a Protocol with the given store, schema, home scopes,
 // optional vocabulary for kind enforcement, and ID generation config.
-func New(s store.Store, schema *model.Schema, scopes, vocab []string, idc IDConfig) *Protocol {
+func New(s Store, schema *Schema, scopes, vocab []string, idc ProtocolConfig) *Protocol {
 	if schema == nil {
-		schema = model.DefaultSchema()
+		schema = DefaultSchema()
 	}
 	if len(vocab) == 0 {
 		vocab = schema.KindNames()
@@ -133,12 +132,12 @@ func New(s store.Store, schema *model.Schema, scopes, vocab []string, idc IDConf
 	return p
 }
 
-func (p *Protocol) Schema() *model.Schema { return p.schema }
-func (p *Protocol) Store() store.Store    { return p.store }
-func (p *Protocol) Stash() *StashStore    { return p.stash }
+func (p *Protocol) Schema() *Schema    { return p.schema }
+func (p *Protocol) Store() Store       { return p.store }
+func (p *Protocol) Stash() *StashStore { return p.stash }
 
 // PromoteStash merges patch into a stashed artifact and creates it.
-func (p *Protocol) PromoteStash(ctx context.Context, stashID string, patch CreateInput) (*model.Artifact, error) {
+func (p *Protocol) PromoteStash(ctx context.Context, stashID string, patch CreateInput) (*Artifact, error) { //nolint:gocritic // hugeParam: value semantics intentional, changing to pointer would require updating all callers including MCP handlers
 	stashed, err := p.stash.Get(stashID)
 	if err != nil {
 		return nil, err
@@ -175,15 +174,15 @@ type CreateInput struct {
 	Extra      map[string]any      `json:"extra,omitempty"`
 	CreatedAt  string              `json:"created_at,omitempty"`
 	ExplicitID string              `json:"explicit_id,omitempty"`
-	Sections   []model.Section     `json:"sections,omitempty"`
+	Sections   []Section           `json:"sections,omitempty"`
 	SkipHooks  bool                `json:"skip_hooks,omitempty"`
 }
 
-func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*model.Artifact, error) {
+func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*Artifact, error) { //nolint:gocyclo,funlen,gocritic // pre-existing complexity, moved from protocol/; hugeParam: value semantics intentional
 	if in.Title == "" {
 		return nil, fmt.Errorf("title is required")
 	}
-	if err := model.ValidateKind(in.Kind, p.vocab); err != nil {
+	if err := ValidateKind(in.Kind, p.vocab); err != nil {
 		return nil, err
 	}
 	if in.Priority != "" && !p.schema.ValidPriority(in.Priority) {
@@ -260,7 +259,7 @@ func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*model.A
 	if status == "" {
 		status = p.schema.DefaultStatus(in.Kind)
 	}
-	art := &model.Artifact{
+	art := &Artifact{
 		ID: id, Kind: in.Kind, Scope: scope,
 		Status: status, Parent: in.Parent,
 		Title: in.Title, Goal: in.Goal,
@@ -282,12 +281,12 @@ func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*model.A
 
 	if !skipGuards {
 		// Auto-link template if no satisfies link provided
-		if art.Links == nil || len(art.Links[model.RelSatisfies]) == 0 {
+		if art.Links == nil || len(art.Links[RelSatisfies]) == 0 {
 			if tplID := p.findTemplateForKind(ctx, art.Kind, scope); tplID != "" {
 				if art.Links == nil {
 					art.Links = make(map[string][]string)
 				}
-				art.Links[model.RelSatisfies] = []string{tplID}
+				art.Links[RelSatisfies] = []string{tplID}
 				slog.DebugContext(ctx, "auto-linked template",
 					"artifact_kind", art.Kind, "scope", scope, "template_id", tplID)
 			}
@@ -299,7 +298,7 @@ func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*model.A
 				if targets, ok := art.Links[reqRel]; ok && len(targets) > 0 {
 					hasEdge = true
 				}
-				if reqRel == model.RelDependsOn && len(art.DependsOn) > 0 {
+				if reqRel == RelDependsOn && len(art.DependsOn) > 0 {
 					hasEdge = true
 				}
 				if !hasEdge {
@@ -316,7 +315,7 @@ func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*model.A
 			return nil, err
 		}
 		// Duplicate awareness: warn if similar non-terminal artifact exists
-		if existing, _ := p.store.List(ctx, model.Filter{Kind: art.Kind, Scope: art.Scope}); len(existing) > 0 {
+		if existing, _ := p.store.List(ctx, Filter{Kind: art.Kind, Scope: art.Scope}); len(existing) > 0 {
 			for _, e := range existing {
 				if !p.schema.IsTerminal(e.Status) && e.Title == art.Title {
 					slog.WarnContext(ctx, "duplicate title detected on create",
@@ -338,8 +337,8 @@ func (p *Protocol) CreateArtifact(ctx context.Context, in CreateInput) (*model.A
 }
 
 // executeTemplateHooks creates prefix/suffix child artifacts from template hooks.
-func (p *Protocol) executeTemplateHooks(ctx context.Context, art *model.Artifact) {
-	tplIDs, ok := art.Links[model.RelSatisfies]
+func (p *Protocol) executeTemplateHooks(ctx context.Context, art *Artifact) {
+	tplIDs, ok := art.Links[RelSatisfies]
 	if !ok || len(tplIDs) == 0 {
 		return
 	}
@@ -355,7 +354,7 @@ func (p *Protocol) executeTemplateHooks(ctx context.Context, art *model.Artifact
 
 // createHookArtifacts creates child artifacts from a template hook array.
 // Returns the ID of the last created artifact (for follows chaining).
-func (p *Protocol) createHookArtifacts(ctx context.Context, parent *model.Artifact, raw any, prevID string) string {
+func (p *Protocol) createHookArtifacts(ctx context.Context, parent *Artifact, raw any, prevID string) string {
 	specs, ok := raw.([]any)
 	if !ok || len(specs) == 0 {
 		return prevID
@@ -374,11 +373,11 @@ func (p *Protocol) createHookArtifacts(ctx context.Context, parent *model.Artifa
 		goal, _ := m["goal"].(string)
 		priority, _ := m["priority"].(string)
 
-		var sections []model.Section
+		var sections []Section
 		if secMap, ok := m["sections"].(map[string]any); ok {
 			for name, text := range secMap {
 				if s, ok := text.(string); ok {
-					sections = append(sections, model.Section{Name: name, Text: s})
+					sections = append(sections, Section{Name: name, Text: s})
 				}
 			}
 		}
@@ -402,8 +401,8 @@ func (p *Protocol) createHookArtifacts(ctx context.Context, parent *model.Artifa
 
 		// Wire follows edge from previous hook artifact
 		if prevID != "" {
-			if err := p.store.AddEdge(ctx, model.Edge{
-				From: child.ID, To: prevID, Relation: model.RelFollows,
+			if err := p.store.AddEdge(ctx, Edge{
+				From: child.ID, To: prevID, Relation: RelFollows,
 			}); err != nil {
 				slog.WarnContext(ctx, "template hook: failed to add follows edge",
 					"from", child.ID, "to", prevID, "error", err)
@@ -423,7 +422,7 @@ func (p *Protocol) findTemplateForKind(ctx context.Context, kind, scope string) 
 	// Match: template title contains the kind name (case-insensitive)
 	// e.g. "Spec Template" matches kind "spec", "Bug Template" matches kind "bug"
 	kindLower := strings.ToLower(kind)
-	match := func(templates []*model.Artifact) string {
+	match := func(templates []*Artifact) string {
 		var matches []string
 		for _, tpl := range templates {
 			if strings.Contains(strings.ToLower(tpl.Title), kindLower) {
@@ -438,7 +437,7 @@ func (p *Protocol) findTemplateForKind(ctx context.Context, kind, scope string) 
 
 	// 1. Try scoped templates first
 	if scope != "" {
-		templates, err := p.store.List(ctx, model.Filter{Kind: model.KindTemplate, Scope: scope, Status: model.StatusActive})
+		templates, err := p.store.List(ctx, Filter{Kind: KindTemplate, Scope: scope, Status: StatusActive})
 		if err == nil && len(templates) > 0 {
 			if id := match(templates); id != "" {
 				return id
@@ -447,7 +446,7 @@ func (p *Protocol) findTemplateForKind(ctx context.Context, kind, scope string) 
 	}
 
 	// 2. Fall back to global (scopeless) templates
-	global, err := p.store.List(ctx, model.Filter{Kind: model.KindTemplate, Scope: "", Status: model.StatusActive})
+	global, err := p.store.List(ctx, Filter{Kind: KindTemplate, Scope: "", Status: StatusActive})
 	if err == nil && len(global) > 0 {
 		return match(global)
 	}
@@ -455,13 +454,13 @@ func (p *Protocol) findTemplateForKind(ctx context.Context, kind, scope string) 
 	return ""
 }
 
-func (p *Protocol) GetArtifact(ctx context.Context, id string) (*model.Artifact, error) {
+func (p *Protocol) GetArtifact(ctx context.Context, id string) (*Artifact, error) {
 	return p.store.Get(ctx, id)
 }
 
 // CompletionScore computes a 0.0-1.0 progress score for an artifact.
 // Components: checklist items, child completion, section coverage.
-func (p *Protocol) CompletionScore(ctx context.Context, art *model.Artifact) float64 {
+func (p *Protocol) CompletionScore(ctx context.Context, art *Artifact) float64 { //nolint:gocyclo // pre-existing complexity, moved from protocol/
 	// Terminal artifacts are 100% complete by definition
 	if p.schema.IsTerminal(art.Status) {
 		return 1.0
@@ -573,7 +572,7 @@ type ListInput struct {
 	InsertedBefore string   `json:"inserted_before,omitempty"`
 }
 
-func (p *Protocol) ListArtifacts(ctx context.Context, in ListInput) ([]*model.Artifact, error) {
+func (p *Protocol) ListArtifacts(ctx context.Context, in ListInput) ([]*Artifact, error) { //nolint:gocritic // hugeParam: value semantics intentional, changing to pointer would require updating all callers including MCP handlers
 	// Apply sticky filter defaults from config artifacts
 	if in.Scope == "" {
 		if v := p.GetConfig(ctx, configKeyDefaultScope, ""); v != "" {
@@ -591,7 +590,7 @@ func (p *Protocol) ListArtifacts(ctx context.Context, in ListInput) ([]*model.Ar
 		}
 	}
 
-	f := model.Filter{
+	f := Filter{
 		Kind: in.Kind, Status: in.Status,
 		Parent: in.Parent, Sprint: in.Sprint,
 		IDPrefix:       in.IDPrefix,
@@ -616,7 +615,7 @@ func (p *Protocol) ListArtifacts(ctx context.Context, in ListInput) ([]*model.Ar
 	return p.store.List(ctx, f)
 }
 
-func (p *Protocol) populateScopeLabelIndex(ctx context.Context, f *model.Filter) {
+func (p *Protocol) populateScopeLabelIndex(ctx context.Context, f *Filter) {
 	allLabels := make(map[string]bool)
 	for _, l := range f.Labels {
 		allLabels[l] = true
@@ -642,7 +641,7 @@ func (p *Protocol) populateScopeLabelIndex(ctx context.Context, f *model.Filter)
 	}
 }
 
-func (p *Protocol) SearchArtifacts(ctx context.Context, query string, in ListInput) ([]*model.Artifact, error) {
+func (p *Protocol) SearchArtifacts(ctx context.Context, query string, in ListInput) ([]*Artifact, error) { //nolint:gocritic // hugeParam: value semantics intentional, changing to pointer would require updating all callers including MCP handlers
 	if query == "" {
 		return nil, fmt.Errorf("query is required")
 	}
@@ -650,7 +649,7 @@ func (p *Protocol) SearchArtifacts(ctx context.Context, query string, in ListInp
 	// Try FTS5 first, fall back to substring scan
 	ftsIDs, ftsErr := p.store.Search(ctx, query)
 	if ftsErr == nil && len(ftsIDs) > 0 {
-		var matched []*model.Artifact
+		var matched []*Artifact
 		for _, id := range ftsIDs {
 			art, err := p.store.Get(ctx, id)
 			if err != nil {
@@ -675,7 +674,7 @@ func (p *Protocol) SearchArtifacts(ctx context.Context, query string, in ListInp
 	}
 
 	// Fallback: in-memory substring scan
-	f := model.Filter{Kind: in.Kind, Status: in.Status}
+	f := Filter{Kind: in.Kind, Status: in.Status}
 	if in.Scope != "" {
 		f.Scope = in.Scope
 	} else if len(p.scopes) > 0 {
@@ -686,7 +685,7 @@ func (p *Protocol) SearchArtifacts(ctx context.Context, query string, in ListInp
 		return nil, err
 	}
 	q := strings.ToLower(query)
-	var matched []*model.Artifact
+	var matched []*Artifact
 	for _, art := range arts {
 		if matchesQuery(art, q) {
 			matched = append(matched, art)
@@ -695,7 +694,7 @@ func (p *Protocol) SearchArtifacts(ctx context.Context, query string, in ListInp
 	return matched, nil
 }
 
-func matchesQuery(art *model.Artifact, q string) bool {
+func matchesQuery(art *Artifact, q string) bool {
 	if strings.Contains(strings.ToLower(art.Title), q) {
 		return true
 	}
@@ -765,18 +764,18 @@ func (p *Protocol) setFieldSingle(ctx context.Context, id, field, value string, 
 			return Result{ID: id, Error: fmt.Sprintf("invalid created_at: %v", err)}
 		}
 		art.CreatedAt = t
-	case model.FieldTitle:
+	case FieldTitle:
 		art.Title = value
-	case model.FieldGoal:
+	case FieldGoal:
 		art.Goal = value
-	case model.FieldScope:
+	case FieldScope:
 		if value == "" {
 			return Result{ID: id, Error: "scope cannot be empty"}
 		}
 		art.Scope = value
-	case model.FieldStatus:
+	case FieldStatus:
 		return p.setStatusForce(ctx, art, value, opt.Force)
-	case model.FieldParent:
+	case FieldParent:
 		if value != "" {
 			if parent, err := p.store.Get(ctx, value); err == nil {
 				if reason, ok := p.schema.ValidChild(parent.Kind, art.Kind); !ok {
@@ -788,19 +787,19 @@ func (p *Protocol) setFieldSingle(ctx context.Context, id, field, value string, 
 			}
 		}
 		art.Parent = value
-	case model.FieldPriority:
+	case FieldPriority:
 		if value != "" && !p.schema.ValidPriority(value) {
 			return Result{ID: id, Error: fmt.Sprintf("invalid priority %q — valid: %s", value, strings.Join(p.schema.Priorities, ", "))}
 		}
 		art.Priority = value
-	case model.FieldSprint:
+	case FieldSprint:
 		art.Sprint = value
-	case model.FieldKind:
-		if err := model.ValidateKind(value, p.vocab); err != nil {
+	case FieldKind:
+		if err := ValidateKind(value, p.vocab); err != nil {
 			return Result{ID: id, Error: err.Error()}
 		}
 		art.Kind = value
-	case model.FieldDependsOn:
+	case FieldDependsOn:
 		if value == "" {
 			art.DependsOn = nil
 		} else {
@@ -834,7 +833,7 @@ func (p *Protocol) setFieldSingle(ctx context.Context, id, field, value string, 
 	return Result{ID: id, OK: true}
 }
 
-func (p *Protocol) setStatus(ctx context.Context, art *model.Artifact, status string) Result {
+func (p *Protocol) setStatus(ctx context.Context, art *Artifact, status string) Result {
 	return p.setStatusForce(ctx, art, status, false)
 }
 
@@ -847,10 +846,10 @@ type transitionGuard struct {
 	when      string // target status ("complete", "active", ""), empty = always
 	where     string // kind filter ("task", "spec", ""), empty = all
 	forceable bool   // if true, force=true skips this guard
-	check     func(ctx context.Context, p *Protocol, art *model.Artifact) error
+	check     func(ctx context.Context, p *Protocol, art *Artifact) error
 }
 
-func (p *Protocol) setStatusForce(ctx context.Context, art *model.Artifact, status string, force bool) Result {
+func (p *Protocol) setStatusForce(ctx context.Context, art *Artifact, status string, force bool) Result { //nolint:gocyclo // pre-existing complexity, moved from protocol/
 	if !force {
 		if reason, ok := p.schema.ValidTransition(art.Kind, art.Status, status); !ok {
 			return Result{ID: art.ID, Error: reason}
@@ -878,8 +877,8 @@ func (p *Protocol) setStatusForce(ctx context.Context, art *model.Artifact, stat
 
 	// Soft warning: check if followed artifacts are incomplete
 	var followsWarnings []string
-	if status == model.StatusActive {
-		edges, _ := p.store.Neighbors(ctx, art.ID, model.RelFollows, store.Outgoing)
+	if status == StatusActive {
+		edges, _ := p.store.Neighbors(ctx, art.ID, RelFollows, Outgoing)
 		for _, e := range edges {
 			preceded, err := p.store.Get(ctx, e.To)
 			if err != nil {
@@ -918,11 +917,11 @@ func (p *Protocol) setStatusForce(ctx context.Context, art *model.Artifact, stat
 		}
 	}
 	// Auto-enrichment: on task completion, update implementing spec
-	if art.Kind == model.KindTask && status == model.StatusComplete {
-		if targets, ok := art.Links[model.RelImplements]; ok {
+	if art.Kind == KindTask && status == StatusComplete { //nolint:nestif // pre-existing complexity, moved from protocol/
+		if targets, ok := art.Links[RelImplements]; ok {
 			for _, specID := range targets {
 				spec, err := p.store.Get(ctx, specID)
-				if err != nil || spec.Kind != model.KindSpec {
+				if err != nil || spec.Kind != KindSpec {
 					continue
 				}
 				entry := fmt.Sprintf("- %s: %s (completed)", art.ID, art.Title)
@@ -958,16 +957,16 @@ func (p *Protocol) transitionGuards() []transitionGuard {
 	// Completion gates
 	if p.schema.Guards.CompletionRequiresChildrenComplete {
 		guards = append(guards, transitionGuard{
-			name: "children_complete", when: model.StatusComplete,
-			check: func(ctx context.Context, p *Protocol, art *model.Artifact) error {
+			name: "children_complete", when: StatusComplete,
+			check: func(ctx context.Context, p *Protocol, art *Artifact) error {
 				return p.guardChildrenComplete(ctx, art)
 			},
 		})
 	}
 	if p.schema.Guards.CompletionRequiresDependsOnComplete {
 		guards = append(guards, transitionGuard{
-			name: "depends_on_complete", when: model.StatusComplete,
-			check: func(ctx context.Context, p *Protocol, art *model.Artifact) error {
+			name: "depends_on_complete", when: StatusComplete,
+			check: func(ctx context.Context, p *Protocol, art *Artifact) error {
 				return p.guardDependsOnComplete(ctx, art)
 			},
 		})
@@ -975,8 +974,8 @@ func (p *Protocol) transitionGuards() []transitionGuard {
 
 	// Template conformance on completion
 	guards = append(guards, transitionGuard{
-		name: "template_conformance_complete", when: model.StatusComplete, forceable: true,
-		check: func(ctx context.Context, p *Protocol, art *model.Artifact) error {
+		name: "template_conformance_complete", when: StatusComplete, forceable: true,
+		check: func(ctx context.Context, p *Protocol, art *Artifact) error {
 			if err := p.checkTemplateConformance(ctx, art); err != nil {
 				return fmt.Errorf("cannot complete: %s", err)
 			}
@@ -986,8 +985,8 @@ func (p *Protocol) transitionGuards() []transitionGuard {
 
 	// Completion gates: kind-defined sections that must be non-empty
 	guards = append(guards, transitionGuard{
-		name: "completion_gates", when: model.StatusComplete, forceable: true,
-		check: func(ctx context.Context, p *Protocol, art *model.Artifact) error {
+		name: "completion_gates", when: StatusComplete, forceable: true,
+		check: func(ctx context.Context, p *Protocol, art *Artifact) error {
 			if missing := p.schema.MissingCompletionGates(art); len(missing) > 0 {
 				return fmt.Errorf("cannot complete %s: gated sections missing or empty: %s",
 					art.ID, strings.Join(missing, ", "))
@@ -999,8 +998,8 @@ func (p *Protocol) transitionGuards() []transitionGuard {
 	// Archive: children must be readonly
 	if p.schema.Guards.ArchivedReadonly {
 		guards = append(guards, transitionGuard{
-			name: "children_readonly", when: model.StatusArchived,
-			check: func(ctx context.Context, p *Protocol, art *model.Artifact) error {
+			name: "children_readonly", when: StatusArchived,
+			check: func(ctx context.Context, p *Protocol, art *Artifact) error {
 				children, err := p.store.Children(ctx, art.ID)
 				if err != nil {
 					return err
@@ -1017,8 +1016,8 @@ func (p *Protocol) transitionGuards() []transitionGuard {
 
 	// Activation: required fields
 	guards = append(guards, transitionGuard{
-		name: "required_fields", when: model.StatusActive, forceable: true,
-		check: func(ctx context.Context, p *Protocol, art *model.Artifact) error {
+		name: "required_fields", when: StatusActive, forceable: true,
+		check: func(ctx context.Context, p *Protocol, art *Artifact) error {
 			if missing := p.schema.MissingRequiredFields(art); len(missing) > 0 {
 				return fmt.Errorf("cannot activate %s: missing required fields: %s",
 					art.ID, strings.Join(missing, ", "))
@@ -1029,8 +1028,8 @@ func (p *Protocol) transitionGuards() []transitionGuard {
 
 	// Activation: required sections
 	guards = append(guards, transitionGuard{
-		name: "required_sections", when: model.StatusActive, forceable: true,
-		check: func(ctx context.Context, p *Protocol, art *model.Artifact) error {
+		name: "required_sections", when: StatusActive, forceable: true,
+		check: func(ctx context.Context, p *Protocol, art *Artifact) error {
 			if !p.schema.ActivationRequiresSections(art.Kind) {
 				return nil
 			}
@@ -1049,7 +1048,7 @@ func (p *Protocol) transitionGuards() []transitionGuard {
 	return guards
 }
 
-func (p *Protocol) guardDependsOnComplete(ctx context.Context, art *model.Artifact) error {
+func (p *Protocol) guardDependsOnComplete(ctx context.Context, art *Artifact) error {
 	var incomplete []string
 	for _, depID := range art.DependsOn {
 		dep, err := p.store.Get(ctx, depID)
@@ -1067,7 +1066,7 @@ func (p *Protocol) guardDependsOnComplete(ctx context.Context, art *model.Artifa
 	return nil
 }
 
-func (p *Protocol) guardChildrenComplete(ctx context.Context, art *model.Artifact) error {
+func (p *Protocol) guardChildrenComplete(ctx context.Context, art *Artifact) error {
 	children, err := p.store.Children(ctx, art.ID)
 	if err != nil {
 		return err
@@ -1085,8 +1084,8 @@ func (p *Protocol) guardChildrenComplete(ctx context.Context, art *model.Artifac
 	return nil
 }
 
-func (p *Protocol) autoArchiveGoal(ctx context.Context, art *model.Artifact) string {
-	goalIDs := art.Links[model.RelJustifies]
+func (p *Protocol) autoArchiveGoal(ctx context.Context, art *Artifact) string {
+	goalIDs := art.Links[RelJustifies]
 	if len(goalIDs) == 0 {
 		return ""
 	}
@@ -1112,7 +1111,7 @@ func (p *Protocol) autoArchiveGoal(ctx context.Context, art *model.Artifact) str
 	return strings.Join(parts, "\n")
 }
 
-func (p *Protocol) autoCompleteParent(ctx context.Context, art *model.Artifact) string {
+func (p *Protocol) autoCompleteParent(ctx context.Context, art *Artifact) string {
 	if art.Parent == "" {
 		return ""
 	}
@@ -1129,7 +1128,7 @@ func (p *Protocol) autoCompleteParent(ctx context.Context, art *model.Artifact) 
 			return ""
 		}
 	}
-	r := p.setStatus(ctx, parent, model.StatusComplete)
+	r := p.setStatus(ctx, parent, StatusComplete)
 	if r.OK {
 		msg := fmt.Sprintf("auto-completed %s: %s", parent.ID, parent.Title)
 		if r.Error != "" {
@@ -1140,9 +1139,9 @@ func (p *Protocol) autoCompleteParent(ctx context.Context, art *model.Artifact) 
 	return ""
 }
 
-func (p *Protocol) autoActivateNextSprint(ctx context.Context, completed *model.Artifact) string {
+func (p *Protocol) autoActivateNextSprint(ctx context.Context, completed *Artifact) string {
 	defaultStatus := p.schema.DefaultStatus(completed.Kind)
-	drafts, err := p.store.List(ctx, model.Filter{Kind: completed.Kind, Status: defaultStatus})
+	drafts, err := p.store.List(ctx, Filter{Kind: completed.Kind, Status: defaultStatus})
 	if err != nil || len(drafts) == 0 {
 		return ""
 	}
@@ -1177,7 +1176,7 @@ func (p *Protocol) AttachSection(ctx context.Context, id, name, text string) (bo
 		}
 	}
 	if !replaced {
-		art.Sections = append(art.Sections, model.Section{Name: name, Text: text})
+		art.Sections = append(art.Sections, Section{Name: name, Text: text})
 	}
 	if err := p.store.Put(ctx, art); err != nil {
 		return false, err
@@ -1274,7 +1273,7 @@ func (p *Protocol) wouldCycle(ctx context.Context, from, to string) (bool, []str
 	}
 	path := []string{to}
 	found := false
-	_ = p.store.Walk(ctx, to, model.RelDependsOn, store.Outgoing, 0, func(_ int, e model.Edge) bool {
+	_ = p.store.Walk(ctx, to, RelDependsOn, Outgoing, 0, func(_ int, e Edge) bool {
 		path = append(path, e.To)
 		if e.To == from {
 			found = true
@@ -1302,7 +1301,7 @@ func (p *Protocol) LinkArtifacts(ctx context.Context, sourceID, relation string,
 		return nil, fmt.Errorf("unknown relation %q; valid: %s", relation, strings.Join(p.schema.Relations, ", "))
 	}
 
-	if relation == model.RelDependsOn {
+	if relation == RelDependsOn {
 		for _, tid := range targetIDs {
 			if cycle, path := p.wouldCycle(ctx, sourceID, tid); cycle {
 				return nil, fmt.Errorf("depends_on cycle detected: %s", strings.Join(path, " → "))
@@ -1316,13 +1315,13 @@ func (p *Protocol) LinkArtifacts(ctx context.Context, sourceID, relation string,
 	}
 
 	// Template enforcement: validate source artifact conforms to template sections before adding satisfies link
-	if relation == model.RelSatisfies {
+	if relation == RelSatisfies {
 		for _, tid := range targetIDs {
 			tpl, err := p.store.Get(ctx, tid)
 			if err != nil {
 				return nil, fmt.Errorf("failed to resolve satisfies target %s: %w", tid, err)
 			}
-			if tpl.Kind != model.KindTemplate {
+			if tpl.Kind != KindTemplate {
 				slog.WarnContext(ctx, "satisfies link target is not a template",
 					"source_id", sourceID,
 					"target_id", tid,
@@ -1330,11 +1329,11 @@ func (p *Protocol) LinkArtifacts(ctx context.Context, sourceID, relation string,
 				return nil, fmt.Errorf("satisfies link target %s is not a template (kind=%s)", tid, tpl.Kind)
 			}
 			// Temporarily add link to artifact for conformance check
-			artWithLink := &model.Artifact{
+			artWithLink := &Artifact{
 				ID:       art.ID,
 				Kind:     art.Kind,
 				Sections: art.Sections,
-				Links:    map[string][]string{model.RelSatisfies: {tid}},
+				Links:    map[string][]string{RelSatisfies: {tid}},
 			}
 			if err := p.checkTemplateConformance(ctx, artWithLink); err != nil {
 				slog.WarnContext(ctx, "satisfies link blocked by template enforcement",
@@ -1358,7 +1357,7 @@ func (p *Protocol) LinkArtifacts(ctx context.Context, sourceID, relation string,
 			results = append(results, Result{ID: tid, OK: true, Error: "already linked"})
 			continue
 		}
-		if err := p.store.AddEdge(ctx, model.Edge{From: sourceID, To: tid, Relation: relation}); err != nil {
+		if err := p.store.AddEdge(ctx, Edge{From: sourceID, To: tid, Relation: relation}); err != nil {
 			results = append(results, Result{ID: tid, Error: err.Error()})
 			continue
 		}
@@ -1390,7 +1389,7 @@ func (p *Protocol) UnlinkArtifacts(ctx context.Context, sourceID, relation strin
 	}
 	var results []Result
 	for _, tid := range targetIDs {
-		if err := p.store.RemoveEdge(ctx, model.Edge{From: sourceID, To: tid, Relation: relation}); err != nil {
+		if err := p.store.RemoveEdge(ctx, Edge{From: sourceID, To: tid, Relation: relation}); err != nil {
 			results = append(results, Result{ID: tid, Error: err.Error()})
 			continue
 		}
@@ -1428,7 +1427,7 @@ func (p *Protocol) ArtifactTree(ctx context.Context, in TreeInput) (*TreeNode, e
 
 	rel := in.Relation
 	if rel == "" {
-		rel = model.RelParentOf
+		rel = RelParentOf
 	}
 	if !p.schema.ValidRelation(rel) {
 		return nil, fmt.Errorf("unknown relation %q; valid: %s, *", rel, strings.Join(p.schema.Relations, ", "))
@@ -1436,17 +1435,17 @@ func (p *Protocol) ArtifactTree(ctx context.Context, in TreeInput) (*TreeNode, e
 
 	dir := in.Direction
 	if dir == "" {
-		dir = model.DirOutgoing
+		dir = DirOutgoing
 	}
 
-	var storeDir store.Direction
+	var storeDir Direction
 	switch dir {
-	case model.DirOutgoing, model.DirOutbound:
-		storeDir = store.Outgoing
-	case model.DirIncoming, model.DirInbound:
-		storeDir = store.Incoming
+	case DirOutgoing, DirOutbound:
+		storeDir = Outgoing
+	case DirIncoming, DirInbound:
+		storeDir = Incoming
 	case "both":
-		storeDir = store.Both
+		storeDir = Both
 	default:
 		return nil, fmt.Errorf("unknown direction %q. Valid: outgoing, incoming, both", dir)
 	}
@@ -1457,7 +1456,7 @@ func (p *Protocol) ArtifactTree(ctx context.Context, in TreeInput) (*TreeNode, e
 		depth = maxD
 	}
 
-	isDefault := rel == model.RelParentOf && dir == model.DirOutgoing
+	isDefault := rel == RelParentOf && dir == DirOutgoing
 
 	if isDefault {
 		return p.buildTree(ctx, root), nil
@@ -1483,7 +1482,7 @@ func (p *Protocol) TopoSort(ctx context.Context, rootID string) ([]TopoEntry, er
 	}
 
 	// Build ID set and lookup
-	arts := make(map[string]*model.Artifact, len(children))
+	arts := make(map[string]*Artifact, len(children))
 	for _, ch := range children {
 		arts[ch.ID] = ch
 		// Also include grandchildren (flatten tree)
@@ -1550,7 +1549,7 @@ type TopoEntry struct {
 	Priority string `json:"priority,omitempty"`
 }
 
-func (p *Protocol) buildTree(ctx context.Context, art *model.Artifact) *TreeNode {
+func (p *Protocol) buildTree(ctx context.Context, art *Artifact) *TreeNode {
 	node := &TreeNode{ID: art.ID, Kind: art.Kind, Status: art.Status, Title: art.Title, Scope: art.Scope}
 	children, _ := p.store.Children(ctx, art.ID)
 	for _, ch := range children {
@@ -1559,7 +1558,7 @@ func (p *Protocol) buildTree(ctx context.Context, art *model.Artifact) *TreeNode
 	return node
 }
 
-func (p *Protocol) buildGraphTree(ctx context.Context, node *TreeNode, rel string, dir store.Direction, maxDepth, currentDepth int, visited map[string]bool) {
+func (p *Protocol) buildGraphTree(ctx context.Context, node *TreeNode, rel string, dir Direction, maxDepth, currentDepth int, visited map[string]bool) {
 	if maxDepth > 0 && currentDepth > maxDepth {
 		return
 	}
@@ -1572,10 +1571,10 @@ func (p *Protocol) buildGraphTree(ctx context.Context, node *TreeNode, rel strin
 	edges, _ := p.store.Neighbors(ctx, node.ID, queryRel, dir)
 	for _, e := range edges {
 		targetID := e.To
-		edgeDir := model.DirOutgoing
-		if dir == store.Incoming || (dir == store.Both && e.To == node.ID) {
+		edgeDir := DirOutgoing
+		if dir == Incoming || (dir == Both && e.To == node.ID) {
 			targetID = e.From
-			edgeDir = model.DirIncoming
+			edgeDir = DirIncoming
 		}
 
 		if visited[targetID] {
@@ -1615,7 +1614,7 @@ type EdgeSummary struct {
 }
 
 func (p *Protocol) GetArtifactEdges(ctx context.Context, id string) ([]EdgeSummary, error) {
-	edges, err := p.store.Neighbors(ctx, id, "", store.Both)
+	edges, err := p.store.Neighbors(ctx, id, "", Both)
 	if err != nil {
 		return nil, err
 	}
@@ -1625,7 +1624,7 @@ func (p *Protocol) GetArtifactEdges(ctx context.Context, id string) ([]EdgeSumma
 		var s EdgeSummary
 		s.Relation = e.Relation
 		if e.From == id {
-			s.Direction = model.DirOutgoing
+			s.Direction = DirOutgoing
 			if target, err := p.store.Get(ctx, e.To); err == nil {
 				s.Target.ID = target.ID
 				s.Target.Kind = target.Kind
@@ -1633,7 +1632,7 @@ func (p *Protocol) GetArtifactEdges(ctx context.Context, id string) ([]EdgeSumma
 				s.Target.Status = target.Status
 			}
 		} else {
-			s.Direction = model.DirIncoming
+			s.Direction = DirIncoming
 			if target, err := p.store.Get(ctx, e.From); err == nil {
 				s.Target.ID = target.ID
 				s.Target.Kind = target.Kind
@@ -1653,7 +1652,7 @@ func (p *Protocol) inferScope(ctx context.Context, explicit, parentID, kind stri
 		return explicit, nil
 	}
 	// Templates and config artifacts can be global (scopeless)
-	if kind == model.KindTemplate || kind == model.KindConfig {
+	if kind == KindTemplate || kind == KindConfig {
 		if parentID != "" {
 			if parent, err := p.store.Get(ctx, parentID); err == nil && parent.Scope != "" {
 				return parent.Scope, nil
@@ -1698,7 +1697,7 @@ func (p *Protocol) resolveScopeKey(ctx context.Context, scope string) (string, e
 	for _, v := range dbKeys {
 		existing[v] = true
 	}
-	key = keygen.DeriveKey(scope, existing)
+	key = DeriveKey(scope, existing)
 	if err := p.store.SetScopeKey(ctx, scope, key, true); err != nil {
 		return "", fmt.Errorf("persist scope key: %w", err)
 	}
@@ -1721,9 +1720,9 @@ type SetGoalInput struct {
 }
 
 type SetGoalResult struct {
-	Goal     *model.Artifact   `json:"goal"`
-	Root     *model.Artifact   `json:"root"`
-	Archived []*model.Artifact `json:"archived,omitempty"`
+	Goal     *Artifact   `json:"goal"`
+	Root     *Artifact   `json:"root"`
+	Archived []*Artifact `json:"archived,omitempty"`
 }
 
 func (p *Protocol) SetGoal(ctx context.Context, in SetGoalInput) (*SetGoalResult, error) {
@@ -1739,11 +1738,11 @@ func (p *Protocol) SetGoal(ctx context.Context, in SetGoalInput) (*SetGoalResult
 		return nil, err
 	}
 
-	existing, err := p.store.List(ctx, model.Filter{Kind: goalKind, Status: goalDef.ActiveStatus, Scope: scope})
+	existing, err := p.store.List(ctx, Filter{Kind: goalKind, Status: goalDef.ActiveStatus, Scope: scope})
 	if err != nil {
 		return nil, err
 	}
-	var archived []*model.Artifact
+	archived := make([]*Artifact, 0, len(existing))
 	for _, old := range existing {
 		old.Status = p.schema.ReadonlyStatuses[0]
 		if err := p.store.Put(ctx, old); err != nil {
@@ -1757,7 +1756,7 @@ func (p *Protocol) SetGoal(ctx context.Context, in SetGoalInput) (*SetGoalResult
 	if err != nil {
 		return nil, err
 	}
-	goal := &model.Artifact{
+	goal := &Artifact{
 		ID: goalID, Kind: goalKind, Scope: scope,
 		Status: goalDef.ActiveStatus, Title: in.Title,
 	}
@@ -1774,10 +1773,10 @@ func (p *Protocol) SetGoal(ctx context.Context, in SetGoalInput) (*SetGoalResult
 	if err != nil {
 		return nil, err
 	}
-	root := &model.Artifact{
+	root := &Artifact{
 		ID: rootID, Kind: rootKind, Scope: scope,
 		Status: p.schema.DefaultStatus(rootKind), Title: in.Title,
-		Links: map[string][]string{model.RelJustifies: {goalID}},
+		Links: map[string][]string{RelJustifies: {goalID}},
 	}
 	if err := p.store.Put(ctx, root); err != nil {
 		return nil, err
@@ -1816,7 +1815,7 @@ func (p *Protocol) DeArchive(ctx context.Context, ids []string, cascade bool) ([
 			results = append(results, Result{ID: id, Error: fmt.Sprintf("%s is not archived (status: %s)", id, art.Status)})
 			continue
 		}
-		art.Status = model.StatusDraft
+		art.Status = StatusDraft
 		if err := p.store.Put(ctx, art); err != nil {
 			results = append(results, Result{ID: id, Error: err.Error()})
 			continue
@@ -1826,7 +1825,7 @@ func (p *Protocol) DeArchive(ctx context.Context, ids []string, cascade bool) ([
 			children, _ := p.store.Children(ctx, id)
 			for _, ch := range children {
 				if p.schema.IsReadonly(ch.Status) {
-					ch.Status = model.StatusDraft
+					ch.Status = StatusDraft
 					p.store.Put(ctx, ch)
 				}
 			}
@@ -1936,7 +1935,7 @@ func (p *Protocol) Vacuum(ctx context.Context, days int, scope string, force boo
 		days = p.defaults.GetVacuumDays()
 	}
 	maxAge := time.Duration(days) * 24 * time.Hour
-	f := model.Filter{Status: model.StatusArchived}
+	f := Filter{Status: StatusArchived}
 	if scope != "" {
 		f.Scope = scope
 	}
@@ -1967,7 +1966,7 @@ func (p *Protocol) Motd(ctx context.Context) (*MotdResult, error) {
 	}
 
 	for kind, def := range p.schema.MotdKinds() {
-		f := model.Filter{Kind: kind, Status: def.ActiveStatus}
+		f := Filter{Kind: kind, Status: def.ActiveStatus}
 		if def.IsGoalKind {
 			if len(p.scopes) > 0 {
 				f.Scopes = p.scopes
@@ -1980,7 +1979,7 @@ func (p *Protocol) Motd(ctx context.Context) (*MotdResult, error) {
 		}
 	}
 
-	all, _ := p.store.List(ctx, model.Filter{})
+	all, _ := p.store.List(ctx, Filter{})
 
 	shouldGaps := make(map[string]int)
 	for _, art := range all {
@@ -2018,7 +2017,7 @@ func (p *Protocol) Motd(ctx context.Context) (*MotdResult, error) {
 			staleDrafts++
 		}
 		// Blocked campaigns
-		if !p.schema.IsTerminal(art.Status) && (art.Kind == model.KindCampaign || art.Kind == model.KindGoal) {
+		if !p.schema.IsTerminal(art.Status) && (art.Kind == KindCampaign || art.Kind == KindGoal) { //nolint:nestif // pre-existing complexity, moved from protocol/
 			children, _ := p.store.Children(ctx, art.ID)
 			if len(children) > 0 {
 				allDone := true
@@ -2034,8 +2033,8 @@ func (p *Protocol) Motd(ctx context.Context) (*MotdResult, error) {
 			}
 		}
 		// Unimplemented specs
-		if !p.schema.IsTerminal(art.Status) && (art.Kind == model.KindSpec || art.Kind == model.KindBug) {
-			edges, _ := p.store.Neighbors(ctx, art.ID, model.RelImplements, store.Incoming)
+		if !p.schema.IsTerminal(art.Status) && (art.Kind == KindSpec || art.Kind == KindBug) {
+			edges, _ := p.store.Neighbors(ctx, art.ID, RelImplements, Incoming)
 			if len(edges) == 0 {
 				unimplementedSpecs++
 			}
@@ -2073,7 +2072,7 @@ func (p *Protocol) Motd(ctx context.Context) (*MotdResult, error) {
 		if p.schema.IsTerminal(art.Status) {
 			continue
 		}
-		if art.Kind == model.KindDoc || art.Kind == model.KindRef {
+		if art.Kind == KindDoc || art.Kind == KindRef {
 			result.Context = append(result.Context,
 				fmt.Sprintf("[%s] %s: %s", art.Scope, art.ID, art.Title))
 		}
@@ -2095,9 +2094,9 @@ type DashboardScope struct {
 }
 
 type DashboardResult struct {
-	Scopes      []DashboardScope  `json:"scopes"`
-	DBSizeBytes int64             `json:"db_size_bytes"`
-	StaleArts   []*model.Artifact `json:"stale_artifacts,omitempty"`
+	Scopes      []DashboardScope `json:"scopes"`
+	DBSizeBytes int64            `json:"db_size_bytes"`
+	StaleArts   []*Artifact      `json:"stale_artifacts,omitempty"`
 }
 
 // Dashboard returns a housekeeping dashboard: storage, staleness, scope health.
@@ -2106,13 +2105,13 @@ func (p *Protocol) Dashboard(ctx context.Context, staleDays int) (*DashboardResu
 		staleDays = p.defaults.GetDashboardStale()
 	}
 	cutoff := time.Now().UTC().Add(-time.Duration(staleDays) * 24 * time.Hour)
-	all, err := p.store.List(ctx, model.Filter{})
+	all, err := p.store.List(ctx, Filter{})
 	if err != nil {
 		return nil, err
 	}
 
 	scopeMap := map[string]*DashboardScope{}
-	var staleArts []*model.Artifact
+	var staleArts []*Artifact
 	for _, art := range all {
 		s := art.Scope
 		if s == "" {
@@ -2155,7 +2154,7 @@ func (p *Protocol) Dashboard(ctx context.Context, staleDays int) (*DashboardResu
 		return result.Scopes[i].Total > result.Scopes[j].Total
 	})
 
-	if sizer, ok := p.store.(store.DBSizer); ok {
+	if sizer, ok := p.store.(DBSizer); ok {
 		result.DBSizeBytes, _ = sizer.DBSizeBytes(ctx)
 	}
 	return result, nil
@@ -2164,14 +2163,14 @@ func (p *Protocol) Dashboard(ctx context.Context, staleDays int) (*DashboardResu
 // --- Inventory ---
 
 type InventoryResult struct {
-	Total      int                          `json:"total"`
-	ByKind     map[string]int               `json:"by_kind"`
-	ByStatus   map[string]int               `json:"by_status"`
-	Tracked    map[string][]*model.Artifact `json:"tracked,omitempty"`
+	Total    int                    `json:"total"`
+	ByKind   map[string]int         `json:"by_kind"`
+	ByStatus map[string]int         `json:"by_status"`
+	Tracked  map[string][]*Artifact `json:"tracked,omitempty"`
 }
 
 func (p *Protocol) Inventory(ctx context.Context) (*InventoryResult, error) {
-	all, err := p.store.List(ctx, model.Filter{})
+	all, err := p.store.List(ctx, Filter{})
 	if err != nil {
 		return nil, err
 	}
@@ -2180,7 +2179,7 @@ func (p *Protocol) Inventory(ctx context.Context) (*InventoryResult, error) {
 		Total:    len(all),
 		ByKind:   make(map[string]int),
 		ByStatus: make(map[string]int),
-		Tracked:  make(map[string][]*model.Artifact),
+		Tracked:  make(map[string][]*Artifact),
 	}
 	for _, art := range all {
 		r.ByKind[art.Kind]++
@@ -2292,14 +2291,14 @@ type OverlapInput struct {
 func (p *Protocol) DetectOverlaps(ctx context.Context, in OverlapInput) (*OverlapReport, error) {
 	kind := in.Kind
 	if kind == "" {
-		kind = model.KindTask
+		kind = KindTask
 	}
 	status := in.Status
 	if status == "" {
-		status = model.StatusActive
+		status = StatusActive
 	}
 
-	f := model.Filter{Kind: kind, Status: status}
+	f := Filter{Kind: kind, Status: status}
 	if len(p.scopes) > 0 {
 		f.Scopes = p.scopes
 	}
@@ -2356,7 +2355,7 @@ type OrphanInput struct {
 // DetectOrphans finds tasks without implements links, specs/bugs/needs without
 // incoming implements links, and ref/doc kinds missing required outgoing links.
 func (p *Protocol) DetectOrphans(ctx context.Context, in OrphanInput) (*OrphanReport, error) {
-	f := model.Filter{}
+	f := Filter{}
 	if in.Scope != "" {
 		f.Scope = in.Scope
 	} else if len(p.scopes) > 0 {
@@ -2384,7 +2383,7 @@ func (p *Protocol) DetectOrphans(ctx context.Context, in OrphanInput) (*OrphanRe
 
 		for _, rel := range kd.Relations.RequiredOutgoing {
 			report.TotalScanned++
-			edges, err := p.store.Neighbors(ctx, art.ID, rel, store.Outgoing)
+			edges, err := p.store.Neighbors(ctx, art.ID, rel, Outgoing)
 			if err != nil {
 				continue
 			}
@@ -2434,7 +2433,7 @@ func (p *Protocol) VocabRemove(ctx context.Context, kind string) error {
 	if !slices.Contains(p.vocab, kind) {
 		return fmt.Errorf("kind %q is not registered", kind)
 	}
-	arts, err := p.store.List(ctx, model.Filter{Kind: kind})
+	arts, err := p.store.List(ctx, Filter{Kind: kind})
 	if err != nil {
 		return err
 	}
@@ -2472,7 +2471,7 @@ func (p *Protocol) GetScopeLabels(ctx context.Context, scope string) ([]string, 
 	return p.store.GetScopeLabels(ctx, scope)
 }
 
-func (p *Protocol) ListScopeInfo(ctx context.Context) ([]store.ScopeInfo, error) {
+func (p *Protocol) ListScopeInfo(ctx context.Context) ([]ScopeInfo, error) {
 	return p.store.ListScopeInfo(ctx)
 }
 
@@ -2488,11 +2487,10 @@ func (p *Protocol) ListKindCodes() map[string]string {
 	return result
 }
 
-
 // Export writes all artifacts (optionally filtered by scope) as JSON-lines to w.
 // Each line is a complete artifact with sections, edges, and metadata.
 func (p *Protocol) Export(ctx context.Context, w io.Writer, scope string) (int, error) {
-	filter := model.Filter{}
+	filter := Filter{}
 	if scope != "" {
 		filter.Scope = scope
 	}
@@ -2503,7 +2501,7 @@ func (p *Protocol) Export(ctx context.Context, w io.Writer, scope string) (int, 
 	enc := json.NewEncoder(w)
 	for _, art := range arts {
 		// Enrich with edges
-		edges, _ := p.store.Neighbors(ctx, art.ID, "", store.Both)
+		edges, _ := p.store.Neighbors(ctx, art.ID, "", Both)
 		export := ExportRecord{Artifact: *art}
 		for _, e := range edges {
 			if e.From == art.ID {
@@ -2519,8 +2517,8 @@ func (p *Protocol) Export(ctx context.Context, w io.Writer, scope string) (int, 
 
 // ExportRecord wraps an artifact with its outgoing edges for export.
 type ExportRecord struct {
-	model.Artifact
-	Edges []model.Edge `json:"edges,omitempty"`
+	Artifact
+	Edges []Edge `json:"edges,omitempty"`
 }
 
 // Import reads JSON-lines from r and creates/updates artifacts.
@@ -2551,7 +2549,7 @@ func (p *Protocol) Import(ctx context.Context, r io.Reader) (int, error) {
 func (p *Protocol) GetConfig(ctx context.Context, key, scope string) string {
 	// 1. Try scoped config
 	if scope != "" {
-		configs, _ := p.store.List(ctx, model.Filter{Kind: model.KindConfig, Scope: scope, Status: model.StatusActive})
+		configs, _ := p.store.List(ctx, Filter{Kind: KindConfig, Scope: scope, Status: StatusActive})
 		for _, cfg := range configs {
 			for _, sec := range cfg.Sections {
 				if sec.Name == key {
@@ -2561,7 +2559,7 @@ func (p *Protocol) GetConfig(ctx context.Context, key, scope string) string {
 		}
 	}
 	// 2. Try global (scopeless) config
-	configs, _ := p.store.List(ctx, model.Filter{Kind: model.KindConfig, Scope: "", Status: model.StatusActive})
+	configs, _ := p.store.List(ctx, Filter{Kind: KindConfig, Scope: "", Status: StatusActive})
 	for _, cfg := range configs {
 		for _, sec := range cfg.Sections {
 			if sec.Name == key {
@@ -2585,7 +2583,7 @@ func (p *Protocol) generateTemplatedID(ctx context.Context, scope, kind string) 
 			break
 		}
 	}
-	idCtx := model.IDContext{
+	idCtx := IDContext{
 		ScopeKey: scopeKey,
 		KindCode: p.resolveKindCode(kind),
 		Prefix:   p.schema.Prefix(kind),
@@ -2600,7 +2598,7 @@ func (p *Protocol) generateTemplatedID(ctx context.Context, scope, kind string) 
 }
 
 // Lint validates the schema and returns structured results.
-func (p *Protocol) Lint() []model.LintResult {
+func (p *Protocol) Lint() []LintResult {
 	return p.schema.Lint()
 }
 
@@ -2625,7 +2623,7 @@ type CheckReport struct {
 
 // Check walks all artifacts and validates each against the resolved schema.
 func (p *Protocol) Check(ctx context.Context, scope string) (*CheckReport, error) {
-	f := model.Filter{}
+	f := Filter{}
 	if scope != "" {
 		f.Scope = scope
 	} else if len(p.scopes) > 0 {
@@ -2704,7 +2702,7 @@ func (p *Protocol) Check(ctx context.Context, scope string) (*CheckReport, error
 			if p.schema.IsTerminal(art.Status) {
 				continue
 			}
-			edges, err := p.store.Neighbors(ctx, art.ID, reqRel, store.Outgoing)
+			edges, err := p.store.Neighbors(ctx, art.ID, reqRel, Outgoing)
 			if err != nil {
 				continue
 			}
@@ -2779,7 +2777,7 @@ func (p *Protocol) Check(ctx context.Context, scope string) (*CheckReport, error
 		if p.schema.IsTerminal(art.Status) {
 			continue
 		}
-		if art.Kind != model.KindCampaign && art.Kind != model.KindGoal {
+		if art.Kind != KindCampaign && art.Kind != KindGoal {
 			continue
 		}
 		children, _ := p.store.Children(ctx, art.ID)
@@ -2807,8 +2805,8 @@ func (p *Protocol) Check(ctx context.Context, scope string) (*CheckReport, error
 		if p.schema.IsTerminal(art.Status) {
 			continue
 		}
-		if art.Kind == model.KindSpec || art.Kind == model.KindBug {
-			edges, _ := p.store.Neighbors(ctx, art.ID, model.RelImplements, store.Incoming)
+		if art.Kind == KindSpec || art.Kind == KindBug {
+			edges, _ := p.store.Neighbors(ctx, art.ID, RelImplements, Incoming)
 			if len(edges) == 0 {
 				report.Violations = append(report.Violations, CheckViolation{
 					ID: art.ID, Kind: art.Kind, Title: art.Title,
@@ -2841,17 +2839,17 @@ func (p *Protocol) Check(ctx context.Context, scope string) (*CheckReport, error
 
 	// Empty artifacts
 	for _, art := range arts {
-		if art.Status != model.StatusDraft {
+		if art.Status != StatusDraft {
 			continue
 		}
-		if art.Kind == model.KindTemplate || art.Kind == model.KindGoal || art.Kind == model.KindCampaign {
+		if art.Kind == KindTemplate || art.Kind == KindGoal || art.Kind == KindCampaign {
 			continue
 		}
 		if _, known := p.schema.Kinds[art.Kind]; !known {
 			continue // already flagged as unknown_kind
 		}
 		if art.Goal == "" && len(art.Sections) == 0 && art.Parent == "" {
-			edges, _ := p.store.Neighbors(ctx, art.ID, "", store.Outgoing)
+			edges, _ := p.store.Neighbors(ctx, art.ID, "", Outgoing)
 			if len(edges) == 0 {
 				report.Violations = append(report.Violations, CheckViolation{
 					ID: art.ID, Kind: art.Kind, Title: art.Title,
@@ -2947,8 +2945,8 @@ func (p *Protocol) CheckFix(ctx context.Context, scope string) (*CheckReport, []
 
 // MigrateResult describes what the migration did.
 type MigrateResult struct {
-	SatisfiesRemoved int      `json:"satisfies_removed"`
-	Fixes            []string `json:"fixes"`
+	SatisfiesRemoved int          `json:"satisfies_removed"`
+	Fixes            []string     `json:"fixes"`
 	Report           *CheckReport `json:"report"`
 }
 
@@ -2971,8 +2969,8 @@ func (p *Protocol) Migrate(ctx context.Context) (*MigrateResult, error) {
 
 // resolveTemplate follows the satisfies link on an artifact to find its template.
 // Returns nil if no satisfies link exists or the template can't be loaded.
-func (p *Protocol) resolveTemplate(ctx context.Context, art *model.Artifact) *model.Artifact {
-	targets, ok := art.Links[model.RelSatisfies]
+func (p *Protocol) resolveTemplate(ctx context.Context, art *Artifact) *Artifact {
+	targets, ok := art.Links[RelSatisfies]
 	if !ok || len(targets) == 0 {
 		return nil
 	}
@@ -2984,7 +2982,7 @@ func (p *Protocol) resolveTemplate(ctx context.Context, art *model.Artifact) *mo
 			"error", err)
 		return nil
 	}
-	if tpl.Kind != model.KindTemplate {
+	if tpl.Kind != KindTemplate {
 		slog.WarnContext(ctx, "satisfies link target is not a template",
 			"artifact_id", art.ID,
 			"target_id", tpl.ID,
@@ -3000,7 +2998,7 @@ func (p *Protocol) resolveTemplate(ctx context.Context, art *model.Artifact) *mo
 
 // templateSections extracts section names and guidance text from a template artifact.
 // Skips the "content" section which holds the full raw markdown.
-func templateSections(tpl *model.Artifact) map[string]string {
+func templateSections(tpl *Artifact) map[string]string {
 	m := make(map[string]string, len(tpl.Sections))
 	for _, sec := range tpl.Sections {
 		if sec.Name == "content" {
@@ -3013,7 +3011,7 @@ func templateSections(tpl *model.Artifact) map[string]string {
 
 // checkTemplateConformance validates that art has all sections required by its template.
 // Returns an error listing missing sections with guidance if any are absent.
-func (p *Protocol) checkTemplateConformance(ctx context.Context, art *model.Artifact) error {
+func (p *Protocol) checkTemplateConformance(ctx context.Context, art *Artifact) error {
 	tpl := p.resolveTemplate(ctx, art)
 	if tpl == nil {
 		return nil
@@ -3058,4 +3056,3 @@ func (p *Protocol) checkTemplateConformance(ctx context.Context, art *model.Arti
 }
 
 // --- helpers ---
-

@@ -1,4 +1,4 @@
-package store
+package parchment
 
 import (
 	"context"
@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dpopsuev/scribe/model"
 	_ "modernc.org/sqlite"
 )
 
@@ -306,7 +305,7 @@ func (s *SQLiteStore) DBSizeBytes(ctx context.Context) (int64, error) {
 	return pageCount * pageSize, nil
 }
 
-func (s *SQLiteStore) Put(ctx context.Context, art *model.Artifact) error {
+func (s *SQLiteStore) Put(ctx context.Context, art *Artifact) error {
 	if art.ID == "" {
 		return fmt.Errorf("artifact ID is required")
 	}
@@ -329,7 +328,7 @@ func (s *SQLiteStore) Put(ctx context.Context, art *model.Artifact) error {
 	defer tx.Rollback()
 
 	// Check for human ID collision: same ID but different UID
-	var old *model.Artifact
+	var old *Artifact
 	old, _ = scanArtifact(tx.QueryRowContext(ctx, "SELECT * FROM artifacts WHERE id = ?", art.ID))
 	if old != nil && old.UID != "" && old.UID != art.UID {
 		// Collision: auto-rename the existing artifact
@@ -382,7 +381,7 @@ func (s *SQLiteStore) Put(ctx context.Context, art *model.Artifact) error {
 
 // updateFTS updates the FTS5 index for an artifact. Runs outside the main
 // transaction to prevent FTS5 shadow table writes from extending the WAL lock window.
-func (s *SQLiteStore) updateFTS(ctx context.Context, art *model.Artifact) {
+func (s *SQLiteStore) updateFTS(ctx context.Context, art *Artifact) {
 	var rowid int64
 	if err := s.writer.QueryRowContext(ctx, "SELECT rowid FROM artifacts WHERE uid = ?", art.UID).Scan(&rowid); err != nil {
 		return
@@ -407,7 +406,7 @@ func (s *SQLiteStore) updateFTS(ctx context.Context, art *model.Artifact) {
 }
 
 // deleteFTS removes an artifact from the FTS5 index by rowid.
-func (s *SQLiteStore) deleteFTS(ctx context.Context, rowid int64, art *model.Artifact) {
+func (s *SQLiteStore) deleteFTS(ctx context.Context, rowid int64, art *Artifact) {
 	sectionsJSON, _ := json.Marshal(art.Sections)
 	s.writer.ExecContext(ctx,
 		"INSERT INTO artifacts_fts(artifacts_fts, rowid, id, title, goal, sections) VALUES ('delete', ?, ?, ?, ?, ?)",
@@ -416,7 +415,7 @@ func (s *SQLiteStore) deleteFTS(ctx context.Context, rowid int64, art *model.Art
 
 // autoRenameArtifact renames an existing artifact's human ID to the next free
 // sequence number, updating all edges that reference the old ID.
-func (s *SQLiteStore) autoRenameArtifact(ctx context.Context, tx *sql.Tx, existing *model.Artifact) error {
+func (s *SQLiteStore) autoRenameArtifact(ctx context.Context, tx *sql.Tx, existing *Artifact) error {
 	oldID := existing.ID
 
 	// Parse ID to find prefix and sequence number.
@@ -463,7 +462,7 @@ func (s *SQLiteStore) autoRenameArtifact(ctx context.Context, tx *sql.Tx, existi
 	}
 }
 
-func (s *SQLiteStore) Get(ctx context.Context, id string) (*model.Artifact, error) {
+func (s *SQLiteStore) Get(ctx context.Context, id string) (*Artifact, error) {
 	row := s.reader.QueryRowContext(ctx, "SELECT * FROM artifacts WHERE id = ?", id)
 	art, err := scanArtifact(row)
 	if err != nil {
@@ -603,7 +602,7 @@ func (s *SQLiteStore) cleanDanglingRefs(ctx context.Context, tx *sql.Tx, deleted
 	return nil
 }
 
-func (s *SQLiteStore) List(ctx context.Context, f model.Filter) ([]*model.Artifact, error) {
+func (s *SQLiteStore) List(ctx context.Context, f Filter) ([]*Artifact, error) { //nolint:gocyclo,gocritic // pre-existing complexity, moved from protocol/; hugeParam: value semantics intentional
 	var clauses []string
 	var args []any
 	if f.IDPrefix != "" {
@@ -682,7 +681,7 @@ func (s *SQLiteStore) List(ctx context.Context, f model.Filter) ([]*model.Artifa
 	}
 	defer rows.Close()
 
-	var results []*model.Artifact
+	var results []*Artifact
 	for rows.Next() {
 		art, err := scanArtifactRows(rows)
 		if err != nil {
@@ -696,22 +695,22 @@ func (s *SQLiteStore) List(ctx context.Context, f model.Filter) ([]*model.Artifa
 	return results, rows.Err()
 }
 
-func (s *SQLiteStore) AddEdge(ctx context.Context, e model.Edge) error {
+func (s *SQLiteStore) AddEdge(ctx context.Context, e Edge) error {
 	_, err := s.writer.ExecContext(ctx,
 		"INSERT OR IGNORE INTO edges (from_id, relation, to_id) VALUES (?, ?, ?)",
 		e.From, e.Relation, e.To)
 	return err
 }
 
-func (s *SQLiteStore) RemoveEdge(ctx context.Context, e model.Edge) error {
+func (s *SQLiteStore) RemoveEdge(ctx context.Context, e Edge) error {
 	_, err := s.writer.ExecContext(ctx,
 		"DELETE FROM edges WHERE from_id = ? AND relation = ? AND to_id = ?",
 		e.From, e.Relation, e.To)
 	return err
 }
 
-func (s *SQLiteStore) Neighbors(ctx context.Context, id string, rel string, dir Direction) ([]model.Edge, error) {
-	var edges []model.Edge
+func (s *SQLiteStore) Neighbors(ctx context.Context, id, rel string, dir Direction) ([]Edge, error) {
+	var edges []Edge
 
 	if dir == Outgoing || dir == Both {
 		q := "SELECT from_id, relation, to_id FROM edges WHERE from_id = ?"
@@ -725,7 +724,7 @@ func (s *SQLiteStore) Neighbors(ctx context.Context, id string, rel string, dir 
 			return nil, err
 		}
 		for rows.Next() {
-			var e model.Edge
+			var e Edge
 			if err := rows.Scan(&e.From, &e.Relation, &e.To); err == nil {
 				edges = append(edges, e)
 			}
@@ -745,7 +744,7 @@ func (s *SQLiteStore) Neighbors(ctx context.Context, id string, rel string, dir 
 			return nil, err
 		}
 		for rows.Next() {
-			var e model.Edge
+			var e Edge
 			if err := rows.Scan(&e.From, &e.Relation, &e.To); err == nil {
 				edges = append(edges, e)
 			}
@@ -789,12 +788,12 @@ func (s *SQLiteStore) walkRecurse(ctx context.Context, id string, rel string, di
 	return nil
 }
 
-func (s *SQLiteStore) Children(ctx context.Context, parentID string) ([]*model.Artifact, error) {
-	edges, err := s.Neighbors(ctx, parentID, model.RelParentOf, Outgoing)
+func (s *SQLiteStore) Children(ctx context.Context, parentID string) ([]*Artifact, error) {
+	edges, err := s.Neighbors(ctx, parentID, RelParentOf, Outgoing)
 	if err != nil {
 		return nil, err
 	}
-	var children []*model.Artifact
+	var children []*Artifact
 	for _, e := range edges {
 		if child, err := s.Get(ctx, e.To); err == nil {
 			children = append(children, child)
@@ -818,7 +817,7 @@ func (s *SQLiteStore) NextID(ctx context.Context, prefix string) (string, error)
 		return "", err
 	}
 
-	id := model.FormatID(prefix, int(seq))
+	id := FormatID(prefix, int(seq))
 
 	_, err = tx.ExecContext(ctx,
 		"INSERT INTO sequences (prefix, next_val) VALUES (?, ?) ON CONFLICT(prefix) DO UPDATE SET next_val = ?",
@@ -862,7 +861,7 @@ func (s *SQLiteStore) NextScopedID(ctx context.Context, scopeKey, kindCode strin
 
 	// Skip IDs that already exist in artifacts table (archived or otherwise)
 	for {
-		id := model.FormatScopedID(scopeKey, kindCode, int(seq))
+		id := FormatScopedID(scopeKey, kindCode, int(seq))
 		var exists int
 		err = tx.QueryRowContext(ctx, "SELECT 1 FROM artifacts WHERE id = ?", id).Scan(&exists)
 		if err == sql.ErrNoRows {
@@ -1037,16 +1036,16 @@ type rowScanner interface {
 	Scan(dest ...any) error
 }
 
-func scanArtifact(row *sql.Row) (*model.Artifact, error) {
+func scanArtifact(row *sql.Row) (*Artifact, error) {
 	return scanRow(row)
 }
 
-func scanArtifactRows(rows *sql.Rows) (*model.Artifact, error) {
+func scanArtifactRows(rows *sql.Rows) (*Artifact, error) {
 	return scanRow(rows)
 }
 
-func scanRow(s rowScanner) (*model.Artifact, error) {
-	var art model.Artifact
+func scanRow(s rowScanner) (*Artifact, error) {
+	var art Artifact
 	var dependsOn, labels, sections, features, criteria, links, extra string
 	var createdAt, updatedAt, insertedAt string
 
@@ -1115,19 +1114,19 @@ func toSet(items []string) map[string]bool {
 }
 
 // reconcileEdgesSQL mirrors the bbolt reconcileEdges logic using SQL.
-func reconcileEdgesSQL(ctx context.Context, tx *sql.Tx, old, cur *model.Artifact) error {
+func reconcileEdgesSQL(ctx context.Context, tx *sql.Tx, old, cur *Artifact) error { //nolint:gocyclo // pre-existing complexity, moved from protocol/
 	oldParent := ""
 	if old != nil {
 		oldParent = old.Parent
 	}
 	if cur.Parent != oldParent {
 		if oldParent != "" {
-			if err := deleteEdge(ctx, tx, oldParent, model.RelParentOf, cur.ID); err != nil {
+			if err := deleteEdge(ctx, tx, oldParent, RelParentOf, cur.ID); err != nil {
 				return fmt.Errorf("delete parent edge: %w", err)
 			}
 		}
 		if cur.Parent != "" {
-			if err := addEdge(ctx, tx, cur.Parent, model.RelParentOf, cur.ID); err != nil {
+			if err := addEdge(ctx, tx, cur.Parent, RelParentOf, cur.ID); err != nil {
 				return fmt.Errorf("add parent edge: %w", err)
 			}
 		}
@@ -1140,14 +1139,14 @@ func reconcileEdgesSQL(ctx context.Context, tx *sql.Tx, old, cur *model.Artifact
 	newDeps := toSet(cur.DependsOn)
 	for d := range oldDeps {
 		if !newDeps[d] {
-			if err := deleteEdge(ctx, tx, cur.ID, model.RelDependsOn, d); err != nil {
+			if err := deleteEdge(ctx, tx, cur.ID, RelDependsOn, d); err != nil {
 				return fmt.Errorf("delete dep edge %s: %w", d, err)
 			}
 		}
 	}
 	for d := range newDeps {
 		if !oldDeps[d] {
-			if err := addEdge(ctx, tx, cur.ID, model.RelDependsOn, d); err != nil {
+			if err := addEdge(ctx, tx, cur.ID, RelDependsOn, d); err != nil {
 				return fmt.Errorf("add dep edge %s: %w", d, err)
 			}
 		}
