@@ -8,26 +8,28 @@ import (
 
 // Artifact is the universal record for all work graph nodes.
 type Artifact struct {
-	UID        string              `json:"uid,omitempty"`
-	ID         string              `json:"id"`
-	Kind       string              `json:"kind"`
-	Scope      string              `json:"scope,omitempty"`
-	Status     string              `json:"status"`
-	Parent     string              `json:"parent,omitempty"`
-	Title      string              `json:"title"`
-	Goal       string              `json:"goal,omitempty"`
-	DependsOn  []string            `json:"depends_on,omitempty"`
-	Labels     []string            `json:"labels,omitempty"`
-	Priority   string              `json:"priority,omitempty"`
-	Sprint     string              `json:"sprint,omitempty"`
-	Sections   []Section           `json:"sections,omitempty"`
-	Features   []Feature           `json:"features,omitempty"`
-	Criteria   []Criterion         `json:"criteria,omitempty"`
-	Links      map[string][]string `json:"links,omitempty"`
-	Extra      map[string]any      `json:"extra,omitempty"`
-	CreatedAt  time.Time           `json:"created_at"`
-	UpdatedAt  time.Time           `json:"updated_at"`
-	InsertedAt time.Time           `json:"inserted_at"`
+	UID         string              `json:"uid,omitempty"`
+	ID          string              `json:"id"`
+	Kind        string              `json:"kind"`
+	Scope       string              `json:"scope,omitempty"`
+	Status      string              `json:"status"`
+	Parent      string              `json:"parent,omitempty"`
+	Title       string              `json:"title"`
+	Goal        string              `json:"goal,omitempty"`
+	DependsOn   []string            `json:"depends_on,omitempty"`
+	Labels      []string            `json:"labels,omitempty"`
+	Priority    string              `json:"priority,omitempty"`
+	Sprint      string              `json:"sprint,omitempty"`
+	Sections    []Section           `json:"sections,omitempty"`
+	Features    []Feature           `json:"features,omitempty"`
+	Criteria    []Criterion         `json:"criteria,omitempty"`
+	Links       map[string][]string `json:"links,omitempty"`
+	Extra       map[string]any      `json:"extra,omitempty"`
+	Components  ComponentMap        `json:"components,omitempty"`
+	Annotations []Annotation        `json:"annotations,omitempty"`
+	CreatedAt   time.Time           `json:"created_at"`
+	UpdatedAt   time.Time           `json:"updated_at"`
+	InsertedAt  time.Time           `json:"inserted_at"`
 }
 
 // Section is a named free-text block within an artifact.
@@ -79,6 +81,20 @@ const (
 	RelDocuments  = "documents"
 	RelSatisfies  = "satisfies"
 )
+
+// ComponentMap describes what code an artifact will create or modify.
+// Enables spatial overlap detection for cascade invalidation.
+type ComponentMap struct {
+	Directories []string `json:"directories,omitempty"`
+	Files       []string `json:"files,omitempty"`
+	Symbols     []string `json:"symbols,omitempty"`
+}
+
+// Annotation is operator feedback on an artifact without mutating core fields.
+type Annotation struct {
+	Kind    string `json:"kind"` // "+", "-", "~"
+	Comment string `json:"comment"`
+}
 
 // ScopePolicy defines per-scope constraints enforced at artifact creation.
 type ScopePolicy struct {

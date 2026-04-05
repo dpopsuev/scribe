@@ -36,6 +36,8 @@ CREATE TABLE IF NOT EXISTS artifacts (
 	criteria    TEXT NOT NULL DEFAULT '[]',
 	links       TEXT NOT NULL DEFAULT '{}',
 	extra       TEXT NOT NULL DEFAULT '{}',
+	components  TEXT NOT NULL DEFAULT '{}',
+	annotations TEXT NOT NULL DEFAULT '[]',
 	created_at  TEXT NOT NULL,
 	updated_at  TEXT NOT NULL,
 	inserted_at TEXT NOT NULL DEFAULT ''
@@ -177,6 +179,10 @@ func OpenSQLiteConfig(cfg SQLiteConfig) (*SQLiteStore, error) {
 		"UPDATE artifacts SET inserted_at = created_at WHERE inserted_at = ''")
 	writer.ExecContext(context.Background(),
 		"ALTER TABLE scope_keys ADD COLUMN labels TEXT NOT NULL DEFAULT ''")
+	writer.ExecContext(context.Background(), //nolint:errcheck // migration: column may already exist
+		"ALTER TABLE artifacts ADD COLUMN components TEXT NOT NULL DEFAULT '{}'")
+	writer.ExecContext(context.Background(), //nolint:errcheck // migration: column may already exist
+		"ALTER TABLE artifacts ADD COLUMN annotations TEXT NOT NULL DEFAULT '[]'")
 
 
 	// Reseed scoped sequences to avoid ID collisions with existing artifacts.
@@ -345,10 +351,12 @@ func (s *SQLiteStore) Put(ctx context.Context, art *Artifact) error {
 	criteria, _ := json.Marshal(art.Criteria)
 	links, _ := json.Marshal(art.Links)
 	extra, _ := json.Marshal(art.Extra)
+	components, _ := json.Marshal(art.Components)
+	annotations, _ := json.Marshal(art.Annotations)
 
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO artifacts (uid, id, kind, scope, status, parent, title, goal, depends_on, labels, priority, sprint, sections, features, criteria, links, extra, created_at, updated_at, inserted_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO artifacts (uid, id, kind, scope, status, parent, title, goal, depends_on, labels, priority, sprint, sections, features, criteria, links, extra, components, annotations, created_at, updated_at, inserted_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(uid) DO UPDATE SET
 			id=excluded.id, kind=excluded.kind, scope=excluded.scope, status=excluded.status,
 			parent=excluded.parent, title=excluded.title, goal=excluded.goal,
@@ -356,10 +364,12 @@ func (s *SQLiteStore) Put(ctx context.Context, art *Artifact) error {
 			priority=excluded.priority, sprint=excluded.sprint,
 			sections=excluded.sections, features=excluded.features,
 			criteria=excluded.criteria, links=excluded.links,
-			extra=excluded.extra, updated_at=excluded.updated_at`,
+			extra=excluded.extra, components=excluded.components,
+			annotations=excluded.annotations, updated_at=excluded.updated_at`,
 		art.UID, art.ID, art.Kind, art.Scope, art.Status, art.Parent, art.Title, art.Goal,
 		string(dependsOn), string(labels), art.Priority, art.Sprint,
 		string(sections), string(features), string(criteria), string(links), string(extra),
+		string(components), string(annotations),
 		art.CreatedAt.Format(time.RFC3339Nano), art.UpdatedAt.Format(time.RFC3339Nano),
 		art.InsertedAt.Format(time.RFC3339Nano),
 	)
@@ -1046,13 +1056,14 @@ func scanArtifactRows(rows *sql.Rows) (*Artifact, error) {
 
 func scanRow(s rowScanner) (*Artifact, error) {
 	var art Artifact
-	var dependsOn, labels, sections, features, criteria, links, extra string
+	var dependsOn, labels, sections, features, criteria, links, extra, components, annotations string
 	var createdAt, updatedAt, insertedAt string
 
 	err := s.Scan(
 		&art.UID, &art.ID, &art.Kind, &art.Scope, &art.Status, &art.Parent, &art.Title, &art.Goal,
 		&dependsOn, &labels, &art.Priority, &art.Sprint,
 		&sections, &features, &criteria, &links, &extra,
+		&components, &annotations,
 		&createdAt, &updatedAt, &insertedAt,
 	)
 	if err != nil {
@@ -1071,6 +1082,8 @@ func scanRow(s rowScanner) (*Artifact, error) {
 		{criteria, &art.Criteria, "criteria"},
 		{links, &art.Links, "links"},
 		{extra, &art.Extra, "extra"},
+		{components, &art.Components, "components"},
+		{annotations, &art.Annotations, "annotations"},
 	} {
 		if err := json.Unmarshal([]byte(pair.data), pair.dst); err != nil {
 			slog.Warn("scanRow: unmarshal failed", "id", art.ID, "field", pair.name, "error", err)
