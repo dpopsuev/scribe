@@ -1,7 +1,7 @@
 # github.com/dominikbraun/graph v0.23.0
 ## explicit; go 1.18
 github.com/dominikbraun/graph
-# github.com/dpopsuev/parchment v0.1.0 => /home/dpopsuev/Workspace/parchment
+# github.com/dpopsuev/parchment v0.1.0
 ## explicit; go 1.25.8
 github.com/dpopsuev/parchment
 # github.com/dustin/go-humanize v1.0.1
@@ -123,4 +123,3 @@ modernc.org/memory
 modernc.org/sqlite
 modernc.org/sqlite/lib
 modernc.org/sqlite/vtab
-# github.com/dpopsuev/parchment => /home/dpopsuev/Workspace/parchment
