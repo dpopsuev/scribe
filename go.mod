@@ -3,6 +3,7 @@ module github.com/dpopsuev/scribe
 go 1.25.8
 
 require (
+	github.com/dpopsuev/battery v0.0.0-00010101000000-000000000000
 	github.com/modelcontextprotocol/go-sdk v1.4.0
 	github.com/spf13/cobra v1.10.2
 	github.com/yuin/goldmark v1.7.16
@@ -31,3 +32,5 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+replace github.com/dpopsuev/battery => ../battery
