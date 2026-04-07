@@ -1,6 +1,10 @@
 # github.com/dominikbraun/graph v0.23.0
 ## explicit; go 1.18
 github.com/dominikbraun/graph
+# github.com/dpopsuev/battery v0.0.0-00010101000000-000000000000 => ../battery
+## explicit; go 1.25.8
+github.com/dpopsuev/battery/server
+github.com/dpopsuev/battery/tool
 # github.com/dpopsuev/parchment v0.1.0
 ## explicit; go 1.25.8
 github.com/dpopsuev/parchment
@@ -123,3 +127,4 @@ modernc.org/memory
 modernc.org/sqlite
 modernc.org/sqlite/lib
 modernc.org/sqlite/vtab
+# github.com/dpopsuev/battery => ../battery
