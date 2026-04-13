@@ -6,7 +6,7 @@ github.com/dominikbraun/graph
 github.com/dpopsuev/battery/mcpserver
 github.com/dpopsuev/battery/server
 github.com/dpopsuev/battery/tool
-# github.com/dpopsuev/parchment v0.1.0
+# github.com/dpopsuev/parchment v0.3.0
 ## explicit; go 1.25.8
 github.com/dpopsuev/parchment
 # github.com/dustin/go-humanize v1.0.1
