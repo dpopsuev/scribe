@@ -4,36 +4,38 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/dpopsuev/battery/mcpserver"
+	"github.com/dpopsuev/battery/server"
 	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/directive"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// scribeInstructions is the MCP server instructions shown to clients.
+const scribeInstructions = "Scribe is a work graph for AI agents with native DAG support. " +
+	"Use it to create, query, and manage structured artifacts (tasks, specs, goals, bugs, campaigns) " +
+	"with parent-child trees, dependency edges, named text sections, and lifecycle status tracking. " +
+	"Start with admin motd for context, then artifact list to explore. " +
+	"Use graph topo_sort for execution order. Use follows edges for ROI ordering. " +
+	"Templates auto-link via satisfies with cascading resolution (scoped > global). " +
+	"Kinds: task (work unit), spec (design doc), bug (defect), goal (north star), campaign (mission), " +
+	"template (section guidance), need (capability gap), doc/ref (knowledge), config (runtime settings), mirror (external ticket). " +
+	"Relations: parent_of (tree), depends_on (hard block), follows (ROI order), implements (task→spec/bug), " +
+	"justifies (need→spec), documents (ref→any), satisfies (artifact→template). " +
+	"Workflow: motd → list/topo_sort → get (with section_filter) → create/update (with patch map) → set status. " +
+	"Bulk ops: get accepts ids array, graph accepts bulk_link/bulk_unlink edge arrays, move re-parents, replace swaps edge targets."
+
 // NewServer creates an MCP server exposing Scribe tools over the given store.
 // Returns both the server and a directive registry for CLI introspection.
+// Built on battery/mcpserver framework — auto-Observable, panic recovery, result helpers.
 func NewServer(s parchment.Store, homeScopes, vocab []string, idc parchment.ProtocolConfig, version string, snapshotter ...*parchment.Snapshotter) (*sdkmcp.Server, *directive.Registry) {
-	srv := sdkmcp.NewServer(
-		&sdkmcp.Implementation{Name: "scribe", Version: version},
-		&sdkmcp.ServerOptions{
-			Instructions: "Scribe is a work graph for AI agents with native DAG support. " +
-				"Use it to create, query, and manage structured artifacts (tasks, specs, goals, bugs, campaigns) " +
-				"with parent-child trees, dependency edges, named text sections, and lifecycle status tracking. " +
-				"Start with admin motd for context, then artifact list to explore. " +
-				"Use graph topo_sort for execution order. Use follows edges for ROI ordering. " +
-				"Templates auto-link via satisfies with cascading resolution (scoped > global). " +
-				"Kinds: task (work unit), spec (design doc), bug (defect), goal (north star), campaign (mission), " +
-				"template (section guidance), need (capability gap), doc/ref (knowledge), config (runtime settings), mirror (external ticket). " +
-				"Relations: parent_of (tree), depends_on (hard block), follows (ROI order), implements (task→spec/bug), " +
-				"justifies (need→spec), documents (ref→any), satisfies (artifact→template). " +
-				"Workflow: motd → list/topo_sort → get (with section_filter) → create/update (with patch map) → set status. " +
-				"Bulk ops: get accepts ids array, graph accepts bulk_link/bulk_unlink edge arrays, move re-parents, replace swaps edge targets.",
-		},
-	)
+	batt := mcpserver.NewServer("scribe", version).
+		WithInstructions(scribeInstructions)
+
 	reg := directive.New()
 	var snap *parchment.Snapshotter
 	if len(snapshotter) > 0 && snapshotter[0] != nil {
@@ -46,7 +48,9 @@ func NewServer(s parchment.Store, homeScopes, vocab []string, idc parchment.Prot
 		readLog:     make(map[string]bool),
 	}
 
-	directive.AddTool(reg, srv, directive.ToolMeta{
+	srv := batt.SDK()
+
+	artifactMeta := server.ToolMeta{
 		Name: "artifact",
 		Description: "Create, read, update, and manage work artifacts. " +
 			"Actions: create (new artifact), get (by ID), list (filter/search), set (update field), " +
@@ -54,9 +58,11 @@ func NewServer(s parchment.Store, homeScopes, vocab []string, idc parchment.Prot
 			"When creating artifacts linked to templates via satisfies relation, all template sections must be provided.",
 		Keywords:   []string{"create", "get", "list", "set", "archive", "artifact", "section"},
 		Categories: []string{"crud"},
-	}, noOut(h.handleArtifact))
+	}
+	batt.Tool(artifactMeta, adaptTypedHandler(h.handleArtifact))
+	reg.Register(directive.ToolMeta{Name: artifactMeta.Name, Description: artifactMeta.Description, Keywords: artifactMeta.Keywords, Categories: artifactMeta.Categories})
 
-	directive.AddTool(reg, srv, directive.ToolMeta{
+	graphMeta := server.ToolMeta{
 		Name: "graph",
 		Description: "Navigate and modify artifact relationships. " +
 			"Actions: tree (parent-child hierarchy with optional relation/direction/depth), " +
@@ -68,9 +74,11 @@ func NewServer(s parchment.Store, homeScopes, vocab []string, idc parchment.Prot
 			"Supported relations: parent_of, depends_on, follows, justifies, implements, documents.",
 		Keywords:   []string{"tree", "briefing", "topo_sort", "link", "unlink", "bulk_link", "move", "replace", "relation", "edge", "graph"},
 		Categories: []string{"query", "graph"},
-	}, noOut(h.handleGraph))
+	}
+	batt.Tool(graphMeta, adaptTypedHandler(h.handleGraph))
+	reg.Register(directive.ToolMeta{Name: graphMeta.Name, Description: graphMeta.Description, Keywords: graphMeta.Keywords, Categories: graphMeta.Categories})
 
-	directive.AddTool(reg, srv, directive.ToolMeta{
+	adminMeta := server.ToolMeta{
 		Name: "admin",
 		Description: "System administration and monitoring. " +
 			"Actions: motd (session context with goals/reminders), dashboard (storage/staleness/health), " +
@@ -78,13 +86,16 @@ func NewServer(s parchment.Store, homeScopes, vocab []string, idc parchment.Prot
 			"lint (validate schema consistency).",
 		Keywords:   []string{"motd", "dashboard", "goal", "vacuum", "detect", "orphan"},
 		Categories: []string{"lifecycle", "maintenance"},
-	}, noOut(h.handleAdmin))
+	}
+	batt.Tool(adminMeta, adaptTypedHandler(h.handleAdmin))
+	reg.Register(directive.ToolMeta{Name: adminMeta.Name, Description: adminMeta.Description, Keywords: adminMeta.Keywords, Categories: adminMeta.Categories})
 
 	// Note: admin tool handles both read and write actions.
 	// Read-only: motd, changelog, dashboard, detect, lint, check, list_scope_labels
 	// Mutating: set_goal, vacuum, snapshot (create/restore), set_scope_labels, transfer_scope, seed
 
-	return srv, reg
+	_ = srv // SDK access retained for advanced use
+	return batt.SDK(), reg
 }
 
 // ToolRegistry returns a populated directive registry without requiring
@@ -2000,26 +2011,49 @@ func sortArtifacts(arts []*parchment.Artifact, field string) {
 	})
 }
 
+// text creates a CallToolResult with a single TextContent block.
+// Delegates to battery/mcpserver.TextResult.
 func text(s string) *sdkmcp.CallToolResult {
-	return &sdkmcp.CallToolResult{
-		Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: s}},
-	}
+	return mcpserver.TextResult(s)
 }
 
-func noOut[In any](h func(context.Context, *sdkmcp.CallToolRequest, In) (*sdkmcp.CallToolResult, any, error)) sdkmcp.ToolHandlerFor[In, any] {
-	return func(ctx context.Context, req *sdkmcp.CallToolRequest, in In) (*sdkmcp.CallToolResult, any, error) {
-		tool := ""
-		if req != nil {
-			tool = req.Params.Name
+// adaptTypedHandler bridges a typed Scribe handler into a server.Handler.
+// The typed handler takes a concrete input struct and returns
+// (*CallToolResult, Out, error). This adapter unmarshals the raw JSON input,
+// calls the handler, and marshals the Out value when CallToolResult is nil
+// (same pattern as Origami's rawHandler).
+func adaptTypedHandler[In any](h func(context.Context, *sdkmcp.CallToolRequest, In) (*sdkmcp.CallToolResult, any, error)) server.Handler {
+	return func(ctx context.Context, input json.RawMessage) (string, error) {
+		var in In
+		if len(input) > 0 {
+			if err := json.Unmarshal(input, &in); err != nil {
+				return "", fmt.Errorf("invalid arguments: %w", err)
+			}
 		}
-		start := time.Now()
-		result, out, err := h(ctx, req, in)
-		elapsed := time.Since(start)
+
+		// Build a minimal CallToolRequest for backward compat with handlers
+		// that read req.Params or req.Session.
+		req := &sdkmcp.CallToolRequest{}
+		req.Params = &sdkmcp.CallToolParamsRaw{Arguments: input}
+
+		res, out, err := h(ctx, req, in)
 		if err != nil {
-			slog.Error("tool call failed", "tool", tool, "elapsed", elapsed, "error", err)
-		} else {
-			slog.Debug("tool call", "tool", tool, "elapsed", elapsed)
+			return "", err
 		}
-		return result, out, err
+		if res != nil {
+			// Extract text from CallToolResult.
+			for _, c := range res.Content {
+				if tc, ok := c.(*sdkmcp.TextContent); ok {
+					return tc.Text, nil
+				}
+			}
+			return "", nil
+		}
+		// No CallToolResult — marshal Out as JSON.
+		data, err := json.Marshal(out)
+		if err != nil {
+			return "", fmt.Errorf("marshal output: %w", err)
+		}
+		return string(data), nil
 	}
 }
