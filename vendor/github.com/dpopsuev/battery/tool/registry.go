@@ -24,6 +24,11 @@ func (r *Registry) Register(t Tool) {
 	r.tools[t.Name()] = t
 }
 
+// Unregister removes a tool from the registry by name.
+func (r *Registry) Unregister(name string) {
+	delete(r.tools, name)
+}
+
 // Get returns a tool by name.
 func (r *Registry) Get(name string) (Tool, error) {
 	t, ok := r.tools[name]

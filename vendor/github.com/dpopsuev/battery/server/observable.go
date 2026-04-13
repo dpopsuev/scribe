@@ -8,6 +8,13 @@ import (
 	"time"
 )
 
+// Log attribute keys for observable tool calls.
+const (
+	LogKeyTool    = "tool"
+	LogKeyElapsed = "elapsed"
+	LogKeyError   = "error"
+)
+
 // Observable wraps a Handler with timing and error logging.
 func Observable(name string, h Handler) Handler {
 	return func(ctx context.Context, input json.RawMessage) (string, error) {
@@ -16,15 +23,15 @@ func Observable(name string, h Handler) Handler {
 		elapsed := time.Since(start)
 
 		if err != nil {
-			slog.Warn("battery: tool failed",
-				slog.String("tool", name),
-				slog.Duration("elapsed", elapsed),
-				slog.String("err", err.Error()),
+			slog.WarnContext(ctx, "battery: tool failed",
+				slog.String(LogKeyTool, name),
+				slog.Duration(LogKeyElapsed, elapsed),
+				slog.String(LogKeyError, err.Error()),
 			)
 		} else {
-			slog.Debug("battery: tool completed",
-				slog.String("tool", name),
-				slog.Duration("elapsed", elapsed),
+			slog.DebugContext(ctx, "battery: tool completed",
+				slog.String(LogKeyTool, name),
+				slog.Duration(LogKeyElapsed, elapsed),
 			)
 		}
 		return result, err

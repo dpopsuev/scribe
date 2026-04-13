@@ -3,9 +3,13 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 )
+
+// ErrServerToolNotFound is returned when a tool is not registered in the server registry.
+var ErrServerToolNotFound = errors.New("battery: server tool not found")
 
 type registeredTool struct {
 	meta    ToolMeta
@@ -31,7 +35,7 @@ func (r *Registry) Add(meta ToolMeta, h Handler) {
 func (r *Registry) Handle(ctx context.Context, name string, input json.RawMessage) (string, error) {
 	t, ok := r.tools[name]
 	if !ok {
-		return "", fmt.Errorf("battery: server tool not found: %s", name)
+		return "", fmt.Errorf("%w: %s", ErrServerToolNotFound, name)
 	}
 	return t.handler(ctx, input)
 }
