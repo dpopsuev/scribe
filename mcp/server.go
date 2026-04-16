@@ -170,6 +170,7 @@ type artifactInput struct {
 
 	Name string `json:"name,omitempty" jsonschema:"section name (attach_section, get_section, detach_section)"`
 	Text string `json:"text,omitempty" jsonschema:"section body text (attach_section)"`
+	Body string `json:"body,omitempty" jsonschema:"section body text alias — same as text (attach_section)"`
 
 	Patch map[string]string `json:"patch,omitempty" jsonschema:"map of field->value for multi-field update in one call (update)"`
 
@@ -333,7 +334,11 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		if len(in.Sections) > 0 {
 			return h.handleBatchAttachSections(ctx, in.ID, in.Sections)
 		}
-		return h.handleAttachSection(ctx, req, sectionInput{ID: in.ID, Name: in.Name, Text: in.Text})
+		sectionText := in.Text
+		if sectionText == "" {
+			sectionText = in.Body
+		}
+		return h.handleAttachSection(ctx, req, sectionInput{ID: in.ID, Name: in.Name, Text: sectionText})
 	case "get_section":
 		return h.handleGetSection(ctx, req, getSectionInput{ID: in.ID, Name: in.Name})
 	case "detach_section":
@@ -1010,6 +1015,9 @@ func (h *handler) handleBatchAttachSections(ctx context.Context, id string, sect
 			return nil, nil, fmt.Errorf("each section must have a 'name' field")
 		}
 		t := sec["text"]
+		if t == "" {
+			t = sec["body"]
+		}
 		wasReplaced, err := h.proto.AttachSection(ctx, id, name, t)
 		if err != nil {
 			return nil, nil, fmt.Errorf("section %q: %w", name, err)
