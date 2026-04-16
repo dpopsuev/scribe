@@ -714,6 +714,75 @@ func TestBatchAttachSections_SingleFallback(t *testing.T) {
 	}
 }
 
+// --- SCR-BUG-22: attach_section body field silently dropped ---
+
+func TestAttachSection_BodyFieldAlias(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	s.Put(ctx, &parchment.Artifact{ID: "TSK-1", Kind: "task", Scope: "test", Status: "draft", Title: "Test"})
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	// Claude sends "body" not "text" — this is the bug.
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "attach_section",
+		"id":     "TSK-1",
+		"name":   "context",
+		"body":   "This content should be stored, not silently dropped.",
+	})
+	if !strings.Contains(text, "section \"context\" added") {
+		t.Errorf("attach with body field should succeed: %s", text)
+	}
+
+	// Verify content is actually persisted.
+	art, _ := s.Get(ctx, "TSK-1")
+	found := false
+	for _, sec := range art.Sections {
+		if sec.Name == "context" {
+			if sec.Text == "" {
+				t.Error("SCR-BUG-22: section created but body content silently dropped")
+			}
+			if sec.Text != "This content should be stored, not silently dropped." {
+				t.Errorf("section text = %q", sec.Text)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Error("section 'context' not found in artifact")
+	}
+}
+
+func TestBatchAttachSections_BodyFieldAlias(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+	s.Put(ctx, &parchment.Artifact{ID: "TSK-2", Kind: "task", Scope: "test", Status: "draft", Title: "Test2"})
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	// Batch with "body" field instead of "text".
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "attach_section",
+		"id":     "TSK-2",
+		"sections": []any{
+			map[string]any{"name": "problem", "body": "Problem statement via body field"},
+			map[string]any{"name": "fix", "body": "Fix description via body field"},
+		},
+	})
+	if !strings.Contains(text, "2 sections") {
+		t.Errorf("batch attach with body field should succeed: %s", text)
+	}
+
+	art, _ := s.Get(ctx, "TSK-2")
+	for _, sec := range art.Sections {
+		if sec.Text == "" {
+			t.Errorf("SCR-BUG-22: batch section %q created but body content dropped", sec.Name)
+		}
+	}
+}
+
 // --- SCR-TSK-14: Batch create ---
 
 func TestBatchCreate(t *testing.T) {
