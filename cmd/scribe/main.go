@@ -1374,7 +1374,14 @@ func serveCmd() *cobra.Command {
 					}()
 				}
 
-				httpSrv := &http.Server{Addr: a, Handler: handler}
+				mux := http.NewServeMux()
+				mux.HandleFunc("GET /version", func(w http.ResponseWriter, _ *http.Request) {
+					w.Header().Set("Content-Type", "application/json")
+					fmt.Fprintf(w, `{"version":%q}`, Version)
+				})
+				mux.Handle("/", handler)
+
+				httpSrv := &http.Server{Addr: a, Handler: mux, ReadHeaderTimeout: 10 * time.Second} //nolint:mnd // standard timeout
 				go func() {
 					<-ctx.Done()
 					slog.Info("shutdown signal received, draining connections")
