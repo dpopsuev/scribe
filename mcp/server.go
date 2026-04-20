@@ -246,7 +246,7 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 			Priority:  in.Priority,
 			DependsOn: in.DependsOn, Labels: in.Labels, Prefix: in.Prefix,
 			Links: in.Links, Extra: in.Extra, CreatedAt: in.CreatedAt,
-			Sections: sections, SkipHooks: in.SkipHooks,
+			Sections: sections, Patch: in.Patch, SkipHooks: in.SkipHooks,
 		})
 	case "batch_create":
 		return h.handleBatchCreate(ctx, in)
@@ -357,7 +357,7 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 			Kind: in.Kind, Title: in.Title, Scope: in.Scope,
 			Goal: in.Goal, Parent: in.Parent, Status: in.Status,
 			Priority: in.Priority, Labels: in.Labels,
-			Links: in.Links, Sections: sections,
+			Links: in.Links, Sections: sections, Patch: in.Patch,
 		})
 		if err != nil {
 			return nil, nil, err
