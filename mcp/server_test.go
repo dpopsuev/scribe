@@ -430,6 +430,174 @@ func TestTemplate_MCPCreateWithAllSections(t *testing.T) {
 	}
 }
 
+// --- SCR-TSK-265: Section content round-trip ---
+
+func TestSectionRoundTrip_SectionsArray(t *testing.T) {
+	s := openStore(t)
+	createMCPTemplate(t, s)
+
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	createText := callTool(t, cs, "artifact", map[string]any{
+		"action": "create",
+		"kind":   "spec",
+		"title":  "Round Trip Spec",
+		"scope":  "test",
+		"sections": []map[string]string{
+			{"name": "context", "text": "Background info here"},
+			{"name": "checklist", "text": "Step 1\nStep 2\nStep 3"},
+			{"name": "acceptance", "text": "Given X\nWhen Y\nThen Z"},
+		},
+	})
+
+	// Extract artifact ID from create response
+	id := extractID(t, createText)
+
+	for _, tc := range []struct {
+		section, want string
+	}{
+		{"context", "Background info here"},
+		{"checklist", "Step 1\nStep 2\nStep 3"},
+		{"acceptance", "Given X\nWhen Y\nThen Z"},
+	} {
+		got := callTool(t, cs, "artifact", map[string]any{
+			"action": "get_section",
+			"id":     id,
+			"name":   tc.section,
+		})
+		if got != tc.want {
+			t.Errorf("section %q: got %q, want %q", tc.section, got, tc.want)
+		}
+	}
+}
+
+func TestSectionRoundTrip_PatchMap(t *testing.T) {
+	s := openStore(t)
+	createMCPTemplate(t, s)
+
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	createText := callTool(t, cs, "artifact", map[string]any{
+		"action": "create",
+		"kind":   "spec",
+		"title":  "Patch Map Spec",
+		"scope":  "test",
+		"patch": map[string]string{
+			"context":    "Patch context content",
+			"checklist":  "Patch checklist content",
+			"acceptance": "Patch acceptance content",
+		},
+	})
+
+	id := extractID(t, createText)
+
+	for _, tc := range []struct {
+		section, want string
+	}{
+		{"context", "Patch context content"},
+		{"checklist", "Patch checklist content"},
+		{"acceptance", "Patch acceptance content"},
+	} {
+		got := callTool(t, cs, "artifact", map[string]any{
+			"action": "get_section",
+			"id":     id,
+			"name":   tc.section,
+		})
+		if got != tc.want {
+			t.Errorf("section %q: got %q, want %q", tc.section, got, tc.want)
+		}
+	}
+}
+
+func TestSectionRoundTrip_MixedSectionsAndPatch(t *testing.T) {
+	s := openStore(t)
+	createMCPTemplate(t, s)
+
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	createText := callTool(t, cs, "artifact", map[string]any{
+		"action": "create",
+		"kind":   "spec",
+		"title":  "Mixed Spec",
+		"scope":  "test",
+		"sections": []map[string]string{
+			{"name": "context", "text": "Sections array context"},
+		},
+		"patch": map[string]string{
+			"checklist":  "Patch checklist",
+			"acceptance": "Patch acceptance",
+		},
+	})
+
+	id := extractID(t, createText)
+
+	for _, tc := range []struct {
+		section, want string
+	}{
+		{"context", "Sections array context"},
+		{"checklist", "Patch checklist"},
+		{"acceptance", "Patch acceptance"},
+	} {
+		got := callTool(t, cs, "artifact", map[string]any{
+			"action": "get_section",
+			"id":     id,
+			"name":   tc.section,
+		})
+		if got != tc.want {
+			t.Errorf("section %q: got %q, want %q", tc.section, got, tc.want)
+		}
+	}
+}
+
+func TestSectionRoundTrip_MarkdownFidelity(t *testing.T) {
+	s := openStore(t)
+
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	mdContent := "# Header\n\n```go\nfunc main() {\n\tfmt.Println(\"hello\")\n}\n```\n\n- bullet 1\n- bullet 2"
+
+	createText := callTool(t, cs, "artifact", map[string]any{
+		"action": "create",
+		"kind":   "task",
+		"title":  "Markdown Fidelity Task",
+		"scope":  "test",
+		"sections": []map[string]string{
+			{"name": "notes", "text": mdContent},
+		},
+	})
+
+	id := extractID(t, createText)
+
+	got := callTool(t, cs, "artifact", map[string]any{
+		"action": "get_section",
+		"id":     id,
+		"name":   "notes",
+	})
+	if got != mdContent {
+		t.Errorf("markdown fidelity lost:\ngot:  %q\nwant: %q", got, mdContent)
+	}
+}
+
+func extractID(t *testing.T, createOutput string) string {
+	t.Helper()
+	// Format: "created SCR-XXX-123: Title [kind|status]"
+	parts := strings.Fields(createOutput)
+	for i, p := range parts {
+		if p == "created" && i+1 < len(parts) {
+			id := strings.TrimSuffix(parts[i+1], ":")
+			if id != "" {
+				return id
+			}
+		}
+	}
+	t.Fatalf("could not extract artifact ID from: %s", createOutput)
+	return ""
+}
+
 func TestTemplate_MCPCreateWithPartialSections(t *testing.T) {
 	s := openStore(t)
 	createMCPTemplate(t, s)
