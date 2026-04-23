@@ -582,6 +582,43 @@ func TestSectionRoundTrip_MarkdownFidelity(t *testing.T) {
 	}
 }
 
+// SCR-BUG-36: body alias missing on create sections parser
+func TestSectionRoundTrip_BodyAlias(t *testing.T) {
+	s := openStore(t)
+
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	createText := callTool(t, cs, "artifact", map[string]any{
+		"action": "create",
+		"kind":   "task",
+		"title":  "Body Alias Task",
+		"scope":  "test",
+		"sections": []map[string]string{
+			{"name": "notes", "body": "content via body field"},
+			{"name": "context", "text": "content via text field"},
+		},
+	})
+
+	id := extractID(t, createText)
+
+	for _, tc := range []struct {
+		section, want string
+	}{
+		{"notes", "content via body field"},
+		{"context", "content via text field"},
+	} {
+		got := callTool(t, cs, "artifact", map[string]any{
+			"action": "get_section",
+			"id":     id,
+			"name":   tc.section,
+		})
+		if got != tc.want {
+			t.Errorf("section %q: got %q, want %q", tc.section, got, tc.want)
+		}
+	}
+}
+
 func extractID(t *testing.T, createOutput string) string {
 	t.Helper()
 	// Format: "created SCR-XXX-123: Title [kind|status]"
