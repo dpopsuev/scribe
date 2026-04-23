@@ -235,7 +235,10 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		var sections []parchment.Section
 		for _, sec := range in.Sections {
 			if name, ok := sec["name"]; ok {
-				text := sec["text"] // empty string if not present
+				text := sec["text"]
+				if text == "" {
+					text = sec["body"]
+				}
 				sections = append(sections, parchment.Section{Name: name, Text: text})
 			}
 		}
