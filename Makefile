@@ -1,4 +1,4 @@
-.PHONY: build build-image push-image run restart version release fmt vet lint lint-new test preflight install-hooks
+.PHONY: build build-image push-image run restart deploy version release fmt vet lint lint-new test preflight install-hooks
 
 VERSION ?= $(shell git describe --tags --always --dirty)
 
@@ -7,6 +7,7 @@ version:
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.Version=$(VERSION)" -o bin/scribe ./cmd/scribe
+	go install -ldflags="-s -w -X main.Version=$(VERSION)" ./cmd/scribe
 
 build-image:
 	podman build --build-arg VERSION=$(VERSION) -t quay.io/dpopsuev/scribe:$(VERSION) -t quay.io/dpopsuev/scribe:latest .
@@ -25,6 +26,8 @@ run:
 	@sleep 1 && podman logs scribe 2>&1 | tail -3
 
 restart: build-image run
+
+deploy: build-image run
 
 fmt:
 	go fmt ./...
