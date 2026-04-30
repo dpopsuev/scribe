@@ -234,7 +234,11 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		// Convert MCP sections format to parchment.Section
 		var sections []parchment.Section
 		for _, sec := range in.Sections {
-			if name, ok := sec["name"]; ok {
+			name := sec["name"]
+			if name == "" {
+				name = sec["slug"]
+			}
+			if name != "" {
 				text := sec["text"]
 				if text == "" {
 					text = sec["body"]
@@ -307,8 +311,12 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		}
 		return h.handleBatchUpdate(ctx, in, ids)
 	case "archive":
+		archiveIDs := in.IDs
+		if len(archiveIDs) == 0 && in.ID != "" {
+			archiveIDs = []string{in.ID}
+		}
 		return h.handleArchive(ctx, req, archiveInput{
-			IDs: in.IDs, Cascade: in.Cascade, Scope: in.Scope,
+			IDs: archiveIDs, Cascade: in.Cascade, Scope: in.Scope,
 			Kind: in.Kind, Status: in.Status, IDPrefix: in.IDPrefix,
 			ExcludeKind: in.ExcludeKind, DryRun: in.DryRun,
 		})
@@ -352,8 +360,16 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		}
 		var sections []parchment.Section
 		for _, sec := range in.Sections {
-			if name, ok := sec["name"]; ok {
-				sections = append(sections, parchment.Section{Name: name, Text: sec["text"]})
+			name := sec["name"]
+			if name == "" {
+				name = sec["slug"]
+			}
+			if name != "" {
+				text := sec["text"]
+				if text == "" {
+					text = sec["body"]
+				}
+				sections = append(sections, parchment.Section{Name: name, Text: text})
 			}
 		}
 		art, err := h.proto.PromoteStash(ctx, in.StashID, parchment.CreateInput{
@@ -1013,9 +1029,12 @@ func (h *handler) handleBatchAttachSections(ctx context.Context, id string, sect
 	}
 	var added, replaced int
 	for _, sec := range sections {
-		name, ok := sec["name"]
-		if !ok || name == "" {
-			return nil, nil, fmt.Errorf("each section must have a 'name' field")
+		name := sec["name"]
+		if name == "" {
+			name = sec["slug"]
+		}
+		if name == "" {
+			return nil, nil, fmt.Errorf("%w: each section must have a 'name' or 'slug' field", parchment.ErrMissingRequiredFields)
 		}
 		t := sec["text"]
 		if t == "" {
@@ -1342,6 +1361,25 @@ func (h *handler) handleArchive(ctx context.Context, _ *sdkmcp.CallToolRequest, 
 			return text(fmt.Sprintf("dry run: would archive %d artifacts: %v", res.Count, res.AffectedIDs)), nil, nil
 		}
 		return text(fmt.Sprintf("archived %d artifacts", res.Count)), nil, nil
+	}
+	if in.DryRun {
+		var affected []string
+		var collectDescendants func(id string)
+		collectDescendants = func(id string) {
+			affected = append(affected, id)
+			if in.Cascade {
+				children, _ := h.proto.Store().Children(ctx, id)
+				for _, ch := range children {
+					if !parchment.DefaultSchema().IsReadonly(ch.Status) {
+						collectDescendants(ch.ID)
+					}
+				}
+			}
+		}
+		for _, id := range in.IDs {
+			collectDescendants(id)
+		}
+		return text(fmt.Sprintf("dry run: would archive %d artifacts: %v", len(affected), affected)), nil, nil
 	}
 	results, err := h.proto.ArchiveArtifact(ctx, in.IDs, in.Cascade)
 	if err != nil {
