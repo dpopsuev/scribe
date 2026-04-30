@@ -1720,3 +1720,700 @@ func TestMCPSchema_ObjectTypes(t *testing.T) {
 		t.Errorf("links object failed: %s", text)
 	}
 }
+
+// --- PRC-BUG-10: archive with singular "id" + scope takes bulk path, archives entire scope ---
+
+func TestArchive_SingularIDWithScopeDoesNotBulk(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+
+	// Create 3 artifacts in same scope: a goal and two unrelated tasks
+	for _, a := range []*parchment.Artifact{
+		{ID: "GOL-1", Kind: "goal", Scope: "test", Status: "active", Title: "Target Goal"},
+		{ID: "TASK-1", Kind: "task", Scope: "test", Status: "active", Title: "Unrelated Task A"},
+		{ID: "TASK-2", Kind: "task", Scope: "test", Status: "active", Title: "Unrelated Task B"},
+	} {
+		if err := s.Put(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	// Archive with singular "id" (not "ids") + scope — should only archive GOL-1
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "archive",
+		"id":     "GOL-1",
+		"scope":  "test",
+	})
+
+	// BUG: without fix, this takes the bulk path and archives ALL 3 artifacts in scope
+	if strings.Contains(text, "archived 3") {
+		t.Fatalf("singular id with scope should not bulk-archive entire scope: %s", text)
+	}
+
+	// Verify only GOL-1 is archived
+	goal, _ := s.Get(ctx, "GOL-1")
+	task1, _ := s.Get(ctx, "TASK-1")
+	task2, _ := s.Get(ctx, "TASK-2")
+
+	if goal.Status != "archived" {
+		t.Errorf("GOL-1 should be archived, got %s", goal.Status)
+	}
+	if task1.Status != "active" {
+		t.Errorf("TASK-1 should remain active, got %s", task1.Status)
+	}
+	if task2.Status != "active" {
+		t.Errorf("TASK-2 should remain active, got %s", task2.Status)
+	}
+}
+
+// --- PRC-BUG-12: archive single ID should support dry_run ---
+
+func TestArchive_SingleIDDryRun(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+
+	if err := s.Put(ctx, &parchment.Artifact{
+		ID: "TASK-1", Kind: "task", Scope: "test", Status: "active", Title: "Dry Run Target",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	// Archive with dry_run — should preview, not commit
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action":  "archive",
+		"id":      "TASK-1",
+		"dry_run": true,
+	})
+
+	// Should mention dry run and the artifact
+	if !strings.Contains(text, "dry") && !strings.Contains(text, "would") {
+		t.Errorf("dry_run should preview, got: %s", text)
+	}
+
+	// Artifact should NOT be archived
+	art, _ := s.Get(ctx, "TASK-1")
+	if art.Status == "archived" {
+		t.Fatal("dry_run should not actually archive the artifact")
+	}
+}
+
+// --- PRC-BUG-12: cascade archive should support dry_run showing full subtree ---
+
+func TestArchive_CascadeDryRun(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+
+	// Create parent + 3 children
+	if err := s.Put(ctx, &parchment.Artifact{
+		ID: "GOL-1", Kind: "goal", Scope: "test", Status: "active", Title: "Parent Goal",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= 3; i++ {
+		id := fmt.Sprintf("TASK-%d", i)
+		if err := s.Put(ctx, &parchment.Artifact{
+			ID: id, Kind: "task", Scope: "test", Status: "active", Title: fmt.Sprintf("Child %d", i), Parent: "GOL-1",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.AddEdge(ctx, parchment.Edge{From: "GOL-1", To: id, Relation: parchment.RelParentOf}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action":  "archive",
+		"id":      "GOL-1",
+		"cascade": true,
+		"dry_run": true,
+	})
+
+	// Should mention all 4 artifacts
+	if !strings.Contains(text, "dry") && !strings.Contains(text, "would") {
+		t.Errorf("cascade dry_run should preview, got: %s", text)
+	}
+
+	// Nothing should be archived
+	for _, id := range []string{"GOL-1", "TASK-1", "TASK-2", "TASK-3"} {
+		art, _ := s.Get(ctx, id)
+		if art.Status == "archived" {
+			t.Errorf("%s should not be archived during dry_run", id)
+		}
+	}
+}
+
+// --- SCR-BUG-33: template conformance bypassed when sections attached after satisfies link ---
+
+func TestTemplate_SectionsAttachedAfterCreationValidatedOnLink(t *testing.T) {
+	s := openStore(t)
+	createMCPTemplate(t, s)
+
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	// Create spec WITHOUT template link and WITHOUT sections (should succeed)
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "create",
+		"kind":   "spec",
+		"title":  "Bare Spec",
+		"scope":  "test",
+	})
+	id := extractID(t, text)
+
+	// Try to add satisfies link WITHOUT having sections — should fail
+	ctx := context.Background()
+	linkResult, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "graph",
+		Arguments: map[string]any{
+			"action":   "link",
+			"id":       id,
+			"relation": "satisfies",
+			"targets":  []string{"SCR-TPL-1"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if !linkResult.IsError {
+		t.Fatal("adding satisfies link without required sections should fail template conformance")
+	}
+
+	// Now attach sections
+	for _, sec := range []struct{ name, text string }{
+		{"context", "Background"},
+		{"checklist", "Steps"},
+		{"acceptance", "Given/When/Then"},
+	} {
+		callTool(t, cs, "artifact", map[string]any{
+			"action": "attach_section",
+			"id":     id,
+			"name":   sec.name,
+			"text":   sec.text,
+		})
+	}
+
+	// Now adding satisfies link should succeed
+	linkResult2, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "graph",
+		Arguments: map[string]any{
+			"action":   "link",
+			"id":       id,
+			"relation": "satisfies",
+			"targets":  []string{"SCR-TPL-1"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if linkResult2.IsError {
+		var errMsg string
+		for _, c := range linkResult2.Content {
+			if tc, ok := c.(*sdkmcp.TextContent); ok {
+				errMsg = tc.Text
+				break
+			}
+		}
+		t.Fatalf("linking with all sections present should succeed: %s", errMsg)
+	}
+}
+
+// SCR-BUG-37: sections with "slug" key silently dropped — template conformance fails
+// even when all required sections are provided via slug+body instead of name+text.
+func TestTemplate_MCPCreateWithSlugAlias(t *testing.T) {
+	s := openStore(t)
+	createMCPTemplate(t, s)
+
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	// LLMs commonly send "slug" instead of "name" and "body" instead of "text".
+	// This should succeed but currently fails with "missing sections".
+	ctx := context.Background()
+	result, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "artifact",
+		Arguments: map[string]any{
+			"action": "create",
+			"kind":   "spec",
+			"title":  "Slug Alias Spec",
+			"scope":  "test",
+			"links":  map[string]any{"satisfies": []string{"SCR-TPL-1"}},
+			"sections": []map[string]string{
+				{"slug": "context", "body": "Background info"},
+				{"slug": "checklist", "body": "Steps to follow"},
+				{"slug": "acceptance", "body": "Acceptance criteria"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if result.IsError {
+		var errMsg string
+		for _, c := range result.Content {
+			if tc, ok := c.(*sdkmcp.TextContent); ok {
+				errMsg = tc.Text
+				break
+			}
+		}
+		t.Fatalf("sections with slug+body aliases should be accepted, but got error: %s", errMsg)
+	}
+
+	var text string
+	for _, c := range result.Content {
+		if tc, ok := c.(*sdkmcp.TextContent); ok {
+			text = tc.Text
+			break
+		}
+	}
+	if !strings.Contains(text, "Slug Alias Spec") {
+		t.Errorf("artifact should be created successfully, got: %s", text)
+	}
+
+	// Verify sections were actually stored
+	id := extractID(t, text)
+	for _, sec := range []struct{ name, want string }{
+		{"context", "Background info"},
+		{"checklist", "Steps to follow"},
+		{"acceptance", "Acceptance criteria"},
+	} {
+		got := callTool(t, cs, "artifact", map[string]any{
+			"action": "get_section",
+			"id":     id,
+			"name":   sec.name,
+		})
+		if got != sec.want {
+			t.Errorf("section %q: got %q, want %q", sec.name, got, sec.want)
+		}
+	}
+}
+
+// SCR-BUG-37: promote_stash also ignores slug alias and body alias.
+func TestTemplate_PromoteStashWithSlugAlias(t *testing.T) {
+	s := openStore(t)
+	createMCPTemplate(t, s)
+
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	// First create without sections but with template link — will fail and stash
+	ctx := context.Background()
+	result, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "artifact",
+		Arguments: map[string]any{
+			"action": "create",
+			"kind":   "spec",
+			"title":  "Stash Test Spec",
+			"scope":  "test",
+			"links":  map[string]any{"satisfies": []string{"SCR-TPL-1"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected create to fail without sections when template is linked")
+	}
+
+	// Extract stash_id from error message
+	var errMsg string
+	for _, c := range result.Content {
+		if tc, ok := c.(*sdkmcp.TextContent); ok {
+			errMsg = tc.Text
+			break
+		}
+	}
+	stashIdx := strings.Index(errMsg, "stash_id=")
+	if stashIdx < 0 {
+		t.Fatalf("expected stash_id in error, got: %s", errMsg)
+	}
+	stashID := errMsg[stashIdx+len("stash_id="):]
+	stashID = strings.TrimSuffix(stashID, "]")
+
+	// Now promote with slug+body — should work
+	promoteResult, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "artifact",
+		Arguments: map[string]any{
+			"action":   "promote_stash",
+			"stash_id": stashID,
+			"sections": []map[string]string{
+				{"slug": "context", "body": "Background via promote"},
+				{"slug": "checklist", "body": "Steps via promote"},
+				{"slug": "acceptance", "body": "Criteria via promote"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if promoteResult.IsError {
+		var promoteErr string
+		for _, c := range promoteResult.Content {
+			if tc, ok := c.(*sdkmcp.TextContent); ok {
+				promoteErr = tc.Text
+				break
+			}
+		}
+		t.Fatalf("promote_stash with slug+body should succeed, got: %s", promoteErr)
+	}
+}
+
+// SCR-BUG-37: Mixed slug and name in the same sections array.
+func TestSectionAlias_MixedSlugAndName(t *testing.T) {
+	s := openStore(t)
+	createMCPTemplate(t, s)
+
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "create",
+		"kind":   "spec",
+		"title":  "Mixed Keys Spec",
+		"scope":  "test",
+		"links":  map[string]any{"satisfies": []string{"SCR-TPL-1"}},
+		"sections": []map[string]string{
+			{"name": "context", "text": "via name+text"},
+			{"slug": "checklist", "body": "via slug+body"},
+			{"name": "acceptance", "body": "via name+body"},
+		},
+	})
+
+	if strings.Contains(text, "does not conform") {
+		t.Fatalf("mixed slug/name sections should all be accepted: %s", text)
+	}
+
+	id := extractID(t, text)
+	for _, tc := range []struct{ name, want string }{
+		{"context", "via name+text"},
+		{"checklist", "via slug+body"},
+		{"acceptance", "via name+body"},
+	} {
+		got := callTool(t, cs, "artifact", map[string]any{
+			"action": "get_section", "id": id, "name": tc.name,
+		})
+		if got != tc.want {
+			t.Errorf("section %q: got %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// SCR-BUG-37: When both slug AND name are present, name wins (canonical).
+func TestSectionAlias_BothSlugAndNamePresent(t *testing.T) {
+	s := openStore(t)
+
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "create",
+		"kind":   "task",
+		"title":  "Both Keys Task",
+		"scope":  "test",
+		"sections": []map[string]string{
+			{"name": "winner", "slug": "loser", "text": "name should win"},
+		},
+	})
+
+	id := extractID(t, text)
+	got := callTool(t, cs, "artifact", map[string]any{
+		"action": "get_section", "id": id, "name": "winner",
+	})
+	if got != "name should win" {
+		t.Errorf("name should take precedence over slug, got section 'winner' = %q", got)
+	}
+
+	// "loser" should NOT exist as a section
+	loser := callTool(t, cs, "artifact", map[string]any{
+		"action": "get_section", "id": id, "name": "loser",
+	})
+	if loser == "name should win" {
+		t.Error("slug value should not create a separate section when name is present")
+	}
+}
+
+// SCR-BUG-37: When both text AND body are present, text wins (canonical).
+func TestSectionAlias_BothTextAndBodyPresent(t *testing.T) {
+	s := openStore(t)
+
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "create",
+		"kind":   "task",
+		"title":  "Both Text Task",
+		"scope":  "test",
+		"sections": []map[string]string{
+			{"name": "notes", "text": "text wins", "body": "body loses"},
+		},
+	})
+
+	id := extractID(t, text)
+	got := callTool(t, cs, "artifact", map[string]any{
+		"action": "get_section", "id": id, "name": "notes",
+	})
+	if got != "text wins" {
+		t.Errorf("text should take precedence over body, got %q", got)
+	}
+}
+
+// SCR-BUG-37: Sections with neither name nor slug are silently skipped.
+func TestSectionAlias_NoNameNoSlug(t *testing.T) {
+	s := openStore(t)
+	createMCPTemplate(t, s)
+
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	ctx := context.Background()
+	result, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "artifact",
+		Arguments: map[string]any{
+			"action": "create",
+			"kind":   "spec",
+			"title":  "Orphan Sections Spec",
+			"scope":  "test",
+			"links":  map[string]any{"satisfies": []string{"SCR-TPL-1"}},
+			"sections": []map[string]string{
+				{"body": "orphan with no name or slug"},
+				{"text": "another orphan"},
+				{"slug": "context", "body": "this one is valid"},
+				{"slug": "checklist", "body": "also valid"},
+				{"slug": "acceptance", "body": "also valid"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	// Should succeed — the 3 valid sections satisfy the template, orphans are dropped
+	if result.IsError {
+		var errMsg string
+		for _, c := range result.Content {
+			if tc, ok := c.(*sdkmcp.TextContent); ok {
+				errMsg = tc.Text
+				break
+			}
+		}
+		t.Fatalf("valid sections should pass template despite orphans: %s", errMsg)
+	}
+}
+
+// SCR-BUG-37: Empty slug string is treated as missing.
+func TestSectionAlias_EmptySlug(t *testing.T) {
+	s := openStore(t)
+
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "create",
+		"kind":   "task",
+		"title":  "Empty Slug Task",
+		"scope":  "test",
+		"sections": []map[string]string{
+			{"slug": "", "body": "should be skipped"},
+			{"name": "", "text": "also skipped"},
+			{"slug": "valid", "body": "this one counts"},
+		},
+	})
+
+	id := extractID(t, text)
+	got := callTool(t, cs, "artifact", map[string]any{
+		"action": "get_section", "id": id, "name": "valid",
+	})
+	if got != "this one counts" {
+		t.Errorf("valid section should be stored, got %q", got)
+	}
+}
+
+// SCR-BUG-37: Batch attach_section with slug aliases.
+func TestSectionAlias_BatchAttachWithSlug(t *testing.T) {
+	s := openStore(t)
+
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	// Create artifact first
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "create",
+		"kind":   "task",
+		"title":  "Batch Slug Task",
+		"scope":  "test",
+	})
+	id := extractID(t, text)
+
+	// Batch attach using slug+body
+	callTool(t, cs, "artifact", map[string]any{
+		"action": "attach_section",
+		"id":     id,
+		"sections": []map[string]string{
+			{"slug": "design", "body": "design via slug"},
+			{"slug": "notes", "body": "notes via slug"},
+			{"name": "context", "text": "context via name"},
+		},
+	})
+
+	for _, tc := range []struct{ name, want string }{
+		{"design", "design via slug"},
+		{"notes", "notes via slug"},
+		{"context", "context via name"},
+	} {
+		got := callTool(t, cs, "artifact", map[string]any{
+			"action": "get_section", "id": id, "name": tc.name,
+		})
+		if got != tc.want {
+			t.Errorf("batch section %q: got %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// SCR-BUG-37: Stash created with name+text, promoted with slug+body additions.
+func TestSectionAlias_CrossFormatStashPromote(t *testing.T) {
+	s := openStore(t)
+	createMCPTemplate(t, s)
+
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	// Create with only 1 section using name+text — will fail template (needs 3)
+	ctx := context.Background()
+	result, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "artifact",
+		Arguments: map[string]any{
+			"action": "create",
+			"kind":   "spec",
+			"title":  "Cross Format Spec",
+			"scope":  "test",
+			"links":  map[string]any{"satisfies": []string{"SCR-TPL-1"}},
+			"sections": []map[string]string{
+				{"name": "context", "text": "original context"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected partial sections to fail template conformance")
+	}
+
+	var errMsg string
+	for _, c := range result.Content {
+		if tc, ok := c.(*sdkmcp.TextContent); ok {
+			errMsg = tc.Text
+			break
+		}
+	}
+	stashIdx := strings.Index(errMsg, "stash_id=")
+	if stashIdx < 0 {
+		t.Fatalf("expected stash_id in error: %s", errMsg)
+	}
+	stashID := errMsg[stashIdx+len("stash_id="):]
+	stashID = strings.TrimSuffix(stashID, "]")
+
+	// Promote with the missing sections using slug+body format
+	promoteResult, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "artifact",
+		Arguments: map[string]any{
+			"action":   "promote_stash",
+			"stash_id": stashID,
+			"sections": []map[string]string{
+				{"slug": "checklist", "body": "promoted checklist"},
+				{"slug": "acceptance", "body": "promoted acceptance"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if promoteResult.IsError {
+		var promoteErr string
+		for _, c := range promoteResult.Content {
+			if tc, ok := c.(*sdkmcp.TextContent); ok {
+				promoteErr = tc.Text
+				break
+			}
+		}
+		t.Fatalf("cross-format promote should merge name+slug sections: %s", promoteErr)
+	}
+}
+
+// SCR-BUG-37: Patch map combined with slug-keyed sections — both paths contribute.
+func TestSectionAlias_PatchAndSlugCombined(t *testing.T) {
+	s := openStore(t)
+	createMCPTemplate(t, s)
+
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "create",
+		"kind":   "spec",
+		"title":  "Patch Plus Slug Spec",
+		"scope":  "test",
+		"links":  map[string]any{"satisfies": []string{"SCR-TPL-1"}},
+		"sections": []map[string]string{
+			{"slug": "context", "body": "context via slug"},
+		},
+		"patch": map[string]string{
+			"checklist":  "checklist via patch",
+			"acceptance": "acceptance via patch",
+		},
+	})
+
+	if strings.Contains(text, "does not conform") {
+		t.Fatalf("slug sections + patch should satisfy template together: %s", text)
+	}
+
+	id := extractID(t, text)
+	for _, tc := range []struct{ name, want string }{
+		{"context", "context via slug"},
+		{"checklist", "checklist via patch"},
+		{"acceptance", "acceptance via patch"},
+	} {
+		got := callTool(t, cs, "artifact", map[string]any{
+			"action": "get_section", "id": id, "name": tc.name,
+		})
+		if got != tc.want {
+			t.Errorf("section %q: got %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// SCR-BUG-37: Duplicate slugs in same request — last writer wins.
+func TestSectionAlias_DuplicateSlug(t *testing.T) {
+	s := openStore(t)
+
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "create",
+		"kind":   "task",
+		"title":  "Duplicate Slug Task",
+		"scope":  "test",
+		"sections": []map[string]string{
+			{"slug": "notes", "body": "first"},
+			{"slug": "notes", "body": "second"},
+		},
+	})
+
+	id := extractID(t, text)
+	got := callTool(t, cs, "artifact", map[string]any{
+		"action": "get_section", "id": id, "name": "notes",
+	})
+	// Should have some value — either first or second, but not crash or empty
+	if got == "" {
+		t.Error("duplicate slug should still produce a stored section, got empty")
+	}
+}
