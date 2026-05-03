@@ -12,6 +12,7 @@ import (
 	"github.com/dpopsuev/battery/server"
 	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/directive"
+	"github.com/google/jsonschema-go/jsonschema"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -59,7 +60,7 @@ func NewServer(s parchment.Store, homeScopes, vocab []string, idc parchment.Prot
 		Keywords:   []string{"create", "get", "list", "set", "archive", "artifact", "section"},
 		Categories: []string{"crud"},
 	}
-	batt.Tool(artifactMeta, adaptTypedHandler(h.handleArtifact))
+	batt.ToolWithSchema(artifactMeta, schemaFor[artifactInput](), adaptTypedHandler(h.handleArtifact))
 	reg.Register(directive.ToolMeta{Name: artifactMeta.Name, Description: artifactMeta.Description, Keywords: artifactMeta.Keywords, Categories: artifactMeta.Categories})
 
 	graphMeta := server.ToolMeta{
@@ -75,7 +76,7 @@ func NewServer(s parchment.Store, homeScopes, vocab []string, idc parchment.Prot
 		Keywords:   []string{"tree", "briefing", "topo_sort", "link", "unlink", "bulk_link", "move", "replace", "relation", "edge", "graph"},
 		Categories: []string{"query", "graph"},
 	}
-	batt.Tool(graphMeta, adaptTypedHandler(h.handleGraph))
+	batt.ToolWithSchema(graphMeta, schemaFor[graphInput](), adaptTypedHandler(h.handleGraph))
 	reg.Register(directive.ToolMeta{Name: graphMeta.Name, Description: graphMeta.Description, Keywords: graphMeta.Keywords, Categories: graphMeta.Categories})
 
 	adminMeta := server.ToolMeta{
@@ -87,7 +88,7 @@ func NewServer(s parchment.Store, homeScopes, vocab []string, idc parchment.Prot
 		Keywords:   []string{"motd", "dashboard", "goal", "vacuum", "detect", "orphan"},
 		Categories: []string{"lifecycle", "maintenance"},
 	}
-	batt.Tool(adminMeta, adaptTypedHandler(h.handleAdmin))
+	batt.ToolWithSchema(adminMeta, schemaFor[adminInput](), adaptTypedHandler(h.handleAdmin))
 	reg.Register(directive.ToolMeta{Name: adminMeta.Name, Description: adminMeta.Description, Keywords: adminMeta.Keywords, Categories: adminMeta.Categories})
 
 	// Note: admin tool handles both read and write actions.
@@ -2067,6 +2068,19 @@ func text(s string) *sdkmcp.CallToolResult {
 }
 
 // adaptTypedHandler bridges a typed Scribe handler into a server.Handler.
+// schemaFor derives a JSON Schema from Go struct type T using jsonschema tags.
+func schemaFor[T any]() json.RawMessage {
+	s, err := jsonschema.For[T](nil)
+	if err != nil {
+		panic("scribe: schema for input: " + err.Error())
+	}
+	data, err := json.Marshal(s)
+	if err != nil {
+		panic("scribe: marshal schema: " + err.Error())
+	}
+	return data
+}
+
 // The typed handler takes a concrete input struct and returns
 // (*CallToolResult, Out, error). This adapter unmarshals the raw JSON input,
 // calls the handler, and marshals the Out value when CallToolResult is nil
