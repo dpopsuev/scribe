@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -116,7 +117,7 @@ type handler struct {
 // --- consolidated input types ---
 
 type artifactInput struct {
-	Action string `json:"action" jsonschema:"required,create | batch_create | clone | get | list | set | update | archive | de-archive | attach_section | get_section | detach_section | diff | promote_stash"`
+	Action string `json:"action" jsonschema:"required,create | batch_create | clone | get | list | search | set | update | archive | de-archive | attach_section | get_section | detach_section | diff | promote_stash"`
 
 	ID    string `json:"id,omitempty" jsonschema:"artifact ID (required for get, set, update, archive, *_section)"`
 	Kind  string `json:"kind,omitempty" jsonschema:"artifact kind such as task, spec, bug, goal, campaign"`
@@ -272,6 +273,11 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 			return h.handleGet(ctx, req, getInput{ID: ids[0], IncludeEdges: in.IncludeEdges, SectionFilter: in.SectionFilter})
 		}
 		return h.handleBulkGet(ctx, ids, in.SectionFilter)
+	case "search":
+		if in.Query == "" {
+			return nil, nil, fmt.Errorf("query is required for search action") //nolint:err113 // agent-facing hint
+		}
+		fallthrough
 	case "list":
 		li := parchment.ListInput{
 			Kind: in.Kind, Scope: in.Scope, Status: in.Status,
@@ -299,7 +305,7 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 			ids = []string{in.ID}
 		}
 		if len(ids) == 0 {
-			return nil, nil, fmt.Errorf("id or ids required for set action")
+			return nil, nil, fmt.Errorf("id is required (artifact ID) or ids (array of artifact IDs) for set action") //nolint:err113 // agent-facing hint
 		}
 		return h.handleBulkSetField(ctx, ids, in.Field, in.Value, in.Force)
 	case "update":
@@ -308,7 +314,7 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 			ids = []string{in.ID}
 		}
 		if len(ids) == 0 {
-			return nil, nil, fmt.Errorf("id or ids required for update action")
+			return nil, nil, fmt.Errorf("id is required (artifact ID) or ids (array of artifact IDs) for update action") //nolint:err113 // agent-facing hint
 		}
 		return h.handleBatchUpdate(ctx, in, ids)
 	case "archive":
@@ -410,6 +416,15 @@ func (h *handler) handleGraph(ctx context.Context, req *sdkmcp.CallToolRequest, 
 			ID: in.ID, Relation: in.Relation, Direction: in.Direction, Depth: in.Depth,
 		})
 	case "link":
+		if in.ID == "" {
+			return nil, nil, fmt.Errorf("id is required (source artifact ID) for link action") //nolint:err113 // agent-facing hint
+		}
+		if len(in.Targets) == 0 {
+			return nil, nil, fmt.Errorf("targets is required (array of target artifact IDs) for link action") //nolint:err113 // agent-facing hint
+		}
+		if in.Relation == "" {
+			return nil, nil, fmt.Errorf("relation is required (edge type: parent_of, depends_on, follows, justifies, implements, documents) for link action") //nolint:err113 // agent-facing hint
+		}
 		return h.handleLink(ctx, req, linkInput{
 			ID: in.ID, Relation: in.Relation, Targets: in.Targets,
 		})
@@ -620,6 +635,10 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 func (h *handler) handleCreate(ctx context.Context, _ *sdkmcp.CallToolRequest, in parchment.CreateInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: value semantics intentional, changing to pointer would require updating all callers
 	art, err := h.proto.CreateArtifact(ctx, in)
 	if err != nil {
+		var ce *parchment.ConformanceError
+		if errors.As(err, &ce) {
+			return nil, nil, fmt.Errorf("%s [stash_id=%s]", ce.Error(), ce.StashID) //nolint:err113 // structured stash ID
+		}
 		return nil, nil, err
 	}
 	// Lean response: id + kind + status + title + hints
