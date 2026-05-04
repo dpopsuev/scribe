@@ -2391,3 +2391,174 @@ func TestSectionAlias_DuplicateSlug(t *testing.T) {
 		t.Error("duplicate slug should still produce a stored section, got empty")
 	}
 }
+
+// --- SCR-TSK-284: Search action alias ---
+
+func TestSearch_ActionAlias(t *testing.T) {
+	s := openStore(t)
+	ctx := context.Background()
+
+	// Create 3 artifacts with different titles
+	for _, a := range []*parchment.Artifact{
+		{ID: "T-001", Kind: "task", Scope: "test", Status: "draft", Title: "Implement auth module"},
+		{ID: "T-002", Kind: "task", Scope: "test", Status: "draft", Title: "Fix database migration"},
+		{ID: "T-003", Kind: "task", Scope: "test", Status: "draft", Title: "Add logging middleware"},
+	} {
+		if err := s.Put(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	// Call action=search with query matching one title
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "search",
+		"query":  "auth",
+	})
+
+	if !strings.Contains(text, "Implement auth module") {
+		t.Errorf("search should find 'Implement auth module', got: %s", text)
+	}
+	if strings.Contains(text, "Fix database migration") {
+		t.Errorf("search should not return 'Fix database migration', got: %s", text)
+	}
+	if strings.Contains(text, "Add logging middleware") {
+		t.Errorf("search should not return 'Add logging middleware', got: %s", text)
+	}
+}
+
+func TestSearch_ActionAlias_RequiresQuery(t *testing.T) {
+	s := openStore(t)
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	ctx := context.Background()
+	result, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "artifact",
+		Arguments: map[string]any{
+			"action": "search",
+			// No query provided
+		},
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error when search action has no query")
+	}
+	var errMsg string
+	for _, c := range result.Content {
+		if tc, ok := c.(*sdkmcp.TextContent); ok {
+			errMsg = tc.Text
+			break
+		}
+	}
+	if !strings.Contains(errMsg, "query is required") {
+		t.Errorf("expected 'query is required' error, got: %s", errMsg)
+	}
+}
+
+// --- SCR-TSK-283: Error param hints ---
+
+func TestErrorMessages_ContainParamNames(t *testing.T) {
+	s := openStore(t)
+
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+	ctx := context.Background()
+
+	// Call set with no id -> assert error contains "id"
+	result, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "artifact",
+		Arguments: map[string]any{
+			"action": "set",
+			"field":  "status",
+			"value":  "active",
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for set without id")
+	}
+	setErrMsg := extractErrorText(t, result)
+	if !strings.Contains(setErrMsg, "id") {
+		t.Errorf("set error should mention 'id' param, got: %s", setErrMsg)
+	}
+
+	// Call graph link with no id -> assert error contains "id"
+	result, err = cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "graph",
+		Arguments: map[string]any{
+			"action":   "link",
+			"relation": "depends_on",
+			"targets":  []string{"T-001"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for link without id")
+	}
+	linkIDErr := extractErrorText(t, result)
+	if !strings.Contains(linkIDErr, "id") {
+		t.Errorf("link error should mention 'id' param, got: %s", linkIDErr)
+	}
+
+	// Call graph link with no targets -> assert error contains "targets"
+	result, err = cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "graph",
+		Arguments: map[string]any{
+			"action":   "link",
+			"id":       "T-001",
+			"relation": "depends_on",
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for link without targets")
+	}
+	linkTargetsErr := extractErrorText(t, result)
+	if !strings.Contains(linkTargetsErr, "targets") {
+		t.Errorf("link error should mention 'targets' param, got: %s", linkTargetsErr)
+	}
+
+	// Call graph link with no relation -> assert error contains "relation"
+	result, err = cs.CallTool(ctx, &sdkmcp.CallToolParams{
+		Name: "graph",
+		Arguments: map[string]any{
+			"action":  "link",
+			"id":      "T-001",
+			"targets": []string{"T-002"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for link without relation")
+	}
+	linkRelationErr := extractErrorText(t, result)
+	if !strings.Contains(linkRelationErr, "relation") {
+		t.Errorf("link error should mention 'relation' param, got: %s", linkRelationErr)
+	}
+}
+
+func extractErrorText(t *testing.T, result *sdkmcp.CallToolResult) string {
+	t.Helper()
+	for _, c := range result.Content {
+		if tc, ok := c.(*sdkmcp.TextContent); ok {
+			return tc.Text
+		}
+	}
+	t.Fatal("no text content in error result")
+	return ""
+}
