@@ -323,11 +323,11 @@ func createMCPTemplate(t *testing.T, s parchment.Store) {
 	t.Helper()
 	ctx := context.Background()
 	err := s.Put(ctx, &parchment.Artifact{
-		ID: "SCR-TPL-1", Kind: "template", Status: "active", Title: "Task Template", Scope: "test",
+		ID: "SCR-TPL-1", Kind: "template", Status: "active", Title: "Spec Template", Scope: "test",
 		Sections: []parchment.Section{
 			{Name: "content", Text: "full raw template markdown"},
-			{Name: "context", Text: "Background and motivation"},
-			{Name: "checklist", Text: "Ordered steps for execution"},
+			{Name: "problem", Text: "What is broken or missing"},
+			{Name: "decision", Text: "What was decided and why"},
 			{Name: "acceptance", Text: "Given/When/Then criteria"},
 		},
 	})
@@ -397,8 +397,8 @@ func TestTemplate_MCPCreateWithZeroSections(t *testing.T) {
 	if !strings.Contains(errMsg, "does not conform to template") {
 		t.Errorf("error should mention template conformance, got: %s", errMsg)
 	}
-	if !strings.Contains(errMsg, "context") {
-		t.Errorf("error should mention missing section 'context', got: %s", errMsg)
+	if !strings.Contains(errMsg, "problem") {
+		t.Errorf("error should mention missing section 'problem', got: %s", errMsg)
 	}
 }
 
@@ -416,8 +416,8 @@ func TestTemplate_MCPCreateWithAllSections(t *testing.T) {
 		"scope":  "test",
 		"links":  map[string]any{"satisfies": []string{"SCR-TPL-1"}},
 		"sections": []map[string]string{
-			{"name": "context", "text": "Background info"},
-			{"name": "checklist", "text": "Steps to follow"},
+			{"name": "problem", "text": "What is broken"},
+			{"name": "decision", "text": "What was decided"},
 			{"name": "acceptance", "text": "Acceptance criteria"},
 		},
 	})
@@ -445,8 +445,8 @@ func TestSectionRoundTrip_SectionsArray(t *testing.T) {
 		"title":  "Round Trip Spec",
 		"scope":  "test",
 		"sections": []map[string]string{
-			{"name": "context", "text": "Background info here"},
-			{"name": "checklist", "text": "Step 1\nStep 2\nStep 3"},
+			{"name": "problem", "text": "Background info here"},
+			{"name": "decision", "text": "Step 1\nStep 2\nStep 3"},
 			{"name": "acceptance", "text": "Given X\nWhen Y\nThen Z"},
 		},
 	})
@@ -457,8 +457,8 @@ func TestSectionRoundTrip_SectionsArray(t *testing.T) {
 	for _, tc := range []struct {
 		section, want string
 	}{
-		{"context", "Background info here"},
-		{"checklist", "Step 1\nStep 2\nStep 3"},
+		{"problem", "Background info here"},
+		{"decision", "Step 1\nStep 2\nStep 3"},
 		{"acceptance", "Given X\nWhen Y\nThen Z"},
 	} {
 		got := callTool(t, cs, "artifact", map[string]any{
@@ -485,8 +485,8 @@ func TestSectionRoundTrip_PatchMap(t *testing.T) {
 		"title":  "Patch Map Spec",
 		"scope":  "test",
 		"patch": map[string]string{
-			"context":    "Patch context content",
-			"checklist":  "Patch checklist content",
+			"problem":    "Patch problem content",
+			"decision":   "Patch decision content",
 			"acceptance": "Patch acceptance content",
 		},
 	})
@@ -496,8 +496,8 @@ func TestSectionRoundTrip_PatchMap(t *testing.T) {
 	for _, tc := range []struct {
 		section, want string
 	}{
-		{"context", "Patch context content"},
-		{"checklist", "Patch checklist content"},
+		{"problem", "Patch problem content"},
+		{"decision", "Patch decision content"},
 		{"acceptance", "Patch acceptance content"},
 	} {
 		got := callTool(t, cs, "artifact", map[string]any{
@@ -524,10 +524,10 @@ func TestSectionRoundTrip_MixedSectionsAndPatch(t *testing.T) {
 		"title":  "Mixed Spec",
 		"scope":  "test",
 		"sections": []map[string]string{
-			{"name": "context", "text": "Sections array context"},
+			{"name": "problem", "text": "Sections array problem"},
 		},
 		"patch": map[string]string{
-			"checklist":  "Patch checklist",
+			"decision":   "Patch decision",
 			"acceptance": "Patch acceptance",
 		},
 	})
@@ -537,8 +537,8 @@ func TestSectionRoundTrip_MixedSectionsAndPatch(t *testing.T) {
 	for _, tc := range []struct {
 		section, want string
 	}{
-		{"context", "Sections array context"},
-		{"checklist", "Patch checklist"},
+		{"problem", "Sections array problem"},
+		{"decision", "Patch decision"},
 		{"acceptance", "Patch acceptance"},
 	} {
 		got := callTool(t, cs, "artifact", map[string]any{
@@ -642,46 +642,21 @@ func TestTemplate_MCPCreateWithPartialSections(t *testing.T) {
 	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
-	ctx := context.Background()
-	result, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "artifact",
-		Arguments: map[string]any{
-			"action": "create",
-			"kind":   "spec",
-			"title":  "Test Spec",
-			"scope":  "test",
-			"links":  map[string]any{"satisfies": []string{"SCR-TPL-1"}},
-			"sections": []map[string]string{
-				{"name": "context", "text": "Background info"},
-				// Missing checklist and acceptance
-			},
+	// Provide only MustSection ("problem") but not ShouldSections ("decision", "acceptance").
+	// With the TSK-28 fix, creation should SUCCEED — non-MustSections are deferred to completion.
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "create",
+		"kind":   "spec",
+		"title":  "Test Spec with partial sections",
+		"scope":  "test",
+		"links":  map[string]any{"satisfies": []string{"SCR-TPL-1"}},
+		"sections": []map[string]string{
+			{"name": "problem", "text": "Something is broken"},
 		},
 	})
 
-	if err != nil {
-		t.Fatalf("unexpected Go error: %v", err)
-	}
-	if !result.IsError {
-		t.Fatal("expected tool error (IsError=true) when creating artifact with partial sections")
-	}
-
-	// Get error message from result content
-	var errMsg string
-	for _, c := range result.Content {
-		if tc, ok := c.(*sdkmcp.TextContent); ok {
-			errMsg = tc.Text
-			break
-		}
-	}
-
-	if !strings.Contains(errMsg, "does not conform to template") {
-		t.Errorf("error should mention template conformance, got: %s", errMsg)
-	}
-	if !strings.Contains(errMsg, "checklist") {
-		t.Errorf("error should mention missing section 'checklist', got: %s", errMsg)
-	}
-	if !strings.Contains(errMsg, "acceptance") {
-		t.Errorf("error should mention missing section 'acceptance', got: %s", errMsg)
+	if !strings.Contains(text, "Test Spec with partial sections") {
+		t.Errorf("artifact should be created with only MustSection, got: %s", text)
 	}
 }
 
@@ -723,19 +698,19 @@ func TestTemplate_MCPLinkSatisfiesBlocksMissingSections(t *testing.T) {
 	ctx := context.Background()
 	createMCPTemplate(t, s)
 
-	// Create artifact with incomplete sections (only 1 of 3 required)
+	// Create artifact missing the MustSection ("problem") — only has non-required sections
 	s.Put(ctx, &parchment.Artifact{
 		ID: "SPEC-2026-001", Kind: "spec", Status: "draft", Title: "Incomplete Spec", Scope: "test",
 		Sections: []parchment.Section{
-			{Name: "context", Text: "Background info"},
-			// Missing checklist and acceptance
+			{Name: "decision", Text: "Some decision"},
+			// Missing "problem" which is the MustSection for spec
 		},
 	})
 
 	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
-	// Try to link to template via MCP - should fail
+	// Try to link to template via MCP - should fail because "problem" (MustSection) is missing
 	result, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "graph",
 		Arguments: map[string]any{
@@ -750,7 +725,7 @@ func TestTemplate_MCPLinkSatisfiesBlocksMissingSections(t *testing.T) {
 		t.Fatalf("unexpected Go error: %v", err)
 	}
 	if !result.IsError {
-		t.Fatal("expected tool error (IsError=true) when linking to template with missing sections")
+		t.Fatal("expected tool error (IsError=true) when linking to template with missing MustSection")
 	}
 
 	// Get error message from result content
@@ -765,11 +740,8 @@ func TestTemplate_MCPLinkSatisfiesBlocksMissingSections(t *testing.T) {
 	if !strings.Contains(errMsg, "does not conform to template") {
 		t.Errorf("error should mention template conformance, got: %s", errMsg)
 	}
-	if !strings.Contains(errMsg, "checklist") {
-		t.Errorf("error should mention missing section 'checklist', got: %s", errMsg)
-	}
-	if !strings.Contains(errMsg, "acceptance") {
-		t.Errorf("error should mention missing section 'acceptance', got: %s", errMsg)
+	if !strings.Contains(errMsg, "problem") {
+		t.Errorf("error should mention missing section 'problem', got: %s", errMsg)
 	}
 }
 
@@ -782,8 +754,8 @@ func TestTemplate_MCPLinkSatisfiesAllowsConformant(t *testing.T) {
 	s.Put(ctx, &parchment.Artifact{
 		ID: "SPEC-2026-002", Kind: "spec", Status: "draft", Title: "Complete Spec", Scope: "test",
 		Sections: []parchment.Section{
-			{Name: "context", Text: "Background info"},
-			{Name: "checklist", Text: "Steps to follow"},
+			{Name: "problem", Text: "What is broken"},
+			{Name: "decision", Text: "What was decided"},
 			{Name: "acceptance", Text: "Acceptance criteria"},
 		},
 	})
@@ -1855,12 +1827,11 @@ func TestArchive_CascadeDryRun(t *testing.T) {
 
 func TestTemplate_SectionsAttachedAfterCreationValidatedOnLink(t *testing.T) {
 	s := openStore(t)
-	createMCPTemplate(t, s)
 
 	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
-	// Create spec WITHOUT template link and WITHOUT sections (should succeed)
+	// Create spec BEFORE template exists so auto-link doesn't kick in
 	text := callTool(t, cs, "artifact", map[string]any{
 		"action": "create",
 		"kind":   "spec",
@@ -1868,6 +1839,9 @@ func TestTemplate_SectionsAttachedAfterCreationValidatedOnLink(t *testing.T) {
 		"scope":  "test",
 	})
 	id := extractID(t, text)
+
+	// Now create the template
+	createMCPTemplate(t, s)
 
 	// Try to add satisfies link WITHOUT having sections — should fail
 	ctx := context.Background()
@@ -1889,8 +1863,8 @@ func TestTemplate_SectionsAttachedAfterCreationValidatedOnLink(t *testing.T) {
 
 	// Now attach sections
 	for _, sec := range []struct{ name, text string }{
-		{"context", "Background"},
-		{"checklist", "Steps"},
+		{"problem", "Background"},
+		{"decision", "Steps"},
 		{"acceptance", "Given/When/Then"},
 	} {
 		callTool(t, cs, "artifact", map[string]any{
@@ -1947,8 +1921,8 @@ func TestTemplate_MCPCreateWithSlugAlias(t *testing.T) {
 			"scope":  "test",
 			"links":  map[string]any{"satisfies": []string{"SCR-TPL-1"}},
 			"sections": []map[string]string{
-				{"slug": "context", "body": "Background info"},
-				{"slug": "checklist", "body": "Steps to follow"},
+				{"slug": "problem", "body": "Background info"},
+				{"slug": "decision", "body": "Steps to follow"},
 				{"slug": "acceptance", "body": "Acceptance criteria"},
 			},
 		},
@@ -1981,8 +1955,8 @@ func TestTemplate_MCPCreateWithSlugAlias(t *testing.T) {
 	// Verify sections were actually stored
 	id := extractID(t, text)
 	for _, sec := range []struct{ name, want string }{
-		{"context", "Background info"},
-		{"checklist", "Steps to follow"},
+		{"problem", "Background info"},
+		{"decision", "Steps to follow"},
 		{"acceptance", "Acceptance criteria"},
 	} {
 		got := callTool(t, cs, "artifact", map[string]any{
@@ -2045,8 +2019,8 @@ func TestTemplate_PromoteStashWithSlugAlias(t *testing.T) {
 			"action":   "promote_stash",
 			"stash_id": stashID,
 			"sections": []map[string]string{
-				{"slug": "context", "body": "Background via promote"},
-				{"slug": "checklist", "body": "Steps via promote"},
+				{"slug": "problem", "body": "Background via promote"},
+				{"slug": "decision", "body": "Steps via promote"},
 				{"slug": "acceptance", "body": "Criteria via promote"},
 			},
 		},
@@ -2081,8 +2055,8 @@ func TestSectionAlias_MixedSlugAndName(t *testing.T) {
 		"scope":  "test",
 		"links":  map[string]any{"satisfies": []string{"SCR-TPL-1"}},
 		"sections": []map[string]string{
-			{"name": "context", "text": "via name+text"},
-			{"slug": "checklist", "body": "via slug+body"},
+			{"name": "problem", "text": "via name+text"},
+			{"slug": "decision", "body": "via slug+body"},
 			{"name": "acceptance", "body": "via name+body"},
 		},
 	})
@@ -2093,8 +2067,8 @@ func TestSectionAlias_MixedSlugAndName(t *testing.T) {
 
 	id := extractID(t, text)
 	for _, tc := range []struct{ name, want string }{
-		{"context", "via name+text"},
-		{"checklist", "via slug+body"},
+		{"problem", "via name+text"},
+		{"decision", "via slug+body"},
 		{"acceptance", "via name+body"},
 	} {
 		got := callTool(t, cs, "artifact", map[string]any{
@@ -2186,8 +2160,8 @@ func TestSectionAlias_NoNameNoSlug(t *testing.T) {
 			"sections": []map[string]string{
 				{"body": "orphan with no name or slug"},
 				{"text": "another orphan"},
-				{"slug": "context", "body": "this one is valid"},
-				{"slug": "checklist", "body": "also valid"},
+				{"slug": "problem", "body": "this one is valid"},
+				{"slug": "decision", "body": "also valid"},
 				{"slug": "acceptance", "body": "also valid"},
 			},
 		},
@@ -2285,7 +2259,7 @@ func TestSectionAlias_CrossFormatStashPromote(t *testing.T) {
 	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
-	// Create with only 1 section using name+text — will fail template (needs 3)
+	// Create with only decision section using name+text — will fail template (missing MustSection "problem")
 	ctx := context.Background()
 	result, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "artifact",
@@ -2296,7 +2270,7 @@ func TestSectionAlias_CrossFormatStashPromote(t *testing.T) {
 			"scope":  "test",
 			"links":  map[string]any{"satisfies": []string{"SCR-TPL-1"}},
 			"sections": []map[string]string{
-				{"name": "context", "text": "original context"},
+				{"name": "decision", "text": "original decision"},
 			},
 		},
 	})
@@ -2328,7 +2302,7 @@ func TestSectionAlias_CrossFormatStashPromote(t *testing.T) {
 			"action":   "promote_stash",
 			"stash_id": stashID,
 			"sections": []map[string]string{
-				{"slug": "checklist", "body": "promoted checklist"},
+				{"slug": "problem", "body": "promoted problem"},
 				{"slug": "acceptance", "body": "promoted acceptance"},
 			},
 		},
@@ -2363,10 +2337,10 @@ func TestSectionAlias_PatchAndSlugCombined(t *testing.T) {
 		"scope":  "test",
 		"links":  map[string]any{"satisfies": []string{"SCR-TPL-1"}},
 		"sections": []map[string]string{
-			{"slug": "context", "body": "context via slug"},
+			{"slug": "problem", "body": "problem via slug"},
 		},
 		"patch": map[string]string{
-			"checklist":  "checklist via patch",
+			"decision":   "decision via patch",
 			"acceptance": "acceptance via patch",
 		},
 	})
@@ -2377,8 +2351,8 @@ func TestSectionAlias_PatchAndSlugCombined(t *testing.T) {
 
 	id := extractID(t, text)
 	for _, tc := range []struct{ name, want string }{
-		{"context", "context via slug"},
-		{"checklist", "checklist via patch"},
+		{"problem", "problem via slug"},
+		{"decision", "decision via patch"},
 		{"acceptance", "acceptance via patch"},
 	} {
 		got := callTool(t, cs, "artifact", map[string]any{
