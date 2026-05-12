@@ -1,8 +1,13 @@
 package mcp_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -2561,4 +2566,168 @@ func extractErrorText(t *testing.T, result *sdkmcp.CallToolResult) string {
 	}
 	t.Fatal("no text content in error result")
 	return ""
+}
+
+func TestStreamableHTTP_ToolsListPreservesTypedInputSchemas(t *testing.T) {
+	s := openStore(t)
+	srv, _ := scribemcp.NewServer(s, []string{"origami"}, nil, parchment.ProtocolConfig{}, "test")
+
+	handler := sdkmcp.NewStreamableHTTPHandler(
+		func(_ *http.Request) *sdkmcp.Server { return srv },
+		&sdkmcp.StreamableHTTPOptions{
+			SessionTimeout: time.Minute,
+		},
+	)
+	ts := httptest.NewServer(handler)
+	defer ts.Close()
+
+	sid := initHTTPSession(t, ts.URL)
+	resp := postJSONRPC(t, ts.URL, sid, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      2,
+		"method":  "tools/list",
+		"params":  map[string]any{},
+	})
+	defer resp.Body.Close()
+
+	payload := decodeJSONRPC(t, resp)
+	result, ok := payload["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("tools/list missing result: %s", mustJSON(payload))
+	}
+	rawTools, ok := result["tools"].([]any)
+	if !ok {
+		t.Fatalf("tools/list missing tools array: %s", mustJSON(payload))
+	}
+
+	expectedProps := map[string][]string{
+		"admin":    {"action", "scope"},
+		"artifact": {"action", "kind"},
+		"graph":    {"action", "relation"},
+	}
+	seen := make(map[string]bool, len(expectedProps))
+
+	for _, rawTool := range rawTools {
+		tool, ok := rawTool.(map[string]any)
+		if !ok {
+			t.Fatalf("tools/list entry has unexpected type %T", rawTool)
+		}
+		name, _ := tool["name"].(string)
+		wantProps, ok := expectedProps[name]
+		if !ok {
+			continue
+		}
+		seen[name] = true
+
+		schema, ok := tool["inputSchema"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s missing inputSchema object: %s", name, mustJSON(tool))
+		}
+		if gotType, _ := schema["type"].(string); gotType != "object" {
+			t.Errorf("%s inputSchema.type = %q, want %q", name, gotType, "object")
+		}
+		props, ok := schema["properties"].(map[string]any)
+		if !ok || len(props) == 0 {
+			t.Fatalf("%s inputSchema missing properties: %s", name, mustJSON(schema))
+		}
+		for _, prop := range wantProps {
+			if _, ok := props[prop]; !ok {
+				t.Fatalf("%s inputSchema missing property %q: %s", name, prop, mustJSON(schema))
+			}
+		}
+	}
+
+	for name := range expectedProps {
+		if !seen[name] {
+			t.Fatalf("tools/list missing tool %q: %s", name, mustJSON(payload))
+		}
+	}
+}
+
+func initHTTPSession(t *testing.T, baseURL string) string {
+	t.Helper()
+	resp := postJSONRPC(t, baseURL, "", map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "initialize",
+		"params": map[string]any{
+			"protocolVersion": "2024-11-05",
+			"capabilities":    map[string]any{},
+			"clientInfo": map[string]any{
+				"name":    "mcp-test",
+				"version": "0.1",
+			},
+		},
+	})
+	sid := resp.Header.Get("Mcp-Session-Id")
+	resp.Body.Close()
+	if sid == "" {
+		t.Fatal("initialize response missing Mcp-Session-Id")
+	}
+
+	initResp := postJSONRPC(t, baseURL, sid, map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "notifications/initialized",
+	})
+	initResp.Body.Close()
+	return sid
+}
+
+func postJSONRPC(t *testing.T, baseURL, sid string, payload map[string]any) *http.Response {
+	t.Helper()
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal JSON-RPC payload: %v", err)
+	}
+	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(baseURL, "/")+"/", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("build HTTP request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	if sid != "" {
+		req.Header.Set("Mcp-Session-Id", sid)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST %s: %v", req.URL.String(), err)
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		raw, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		t.Fatalf("POST %s: HTTP %d: %s", req.URL.String(), resp.StatusCode, string(raw))
+	}
+	return resp
+}
+
+func decodeJSONRPC(t *testing.T, resp *http.Response) map[string]any {
+	t.Helper()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read JSON-RPC response: %v", err)
+	}
+
+	body := raw
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "data: ") {
+			body = []byte(strings.TrimPrefix(line, "data: "))
+			break
+		}
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("decode JSON-RPC response: %v\nraw: %s", err, string(raw))
+	}
+	return payload
+}
+
+func mustJSON(v any) string {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprintf("<marshal error: %v>", err)
+	}
+	return string(data)
 }

@@ -43,26 +43,25 @@ func TestContainerLifecycle(t *testing.T) {
 	sid := initialize(t)
 
 	t.Run("motd returns without error", func(t *testing.T) {
-		resp := callTool(t, sid, "motd", map[string]any{}, 2)
-		if !strings.Contains(resp, "nothing to report") && !strings.Contains(resp, "Goal") {
+		resp := callTool(t, sid, "admin", map[string]any{"action": "motd"}, 2)
+		if !strings.Contains(resp, "nothing to report") && !strings.Contains(resp, "Goal") && !strings.Contains(resp, "Scribe") {
 			t.Fatalf("unexpected motd response: %s", resp)
 		}
 	})
 
 	var artifactID string
 	t.Run("create artifact", func(t *testing.T) {
-		resp := callTool(t, sid, "create_artifact", map[string]any{
-			"kind":  "task",
-			"title": "integration-test-artifact",
+		resp := callTool(t, sid, "artifact", map[string]any{
+			"action": "create",
+			"kind":   "task",
+			"title":  "integration-test-artifact",
+			"scope":  "integration",
 		}, 3)
 		// response contains the artifact JSON with an ID
 		if !strings.Contains(resp, "integration-test-artifact") {
-			t.Fatalf("create_artifact didn't return the title: %s", resp)
+			t.Fatalf("artifact create didn't return the title: %s", resp)
 		}
-		var art struct{ ID string }
-		if err := json.Unmarshal([]byte(resp), &art); err == nil && art.ID != "" {
-			artifactID = art.ID
-		}
+		artifactID = extractCreatedID(resp)
 		if artifactID == "" {
 			t.Fatalf("could not extract artifact ID from: %s", resp)
 		}
@@ -70,9 +69,9 @@ func TestContainerLifecycle(t *testing.T) {
 	})
 
 	t.Run("get artifact", func(t *testing.T) {
-		resp := callTool(t, sid, "get_artifact", map[string]any{"id": artifactID}, 4)
+		resp := callTool(t, sid, "artifact", map[string]any{"action": "get", "id": artifactID}, 4)
 		if !strings.Contains(resp, "integration-test-artifact") {
-			t.Fatalf("get_artifact didn't return the artifact: %s", resp)
+			t.Fatalf("artifact get didn't return the artifact: %s", resp)
 		}
 	})
 
@@ -86,7 +85,7 @@ func TestContainerLifecycle(t *testing.T) {
 		waitHealthy(t, 10*time.Second)
 
 		sid2 := initialize(t)
-		resp := callTool(t, sid2, "get_artifact", map[string]any{"id": artifactID}, 2)
+		resp := callTool(t, sid2, "artifact", map[string]any{"action": "get", "id": artifactID}, 2)
 		if !strings.Contains(resp, "integration-test-artifact") {
 			t.Fatalf("artifact lost after restart: %s", resp)
 		}
@@ -156,6 +155,7 @@ func initialize(t *testing.T) string {
 		t.Fatalf("initialize: %v", err)
 	}
 	sid := resp.Header.Get("Mcp-Session-Id")
+	resp.Body.Close()
 	if sid == "" {
 		t.Fatal("no Mcp-Session-Id in initialize response")
 	}
@@ -219,12 +219,20 @@ func doMCP(body, sessionID string) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode != 200 {
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		raw, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, raw)
 	}
 	return resp, nil
+}
+
+func extractCreatedID(text string) string {
+	fields := strings.Fields(text)
+	if len(fields) >= 2 && fields[0] == "created" {
+		return fields[1]
+	}
+	return ""
 }
 
 func init() {

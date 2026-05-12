@@ -119,29 +119,11 @@ func mcpCall(t *testing.T, sid string, id int, tool string, args map[string]any)
 		"method":  "tools/call",
 		"params":  params,
 	}
-	body, _ := json.Marshal(req)
-	start := time.Now()
-	resp, err := doMCP(string(body), sid)
-	elapsed := time.Since(start)
-	if err != nil {
-		t.Fatalf("tools/call %s (id=%d): %v", tool, id, err)
-	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(resp.Body)
-
-	jsonPayload := extractSSEData(raw)
-	var result map[string]any
-	if err := json.Unmarshal(jsonPayload, &result); err != nil {
-		t.Fatalf("unmarshal %s response: %v\nraw: %s", tool, err, truncate(string(raw), 500))
-	}
-	t.Logf("MCP %s (id=%d) completed in %s (%d bytes)", tool, id, elapsed.Round(time.Millisecond), len(raw))
+	result := mcpRequest(t, sid, req, tool)
 
 	// Extract text from result
 	r, ok := result["result"].(map[string]any)
 	if !ok {
-		if errObj, ok := result["error"]; ok {
-			t.Fatalf("MCP error: %v", errObj)
-		}
 		t.Fatalf("no result field: %v", result)
 	}
 	content, ok := r["content"].([]any)
@@ -163,6 +145,103 @@ func extractSSEData(raw []byte) []byte {
 	return raw
 }
 
+func mcpRequest(t *testing.T, sid string, req map[string]any, label string) map[string]any {
+	t.Helper()
+	body, _ := json.Marshal(req)
+	id, _ := req["id"].(int)
+	method, _ := req["method"].(string)
+	start := time.Now()
+	resp, err := doMCP(string(body), sid)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("%s (%s id=%d): %v", label, method, id, err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+
+	jsonPayload := extractSSEData(raw)
+	var result map[string]any
+	if err := json.Unmarshal(jsonPayload, &result); err != nil {
+		t.Fatalf("unmarshal %s response: %v\nraw: %s", label, err, truncate(string(raw), 500))
+	}
+	t.Logf("MCP %s (%s id=%d) completed in %s (%d bytes)", label, method, id, elapsed.Round(time.Millisecond), len(raw))
+	if errObj, ok := result["error"]; ok {
+		t.Fatalf("MCP %s error: %v", label, errObj)
+	}
+	return result
+}
+
+func mcpToolsList(t *testing.T, sid string, id int) []map[string]any {
+	t.Helper()
+	result := mcpRequest(t, sid, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"method":  "tools/list",
+		"params":  map[string]any{},
+	}, "tools/list")
+
+	payload, ok := result["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("tools/list missing result: %s", mustJSON(result))
+	}
+	rawTools, ok := payload["tools"].([]any)
+	if !ok {
+		t.Fatalf("tools/list missing tools array: %s", mustJSON(payload))
+	}
+
+	tools := make([]map[string]any, 0, len(rawTools))
+	for _, rawTool := range rawTools {
+		tool, ok := rawTool.(map[string]any)
+		if !ok {
+			t.Fatalf("tools/list entry has unexpected type %T", rawTool)
+		}
+		tools = append(tools, tool)
+	}
+	return tools
+}
+
+func assertTypedToolSchemas(t *testing.T, tools []map[string]any) {
+	t.Helper()
+	expectedProps := map[string][]string{
+		"admin":    {"action", "scope"},
+		"artifact": {"action", "kind"},
+		"graph":    {"action", "relation"},
+	}
+	seen := make(map[string]bool, len(expectedProps))
+
+	for _, tool := range tools {
+		name, _ := tool["name"].(string)
+		wantProps, ok := expectedProps[name]
+		if !ok {
+			continue
+		}
+		seen[name] = true
+
+		schema, ok := tool["inputSchema"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s missing inputSchema object: %s", name, mustJSON(tool))
+		}
+		if gotType, _ := schema["type"].(string); gotType != "object" {
+			t.Errorf("%s inputSchema.type = %q, want %q", name, gotType, "object")
+		}
+		props, ok := schema["properties"].(map[string]any)
+		if !ok || len(props) == 0 {
+			t.Fatalf("%s inputSchema missing properties: %s", name, mustJSON(schema))
+		}
+		for _, prop := range wantProps {
+			if _, ok := props[prop]; !ok {
+				t.Fatalf("%s inputSchema missing property %q: %s", name, prop, mustJSON(schema))
+			}
+		}
+	}
+
+	for name := range expectedProps {
+		if !seen[name] {
+			t.Fatalf("tools/list missing tool %q", name)
+		}
+	}
+}
+
 func doMCP(body, sid string) (*http.Response, error) {
 	req, _ := http.NewRequest("POST", testAddr+"/", bytes.NewReader([]byte(body)))
 	req.Header.Set("Content-Type", "application/json")
@@ -174,7 +253,7 @@ func doMCP(body, sid string) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode != 200 {
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		raw, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, raw)
@@ -194,6 +273,14 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return s[:max] + "..."
+}
+
+func mustJSON(v any) string {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprintf("<marshal error: %v>", err)
+	}
+	return string(data)
 }
 
 func extractFirstID(t *testing.T, text, prefix string) string {
@@ -227,6 +314,11 @@ func TestE2E_Deterministic(t *testing.T) {
 	next := func() int { callID++; return callID }
 
 	// Create base artifacts for all subtests
+	t.Run("tools_list_contract", func(t *testing.T) {
+		tools := mcpToolsList(t, sid, next())
+		assertTypedToolSchemas(t, tools)
+	})
+
 	t.Run("create_and_list", func(t *testing.T) {
 		text := mcpCall(t, sid, next(), "artifact", map[string]any{
 			"action": "create", "kind": "task", "title": "E2E task 1", "scope": "e2e", "priority": "high",
@@ -449,79 +541,49 @@ func ollamaChat(t *testing.T, host, model string, messages []map[string]any, too
 	return result
 }
 
-// scribeTools returns Ollama-compatible tool definitions for the artifact and graph tools.
-func scribeTools() []map[string]any {
-	return []map[string]any{
-		{
+// scribeTools returns Ollama-compatible tool definitions sourced from live tools/list.
+func scribeTools(t *testing.T, sid string) []map[string]any {
+	t.Helper()
+	allowed := map[string]bool{"admin": true, "artifact": true, "graph": true}
+	seen := make(map[string]bool, len(allowed))
+	var tools []map[string]any
+
+	for _, tool := range mcpToolsList(t, sid, 400) {
+		name, _ := tool["name"].(string)
+		if !allowed[name] {
+			continue
+		}
+		seen[name] = true
+
+		description, _ := tool["description"].(string)
+		parameters, ok := tool["inputSchema"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s missing live inputSchema: %s", name, mustJSON(tool))
+		}
+		tools = append(tools, map[string]any{
 			"type": "function",
 			"function": map[string]any{
-				"name":        "artifact",
-				"description": "Create, read, update, and manage work artifacts.",
-				"parameters": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"action":    map[string]any{"type": "string", "description": "create, get, list, set, update, attach_section"},
-						"kind":      map[string]any{"type": "string", "description": "task, spec, bug, goal, campaign"},
-						"title":     map[string]any{"type": "string", "description": "Artifact title"},
-						"scope":     map[string]any{"type": "string", "description": "Project scope"},
-						"id":        map[string]any{"type": "string", "description": "Artifact ID for get/set/update"},
-						"priority":  map[string]any{"type": "string", "description": "none, low, medium, high, critical"},
-						"status":    map[string]any{"type": "string", "description": "draft, active, complete, archived"},
-						"parent":    map[string]any{"type": "string", "description": "Parent artifact ID"},
-						"field":     map[string]any{"type": "string", "description": "Field name for set action"},
-						"value":     map[string]any{"type": "string", "description": "Field value for set action"},
-						"force":     map[string]any{"type": "boolean", "description": "Force status transition"},
-						"name":      map[string]any{"type": "string", "description": "Section name"},
-						"text":      map[string]any{"type": "string", "description": "Section text"},
-						"depends_on": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-						"sections": map[string]any{
-							"type":  "array",
-							"items": map[string]any{"type": "object"},
-						},
-					},
-					"required": []string{"action"},
-				},
+				"name":        name,
+				"description": description,
+				"parameters":  parameters,
 			},
-		},
-		{
-			"type": "function",
-			"function": map[string]any{
-				"name":        "graph",
-				"description": "Navigate and modify artifact relationships.",
-				"parameters": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"action":   map[string]any{"type": "string", "description": "tree, briefing, topo_sort, link, unlink"},
-						"id":       map[string]any{"type": "string", "description": "Root or source artifact ID"},
-						"relation": map[string]any{"type": "string", "description": "parent_of, depends_on, implements, follows"},
-						"targets":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-					},
-					"required": []string{"action"},
-				},
-			},
-		},
-		{
-			"type": "function",
-			"function": map[string]any{
-				"name":        "admin",
-				"description": "System administration: motd, dashboard, snapshot.",
-				"parameters": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"action": map[string]any{"type": "string", "description": "motd, dashboard, snapshot"},
-					},
-					"required": []string{"action"},
-				},
-			},
-		},
+		})
 	}
+
+	for name := range allowed {
+		if !seen[name] {
+			t.Fatalf("live tools/list missing %q", name)
+		}
+	}
+
+	return tools
 }
 
 // agentLoop runs an LLM agent loop with structured instrumentation.
 // Logs each turn with: tool call, args, result preview, error detection, and message count.
 func agentLoop(t *testing.T, sid, ollamaHost, ollamaModel, systemPrompt, userPrompt string, maxTurns int) (toolsCalled []string, finalAnswer string) {
 	t.Helper()
-	tools := scribeTools()
+	tools := scribeTools(t, sid)
 	messages := []map[string]any{
 		{"role": "system", "content": systemPrompt},
 		{"role": "user", "content": userPrompt},

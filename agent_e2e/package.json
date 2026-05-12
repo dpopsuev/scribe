@@ -1,0 +1,13 @@
+{
+  "name": "scribe-agent-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "claude-canary": "node ./claude_canary.mjs",
+    "cursor-canary": "node ./cursor_canary.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.139",
+    "@cursor/sdk": "^1.0.12"
+  }
+}

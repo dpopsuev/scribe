@@ -1,4 +1,4 @@
-.PHONY: build build-image push-image run restart deploy version release fmt vet lint lint-new test preflight install-hooks
+.PHONY: build build-image push-image run restart deploy version release fmt vet lint lint-new test preflight install-hooks cursor-e2e-setup test-cursor-e2e claude-e2e-setup test-claude-e2e
 
 VERSION ?= $(shell git describe --tags --always --dirty)
 
@@ -66,6 +66,18 @@ test-e2e:
 
 test-e2e-llm:
 	go test -tags e2e -v -timeout 600s -run TestE2E_LLM .
+
+cursor-e2e-setup:
+	cd agent_e2e && npm ci
+
+test-cursor-e2e: cursor-e2e-setup
+	RUN_CURSOR_E2E=1 go test -tags cursor_e2e -v -timeout 900s -run TestCursorSDKCanary .
+
+claude-e2e-setup:
+	cd agent_e2e && npm ci
+
+test-claude-e2e: claude-e2e-setup
+	RUN_CLAUDE_E2E=1 go test -tags claude_e2e -v -timeout 900s -run TestClaudeAgentSDKCanary .
 
 release:
 	@test -n "$(V)" || (echo "usage: make release V=v1.2.0" && exit 1)
