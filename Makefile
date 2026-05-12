@@ -1,6 +1,8 @@
 .PHONY: build build-image push-image run restart deploy version release fmt vet lint lint-new test preflight install-hooks cursor-e2e-setup test-cursor-e2e claude-e2e-setup test-claude-e2e
 
 VERSION ?= $(shell git describe --tags --always --dirty)
+IMAGE_REPO ?= quay.io/dpopsuev/scribe
+IMAGE ?= $(IMAGE_REPO):$(VERSION)
 
 version:
 	@echo $(VERSION)
@@ -10,11 +12,11 @@ build:
 	go install -ldflags="-s -w -X main.Version=$(VERSION)" ./cmd/scribe
 
 build-image:
-	podman build --build-arg VERSION=$(VERSION) -t quay.io/dpopsuev/scribe:$(VERSION) -t quay.io/dpopsuev/scribe:latest .
+	podman build --build-arg VERSION=$(VERSION) -t $(IMAGE_REPO):$(VERSION) -t $(IMAGE_REPO):latest .
 
 push-image:
-	podman push quay.io/dpopsuev/scribe:$(VERSION)
-	podman push quay.io/dpopsuev/scribe:latest
+	podman push $(IMAGE_REPO):$(VERSION)
+	podman push $(IMAGE_REPO):latest
 
 SCRIBE_DATA ?= $(HOME)/.scribe
 
@@ -22,7 +24,7 @@ run:
 	podman rm -f scribe 2>/dev/null || true
 	podman run -d --name scribe -p 8080:8080 --userns=keep-id \
 		-v $(SCRIBE_DATA):/data:Z \
-		quay.io/dpopsuev/scribe:latest
+		$(IMAGE)
 	@sleep 1 && podman logs scribe 2>&1 | tail -3
 
 restart: build-image run
