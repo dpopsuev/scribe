@@ -9,8 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dpopsuev/battery/mcpserver"
+	battmcp "github.com/dpopsuev/battery/mcp"
 	"github.com/dpopsuev/battery/server"
+	"github.com/dpopsuev/battery/tool"
 	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/directive"
 	"github.com/google/jsonschema-go/jsonschema"
@@ -33,9 +34,9 @@ const scribeInstructions = "Scribe is a work graph for AI agents with native DAG
 
 // NewServer creates an MCP server exposing Scribe tools over the given store.
 // Returns both the server and a directive registry for CLI introspection.
-// Built on battery/mcpserver framework — auto-Observable, panic recovery, result helpers.
+// Built on battery/mcp framework — auto-Observable, panic recovery, result helpers.
 func NewServer(s parchment.Store, homeScopes, vocab []string, idc parchment.ProtocolConfig, version string, snapshotter ...*parchment.Snapshotter) (*sdkmcp.Server, *directive.Registry) {
-	batt := mcpserver.NewServer("scribe", version).
+	batt := battmcp.NewServer("scribe", version).
 		WithInstructions(scribeInstructions)
 
 	reg := directive.New()
@@ -2081,12 +2082,51 @@ func sortArtifacts(arts []*parchment.Artifact, field string) {
 }
 
 // text creates a CallToolResult with a single TextContent block.
-// Delegates to battery/mcpserver.TextResult.
+// Uses a direct SDK result because Battery v0.11 exposes transport-neutral results.
 func text(s string) *sdkmcp.CallToolResult {
-	return mcpserver.TextResult(s)
+	return &sdkmcp.CallToolResult{
+		Content: []sdkmcp.Content{
+			&sdkmcp.TextContent{Text: s},
+		},
+	}
 }
 
-// adaptTypedHandler bridges a typed Scribe handler into a server.Handler.
+func sdkResultToBattery(res *sdkmcp.CallToolResult) tool.Result {
+	out := tool.Result{
+		StructuredContent: res.StructuredContent,
+		IsError:           res.IsError,
+	}
+	for _, c := range res.Content {
+		switch v := c.(type) {
+		case *sdkmcp.TextContent:
+			out.Content = append(out.Content, tool.TextContent{Text: v.Text})
+		case *sdkmcp.ImageContent:
+			out.Content = append(out.Content, tool.ImageContent{MIMEType: v.MIMEType, Data: v.Data})
+		case *sdkmcp.AudioContent:
+			out.Content = append(out.Content, tool.AudioContent{MIMEType: v.MIMEType, Data: v.Data})
+		case *sdkmcp.ResourceLink:
+			out.Content = append(out.Content, tool.ResourceLink{
+				URI:         v.URI,
+				Name:        v.Name,
+				Description: v.Description,
+				MIMEType:    v.MIMEType,
+			})
+		case *sdkmcp.EmbeddedResource:
+			if v.Resource == nil {
+				continue
+			}
+			out.Content = append(out.Content, tool.ResourceContent{
+				URI:      v.Resource.URI,
+				MIMEType: v.Resource.MIMEType,
+				Text:     v.Resource.Text,
+				Blob:     v.Resource.Blob,
+			})
+		}
+	}
+	return out
+}
+
+// adaptTypedHandler bridges a typed Scribe handler into Battery's MCP handler shape.
 // schemaFor derives a JSON Schema from Go struct type T using jsonschema tags.
 func schemaFor[T any]() json.RawMessage {
 	s, err := jsonschema.For[T](nil)
@@ -2104,12 +2144,12 @@ func schemaFor[T any]() json.RawMessage {
 // (*CallToolResult, Out, error). This adapter unmarshals the raw JSON input,
 // calls the handler, and marshals the Out value when CallToolResult is nil
 // (same pattern as Origami's rawHandler).
-func adaptTypedHandler[In any](h func(context.Context, *sdkmcp.CallToolRequest, In) (*sdkmcp.CallToolResult, any, error)) server.Handler {
-	return func(ctx context.Context, input json.RawMessage) (string, error) {
+func adaptTypedHandler[In any](h func(context.Context, *sdkmcp.CallToolRequest, In) (*sdkmcp.CallToolResult, any, error)) func(context.Context, json.RawMessage) (tool.Result, error) {
+	return func(ctx context.Context, input json.RawMessage) (tool.Result, error) {
 		var in In
 		if len(input) > 0 {
 			if err := json.Unmarshal(input, &in); err != nil {
-				return "", fmt.Errorf("invalid arguments: %w", err)
+				return tool.Result{}, fmt.Errorf("invalid arguments: %w", err)
 			}
 		}
 
@@ -2120,22 +2160,19 @@ func adaptTypedHandler[In any](h func(context.Context, *sdkmcp.CallToolRequest, 
 
 		res, out, err := h(ctx, req, in)
 		if err != nil {
-			return "", err
+			return tool.Result{}, err
 		}
 		if res != nil {
-			// Extract text from CallToolResult.
-			for _, c := range res.Content {
-				if tc, ok := c.(*sdkmcp.TextContent); ok {
-					return tc.Text, nil
-				}
-			}
-			return "", nil
+			return sdkResultToBattery(res), nil
 		}
-		// No CallToolResult — marshal Out as JSON.
-		data, err := json.Marshal(out)
+		// No CallToolResult — preserve JSON text fallback while upgrading to Battery result transport.
+		if out == nil {
+			return tool.Result{}, nil
+		}
+		result, err := tool.StructuredResult(out)
 		if err != nil {
-			return "", fmt.Errorf("marshal output: %w", err)
+			return tool.Result{}, fmt.Errorf("marshal output: %w", err)
 		}
-		return string(data), nil
+		return result, nil
 	}
 }
