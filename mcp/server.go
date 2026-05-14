@@ -86,7 +86,7 @@ func NewServer(s parchment.Store, homeScopes, vocab []string, idc parchment.Prot
 		Description: "System administration and monitoring. " +
 			"Actions: motd (session context with goals/reminders), dashboard (storage/staleness/health), " +
 			"set_goal (set north star), vacuum (delete old archived), detect (find orphans/overlaps), " +
-			"lint (validate schema consistency).",
+			"lint (validate schema consistency), schema (dump kinds, required edges, and section requirements).",
 		Keywords:   []string{"motd", "dashboard", "goal", "vacuum", "detect", "orphan"},
 		Categories: []string{"lifecycle", "maintenance"},
 	}
@@ -118,7 +118,7 @@ type handler struct {
 // --- consolidated input types ---
 
 type artifactInput struct {
-	Action string `json:"action" jsonschema:"required,create | batch_create | clone | get | list | search | set | update | archive | de-archive | attach_section | get_section | detach_section | diff | promote_stash"`
+	Action string `json:"action" jsonschema:"required,create | batch_create | clone | get | list | search | set | update | archive | de-archive | attach_section | get_section | detach_section | diff | promote_stash | inspect_stash"`
 
 	ID    string `json:"id,omitempty" jsonschema:"artifact ID (required for get, set, update, archive, *_section)"`
 	Kind  string `json:"kind,omitempty" jsonschema:"artifact kind such as task, spec, bug, goal, campaign"`
@@ -202,7 +202,7 @@ type edgeInput struct {
 }
 
 type adminInput struct {
-	Action  string `json:"action" jsonschema:"required,motd | changelog | dashboard | snapshot | set_goal | vacuum | detect | lint | check | set_scope_labels | list_scope_labels | transfer_scope | seed"`
+	Action  string `json:"action" jsonschema:"required,motd | changelog | dashboard | snapshot | set_goal | vacuum | detect | lint | check | set_scope_labels | list_scope_labels | transfer_scope | seed | schema"`
 	Compact bool   `json:"compact,omitempty" jsonschema:"minimal output for repeat calls (motd)"`
 
 	// Snapshot sub-action and params
@@ -362,6 +362,19 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		return h.handleGetSection(ctx, req, getSectionInput{ID: in.ID, Name: in.Name})
 	case "detach_section":
 		return h.handleDetachSection(ctx, req, getSectionInput{ID: in.ID, Name: in.Name})
+	case "inspect_stash":
+		if in.StashID == "" {
+			return nil, nil, fmt.Errorf("stash_id is required for inspect_stash") //nolint:err113 // agent-facing hint
+		}
+		stashed, err := h.proto.Stash().Get(in.StashID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("stash %s: %w", in.StashID, err)
+		}
+		data, _ := json.MarshalIndent(stashed.Input, "", "  ")
+		ttl := 10 * time.Minute
+		age := time.Since(stashed.CreatedAt).Round(time.Second)
+		return text(fmt.Sprintf("stash %s (age: %v, expires in ~%v):\n%s",
+			in.StashID, age, (ttl - age).Round(time.Second), string(data))), nil, nil
 	case "promote_stash":
 		if in.StashID == "" {
 			return nil, nil, fmt.Errorf("stash_id is required for promote_stash")
@@ -396,7 +409,7 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		}
 		return h.handleDiff(ctx, in.ID, in.Against)
 	default:
-		return nil, nil, fmt.Errorf("unknown artifact action %q (valid: create, batch_create, clone, get, list, set, update, archive, attach_section, get_section, detach_section, diff)", in.Action)
+		return nil, nil, fmt.Errorf("unknown artifact action %q (valid: create, batch_create, clone, get, list, set, update, archive, attach_section, get_section, detach_section, diff, promote_stash, inspect_stash)", in.Action) //nolint:err113 // agent-facing hint
 	}
 }
 
@@ -626,6 +639,8 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 			return text(fmt.Sprintf("dry run: would transfer %d artifacts from %s to %s", result.Count, in.Scope, in.Target)), nil, nil
 		}
 		return text(fmt.Sprintf("transferred %d artifacts from %s to %s", result.Count, in.Scope, in.Target)), nil, nil
+	case "schema":
+		return h.handleSchema()
 	default:
 		return nil, nil, fmt.Errorf("unknown admin action %q", in.Action)
 	}
@@ -1946,6 +1961,58 @@ func (h *handler) handleLint(_ context.Context) (*sdkmcp.CallToolResult, any, er
 	return text(b.String()), nil, nil
 }
 
+func (h *handler) handleSchema() (*sdkmcp.CallToolResult, any, error) {
+	schema := h.proto.Schema()
+	var b strings.Builder
+	fmt.Fprintf(&b, "Schema %s — %d kinds · %d relations · %d statuses\n",
+		schema.Hash(), len(schema.Kinds), len(schema.Relations), len(schema.Statuses))
+
+	fmt.Fprintf(&b, "\nSection wire format:  sections: [{\"name\":\"<name>\",\"text\":\"<body>\"}, ...]\n")
+	fmt.Fprintf(&b, "Linked doc wire format: links: {\"documents\": [\"<artifact-id>\"]}\n\n")
+
+	for _, name := range schema.KindNames() {
+		kd := schema.Kinds[name]
+		flags := ""
+		if kd.SkipGuards {
+			flags = "  (skip_guards)"
+		}
+		if kd.Protected {
+			flags += "  (protected)"
+		}
+		fmt.Fprintf(&b, "%s  [%s]%s\n", name, kd.Prefix, flags)
+
+		for _, rel := range kd.Relations.RequiredOutgoing {
+			hint := fmt.Sprintf("links: {%q: [\"<target-id>\"]}", rel)
+			fmt.Fprintf(&b, "  required edge : %s — %s\n", rel, hint)
+		}
+		if len(kd.MustSections) > 0 {
+			fmt.Fprintf(&b, "  must sections : %s\n", strings.Join(kd.MustSections, ", "))
+		}
+		if len(kd.ShouldSections) > 0 {
+			fmt.Fprintf(&b, "  should sections: %s\n", strings.Join(kd.ShouldSections, ", "))
+		}
+		if len(kd.CouldSections) > 0 {
+			fmt.Fprintf(&b, "  could sections : %s\n", strings.Join(kd.CouldSections, ", "))
+		}
+		if len(kd.RequiredFields) > 0 {
+			fmt.Fprintf(&b, "  required fields: %s\n", strings.Join(kd.RequiredFields, ", "))
+		}
+		if len(kd.Transitions) > 0 {
+			txns := make([]string, 0, len(kd.Transitions))
+			for from, tos := range kd.Transitions {
+				txns = append(txns, fmt.Sprintf("%s→[%s]", from, strings.Join(tos, "|")))
+			}
+			sort.Strings(txns)
+			fmt.Fprintf(&b, "  transitions   : %s\n", strings.Join(txns, ", "))
+		}
+	}
+
+	fmt.Fprintf(&b, "\nRelations: %s\n", strings.Join(schema.Relations, ", "))
+	fmt.Fprintf(&b, "Statuses:  %s\n", strings.Join(schema.Statuses, ", "))
+	fmt.Fprintf(&b, "Terminal:  %s\n", strings.Join(schema.TerminalStatuses, ", "))
+	return text(b.String()), nil, nil
+}
+
 func (h *handler) handleCheck(ctx context.Context, scope string) (*sdkmcp.CallToolResult, any, error) {
 	report, err := h.proto.Check(ctx, scope)
 	if err != nil {
@@ -2144,11 +2211,37 @@ func schemaFor[T any]() json.RawMessage {
 // (*CallToolResult, Out, error). This adapter unmarshals the raw JSON input,
 // calls the handler, and marshals the Out value when CallToolResult is nil
 // (same pattern as Origami's rawHandler).
+// arrayTypeHints maps struct field names to their expected JSON wire format.
+// Used to produce actionable error messages when the caller passes the wrong type
+// (e.g. a comma-separated string where a JSON array is required).
+var arrayTypeHints = map[string]string{
+	"depends_on":     `JSON array of strings — e.g. ["TASK-1", "TASK-2"]`,
+	"ids":            `JSON array of strings — e.g. ["TASK-1", "TASK-2"]`,
+	"labels":         `JSON array of strings — e.g. ["label1", "label2"]`,
+	"labels_or":      `JSON array of strings — e.g. ["label1", "label2"]`,
+	"exclude_labels": `JSON array of strings — e.g. ["label1", "label2"]`,
+	"fields":         `JSON array of strings — e.g. ["id", "title", "status"]`,
+	"section_filter": `JSON array of strings — e.g. ["summary", "source"]`,
+	"targets":        `JSON array of strings — e.g. ["REF-1", "REF-2"]`,
+	"links":          `JSON object mapping relation→[]string — e.g. {"documents": ["REF-1"]}`,
+	"sections":       `JSON array of {"name":"<name>","text":"<body>"} objects — e.g. [{"name":"summary","text":"..."}]`,
+	"edges":          `JSON array of {"from":"X","relation":"r","to":"Y"} objects`,
+	"extra":          `JSON object — e.g. {"key": "value"}`,
+	"patch":          `JSON object mapping field→value — e.g. {"status": "active"}`,
+}
+
 func adaptTypedHandler[In any](h func(context.Context, *sdkmcp.CallToolRequest, In) (*sdkmcp.CallToolResult, any, error)) func(context.Context, json.RawMessage) (tool.Result, error) {
 	return func(ctx context.Context, input json.RawMessage) (tool.Result, error) {
 		var in In
 		if len(input) > 0 {
 			if err := json.Unmarshal(input, &in); err != nil {
+				var typeErr *json.UnmarshalTypeError
+				if errors.As(err, &typeErr) {
+					if hint, ok := arrayTypeHints[typeErr.Field]; ok {
+						return tool.Result{}, fmt.Errorf("field %q must be %s (got JSON %s)", typeErr.Field, hint, typeErr.Value) //nolint:err113 // agent-facing hint
+					}
+					return tool.Result{}, fmt.Errorf("field %q: expected %s, got JSON %s", typeErr.Field, typeErr.Type, typeErr.Value) //nolint:err113 // agent-facing hint
+				}
 				return tool.Result{}, fmt.Errorf("invalid arguments: %w", err)
 			}
 		}
