@@ -1181,7 +1181,7 @@ func TestListCount_GroupBy(t *testing.T) {
 		"count":    true,
 		"group_by": "status",
 	})
-	if !strings.Contains(text, `"draft": 2`) || !strings.Contains(text, `"active": 1`) {
+	if !strings.Contains(text, `"draft":2`) || !strings.Contains(text, `"active":1`) {
 		t.Errorf("expected grouped counts, got: %s", text)
 	}
 }
