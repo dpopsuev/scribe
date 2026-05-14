@@ -1,7 +1,7 @@
 .PHONY: build build-image push-image run restart deploy version release fmt vet lint lint-new test preflight install-hooks cursor-e2e-setup test-cursor-e2e claude-e2e-setup test-claude-e2e
 
 VERSION ?= $(shell git describe --tags --always --dirty)
-IMAGE_REPO ?= quay.io/dpopsuev/scribe
+IMAGE_REPO ?= ghcr.io/dpopsuev/scribe
 IMAGE ?= $(IMAGE_REPO):$(VERSION)
 
 version:
@@ -12,10 +12,13 @@ build:
 	go install -ldflags="-s -w -X main.Version=$(VERSION)" ./cmd/scribe
 
 build-image:
-	podman build --build-arg VERSION=$(VERSION) -t $(IMAGE_REPO):$(VERSION) -t $(IMAGE_REPO):latest .
+	@test -n "$(VERSION)" || (echo "error: VERSION is not set" && exit 1)
+	podman build --build-arg VERSION=$(VERSION) -t $(IMAGE_REPO):$(VERSION) .
 
 push-image:
+	@test -n "$(VERSION)" || (echo "error: VERSION is not set" && exit 1)
 	podman push $(IMAGE_REPO):$(VERSION)
+	podman tag $(IMAGE_REPO):$(VERSION) $(IMAGE_REPO):latest
 	podman push $(IMAGE_REPO):latest
 
 SCRIBE_DATA ?= $(HOME)/.scribe
@@ -83,8 +86,9 @@ test-claude-e2e: claude-e2e-setup
 
 release:
 	@test -n "$(V)" || (echo "usage: make release V=v1.2.0" && exit 1)
-	sed -i 's|quay.io/dpopsuev/scribe:[^ "]*|quay.io/dpopsuev/scribe:$(V)|g' README.md
+	sed -i 's|$(IMAGE_REPO):[^ "]*|$(IMAGE_REPO):$(V)|g' README.md
 	git add README.md && git commit -m "release: $(V)" || true
 	git tag $(V)
 	$(MAKE) build-image VERSION=$(V)
+	$(MAKE) push-image VERSION=$(V)
 	git push origin main --tags
