@@ -24,7 +24,8 @@ push-image:
 SCRIBE_DATA ?= $(HOME)/.scribe
 
 run:
-	podman rm -f scribe 2>/dev/null || true
+	podman stop scribe 2>/dev/null || true
+	podman rm scribe 2>/dev/null || true
 	podman run -d --name scribe -p 8080:8080 --userns=keep-id \
 		-v $(SCRIBE_DATA):/data:Z \
 		$(IMAGE)
