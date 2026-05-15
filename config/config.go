@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -211,9 +212,12 @@ func (c *Config) ModelIDConfig() parchment.IDConfig {
 	return mc
 }
 
+// ErrInvalidIDFormat is returned when the config specifies an unknown id_format.
+var ErrInvalidIDFormat = errors.New("id_format must be \"scoped\", \"uuid\", or empty")
+
 func (c *Config) ValidateIDConfig() error {
-	if c.IDFormat != "" && c.IDFormat != "scoped" {
-		return fmt.Errorf("id_format must be \"scoped\" or empty (defaults to scoped), got %q", c.IDFormat)
+	if c.IDFormat != "" && c.IDFormat != "scoped" && c.IDFormat != "uuid" {
+		return fmt.Errorf("%w (got %q)", ErrInvalidIDFormat, c.IDFormat)
 	}
 
 	keyPattern := regexp.MustCompile(`^[A-Z0-9]{2,6}$`)
