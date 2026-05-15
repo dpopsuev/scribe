@@ -3,8 +3,8 @@ github.com/dominikbraun/graph v0.23.0 h1:TdZB4pPqCLFxYhdyMFb1TBdFxp8XLcJfTTBQucV
 github.com/dominikbraun/graph v0.23.0/go.mod h1:yOjYyogZLY1LSG9E33JWZJiq5k83Qy2C6POAuiViluc=
 github.com/dpopsuev/battery v0.11.0 h1:pcfkmlIrStWZOF4ZFtKDrUG93n7+cY7X0U470SJ0BMM=
 github.com/dpopsuev/battery v0.11.0/go.mod h1:wbm7TeW4aAKWe8qQDwonJar8vM8jrpqc5V/cjKqZ7XI=
-github.com/dpopsuev/parchment v0.4.7 h1:RIYndJflxUEFA+f/ES0h625aEOYhTs8J5h0fltYinSo=
-github.com/dpopsuev/parchment v0.4.7/go.mod h1:fKH+nSmUrzw0XIE607fqLZ6fD5qtkymUHFX8evtSa94=
+github.com/dpopsuev/parchment v0.4.8 h1:MVBY72S8P+S247IK0JeidOWIaKJqDlgBT4TIPcW+xKM=
+github.com/dpopsuev/parchment v0.4.8/go.mod h1:fKH+nSmUrzw0XIE607fqLZ6fD5qtkymUHFX8evtSa94=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
 github.com/golang-jwt/jwt/v5 v5.3.1 h1:kYf81DTWFe7t+1VvL7eS+jKFVWaUnK9cB1qbwn63YCY=
