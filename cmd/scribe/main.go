@@ -81,6 +81,7 @@ func main() {
 		lintCmd(),
 		checkCmd(),
 		migrateCmd(),
+		migrateIDsCmd(),
 		configCmd(),
 		exportCmd(),
 		importCmd(),
@@ -1845,6 +1846,32 @@ func migrateCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&format, "format", "text", "output format (text, json)")
+	return cmd
+}
+
+func migrateIDsCmd() *cobra.Command {
+	var src, dst string
+	cmd := &cobra.Command{
+		Use:   "migrate-ids",
+		Short: "Copy a database and replace all artifact IDs with UUID v4 values",
+		Long: `migrate-ids copies the source SQLite database to the destination path
+and rewrites every scope-derived artifact ID (e.g. SCR-TSK-309) to a UUID v4.
+All cross-references (parent, depends_on, links, edges) are updated.
+The source database is never modified.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			result, err := parchment.MigrateToUUID(src, dst)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("Migration complete: %d remapped, %d skipped (already UUID)\n",
+				result.Remapped, result.Skipped)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&src, "src", "", "source database path (required)")
+	cmd.Flags().StringVar(&dst, "dst", "", "destination database path; must not exist (required)")
+	_ = cmd.MarkFlagRequired("src")
+	_ = cmd.MarkFlagRequired("dst")
 	return cmd
 }
 
