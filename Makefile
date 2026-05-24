@@ -18,17 +18,23 @@ build-image:
 push-image:
 	@test -n "$(VERSION)" || (echo "error: VERSION is not set" && exit 1)
 	podman push $(IMAGE_REPO):$(VERSION)
-	podman tag $(IMAGE_REPO):$(VERSION) $(IMAGE_REPO):latest
-	podman push $(IMAGE_REPO):latest
 
 SCRIBE_DATA ?= $(HOME)/.scribe
 
 run:
-	podman stop scribe 2>/dev/null || true
-	podman rm scribe 2>/dev/null || true
-	podman run -d --name scribe -p 8080:8080 --userns=keep-id \
-		-v $(SCRIBE_DATA):/data:Z \
-		$(IMAGE)
+	@SERVICE=$${HOME}/.config/systemd/user/container-scribe.service; \
+	if [ -f "$$SERVICE" ]; then \
+		sed -i "s|$(IMAGE_REPO):v[^ ]*|$(IMAGE)|g" "$$SERVICE"; \
+		systemctl --user daemon-reload; \
+		systemctl --user restart container-scribe.service; \
+		echo "systemd service restarted with $(IMAGE)"; \
+	else \
+		podman stop scribe 2>/dev/null || true; \
+		podman rm scribe 2>/dev/null || true; \
+		podman run -d --name scribe -p 8080:8080 --userns=keep-id \
+			-v $(SCRIBE_DATA):/data:Z \
+			$(IMAGE); \
+	fi
 	@sleep 1 && podman logs scribe 2>&1 | tail -3
 
 restart: build-image run
