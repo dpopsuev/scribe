@@ -18,10 +18,13 @@ import (
 )
 
 // scribeInstructions is the MCP server instructions shown to clients.
-const scribeInstructions = "Work artifact graph for AI agents: create, query, and manage tasks, specs, bugs, goals, and campaigns with DAG edges and named sections. " +
+const scribeInstructions = "Work artifact graph + knowledge vault for AI agents. " +
 	"Start with admin(action=motd) for session context, then artifact(action=list) to explore. " +
-	"Kinds: task, spec, bug, goal, campaign, doc, ref, need, decision, config, template, mirror. " +
-	"Relations: parent_of, depends_on, follows, implements, justifies, documents, satisfies."
+	"Work kinds: task, spec, bug, goal, campaign, doc, ref, need, decision. " +
+	"Knowledge kinds: note (fleeting→evergreen), journal (daily), source, concept, context. " +
+	"Knowledge tools: knowledge(action=capture|promote|daily|backlinks). " +
+	"Work relations: parent_of, depends_on, follows, implements, justifies, documents, satisfies. " +
+	"Knowledge relations: cites, elaborates, contradicts, synthesizes, remembers."
 
 // NewServer creates an MCP server exposing Scribe tools over the given store.
 // Returns both the server and a directive registry for CLI introspection.
@@ -36,7 +39,7 @@ func NewServer(s parchment.Store, homeScopes, vocab []string, idc parchment.Prot
 		snap = snapshotter[0]
 	}
 	h := &handler{
-		proto:       parchment.New(s, nil, homeScopes, vocab, idc),
+		proto:       parchment.New(s, parchment.KnowledgeSchema(), homeScopes, vocab, idc),
 		snapshotter: snap,
 		version:     version,
 		readLog:     make(map[string]bool),
@@ -95,6 +98,22 @@ func NewServer(s parchment.Store, homeScopes, vocab []string, idc parchment.Prot
 		Name: "admin", Description: adminDesc,
 		Keywords:   []string{"motd", "dashboard", "goal", "vacuum", "detect", "orphan"},
 		Categories: []string{"lifecycle", "maintenance"},
+	})
+
+	// knowledge tool — vault operations: capture, promote, daily, backlinks.
+	knowledgeDesc := "Knowledge vault: capture (fleeting note), promote (→evergreen), daily (today's journal), backlinks (incoming edges)."
+	var knowledgeSchema any
+	_ = json.Unmarshal(schemaFor[knowledgeInput](), &knowledgeSchema)
+	sdk.AddTool(&sdkmcp.Tool{
+		Name:        "knowledge",
+		Title:       "Knowledge Vault",
+		Description: knowledgeDesc,
+		InputSchema: knowledgeSchema,
+	}, bindHandler(h.handleKnowledge))
+	reg.Register(directive.ToolMeta{
+		Name: "knowledge", Description: knowledgeDesc,
+		Keywords:   []string{"capture", "promote", "daily", "backlinks", "note", "journal", "evergreen", "fleeting"},
+		Categories: []string{"knowledge"},
 	})
 
 	return sdk, reg
@@ -201,6 +220,21 @@ type edgeInput struct {
 	To       string `json:"to" jsonschema:"target artifact ID"`
 }
 
+// knowledgeInput defines the input schema for the knowledge tool.
+type knowledgeInput struct {
+	Action string `json:"action" jsonschema:"required,capture | promote | daily | backlinks"`
+
+	// capture: create a fleeting note
+	Title  string   `json:"title,omitempty" jsonschema:"note title (required for capture)"`
+	Body   string   `json:"body,omitempty" jsonschema:"note body text (capture)"`
+	Scope  string   `json:"scope,omitempty" jsonschema:"scope/vault to write into"`
+	Labels []string `json:"labels,omitempty" jsonschema:"freeform tags"`
+
+	// promote / daily / backlinks: target artifact
+	ID       string `json:"id,omitempty" jsonschema:"artifact ID (required for promote, backlinks)"`
+	Relation string `json:"relation,omitempty" jsonschema:"edge type filter for backlinks (default: all)"`
+}
+
 type adminInput struct {
 	Action  string `json:"action" jsonschema:"required,motd | changelog | dashboard | snapshot | set_goal | vacuum | detect | lint | check | set_scope_labels | list_scope_labels | transfer_scope | seed | schema"`
 	Compact bool   `json:"compact,omitempty" jsonschema:"minimal output for repeat calls (motd)"`
@@ -229,6 +263,115 @@ type adminInput struct {
 }
 
 // --- dispatchers ---
+
+// handleKnowledge dispatches vault operations: capture, promote, daily, backlinks.
+func (h *handler) handleKnowledge(ctx context.Context, _ *sdkmcp.CallToolRequest, in knowledgeInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocyclo // action dispatcher is inherently branchy — same pattern as handleArtifact/handleGraph
+	switch in.Action {
+	case "capture":
+		// capture: quick-capture a fleeting note. Zettelkasten: fleeting note.
+		if in.Title == "" {
+			return text("title is required for capture"), nil, nil
+		}
+		var sections []parchment.Section
+		if in.Body != "" {
+			sections = append(sections, parchment.Section{Name: "body", Text: in.Body})
+		}
+		art, err := h.proto.CreateArtifact(ctx, parchment.CreateInput{
+			Kind:     parchment.KindNote,
+			Title:    in.Title,
+			Scope:    in.Scope,
+			Labels:   in.Labels,
+			Sections: sections,
+		})
+		if err != nil {
+			return text("capture failed: " + err.Error()), nil, nil
+		}
+		// Sync wikilinks eagerly — SiYuan lesson.
+		if in.Body != "" {
+			_, _ = h.proto.SyncWikilinks(ctx, art.ID)
+		}
+		return text(fmt.Sprintf("created %s [%s|%s] %s", art.ID, art.Kind, art.Status, art.Title)), nil, nil
+
+	case "promote":
+		// promote: transition a note from fleeting/active to evergreen.
+		// Zettelkasten: make permanent.
+		if in.ID == "" {
+			return text("id is required for promote"), nil, nil
+		}
+		results, err := h.proto.SetField(ctx, []string{in.ID}, parchment.FieldStatus, parchment.StatusEvergreen)
+		if err != nil {
+			return text("promote failed: " + err.Error()), nil, nil
+		}
+		if len(results) > 0 && !results[0].OK {
+			return text("promote failed: " + results[0].Error), nil, nil
+		}
+		art, err := h.proto.GetArtifact(ctx, in.ID)
+		if err != nil {
+			return text(fmt.Sprintf("%s promoted to evergreen", in.ID)), nil, nil
+		}
+		return text(fmt.Sprintf("%s [%s|evergreen] %s — promoted to evergreen", art.ID, art.Kind, art.Title)), nil, nil
+
+	case "daily":
+		// daily: get-or-create today's journal entry. Idempotent.
+		// Obsidian equivalent: daily note. Logseq equivalent: journal page.
+		today := time.Now().Format("2006-01-02")
+		title := today
+
+		// Check if today's journal already exists.
+		existing, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{
+			Kind:  parchment.KindJournal,
+			Scope: in.Scope,
+		})
+		for _, art := range existing {
+			if art.Title == title {
+				// Return same format as create so callers get a stable ID.
+				return text(fmt.Sprintf("created %s [%s|%s] %s — today's journal (existing)", art.ID, art.Kind, art.Status, art.Title)), nil, nil
+			}
+		}
+
+		// Create it.
+		var sections []parchment.Section
+		if in.Body != "" {
+			sections = append(sections, parchment.Section{Name: "body", Text: in.Body})
+		}
+		art, err := h.proto.CreateArtifact(ctx, parchment.CreateInput{
+			Kind:     parchment.KindJournal,
+			Title:    title,
+			Scope:    in.Scope,
+			Sections: sections,
+		})
+		if err != nil {
+			return text("daily failed: " + err.Error()), nil, nil
+		}
+		return text(fmt.Sprintf("created %s [%s|%s] %s — today's journal", art.ID, art.Kind, art.Status, art.Title)), nil, nil
+
+	case "backlinks":
+		// backlinks: return all artifacts with an incoming edge to id.
+		// Obsidian equivalent: backlinks panel.
+		if in.ID == "" {
+			return text("id is required for backlinks"), nil, nil
+		}
+		arts, err := h.proto.Backlinks(ctx, in.ID, in.Relation)
+		if err != nil {
+			return text("backlinks failed: " + err.Error()), nil, nil
+		}
+		if len(arts) == 0 {
+			return text(fmt.Sprintf("no backlinks to %s", in.ID)), nil, nil
+		}
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "%d backlink(s) to %s:\n", len(arts), in.ID)
+		for _, art := range arts {
+			fmt.Fprintf(&sb, "  %s [%s|%s] %s\n", art.ID, art.Kind, art.Status, art.Title)
+		}
+		return text(sb.String()), nil, nil
+
+	default:
+		return text(fmt.Sprintf(
+			"unknown knowledge action %q — valid: capture, promote, daily, backlinks",
+			in.Action,
+		)), nil, nil
+	}
+}
 
 func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolRequest, in artifactInput) (*sdkmcp.CallToolResult, any, error) {
 	switch in.Action {
