@@ -20,13 +20,11 @@ import (
 )
 
 // scribeInstructions is the MCP server instructions shown to clients.
-const scribeInstructions = "Work artifact graph + knowledge vault for AI agents. " +
-	"Start with admin(action=motd) for session context, then artifact(action=list) to explore. " +
-	"Work kinds: task, spec, bug, goal, campaign, doc, ref, need, decision. " +
-	"Knowledge kinds: note (fleeting→evergreen), journal (daily), source, concept, context. " +
-	"Knowledge tools: knowledge(action=capture|promote|daily|backlinks). " +
-	"Work relations: parent_of, depends_on, follows, implements, justifies, documents, satisfies. " +
-	"Knowledge relations: cites, elaborates, contradicts, synthesizes, remembers."
+const scribeInstructions = "Work artifact graph + knowledge vault. " +
+	"SESSION START: call knowledge(action=orient) for the vault map, then admin(action=motd) for work context. " +
+	"You are the compiler, not the retriever: ingest reads sources and extracts notes, synthesize compiles related notes, file answers back as notes. " +
+	"Knowledge: orient | capture | promote | daily | backlinks | ingest | synthesize | export_vault | import_vault. " +
+	"Work: artifact(create|get|list|search|set|archive) graph(tree|link|briefing) admin(motd|detect|vacuum)."
 
 // NewServer creates an MCP server exposing Scribe tools over the given store.
 // Returns both the server and a directive registry for CLI introspection.
@@ -103,7 +101,7 @@ func NewServer(s parchment.Store, homeScopes, vocab []string, idc parchment.Prot
 	})
 
 	// knowledge tool — vault operations: capture, promote, daily, backlinks.
-	knowledgeDesc := "Knowledge vault: capture (fleeting note), promote (→evergreen), daily (today's journal), backlinks (incoming edges), export_vault (write .md files), import_vault (ingest .md files)."
+	knowledgeDesc := "Knowledge vault: orient (map legend), capture (fleeting note), promote (→evergreen), daily (today's journal), backlinks, ingest, synthesize, export_vault, import_vault."
 	var knowledgeSchema any
 	_ = json.Unmarshal(schemaFor[knowledgeInput](), &knowledgeSchema)
 	sdk.AddTool(&sdkmcp.Tool{
@@ -224,7 +222,7 @@ type edgeInput struct {
 
 // knowledgeInput defines the input schema for the knowledge tool.
 type knowledgeInput struct {
-	Action string `json:"action" jsonschema:"required,capture | promote | daily | backlinks | export_vault | import_vault | ingest | synthesize"`
+	Action string `json:"action" jsonschema:"required,orient | capture | promote | daily | backlinks | export_vault | import_vault | ingest | synthesize"`
 
 	// capture: create a fleeting note
 	Title  string   `json:"title,omitempty" jsonschema:"note title (required for capture)"`
@@ -275,9 +273,136 @@ type adminInput struct {
 
 // --- dispatchers ---
 
+// handleKnowledgeOrient generates the vault map legend — the index.md equivalent.
+// One call gives an agent everything needed to navigate the vault:
+// schema legend, vault state, hub nodes, recent activity, health snapshot.
+func (h *handler) handleKnowledgeOrient(ctx context.Context, in knowledgeInput) (*sdkmcp.CallToolResult, any, error) { //nolint:funlen,gocyclo // orient report is inherently multi-section
+	var b strings.Builder
+	scope := in.Scope
+
+	// --- Schema Legend ---
+	fmt.Fprintf(&b, "## Schema Legend\n\n")
+	kinds := []struct{ kind, status, meaning string }{
+		{parchment.KindNote, parchment.StatusFleeting + "\u2192evergreen", "core knowledge unit"},
+		{parchment.KindJournal, parchment.StatusActive, "daily dated entry"},
+		{parchment.KindSource, parchment.StatusActive, "external material — ingest it, cite it"},
+		{parchment.KindConcept, parchment.StatusActive, "atomic idea — elaborate on it"},
+		{parchment.KindContext, parchment.StatusActive, "agent memory — remembers edges"},
+	}
+	for _, k := range kinds {
+		fmt.Fprintf(&b, "  %-12s %-24s %s\n", k.kind, k.status, k.meaning)
+	}
+
+	b.WriteString("\nRelations:\n")
+	rels := []struct{ rel, from, meaning string }{
+		{parchment.RelCites, "note→source", "this note draws from this source"},
+		{parchment.RelElaborates, "note→concept", "expands on an atomic idea"},
+		{parchment.RelSynthesises, "note→[note…]", "synthesis of multiple notes"},
+		{parchment.RelContradicts, "note↔note", "documents disagreement"},
+		{parchment.RelRemembers, "context→note", "agent bookmarked this"},
+	}
+	for _, r := range rels {
+		fmt.Fprintf(&b, "  %-14s %-18s %s\n", r.rel, r.from, r.meaning)
+	}
+
+	// --- Vault State ---
+	fmt.Fprintf(&b, "\n## Vault State\n\n")
+	knowledgeKinds := []string{
+		parchment.KindNote, parchment.KindJournal,
+		parchment.KindSource, parchment.KindConcept, parchment.KindContext,
+	}
+	totalByKind := make(map[string]int)
+	fleetingCount, evergreenCount := 0, 0
+	var allKnowledge []*parchment.Artifact
+	for _, kind := range knowledgeKinds {
+		arts, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{Kind: kind, Scope: scope})
+		totalByKind[kind] = len(arts)
+		allKnowledge = append(allKnowledge, arts...)
+		for _, a := range arts {
+			switch a.Status {
+			case parchment.StatusFleeting:
+				fleetingCount++
+			case parchment.StatusEvergreen:
+				evergreenCount++
+			}
+		}
+	}
+	for _, kind := range knowledgeKinds {
+		if n := totalByKind[kind]; n > 0 {
+			fmt.Fprintf(&b, "  %-12s %d\n", kind, n)
+		}
+	}
+	if fleetingCount > 0 || evergreenCount > 0 {
+		fmt.Fprintf(&b, "  fleeting: %d   evergreen: %d\n", fleetingCount, evergreenCount)
+	}
+	if len(allKnowledge) == 0 {
+		b.WriteString("  (empty vault — start with knowledge(action=capture) or knowledge(action=ingest))\n")
+	}
+
+	// --- Hub Nodes (top 5 by edge count) ---
+	type hub struct {
+		art   *parchment.Artifact
+		edges int
+	}
+	var hubs []hub
+	for _, art := range allKnowledge {
+		edges, _ := h.proto.GetArtifactEdges(ctx, art.ID)
+		if len(edges) > 0 {
+			hubs = append(hubs, hub{art, len(edges)})
+		}
+	}
+	// Sort descending by edge count.
+	for i := 1; i < len(hubs); i++ {
+		for j := i; j > 0 && hubs[j].edges > hubs[j-1].edges; j-- {
+			hubs[j], hubs[j-1] = hubs[j-1], hubs[j]
+		}
+	}
+	if len(hubs) > 0 {
+		fmt.Fprintf(&b, "\n## Hub Nodes\n\n")
+		topN := min(5, len(hubs))
+		for _, h := range hubs[:topN] {
+			fmt.Fprintf(&b, "  %-20s %2d edges  %s\n", h.art.ID, h.edges, h.art.Title)
+		}
+	}
+
+	// --- Recent Activity (last 7 days) ---
+	recent := time.Now().AddDate(0, 0, -7).Format(time.RFC3339)
+	var recentArts []*parchment.Artifact
+	for _, kind := range knowledgeKinds {
+		arts, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{
+			Kind: kind, Scope: scope, CreatedAfter: recent,
+		})
+		recentArts = append(recentArts, arts...)
+	}
+	if len(recentArts) > 0 {
+		fmt.Fprintf(&b, "\n## Recent (7 days)\n\n")
+		topN := min(5, len(recentArts))
+		for _, art := range recentArts[:topN] {
+			fmt.Fprintf(&b, "  %-20s [%s|%s] %s\n", art.ID, art.Kind, art.Status, art.Title)
+		}
+	}
+
+	// --- Health Snapshot ---
+	healthPart := h.detectKnowledge(ctx, detectInput{Scope: scope})
+	fmt.Fprintf(&b, "\n## Health\n\n  %s\n", strings.TrimSpace(healthPart))
+
+	// --- Operating Instructions ---
+	b.WriteString("\n## You are the compiler\n\n")
+	b.WriteString("  ingest(source) → read it, extract concepts, create notes, link via cites/elaborates\n")
+	b.WriteString("  synthesize(query) → compile related notes into a new synthesis note\n")
+	b.WriteString("  promote(id) → elevate a fleeting note to evergreen when it has landed\n")
+	b.WriteString("  lint (detect check=knowledge) → periodically health-check the wiki\n")
+	b.WriteString("  File synthesis answers back as notes — don't let them disappear into chat\n")
+
+	return text(b.String()), nil, nil
+}
+
 // handleKnowledge dispatches vault operations: capture, promote, daily, backlinks.
 func (h *handler) handleKnowledge(ctx context.Context, _ *sdkmcp.CallToolRequest, in knowledgeInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocyclo // action dispatcher is inherently branchy — same pattern as handleArtifact/handleGraph
 	switch in.Action {
+	case "orient":
+		return h.handleKnowledgeOrient(ctx, in)
+
 	case "capture":
 		// capture: quick-capture a fleeting note. Zettelkasten: fleeting note.
 		if in.Title == "" {
@@ -541,7 +666,7 @@ func (h *handler) handleKnowledge(ctx context.Context, _ *sdkmcp.CallToolRequest
 
 	default:
 		return text(fmt.Sprintf(
-			"unknown knowledge action %q — valid: capture, promote, daily, backlinks, export_vault, import_vault, ingest, synthesize",
+			"unknown knowledge action %q — valid: orient, capture, promote, daily, backlinks, export_vault, import_vault, ingest, synthesize",
 			in.Action,
 		)), nil, nil
 	}
