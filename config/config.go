@@ -172,7 +172,7 @@ func defaults() Config {
 		DB:        DBConfig{SQLite: parchment.SQLiteConfig{Path: parchment.DefaultSQLitePath()}},
 		Transport: "stdio",
 		Addr:      ":8080",
-		Schema:    parchment.DefaultSchema(),
+		Schema:    parchment.KnowledgeSchema(),
 	}
 }
 
@@ -256,10 +256,13 @@ func (c *Config) applyDefaults() {
 	if c.Addr == "" {
 		c.Addr = ":8080"
 	}
+	// KnowledgeSchema already merges DefaultSchema — it is additive.
+	// Any schema loaded from config (via YAML) merges against KnowledgeSchema
+	// so knowledge kinds are always present regardless of config file contents.
 	if c.Schema == nil {
-		c.Schema = parchment.DefaultSchema()
+		c.Schema = parchment.KnowledgeSchema()
 	} else {
-		c.Schema.MergeDefaults(parchment.DefaultSchema())
+		c.Schema.MergeDefaults(parchment.KnowledgeSchema())
 	}
 }
 

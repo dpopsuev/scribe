@@ -1320,7 +1320,7 @@ func serveCmd() *cobra.Command {
 			)
 
 			if enableUI {
-				proto := parchment.New(s, nil, homeScopes, nil, idc)
+				proto := parchment.New(s, parchment.KnowledgeSchema(), homeScopes, nil, idc)
 				uiSrv := web.NewServer(proto)
 				go func() {
 					slog.Info("UI listening", "addr", uiAddr)
