@@ -445,3 +445,57 @@ func TestKnowledge_Synthesize_RequiresQuery(t *testing.T) {
 		t.Errorf("synthesize: expected query-required error, got: %s", out)
 	}
 }
+
+// TestKnowledge_Ingest_ReturnsContent verifies ingest returns the source
+// body so the agent can read and extract from it inline.
+func TestKnowledge_Ingest_ReturnsContent(t *testing.T) {
+	call := newKnowledgeServer(t)
+
+	out := call(map[string]any{
+		"action": "ingest",
+		"title":  "Meditations by Marcus Aurelius",
+		"body":   "Key themes: virtue, impermanence, the dichotomy of control, Logos.",
+		"url":    "https://example.com/meditations",
+		"scope":  "test",
+	})
+
+	// Must include the source body so the agent can extract from it.
+	if !strings.Contains(out, "virtue") {
+		t.Errorf("ingest: expected source body in response for extraction, got: %s", out)
+	}
+	// Must include next-step guidance.
+	if !strings.Contains(out, "capture") && !strings.Contains(out, "Next") {
+		t.Errorf("ingest: expected next-step prompt in response, got: %s", out)
+	}
+	// Must include the source ID so the agent knows what to link against.
+	if !strings.Contains(out, "SRC-") {
+		t.Errorf("ingest: expected SRC- id in response, got: %s", out)
+	}
+}
+
+// TestKnowledge_Ingest_SuggestsSimilar verifies ingest surfaces existing
+// notes that may be related (via FTS) so the agent can link them.
+func TestKnowledge_Ingest_SuggestsSimilar(t *testing.T) {
+	call := newKnowledgeServer(t)
+
+	// Pre-seed a note about virtue.
+	call(map[string]any{
+		"action": "capture",
+		"title":  "Virtue as the highest good",
+		"body":   "Stoics believed virtue is the only true good.",
+		"scope":  "test",
+	})
+
+	// Ingest a source that mentions virtue.
+	out := call(map[string]any{
+		"action": "ingest",
+		"title":  "Meditations",
+		"body":   "Marcus Aurelius on virtue and the good life.",
+		"scope":  "test",
+	})
+
+	// Should surface the existing note as a potential link.
+	if !strings.Contains(out, "Virtue") && !strings.Contains(out, "virtue") {
+		t.Errorf("ingest: expected similar notes surfaced, got: %s", out)
+	}
+}
