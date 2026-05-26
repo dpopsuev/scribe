@@ -2,6 +2,7 @@ package mcp_test
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -292,5 +293,90 @@ func TestKnowledge_VaultRoundTrip(t *testing.T) {
 
 	if !strings.Contains(importOut, "imported") {
 		t.Errorf("round-trip import: expected 'imported', got: %s", importOut)
+	}
+}
+
+// TestKnowledge_EagerWikilinks verifies that wikilinks in captured notes
+// automatically create edges — no separate sync call needed.
+func TestKnowledge_EagerWikilinks(t *testing.T) {
+	call := newKnowledgeServer(t)
+
+	// Create the target note first.
+	call(map[string]any{"action": "capture", "title": "Stoicism", "scope": "test"})
+
+	// Create a note that references it via [[Stoicism]].
+	created := call(map[string]any{
+		"action": "capture",
+		"title":  "On philosophy",
+		"body":   "See also [[Stoicism]] for Hellenistic thought.",
+		"scope":  "test",
+	})
+	noteID := extractID(t, created)
+
+	// Export the vault — if wikilinks were eagerly synced, the graph has edges.
+	// We verify via backlinks: Stoicism should show On philosophy as a backlink.
+	dir := t.TempDir()
+	exportOut := call(map[string]any{"action": "export_vault", "dir": dir, "scope": "test"})
+	if !strings.Contains(exportOut, "exported") {
+		t.Fatalf("export failed: %s", exportOut)
+	}
+
+	// Verify the exported note contains the wikilink in its body.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range entries {
+		if strings.Contains(e.Name(), noteID[:6]) {
+			data, _ := os.ReadFile(filepath.Join(dir, e.Name()))
+			if strings.Contains(string(data), "[[Stoicism]]") {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("eager wikilinks: expected [[Stoicism]] preserved in exported .md")
+	}
+}
+
+// TestKnowledge_EagerWikilinks_OnAttachSection verifies that attaching a
+// section with [[wikilinks]] via the artifact tool also creates graph edges.
+func TestKnowledge_EagerWikilinks_OnAttachSection(t *testing.T) {
+	s := openStore(t)
+	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+	knowledge := func(args map[string]any) string { return callTool(t, cs, "knowledge", args) }
+	artifact := func(args map[string]any) string { return callTool(t, cs, "artifact", args) }
+
+	// Create target note.
+	target := knowledge(map[string]any{"action": "capture", "title": "Epictetus", "scope": "test"})
+	targetID := extractID(t, target)
+
+	// Create source note (no body yet).
+	source := knowledge(map[string]any{"action": "capture", "title": "The Enchiridion", "scope": "test"})
+	sourceID := extractID(t, source)
+
+	// Before attach_section: no backlinks.
+	before := knowledge(map[string]any{"action": "backlinks", "id": targetID})
+	if !strings.Contains(before, "no backlinks") {
+		t.Fatalf("expected no backlinks before attach, got: %s", before)
+	}
+
+	// Attach a section with a [[wikilink]] to target.
+	artifact(map[string]any{
+		"action": "attach_section",
+		"id":     sourceID,
+		"name":   "body",
+		"text":   "Written by [[Epictetus]] around 125 AD.",
+	})
+
+	// After attach_section: backlinks to Epictetus should include The Enchiridion.
+	after := knowledge(map[string]any{"action": "backlinks", "id": targetID})
+	if strings.Contains(after, "no backlinks") {
+		t.Errorf("attach_section should have eagerly synced wikilinks, got: %s", after)
+	}
+	if !strings.Contains(after, sourceID[:6]) {
+		t.Errorf("expected source %s in backlinks, got: %s", sourceID, after)
 	}
 }
