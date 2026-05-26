@@ -10,7 +10,7 @@ func TestToolRegistry_AllToolsRegistered(t *testing.T) {
 	reg := mcp.ToolRegistry()
 	tools := reg.List()
 
-	if len(tools) != 3 {
+	if len(tools) != 4 { // artifact, graph, admin, knowledge
 		t.Fatalf("expected 3 tools, got %d", len(tools))
 	}
 
