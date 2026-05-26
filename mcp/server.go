@@ -2206,11 +2206,12 @@ func (h *handler) handleReplace(ctx context.Context, id, relation, oldTarget, ne
 }
 
 type detectInput struct {
-	Check   string `json:"check,omitempty"`
-	Scope   string `json:"scope,omitempty"`
-	Status  string `json:"status,omitempty"`
-	Kind    string `json:"kind,omitempty"`
-	Project string `json:"project,omitempty"`
+	Check     string `json:"check,omitempty" jsonschema:"orphans, overlaps, knowledge, or all (default: all)"`
+	Scope     string `json:"scope,omitempty"`
+	Status    string `json:"status,omitempty"`
+	Kind      string `json:"kind,omitempty"`
+	Project   string `json:"project,omitempty"`
+	StaleDays int    `json:"stale_days,omitempty" jsonschema:"days before a fleeting note is considered stuck (default: 7)"`
 }
 
 func (h *handler) handleDetect(ctx context.Context, _ *sdkmcp.CallToolRequest, in detectInput) (*sdkmcp.CallToolResult, any, error) {
@@ -2262,7 +2263,90 @@ func (h *handler) handleDetect(ctx context.Context, _ *sdkmcp.CallToolRequest, i
 		}
 	}
 
+	if check == "knowledge" || check == "all" {
+		kPart := h.detectKnowledge(ctx, in)
+		if kPart != "" {
+			parts = append(parts, kPart)
+		}
+	}
+
 	return text(strings.Join(parts, "\n\n")), nil, nil
+}
+
+// detectKnowledge surfaces knowledge-specific health signals:
+//   - notes stuck as fleeting beyond the stale threshold
+//   - source artifacts that nothing has cited
+//   - context artifacts with no remembers edges
+func (h *handler) detectKnowledge(ctx context.Context, in detectInput) string {
+	staleDays := in.StaleDays
+	if staleDays == 0 {
+		staleDays = 7 // default: flag notes fleeting for more than a week
+	}
+	threshold := time.Now().AddDate(0, 0, -staleDays).Format(time.RFC3339)
+
+	var issues []string
+
+	// 1. Notes stuck as fleeting beyond threshold.
+	fleetingNotes, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{
+		Kind:          parchment.KindNote,
+		Status:        parchment.StatusFleeting,
+		Scope:         in.Scope,
+		CreatedBefore: threshold,
+	})
+	for _, art := range fleetingNotes {
+		issues = append(issues, fmt.Sprintf(
+			"%-20s %-8s [fleeting >%dd] %s",
+			art.ID, art.Kind, staleDays, art.Title,
+		))
+	}
+
+	// 2. Source artifacts with no incoming cites edges (nothing references them).
+	sources, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{
+		Kind:  parchment.KindSource,
+		Scope: in.Scope,
+	})
+	for _, art := range sources {
+		backlinks, _ := h.proto.Backlinks(ctx, art.ID, parchment.RelCites)
+		if len(backlinks) == 0 {
+			issues = append(issues, fmt.Sprintf(
+				"%-20s %-8s [no cites] %s",
+				art.ID, art.Kind, art.Title,
+			))
+		}
+	}
+
+	// 3. Context artifacts with no outgoing remembers edges (empty agent memory).
+	contexts, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{
+		Kind:  parchment.KindContext,
+		Scope: in.Scope,
+	})
+	for _, art := range contexts {
+		// Backlinks with RelRemembers direction inverted: we want outgoing
+		// (context remembers something). Use Neighbors directly.
+		neighbors, _ := h.proto.GetArtifactEdges(ctx, art.ID)
+		remembersCount := 0
+		for _, e := range neighbors {
+			if e.Relation == parchment.RelRemembers && e.Direction == "outgoing" {
+				remembersCount++
+			}
+		}
+		if remembersCount == 0 {
+			issues = append(issues, fmt.Sprintf(
+				"%-20s %-8s [no remembers] %s",
+				art.ID, art.Kind, art.Title,
+			))
+		}
+	}
+
+	if len(issues) == 0 {
+		return fmt.Sprintf("No knowledge issues (fleeting >%dd: 0, uncited sources: 0).", staleDays)
+	}
+	var b strings.Builder
+	for _, issue := range issues {
+		fmt.Fprintln(&b, issue)
+	}
+	fmt.Fprintf(&b, "%d knowledge issue(s) (staleDays=%d)", len(issues), staleDays)
+	return b.String()
 }
 
 func (h *handler) handleLint(_ context.Context) (*sdkmcp.CallToolResult, any, error) {
