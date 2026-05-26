@@ -380,3 +380,68 @@ func TestKnowledge_EagerWikilinks_OnAttachSection(t *testing.T) {
 		t.Errorf("expected source %s in backlinks, got: %s", sourceID, after)
 	}
 }
+
+// TestKnowledge_Ingest creates a source artifact from a URL/text.
+func TestKnowledge_Ingest(t *testing.T) {
+	call := newKnowledgeServer(t)
+
+	out := call(map[string]any{
+		"action": "ingest",
+		"title":  "Meditations by Marcus Aurelius",
+		"body":   "A personal diary of Stoic philosophy written by the Roman Emperor.",
+		"url":    "https://example.com/meditations",
+		"scope":  "test",
+	})
+
+	if !strings.Contains(out, "SRC-") {
+		t.Errorf("ingest: expected SRC- prefix, got: %s", out)
+	}
+	if !strings.Contains(out, "source") {
+		t.Errorf("ingest: expected kind=source, got: %s", out)
+	}
+}
+
+// TestKnowledge_Ingest_RequiresTitle verifies ingest rejects empty title.
+func TestKnowledge_Ingest_RequiresTitle(t *testing.T) {
+	call := newKnowledgeServer(t)
+
+	out := call(map[string]any{"action": "ingest", "scope": "test"})
+
+	if !strings.Contains(out, "title") {
+		t.Errorf("ingest: expected title-required error, got: %s", out)
+	}
+}
+
+// TestKnowledge_Synthesize creates a synthesis note linking related notes.
+func TestKnowledge_Synthesize(t *testing.T) {
+	call := newKnowledgeServer(t)
+
+	// Seed notes about Stoicism.
+	call(map[string]any{"action": "capture", "title": "Virtue is the only good", "body": "Stoicism teaches virtue.", "scope": "test"})
+	call(map[string]any{"action": "capture", "title": "Epictetus on freedom", "body": "Stoic freedom is internal.", "scope": "test"})
+
+	out := call(map[string]any{
+		"action": "synthesize",
+		"query":  "Stoicism",
+		"title":  "Synthesis: Stoic themes",
+		"scope":  "test",
+	})
+
+	if !strings.Contains(out, "NOT-") {
+		t.Errorf("synthesize: expected NOT- prefix, got: %s", out)
+	}
+	if !strings.Contains(out, "note") {
+		t.Errorf("synthesize: expected kind=note, got: %s", out)
+	}
+}
+
+// TestKnowledge_Synthesize_RequiresQuery verifies synthesize rejects missing query.
+func TestKnowledge_Synthesize_RequiresQuery(t *testing.T) {
+	call := newKnowledgeServer(t)
+
+	out := call(map[string]any{"action": "synthesize", "title": "Empty synthesis", "scope": "test"})
+
+	if !strings.Contains(out, "query") {
+		t.Errorf("synthesize: expected query-required error, got: %s", out)
+	}
+}

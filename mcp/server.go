@@ -224,7 +224,7 @@ type edgeInput struct {
 
 // knowledgeInput defines the input schema for the knowledge tool.
 type knowledgeInput struct {
-	Action string `json:"action" jsonschema:"required,capture | promote | daily | backlinks | export_vault | import_vault"`
+	Action string `json:"action" jsonschema:"required,capture | promote | daily | backlinks | export_vault | import_vault | ingest | synthesize"`
 
 	// capture: create a fleeting note
 	Title  string   `json:"title,omitempty" jsonschema:"note title (required for capture)"`
@@ -238,6 +238,12 @@ type knowledgeInput struct {
 
 	// export_vault / import_vault: filesystem path
 	Dir string `json:"dir,omitempty" jsonschema:"directory path (required for export_vault, import_vault)"`
+
+	// ingest: external source URL
+	URL string `json:"url,omitempty" jsonschema:"source URL for ingest"`
+
+	// synthesize: full-text search query
+	Query string `json:"query,omitempty" jsonschema:"search query (required for synthesize)"`
 }
 
 type adminInput struct {
@@ -463,9 +469,79 @@ func (h *handler) handleKnowledge(ctx context.Context, _ *sdkmcp.CallToolRequest
 		}
 		return text(fmt.Sprintf("imported %d note(s) from %s", count, in.Dir)), nil, nil
 
+	case "ingest":
+		// ingest: create a source artifact from external material (URL, text, book).
+		// The source is the raw input; agents later extract child notes from it.
+		if in.Title == "" {
+			return text("title is required for ingest"), nil, nil
+		}
+		var sections []parchment.Section
+		if in.Body != "" {
+			sections = append(sections, parchment.Section{Name: "summary", Text: in.Body})
+		}
+		if in.URL != "" {
+			sections = append(sections, parchment.Section{Name: "provenance", Text: in.URL})
+		}
+		art, err := h.proto.CreateArtifact(ctx, parchment.CreateInput{
+			Kind:     parchment.KindSource,
+			Title:    in.Title,
+			Scope:    in.Scope,
+			Labels:   in.Labels,
+			Sections: sections,
+		})
+		if err != nil {
+			return text("ingest failed: " + err.Error()), nil, nil
+		}
+		return text(fmt.Sprintf("created %s [%s|%s] %s", art.ID, art.Kind, art.Status, art.Title)), nil, nil
+
+	case "synthesize":
+		// synthesize: search across knowledge notes and create a new note
+		// linking all related results via synthesizes edges.
+		// Agents call this to build structured understanding from disparate notes.
+		if in.Query == "" {
+			return text("query is required for synthesize"), nil, nil
+		}
+		title := in.Title
+		if title == "" {
+			title = "Synthesis: " + in.Query
+		}
+		// Search for related artifacts.
+		matches, err := h.proto.SearchArtifacts(ctx, in.Query, parchment.ListInput{Scope: in.Scope})
+		if err != nil {
+			return text("synthesize search failed: " + err.Error()), nil, nil
+		}
+		// Create the synthesis note.
+		var body strings.Builder
+		fmt.Fprintf(&body, "Synthesis of %d result(s) for query: %s\n\n", len(matches), in.Query)
+		for _, m := range matches {
+			fmt.Fprintf(&body, "- [[%s]] (%s)\n", m.Title, m.ID)
+		}
+		art, err := h.proto.CreateArtifact(ctx, parchment.CreateInput{
+			Kind:  parchment.KindNote,
+			Title: title,
+			Scope: in.Scope,
+			Sections: []parchment.Section{
+				{Name: "body", Text: body.String()},
+			},
+		})
+		if err != nil {
+			return text("synthesize failed: " + err.Error()), nil, nil
+		}
+		// Link synthesis note to all matched artifacts via synthesizes edges.
+		if len(matches) > 0 {
+			ids := make([]string, 0, len(matches))
+			for _, m := range matches {
+				ids = append(ids, m.ID)
+			}
+			_, _ = h.proto.LinkArtifacts(ctx, art.ID, parchment.RelSynthesises, ids)
+			// Eager wikilink sync picks up the [[Title]] references in body.
+			_, _ = h.proto.SyncWikilinks(ctx, art.ID)
+		}
+		return text(fmt.Sprintf("created %s [%s|%s] %s — synthesized %d note(s)", art.ID, art.Kind, art.Status, art.Title, len(matches))), nil, nil
+
 	default:
 		return text(fmt.Sprintf(
-			"unknown knowledge action %q — valid: capture, promote, daily, backlinks, export_vault, import_vault",
+			"unknown knowledge action %q — valid: capture, promote, daily, backlinks, export_vault, import_vault, ingest, synthesize",
 			in.Action,
 		)), nil, nil
 	}
