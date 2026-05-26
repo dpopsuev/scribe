@@ -1544,6 +1544,12 @@ func (h *handler) handleAttachSection(ctx context.Context, _ *sdkmcp.CallToolReq
 	if err != nil {
 		return nil, nil, err
 	}
+	// Eager wikilink indexing — SCR-GOL-31.
+	// Sync [[wikilinks]] in section text to graph edges immediately on write.
+	// SiYuan lesson: pre-index refs on write, backlinks are cheap table lookups.
+	if in.Text != "" {
+		_, _ = h.proto.SyncWikilinks(ctx, in.ID)
+	}
 	action := "added"
 	if replaced {
 		action = "replaced"
