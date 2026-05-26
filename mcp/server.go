@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -101,7 +103,7 @@ func NewServer(s parchment.Store, homeScopes, vocab []string, idc parchment.Prot
 	})
 
 	// knowledge tool — vault operations: capture, promote, daily, backlinks.
-	knowledgeDesc := "Knowledge vault: capture (fleeting note), promote (→evergreen), daily (today's journal), backlinks (incoming edges)."
+	knowledgeDesc := "Knowledge vault: capture (fleeting note), promote (→evergreen), daily (today's journal), backlinks (incoming edges), export_vault (write .md files), import_vault (ingest .md files)."
 	var knowledgeSchema any
 	_ = json.Unmarshal(schemaFor[knowledgeInput](), &knowledgeSchema)
 	sdk.AddTool(&sdkmcp.Tool{
@@ -222,7 +224,7 @@ type edgeInput struct {
 
 // knowledgeInput defines the input schema for the knowledge tool.
 type knowledgeInput struct {
-	Action string `json:"action" jsonschema:"required,capture | promote | daily | backlinks"`
+	Action string `json:"action" jsonschema:"required,capture | promote | daily | backlinks | export_vault | import_vault"`
 
 	// capture: create a fleeting note
 	Title  string   `json:"title,omitempty" jsonschema:"note title (required for capture)"`
@@ -233,6 +235,9 @@ type knowledgeInput struct {
 	// promote / daily / backlinks: target artifact
 	ID       string `json:"id,omitempty" jsonschema:"artifact ID (required for promote, backlinks)"`
 	Relation string `json:"relation,omitempty" jsonschema:"edge type filter for backlinks (default: all)"`
+
+	// export_vault / import_vault: filesystem path
+	Dir string `json:"dir,omitempty" jsonschema:"directory path (required for export_vault, import_vault)"`
 }
 
 type adminInput struct {
@@ -365,9 +370,102 @@ func (h *handler) handleKnowledge(ctx context.Context, _ *sdkmcp.CallToolRequest
 		}
 		return text(sb.String()), nil, nil
 
+	case "export_vault":
+		// export_vault: write all knowledge notes as Obsidian-compatible .md files.
+		if in.Dir == "" {
+			return text("dir is required for export_vault"), nil, nil
+		}
+		if err := os.MkdirAll(in.Dir, 0o750); err != nil { //nolint:gosec // operator-controlled export directory
+			return text("export_vault: cannot create dir: " + err.Error()), nil, nil
+		}
+		kinds := []string{
+			parchment.KindNote, parchment.KindJournal,
+			parchment.KindSource, parchment.KindConcept, parchment.KindContext,
+		}
+		count := 0
+		var errs []string
+		for _, kind := range kinds {
+			arts, err := h.proto.ListArtifacts(ctx, parchment.ListInput{Kind: kind, Scope: in.Scope})
+			if err != nil {
+				errs = append(errs, fmt.Sprintf("%s: %v", kind, err))
+				continue
+			}
+			for _, art := range arts {
+				md := parchment.RenderVaultMarkdown(art)
+				path := filepath.Join(in.Dir, art.ID+".md")
+				if err := os.WriteFile(path, []byte(md), 0o644); err != nil { //nolint:gosec // operator-controlled path
+					errs = append(errs, fmt.Sprintf("%s: %v", art.ID, err))
+					continue
+				}
+				count++
+			}
+		}
+		if len(errs) > 0 {
+			return text(fmt.Sprintf("exported %d note(s) to %s (errors: %s)", count, in.Dir, strings.Join(errs, "; "))), nil, nil
+		}
+		return text(fmt.Sprintf("exported %d note(s) to %s", count, in.Dir)), nil, nil
+
+	case "import_vault":
+		// import_vault: ingest .md files from a directory as knowledge artifacts.
+		if in.Dir == "" {
+			return text("dir is required for import_vault"), nil, nil
+		}
+		entries, err := os.ReadDir(in.Dir)
+		if err != nil {
+			return text("import_vault: cannot read dir: " + err.Error()), nil, nil
+		}
+		count := 0
+		var errs []string
+		for _, entry := range entries {
+			if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
+				continue
+			}
+			data, err := os.ReadFile(filepath.Join(in.Dir, entry.Name())) //nolint:gosec // operator-controlled path
+			if err != nil {
+				errs = append(errs, entry.Name()+": "+err.Error())
+				continue
+			}
+			parsed, err := parchment.ParseVaultMarkdown(data)
+			if err != nil || parsed.Title == "" {
+				errs = append(errs, entry.Name()+": parse failed")
+				continue
+			}
+			// Prefer scope from file, fall back to input scope.
+			scope := parsed.Scope
+			if scope == "" {
+				scope = in.Scope
+			}
+			kind := parsed.Kind
+			if kind == "" {
+				kind = parchment.KindNote
+			}
+			art, err := h.proto.CreateArtifact(ctx, parchment.CreateInput{
+				Kind:       kind,
+				Title:      parsed.Title,
+				Scope:      scope,
+				Status:     parsed.Status,
+				Labels:     parsed.Labels,
+				DependsOn:  parsed.DependsOn,
+				Goal:       parsed.Goal,
+				Sections:   parsed.Sections,
+				ExplicitID: parsed.ID,
+			})
+			if err != nil {
+				errs = append(errs, entry.Name()+": "+err.Error())
+				continue
+			}
+			// Sync wikilinks eagerly across all sections.
+			_, _ = h.proto.SyncWikilinks(ctx, art.ID)
+			count++
+		}
+		if len(errs) > 0 {
+			return text(fmt.Sprintf("imported %d note(s) from %s (errors: %s)", count, in.Dir, strings.Join(errs, "; "))), nil, nil
+		}
+		return text(fmt.Sprintf("imported %d note(s) from %s", count, in.Dir)), nil, nil
+
 	default:
 		return text(fmt.Sprintf(
-			"unknown knowledge action %q — valid: capture, promote, daily, backlinks",
+			"unknown knowledge action %q — valid: capture, promote, daily, backlinks, export_vault, import_vault",
 			in.Action,
 		)), nil, nil
 	}

@@ -1,6 +1,7 @@
 package mcp_test
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -170,5 +171,126 @@ func TestKnowledge_UnknownAction(t *testing.T) {
 
 	if !strings.Contains(out, "explode") {
 		t.Errorf("unknown action: expected action name in error, got: %s", out)
+	}
+}
+
+// TestKnowledge_ExportVault writes all knowledge notes to a directory.
+func TestKnowledge_ExportVault(t *testing.T) {
+	call := newKnowledgeServer(t)
+	dir := t.TempDir()
+
+	// Seed a couple of notes.
+	call(map[string]any{"action": "capture", "title": "Stoicism", "body": "Virtue is the only good.", "scope": "test"})
+	call(map[string]any{"action": "capture", "title": "Epictetus", "body": "We cannot choose our external circumstances.", "scope": "test"})
+
+	out := call(map[string]any{
+		"action": "export_vault",
+		"dir":    dir,
+		"scope":  "test",
+	})
+
+	if !strings.Contains(out, "exported") {
+		t.Errorf("export_vault: expected 'exported' in response, got: %s", out)
+	}
+	if !strings.Contains(out, "2") {
+		t.Errorf("export_vault: expected count 2 in response, got: %s", out)
+	}
+}
+
+// TestKnowledge_ExportVault_RequiresDir verifies export rejects missing dir.
+func TestKnowledge_ExportVault_RequiresDir(t *testing.T) {
+	call := newKnowledgeServer(t)
+
+	out := call(map[string]any{"action": "export_vault"})
+
+	if !strings.Contains(out, "dir") {
+		t.Errorf("export_vault: expected dir-required error, got: %s", out)
+	}
+}
+
+// TestKnowledge_ImportVault reads .md files from a directory into the store.
+func TestKnowledge_ImportVault(t *testing.T) {
+	call := newKnowledgeServer(t)
+	dir := t.TempDir()
+
+	// Write two vault-compatible .md files.
+	note1 := `---
+id: TEST-n-1
+kind: note
+status: fleeting
+scope: test
+title: The examined life
+---
+
+# The examined life
+
+The unexamined life is not worth living.
+`
+	note2 := `---
+id: TEST-n-2
+kind: note
+status: fleeting
+scope: test
+title: Know thyself
+---
+
+# Know thyself
+
+## body
+
+Gnothi seauton — inscribed at Delphi.
+`
+	if err := os.WriteFile(dir+"/note1.md", []byte(note1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir+"/note2.md", []byte(note2), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := call(map[string]any{
+		"action": "import_vault",
+		"dir":    dir,
+		"scope":  "test",
+	})
+
+	if !strings.Contains(out, "imported") {
+		t.Errorf("import_vault: expected 'imported' in response, got: %s", out)
+	}
+	if !strings.Contains(out, "2") {
+		t.Errorf("import_vault: expected count 2 in response, got: %s", out)
+	}
+}
+
+// TestKnowledge_ImportVault_RequiresDir verifies import rejects missing dir.
+func TestKnowledge_ImportVault_RequiresDir(t *testing.T) {
+	call := newKnowledgeServer(t)
+
+	out := call(map[string]any{"action": "import_vault"})
+
+	if !strings.Contains(out, "dir") {
+		t.Errorf("import_vault: expected dir-required error, got: %s", out)
+	}
+}
+
+// TestKnowledge_VaultRoundTrip exports notes and re-imports them, verifying
+// the round-trip produces the same titles.
+func TestKnowledge_VaultRoundTrip(t *testing.T) {
+	call := newKnowledgeServer(t)
+	exportDir := t.TempDir()
+
+	titles := []string{"Virtue", "Courage", "Justice"}
+	for _, title := range titles {
+		call(map[string]any{"action": "capture", "title": title, "scope": "test"})
+	}
+
+	// Export.
+	call(map[string]any{"action": "export_vault", "dir": exportDir, "scope": "test"})
+
+	// Import into a fresh server.
+	call2 := newKnowledgeServer(t)
+	importOut := call2(map[string]any{"action": "import_vault", "dir": exportDir, "scope": "test"})
+
+	if !strings.Contains(importOut, "imported") {
+		t.Errorf("round-trip import: expected 'imported', got: %s", importOut)
 	}
 }
