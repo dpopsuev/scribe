@@ -273,6 +273,39 @@ type adminInput struct {
 
 // --- dispatchers ---
 
+// appendRelatedNotes searches FTS for existing knowledge notes related to
+// the given title+body and appends them to b as link candidates.
+func (h *handler) appendRelatedNotes(ctx context.Context, b *strings.Builder, excludeID, title, body, scope string) {
+	if title == "" && body == "" {
+		return
+	}
+	query := title
+	if body != "" {
+		snippet := body
+		if len(snippet) > 80 {
+			snippet = snippet[:80]
+		}
+		query = query + " " + snippet
+	}
+	related, _ := h.proto.SearchArtifacts(ctx, query, parchment.ListInput{
+		Family: parchment.FamilyKnowledge,
+		Scope:  scope,
+	})
+	var candidates []*parchment.Artifact
+	for _, r := range related {
+		if r.ID != excludeID && r.Kind != parchment.KindSource {
+			candidates = append(candidates, r)
+		}
+	}
+	if len(candidates) == 0 {
+		return
+	}
+	b.WriteString("\nExisting notes that may connect:\n")
+	for _, r := range candidates[:min(5, len(candidates))] {
+		fmt.Fprintf(b, "  %s [%s] %s\n", r.ID, r.Status, r.Title)
+	}
+}
+
 // handleKnowledgeOrient generates the vault map legend — the index.md equivalent.
 // One call gives an agent everything needed to navigate the vault:
 // schema legend, vault state, hub nodes, recent activity, health snapshot.
@@ -595,8 +628,9 @@ func (h *handler) handleKnowledge(ctx context.Context, _ *sdkmcp.CallToolRequest
 		return text(fmt.Sprintf("imported %d note(s) from %s", count, in.Dir)), nil, nil
 
 	case "ingest":
-		// ingest: create a source artifact from external material (URL, text, book).
-		// The source is the raw input; agents later extract child notes from it.
+		// ingest: file the source AND return its content so the agent can
+		// immediately extract concepts and build the codex.
+		// The agent is the compiler — Scribe provides structure, the LLM provides understanding.
 		if in.Title == "" {
 			return text("title is required for ingest"), nil, nil
 		}
@@ -617,7 +651,32 @@ func (h *handler) handleKnowledge(ctx context.Context, _ *sdkmcp.CallToolRequest
 		if err != nil {
 			return text("ingest failed: " + err.Error()), nil, nil
 		}
-		return text(fmt.Sprintf("created %s [%s|%s] %s", art.ID, art.Kind, art.Status, art.Title)), nil, nil
+
+		var b strings.Builder
+		fmt.Fprintf(&b, "created %s [%s|%s] %s\n", art.ID, art.Kind, art.Status, art.Title)
+		if in.URL != "" {
+			fmt.Fprintf(&b, "url: %s\n", in.URL)
+		}
+
+		// Return the source body so the agent can read and extract from it inline.
+		// The agent is already an LLM — the content in this response is immediately
+		// available for concept extraction without any additional API call.
+		if in.Body != "" {
+			fmt.Fprintf(&b, "\nContent:\n%s\n", in.Body)
+		}
+
+		// Surface existing notes that FTS finds related to this source.
+		// Candidates for cites/elaborates links the agent should make.
+		h.appendRelatedNotes(ctx, &b, art.ID, in.Title, in.Body, in.Scope)
+
+		// Next-step prompt: tell the agent what to do with this content.
+		b.WriteString("\nNext — you are the compiler:\n")
+		fmt.Fprintf(&b, "  For each key concept: capture(title=<concept>, body=<synthesis>, scope=%s)\n", in.Scope)
+		fmt.Fprintf(&b, "  Link each note to this source: graph(action=link, id=<note-id>, relation=cites, targets=[\"%s\"])\n", art.ID)
+		b.WriteString("  Link notes to existing concepts via: graph(action=link, relation=elaborates)\n")
+		b.WriteString("  File synthesis answers back as notes — don't let them disappear into chat\n")
+
+		return text(b.String()), nil, nil
 
 	case "synthesize":
 		// synthesize: search across knowledge notes and create a new note
