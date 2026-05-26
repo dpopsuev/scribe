@@ -141,3 +141,51 @@ func TestDetect_Knowledge_StaleThreshold(t *testing.T) {
 		t.Errorf("detect knowledge stale_days: unexpected error: %s", out)
 	}
 }
+
+// TestKnowledge_Orient returns the vault map legend.
+func TestKnowledge_Orient(t *testing.T) {
+	knowledge, _ := newKnowledgeDetectServer(t)
+
+	// Seed varied content so the report has something to show.
+	knowledge(map[string]any{"action": "capture", "title": "Stoicism", "body": "Virtue is the only good.", "scope": "test"})
+	knowledge(map[string]any{"action": "capture", "title": "Epictetus", "scope": "test"})
+	knowledge(map[string]any{"action": "ingest", "title": "Meditations", "body": "Marcus Aurelius.", "scope": "test"})
+	knowledge(map[string]any{"action": "daily", "scope": "test"})
+
+	out := knowledge(map[string]any{
+		"action": "orient",
+		"scope":  "test",
+	})
+
+	// Must include schema legend.
+	if !strings.Contains(out, "note") {
+		t.Errorf("orient: expected 'note' kind in legend, got: %s", out)
+	}
+	if !strings.Contains(out, "cites") {
+		t.Errorf("orient: expected 'cites' relation in legend, got: %s", out)
+	}
+
+	// Must include vault state counts.
+	if !strings.Contains(out, "fleeting") || !strings.Contains(out, "journal") {
+		t.Errorf("orient: expected vault state counts, got: %s", out)
+	}
+
+	// Must include health snapshot.
+	if !strings.Contains(out, "Health") && !strings.Contains(out, "health") {
+		t.Errorf("orient: expected health section, got: %s", out)
+	}
+}
+
+// TestKnowledge_Orient_Empty works on an empty vault without panicking.
+func TestKnowledge_Orient_Empty(t *testing.T) {
+	knowledge, _ := newKnowledgeDetectServer(t)
+
+	out := knowledge(map[string]any{"action": "orient", "scope": "test"})
+
+	if strings.Contains(out, "unknown knowledge action") {
+		t.Errorf("orient not implemented: %s", out)
+	}
+	if strings.Contains(out, "panic") || strings.Contains(out, "error") {
+		t.Errorf("orient on empty vault errored: %s", out)
+	}
+}
