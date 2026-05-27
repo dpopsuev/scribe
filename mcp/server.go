@@ -465,10 +465,9 @@ func (h *handler) handleKnowledgeLint(ctx context.Context, in knowledgeInput) (*
 	return text(b.String()), nil, nil
 }
 
-// lintUnresolvedWikilinks scans all knowledge note sections for [[Title]]
-// references and reports any that cannot be resolved to an existing artifact
-// by EXACT title match. Unlike ResolveWikilinks (which uses FTS fallback),
-// lint uses strict matching: if no artifact has that exact title, it's a gap.
+// lintUnresolvedWikilinks reports [[Title]] references in knowledge note sections
+// that match no artifact by exact title. Exact matching is intentional: FTS
+// fallback would hide broken links rather than surface them as gaps.
 func (h *handler) lintUnresolvedWikilinks(ctx context.Context, scope string) []string {
 	// Build a title index for fast exact lookup.
 	all, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{Scope: scope})
@@ -720,7 +719,6 @@ func (h *handler) handleKnowledge(ctx context.Context, _ *sdkmcp.CallToolRequest
 		if err != nil {
 			return text("capture failed: " + err.Error()), nil, nil
 		}
-		// Sync wikilinks eagerly — SiYuan lesson.
 		if in.Body != "" {
 			_, _ = h.proto.SyncWikilinks(ctx, art.ID)
 		}
