@@ -40,28 +40,26 @@ func newFrictionServer(t *testing.T) func(tool string, args map[string]any) stri
 
 // --- Issue 1: artifact(action=move) redirect ---
 
-// TestArtifact_Move_RedirectsToGraph verifies that calling artifact(action=move)
-// does NOT return a generic "unknown artifact action" message, but instead
-// emits a redirect hint pointing the agent to graph(action=move).
+// TestArtifact_Move_WorksDirectly verifies that artifact(action=move) works
+// without redirecting to the graph tool. SCR-TSK-274.
 //
-// 63 errors observed: agents call artifact(action=move) expecting to re-parent;
-// they receive a terse "unknown artifact action" with no guidance.
-func TestArtifact_Move_RedirectsToGraph(t *testing.T) {
+// Previously redirected to graph(action=move) — now implemented directly.
+// Agents can use artifact(action=move, id=X, target=Y) to re-parent.
+func TestArtifact_Move_WorksDirectly(t *testing.T) {
 	call := newFrictionServer(t)
 
+	// Missing target — should get a helpful error, not "unknown artifact action".
 	out := call("artifact", map[string]any{
 		"action": "move",
-		"id":     "DOES-NOT-EXIST-1",
-		"parent": "DOES-NOT-EXIST-2",
+		"id":     "TASK-1",
 	})
 
-	if strings.Contains(out, "unknown artifact action") && !strings.Contains(out, "graph") {
-		t.Errorf("artifact(move) returned generic unknown-action error with no redirect hint.\n"+
-			"Want: mention of 'graph(action=move)' or 'use graph tool'.\nGot:  %s", out)
+	if strings.Contains(out, "unknown artifact action") {
+		t.Errorf("artifact(move) should be recognized, not return unknown-action error.\nGot: %s", out)
 	}
-	// The error must mention "graph" to redirect the agent.
-	if !strings.Contains(strings.ToLower(out), "graph") {
-		t.Errorf("artifact(move) error does not mention 'graph'.\nGot: %s", out)
+	// Error should mention what's needed.
+	if !strings.Contains(strings.ToLower(out), "target") {
+		t.Errorf("artifact(move) missing-target error should mention 'target'.\nGot: %s", out)
 	}
 }
 
