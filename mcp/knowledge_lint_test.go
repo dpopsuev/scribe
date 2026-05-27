@@ -146,3 +146,86 @@ func TestLint_StructuredReport(t *testing.T) {
 		t.Errorf("lint: expected structured report sections, got: %s", out)
 	}
 }
+
+// TestKnowledge_Catalog returns the full artifact inventory.
+func TestKnowledge_Catalog(t *testing.T) {
+	call := newLintServer(t)
+
+	// Seed varied knowledge artifacts.
+	call(map[string]any{"action": "capture", "title": "Stoicism", "scope": "test"})
+	call(map[string]any{"action": "capture", "title": "Virtue", "body": "Virtue is the only good.", "scope": "test"})
+	call(map[string]any{"action": "ingest", "title": "Meditations", "body": "Marcus Aurelius.", "scope": "test"})
+	call(map[string]any{"action": "daily", "scope": "test"})
+
+	out := call(map[string]any{"action": "catalog", "scope": "test"})
+
+	if strings.Contains(out, "unknown knowledge action") {
+		t.Fatalf("catalog not implemented: %s", out)
+	}
+	// Must list artifact IDs.
+	if !strings.Contains(out, "NOT-") {
+		t.Errorf("catalog: expected NOT- entries, got: %s", out)
+	}
+	// Must include source.
+	if !strings.Contains(out, "SRC-") {
+		t.Errorf("catalog: expected SRC- entries, got: %s", out)
+	}
+	// Must include journal.
+	if !strings.Contains(out, "JRN-") {
+		t.Errorf("catalog: expected JRN- entries, got: %s", out)
+	}
+}
+
+// TestKnowledge_Catalog_Empty works on an empty vault.
+func TestKnowledge_Catalog_Empty(t *testing.T) {
+	call := newLintServer(t)
+
+	out := call(map[string]any{"action": "catalog", "scope": "test"})
+
+	if strings.Contains(out, "unknown knowledge action") {
+		t.Fatalf("catalog not implemented: %s", out)
+	}
+	if strings.Contains(out, "panic") {
+		t.Errorf("catalog on empty vault panicked: %s", out)
+	}
+}
+
+// TestKnowledge_Catalog_Grouped verifies output is grouped by kind.
+func TestKnowledge_Catalog_Grouped(t *testing.T) {
+	call := newLintServer(t)
+
+	call(map[string]any{"action": "capture", "title": "Stoicism", "scope": "test"})
+	call(map[string]any{"action": "ingest", "title": "Meditations", "scope": "test"})
+
+	out := call(map[string]any{"action": "catalog", "scope": "test"})
+
+	// Should have kind grouping headers.
+	hasGroup := strings.Contains(out, "note") || strings.Contains(out, "source") ||
+		strings.Contains(out, "Notes") || strings.Contains(out, "Sources")
+	if !hasGroup {
+		t.Errorf("catalog: expected kind grouping, got: %s", out)
+	}
+}
+
+// TestKnowledge_Catalog_Sorted verifies evergreen notes appear before fleeting.
+func TestKnowledge_Catalog_Sorted(t *testing.T) {
+	call := newLintServer(t)
+
+	fleeting := call(map[string]any{"action": "capture", "title": "Raw thought", "scope": "test"})
+	fleetingID := extractID(t, fleeting)
+
+	evergreen := call(map[string]any{"action": "capture", "title": "Mature idea", "scope": "test"})
+	evergreenID := extractID(t, evergreen)
+	call(map[string]any{"action": "promote", "id": evergreenID})
+
+	out := call(map[string]any{"action": "catalog", "scope": "test"})
+
+	evIdx := strings.Index(out, evergreenID[:6])
+	flIdx := strings.Index(out, fleetingID[:6])
+	if evIdx < 0 || flIdx < 0 {
+		t.Fatalf("catalog: both artifacts must appear: %s", out)
+	}
+	if evIdx > flIdx {
+		t.Errorf("catalog: evergreen should appear before fleeting, got ev@%d fl@%d", evIdx, flIdx)
+	}
+}
