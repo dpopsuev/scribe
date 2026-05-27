@@ -2164,23 +2164,11 @@ func (h *handler) handleMotd(ctx context.Context, _ *sdkmcp.CallToolRequest, in 
 		sections = append(sections, fmt.Sprintf("Active Work: %d active, %d draft", len(active), len(draft)))
 	}
 
-	// Stale drafts (>7 days without update)
+	// Stale drafts — count only, no itemized list (use dashboard for details).
 	staleThreshold := time.Now().UTC().Add(-7 * 24 * time.Hour).Format(time.RFC3339)
 	stale, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{Status: parchment.StatusDraft, UpdatedBefore: staleThreshold})
 	if len(stale) > 0 {
-		var lines []string
-		limit := len(stale)
-		if limit > 10 {
-			limit = 10
-		}
-		for _, s := range stale[:limit] {
-			lines = append(lines, fmt.Sprintf("  %s [%s] %s", s.ID, s.Scope, s.Title))
-		}
-		header := fmt.Sprintf("Stale Drafts (%d, >7 days):", len(stale))
-		if len(stale) > 10 {
-			header = fmt.Sprintf("Stale Drafts (%d, >7 days, showing 10):", len(stale))
-		}
-		sections = append(sections, header+"\n"+strings.Join(lines, "\n"))
+		m.Warnings = append(m.Warnings, fmt.Sprintf("%d draft(s) stale >7 days — run dashboard for details", len(stale)))
 	}
 
 	// Changed since (session delta)

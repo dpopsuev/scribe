@@ -133,27 +133,9 @@ func scriveMotd(ctx context.Context, proto *parchment.Protocol) (*MotdResult, er
 
 	all, _ := proto.ListArtifacts(ctx, parchment.ListInput{})
 
-	// Should-section gaps.
-	shouldGaps := make(map[string]int)
-	for _, art := range all {
-		if schema.IsTerminal(art.Status) {
-			continue
-		}
-		if missing := schema.MissingShouldSections(art.Kind, art.Sections); len(missing) > 0 {
-			shouldGaps[art.Kind]++
-		}
-	}
-	if len(shouldGaps) > 0 {
-		kinds := make([]string, 0, len(shouldGaps))
-		for k := range shouldGaps {
-			kinds = append(kinds, k)
-		}
-		sort.Strings(kinds)
-		for _, k := range kinds {
-			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("%d %s(s) missing recommended sections", shouldGaps[k], k))
-		}
-	}
+	// Should-section gaps intentionally omitted from motd.
+	// These are database health metrics — they belong in dashboard, not session start context.
+	// At scale (thousands of artifacts) they drown out actionable signals.
 
 	// Unknown kinds, stale drafts, completable goals, unimplemented specs.
 	unknownCounts := make(map[string]int)
@@ -216,16 +198,9 @@ func scriveMotd(ctx context.Context, proto *parchment.Protocol) (*MotdResult, er
 			fmt.Sprintf("%d spec/bug(s) have no implementing task", unimplemented))
 	}
 
-	// Domain context: active docs and refs for session priming.
-	for _, art := range all {
-		if schema.IsTerminal(art.Status) {
-			continue
-		}
-		if art.Kind == parchment.KindDoc || art.Kind == parchment.KindRef {
-			result.Context = append(result.Context,
-				fmt.Sprintf("[%s] %s: %s", art.Scope, art.ID, art.Title))
-		}
-	}
+	// Domain context intentionally omitted from motd.
+	// At scale this section becomes hundreds of lines of noise.
+	// Session priming is handled by the Memory section (top-3 evergreen notes).
 
 	return result, nil
 }
