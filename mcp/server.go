@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -51,7 +49,7 @@ func NewServer(s parchment.Store, homeScopes, vocab []string, idc parchment.Prot
 	destructiveHint := true
 
 	// artifact tool
-	artifactDesc := "Manage work artifacts: create, query, update, section, archive."
+	artifactDesc := "Manage all Artifacts (Work: task/spec/bug/goal/need; Knowledge: note/concept/source/journal). Actions: create, get, list, set, archive, de-archive, attach_section, get_section, detach_section, search, recall, orient, catalog."
 	var artifactSchema any
 	_ = json.Unmarshal(schemaFor[artifactInput](), &artifactSchema)
 	sdk.AddTool(&sdkmcp.Tool{
@@ -85,7 +83,7 @@ func NewServer(s parchment.Store, homeScopes, vocab []string, idc parchment.Prot
 	})
 
 	// admin tool
-	adminDesc := "System administration: motd (context), dashboard, vacuum, detect, lint, schema."
+	adminDesc := "System operations: motd (session context), dashboard, vacuum, detect, correlate, ingest_session, knowledge_lint, schema."
 	var adminSchema any
 	_ = json.Unmarshal(schemaFor[adminInput](), &adminSchema)
 	sdk.AddTool(&sdkmcp.Tool{
@@ -102,7 +100,7 @@ func NewServer(s parchment.Store, homeScopes, vocab []string, idc parchment.Prot
 	})
 
 	// knowledge tool — vault operations: capture, promote, daily, backlinks.
-	knowledgeDesc := "Knowledge vault: orient (map legend), catalog (full inventory), lint (health check), capture, promote, daily, backlinks, ingest, synthesize, export_vault, import_vault."
+	knowledgeDesc := "[DEPRECATED] All knowledge actions have moved to artifact and admin. Use artifact(action=recall/orient/catalog/capture) and admin(action=ingest_session/knowledge_lint). This tool will return redirect hints."
 	var knowledgeSchema any
 	_ = json.Unmarshal(schemaFor[knowledgeInput](), &knowledgeSchema)
 	sdk.AddTool(&sdkmcp.Tool{
@@ -138,7 +136,7 @@ type handler struct {
 // --- consolidated input types ---
 
 type artifactInput struct {
-	Action string `json:"action" jsonschema:"required,create | batch_create | clone | get | list | search | set | update | archive | de-archive | attach_section | get_section | detach_section | diff | promote_stash | inspect_stash"`
+	Action string `json:"action" jsonschema:"required,create | batch_create | clone | get | list | search | set | update | archive | de-archive | attach_section | get_section | detach_section | diff | promote_stash | inspect_stash | recall | orient | catalog"`
 
 	ID    string `json:"id,omitempty" jsonschema:"artifact ID (required for get, set, update, archive, *_section)"`
 	Kind  string `json:"kind,omitempty" jsonschema:"task, spec, bug, goal, campaign, doc, ref, need, decision, config, template, mirror"`
@@ -250,7 +248,7 @@ type knowledgeInput struct {
 }
 
 type adminInput struct {
-	Action  string `json:"action" jsonschema:"required,motd | changelog | dashboard | snapshot | set_goal | vacuum | detect | lint | check | set_scope_labels | list_scope_labels | transfer_scope | seed | schema | correlate"`
+	Action  string `json:"action" jsonschema:"required,motd | changelog | dashboard | snapshot | set_goal | vacuum | detect | lint | check | set_scope_labels | list_scope_labels | transfer_scope | seed | schema | correlate | ingest_session"`
 	Compact bool   `json:"compact,omitempty" jsonschema:"minimal output for repeat calls (motd)"`
 
 	SnapshotAction string `json:"snapshot_action,omitempty" jsonschema:"create, list, diff, or restore"`
@@ -277,6 +275,9 @@ type adminInput struct {
 
 	// correlate: freeform text containing artifact IDs and delivery signals
 	Evidence string `json:"evidence,omitempty" jsonschema:"freeform text with artifact IDs (correlate)"`
+
+	// ingest_session: filesystem path to a .jsonl session file or directory
+	Path string `json:"path,omitempty" jsonschema:"path to .jsonl session file or directory (ingest_session)"`
 }
 
 // --- dispatchers ---
@@ -699,325 +700,56 @@ func (h *handler) handleKnowledgeOrient(ctx context.Context, in knowledgeInput) 
 	return text(b.String()), nil, nil
 }
 
-// handleKnowledge dispatches vault operations: capture, promote, daily, backlinks.
-func (h *handler) handleKnowledge(ctx context.Context, _ *sdkmcp.CallToolRequest, in knowledgeInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocyclo // action dispatcher is inherently branchy — same pattern as handleArtifact/handleGraph
+// knowledgeRedirect is the canonical message for all knowledge tool actions.
+// Everything is an Artifact. The knowledge tool is deprecated.
+// All actions redirect to artifact or admin with the correct canonical call.
+func knowledgeRedirect(action string) (*sdkmcp.CallToolResult, any, error) {
+	hints := map[string]string{
+		"capture":        "artifact(action=create, kind=note, status=fleeting, title=..., scope=...)",
+		"promote":        "artifact(action=set, id=..., field=status, value=evergreen)",
+		"recall":         "artifact(action=recall, query=..., scope=...)",
+		"orient":         "artifact(action=list, family=knowledge, scope=...)",
+		"catalog":        "artifact(action=list, family=knowledge, group_by=kind, scope=...)",
+		"lint":           "admin(action=detect, check=knowledge, scope=...)",
+		"daily":          "artifact(action=create, kind=journal, scope=...)",
+		"backlinks":      "graph(action=tree, id=..., direction=incoming)",
+		"ingest_session": "admin(action=ingest_session, path=..., scope=...)",
+		"ingest":         "artifact(action=create, kind=source, title=..., url=..., scope=...)",
+		"synthesize":     "artifact(action=create, kind=note, title=..., scope=...)",
+		"export_vault":   "scribe CLI: scribe export",
+		"import_vault":   "scribe CLI: scribe import",
+	}
+	hint, ok := hints[action]
+	if !ok {
+		hint = "artifact or admin tool"
+	}
+	return text(fmt.Sprintf(
+		"knowledge(action=%s) is deprecated — everything is an Artifact.\nUse: %s",
+		action, hint,
+	)), nil, nil
+}
+
+// handleKnowledge redirects all actions. The knowledge tool is kept for
+// backward compatibility but all functionality has moved to artifact and admin.
+func (h *handler) handleKnowledge(_ context.Context, _ *sdkmcp.CallToolRequest, in knowledgeInput) (*sdkmcp.CallToolResult, any, error) {
 	switch in.Action {
-	case "orient":
-		return h.handleKnowledgeOrient(ctx, in)
-
-	case "catalog":
-		return h.handleKnowledgeCatalog(ctx, in)
-
-	case "lint":
-		return h.handleKnowledgeLint(ctx, in)
-
-	case "capture":
-		// capture: quick-capture a fleeting note. Zettelkasten: fleeting note.
-		if in.Title == "" {
-			return text("title is required for capture"), nil, nil
-		}
-		var sections []parchment.Section
-		if in.Body != "" {
-			sections = append(sections, parchment.Section{Name: "body", Text: in.Body})
-		}
-		art, err := h.proto.CreateArtifact(ctx, parchment.CreateInput{
-			Kind:     parchment.KindNote,
-			Title:    in.Title,
-			Scope:    in.Scope,
-			Labels:   in.Labels,
-			Sections: sections,
-		})
-		if err != nil {
-			return text("capture failed: " + err.Error()), nil, nil
-		}
-		if in.Body != "" {
-			_, _ = h.proto.SyncWikilinks(ctx, art.ID)
-		}
-		return text(fmt.Sprintf("created %s [%s|%s] %s", art.ID, art.Kind, art.Status, art.Title)), nil, nil
-
-	case "promote":
-		// promote: transition a note from fleeting/active to evergreen.
-		// Zettelkasten: make permanent.
-		if in.ID == "" {
-			return text("id is required for promote"), nil, nil
-		}
-		results, err := h.proto.SetField(ctx, []string{in.ID}, parchment.FieldStatus, parchment.StatusEvergreen)
-		if err != nil {
-			return text("promote failed: " + err.Error()), nil, nil
-		}
-		if len(results) > 0 && !results[0].OK {
-			return text("promote failed: " + results[0].Error), nil, nil
-		}
-		art, err := h.proto.GetArtifact(ctx, in.ID)
-		if err != nil {
-			return text(fmt.Sprintf("%s promoted to evergreen", in.ID)), nil, nil
-		}
-		return text(fmt.Sprintf("%s [%s|evergreen] %s — promoted to evergreen", art.ID, art.Kind, art.Title)), nil, nil
-
-	case "daily":
-		// daily: get-or-create today's journal entry. Idempotent.
-		// Obsidian equivalent: daily note. Logseq equivalent: journal page.
-		today := time.Now().Format("2006-01-02")
-		title := today
-
-		// Check if today's journal already exists.
-		existing, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{
-			Kind:  parchment.KindJournal,
-			Scope: in.Scope,
-		})
-		for _, art := range existing {
-			if art.Title == title {
-				// Return same format as create so callers get a stable ID.
-				return text(fmt.Sprintf("created %s [%s|%s] %s — today's journal (existing)", art.ID, art.Kind, art.Status, art.Title)), nil, nil
-			}
-		}
-
-		// Create it.
-		var sections []parchment.Section
-		if in.Body != "" {
-			sections = append(sections, parchment.Section{Name: "body", Text: in.Body})
-		}
-		art, err := h.proto.CreateArtifact(ctx, parchment.CreateInput{
-			Kind:     parchment.KindJournal,
-			Title:    title,
-			Scope:    in.Scope,
-			Sections: sections,
-		})
-		if err != nil {
-			return text("daily failed: " + err.Error()), nil, nil
-		}
-		return text(fmt.Sprintf("created %s [%s|%s] %s — today's journal", art.ID, art.Kind, art.Status, art.Title)), nil, nil
-
-	case "backlinks":
-		// backlinks: return all artifacts with an incoming edge to id.
-		// Obsidian equivalent: backlinks panel.
-		if in.ID == "" {
-			return text("id is required for backlinks"), nil, nil
-		}
-		arts, err := h.proto.Backlinks(ctx, in.ID, in.Relation)
-		if err != nil {
-			return text("backlinks failed: " + err.Error()), nil, nil
-		}
-		if len(arts) == 0 {
-			return text(fmt.Sprintf("no backlinks to %s", in.ID)), nil, nil
-		}
-		var sb strings.Builder
-		fmt.Fprintf(&sb, "%d backlink(s) to %s:\n", len(arts), in.ID)
-		for _, art := range arts {
-			fmt.Fprintf(&sb, "  %s [%s|%s] %s\n", art.ID, art.Kind, art.Status, art.Title)
-		}
-		return text(sb.String()), nil, nil
-
-	case "export_vault":
-		// export_vault: write all knowledge notes as Obsidian-compatible .md files.
-		if in.Dir == "" {
-			return text("dir is required for export_vault"), nil, nil
-		}
-		if err := os.MkdirAll(in.Dir, 0o750); err != nil { //nolint:gosec // operator-controlled export directory
-			return text("export_vault: cannot create dir: " + err.Error()), nil, nil
-		}
-		kinds := []string{
-			parchment.KindNote, parchment.KindJournal,
-			parchment.KindSource, parchment.KindConcept, parchment.KindContext,
-		}
-		count := 0
-		var errs []string
-		for _, kind := range kinds {
-			arts, err := h.proto.ListArtifacts(ctx, parchment.ListInput{Kind: kind, Scope: in.Scope})
-			if err != nil {
-				errs = append(errs, fmt.Sprintf("%s: %v", kind, err))
-				continue
-			}
-			for _, art := range arts {
-				md := parchment.RenderVaultMarkdown(art)
-				path := filepath.Join(in.Dir, art.ID+".md")
-				if err := os.WriteFile(path, []byte(md), 0o644); err != nil { //nolint:gosec // operator-controlled path
-					errs = append(errs, fmt.Sprintf("%s: %v", art.ID, err))
-					continue
-				}
-				count++
-			}
-		}
-		if len(errs) > 0 {
-			return text(fmt.Sprintf("exported %d note(s) to %s (errors: %s)", count, in.Dir, strings.Join(errs, "; "))), nil, nil
-		}
-		return text(fmt.Sprintf("exported %d note(s) to %s", count, in.Dir)), nil, nil
-
-	case "import_vault":
-		// import_vault: ingest .md files from a directory as knowledge artifacts.
-		if in.Dir == "" {
-			return text("dir is required for import_vault"), nil, nil
-		}
-		entries, err := os.ReadDir(in.Dir)
-		if err != nil {
-			return text("import_vault: cannot read dir: " + err.Error()), nil, nil
-		}
-		count := 0
-		var errs []string
-		for _, entry := range entries {
-			if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
-				continue
-			}
-			data, err := os.ReadFile(filepath.Join(in.Dir, entry.Name())) //nolint:gosec // operator-controlled path
-			if err != nil {
-				errs = append(errs, entry.Name()+": "+err.Error())
-				continue
-			}
-			parsed, err := parchment.ParseVaultMarkdown(data)
-			if err != nil || parsed.Title == "" {
-				errs = append(errs, entry.Name()+": parse failed")
-				continue
-			}
-			// Prefer scope from file, fall back to input scope.
-			scope := parsed.Scope
-			if scope == "" {
-				scope = in.Scope
-			}
-			kind := parsed.Kind
-			if kind == "" {
-				kind = parchment.KindNote
-			}
-			art, err := h.proto.CreateArtifact(ctx, parchment.CreateInput{
-				Kind:       kind,
-				Title:      parsed.Title,
-				Scope:      scope,
-				Status:     parsed.Status,
-				Labels:     parsed.Labels,
-				DependsOn:  parsed.DependsOn,
-				Goal:       parsed.Goal,
-				Sections:   parsed.Sections,
-				ExplicitID: parsed.ID,
-			})
-			if err != nil {
-				errs = append(errs, entry.Name()+": "+err.Error())
-				continue
-			}
-			// Sync wikilinks eagerly across all sections.
-			_, _ = h.proto.SyncWikilinks(ctx, art.ID)
-			count++
-		}
-		if len(errs) > 0 {
-			return text(fmt.Sprintf("imported %d note(s) from %s (errors: %s)", count, in.Dir, strings.Join(errs, "; "))), nil, nil
-		}
-		return text(fmt.Sprintf("imported %d note(s) from %s", count, in.Dir)), nil, nil
-
-	case "ingest_session":
-		return h.handleIngestSession(ctx, in)
-	case "recall":
-		return h.handleRecall(ctx, in)
 	case "session_start", "session_commit", "session_diff", "session_merge":
 		return text(fmt.Sprintf(
 			"knowledge(action=%s) requires a Dolt-backed store. "+
-				"Configure scribe with a DoltStore to enable session isolation. "+
-				"Current store: SQLite (FTS5 + cosine, no branch support).",
+				"Configure scribe with a DoltStore to enable session isolation.",
 			in.Action)), nil, nil
-	case "ingest":
-		// ingest: file the source AND return its content so the agent can
-		// immediately extract concepts and build the codex.
-		// The agent is the compiler — Scribe provides structure, the LLM provides understanding.
-		if in.Title == "" {
-			return text("title is required for ingest"), nil, nil
-		}
-		var sections []parchment.Section
-		if in.Body != "" {
-			sections = append(sections, parchment.Section{Name: "summary", Text: in.Body})
-		}
-		if in.URL != "" {
-			sections = append(sections, parchment.Section{Name: "provenance", Text: in.URL})
-		}
-		art, err := h.proto.CreateArtifact(ctx, parchment.CreateInput{
-			Kind:     parchment.KindSource,
-			Title:    in.Title,
-			Scope:    in.Scope,
-			Labels:   in.Labels,
-			Sections: sections,
-		})
-		if err != nil {
-			return text("ingest failed: " + err.Error()), nil, nil
-		}
-
-		var b strings.Builder
-		fmt.Fprintf(&b, "created %s [%s|%s] %s\n", art.ID, art.Kind, art.Status, art.Title)
-		if in.URL != "" {
-			fmt.Fprintf(&b, "url: %s\n", in.URL)
-		}
-
-		// Return the source body so the agent can read and extract from it inline.
-		// The agent is already an LLM — the content in this response is immediately
-		// available for concept extraction without any additional API call.
-		if in.Body != "" {
-			fmt.Fprintf(&b, "\nContent:\n%s\n", in.Body)
-		}
-
-		// Surface existing notes that FTS finds related to this source.
-		// Candidates for cites/elaborates links the agent should make.
-		h.appendRelatedNotes(ctx, &b, art.ID, in.Title, in.Body, in.Scope)
-
-		// Next-step prompt: tell the agent what to do with this content.
-		b.WriteString("\nNext — you are the compiler:\n")
-		fmt.Fprintf(&b, "  For each key concept: capture(title=<concept>, body=<synthesis>, scope=%s)\n", in.Scope)
-		fmt.Fprintf(&b, "  Link each note to this source: graph(action=link, id=<note-id>, relation=cites, targets=[\"%s\"])\n", art.ID)
-		b.WriteString("  Link notes to existing concepts via: graph(action=link, relation=elaborates)\n")
-		b.WriteString("  File synthesis answers back as notes — don't let them disappear into chat\n")
-
-		return text(b.String()), nil, nil
-
-	case "synthesize":
-		// synthesize: search across knowledge notes and create a new note
-		// linking all related results via synthesizes edges.
-		// Agents call this to build structured understanding from disparate notes.
-		if in.Query == "" {
-			return text("query is required for synthesize"), nil, nil
-		}
-		title := in.Title
-		if title == "" {
-			title = "Synthesis: " + in.Query
-		}
-		// Search for related artifacts.
-		matches, err := h.proto.SearchArtifacts(ctx, in.Query, parchment.ListInput{Scope: in.Scope})
-		if err != nil {
-			return text("synthesize search failed: " + err.Error()), nil, nil
-		}
-		// Create the synthesis note.
-		var body strings.Builder
-		fmt.Fprintf(&body, "Synthesis of %d result(s) for query: %s\n\n", len(matches), in.Query)
-		for _, m := range matches {
-			fmt.Fprintf(&body, "- [[%s]] (%s)\n", m.Title, m.ID)
-		}
-		art, err := h.proto.CreateArtifact(ctx, parchment.CreateInput{
-			Kind:  parchment.KindNote,
-			Title: title,
-			Scope: in.Scope,
-			Sections: []parchment.Section{
-				{Name: "body", Text: body.String()},
-			},
-		})
-		if err != nil {
-			return text("synthesize failed: " + err.Error()), nil, nil
-		}
-		// Link synthesis note to all matched artifacts via synthesizes edges.
-		if len(matches) > 0 {
-			ids := make([]string, 0, len(matches))
-			for _, m := range matches {
-				ids = append(ids, m.ID)
-			}
-			_, _ = h.proto.LinkArtifacts(ctx, art.ID, parchment.RelSynthesises, ids)
-			// Eager wikilink sync picks up the [[Title]] references in body.
-			_, _ = h.proto.SyncWikilinks(ctx, art.ID)
-		}
-		return text(fmt.Sprintf("created %s [%s|%s] %s — synthesized %d note(s)", art.ID, art.Kind, art.Status, art.Title, len(matches))), nil, nil
-
 	default:
-		return text(fmt.Sprintf(
-			"unknown knowledge action %q — valid: orient, capture, promote, daily, backlinks, export_vault, import_vault, ingest, synthesize",
-			in.Action,
-		)), nil, nil
+		return knowledgeRedirect(in.Action)
 	}
 }
 
 func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolRequest, in artifactInput) (*sdkmcp.CallToolResult, any, error) {
 	switch in.Action {
 	case "create":
+		// create with artifacts[] routes to batch_create semantics.
+		if len(in.Artifacts) > 0 {
+			return h.handleBatchCreate(ctx, in)
+		}
 		// Convert MCP sections format to parchment.Section
 		var sections []parchment.Section
 		for _, sec := range in.Sections {
@@ -1200,8 +932,16 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		return nil, nil, fmt.Errorf( //nolint:err113 // agent-facing redirect
 			"artifact(action=move) is not supported — use graph(action=move, id=%q, target=\"<new-parent-id>\") to re-parent",
 			in.ID)
+	case "recall":
+		return h.handleRecall(ctx, knowledgeInput{Query: in.Query, Scope: in.Scope})
+	case "orient":
+		// orient: vault map — schema legend, state counts, hub nodes, health.
+		return h.handleKnowledgeOrient(ctx, knowledgeInput{Scope: in.Scope})
+	case "catalog":
+		// catalog: full inventory of knowledge artifacts grouped by kind.
+		return h.handleKnowledgeCatalog(ctx, knowledgeInput{Scope: in.Scope})
 	default:
-		return nil, nil, fmt.Errorf("unknown artifact action %q (valid: create, batch_create, clone, get, list, set, update, archive, attach_section, get_section, detach_section, diff, promote_stash, inspect_stash)", in.Action) //nolint:err113 // agent-facing hint
+		return nil, nil, fmt.Errorf("unknown artifact action %q (valid: create, batch_create, clone, get, list, recall, set, update, archive, attach_section, get_section, detach_section, diff, promote_stash, inspect_stash)", in.Action) //nolint:err113 // agent-facing hint
 	}
 }
 
@@ -1435,6 +1175,12 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 		return h.handleSchema()
 	case "correlate":
 		return h.handleCorrelate(ctx, in)
+	case "ingest_session":
+		return h.handleIngestSession(ctx, knowledgeInput{Path: in.Path, Scope: in.Scope})
+	case "knowledge_lint":
+		// knowledge_lint: wikilink resolution, orphan detection, cluster gaps.
+		// Distinct from schema lint (admin=lint checks schema consistency).
+		return h.handleKnowledgeLint(ctx, knowledgeInput{Scope: in.Scope})
 	case "restore", "unarchive":
 		// Redirect: restoring archived artifacts uses artifact(action=de-archive).
 		return nil, nil, fmt.Errorf( //nolint:err113 // agent-facing redirect
@@ -1458,7 +1204,7 @@ func (h *handler) handleCreate(ctx context.Context, _ *sdkmcp.CallToolRequest, i
 	}
 	// Lean response: id + kind + status + title + hints
 	var b strings.Builder
-	fmt.Fprintf(&b, "created %s [%s] %s", art.ID, art.Status, art.Title)
+	fmt.Fprintf(&b, "created %s [%s|%s] %s", art.ID, art.Kind, art.Status, art.Title)
 	if art.Parent != "" {
 		fmt.Fprintf(&b, " (parent: %s)", art.Parent)
 	}

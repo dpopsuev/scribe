@@ -99,7 +99,7 @@ func newIngestServer(t *testing.T) (proto *parchment.Protocol, call func(map[str
 	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "v0")
 	cs := connectClient(t, srv)
 	call = func(args map[string]any) string {
-		return callTool(t, cs, "knowledge", args)
+		return callTool(t, cs, "admin", args)
 	}
 	return
 }

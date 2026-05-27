@@ -15,7 +15,21 @@ func newLintServer(t *testing.T) func(map[string]any) string {
 	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 	return func(args map[string]any) string {
-		return callTool(t, cs, "knowledge", args)
+		action, _ := args["action"].(string)
+		switch action {
+		case "lint":
+			// lint → admin(knowledge_lint) for wikilinks/orphans/clusters
+			return callTool(t, cs, "admin", map[string]any{
+				"action": "knowledge_lint", "scope": args["scope"],
+			})
+		case "catalog":
+			// catalog is now a direct artifact action
+			return callTool(t, cs, "artifact", args)
+		case "capture", "promote", "daily", "recall", "backlinks", "ingest", "synthesize":
+			return callTool(t, cs, "artifact", translateKnowledgeToArtifact(args))
+		default:
+			return callTool(t, cs, "artifact", args)
+		}
 	}
 }
 
