@@ -1171,6 +1171,11 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 			return nil, nil, fmt.Errorf("id and against required for diff")
 		}
 		return h.handleDiff(ctx, in.ID, in.Against)
+	case "move":
+		// Redirect: re-parenting lives on the graph tool, not artifact.
+		return nil, nil, fmt.Errorf( //nolint:err113 // agent-facing redirect
+			"artifact(action=move) is not supported — use graph(action=move, id=%q, target=\"<new-parent-id>\") to re-parent",
+			in.ID)
 	default:
 		return nil, nil, fmt.Errorf("unknown artifact action %q (valid: create, batch_create, clone, get, list, set, update, archive, attach_section, get_section, detach_section, diff, promote_stash, inspect_stash)", in.Action) //nolint:err113 // agent-facing hint
 	}
