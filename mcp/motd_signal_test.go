@@ -76,3 +76,15 @@ func TestMotd_StaleDraftsIsOneLiner(t *testing.T) {
 		t.Errorf("motd must not show itemized stale draft list, got:\n%s", out)
 	}
 }
+
+// TestMotd_SingleStaleLine verifies stale artifacts appear as exactly one
+// warning line, not two overlapping counts.
+func TestMotd_SingleStaleLine(t *testing.T) {
+	s, call := newMotdSetup(t)
+	seedMotdNoise(t, s)
+	out := call(map[string]any{"action": "motd"})
+	count := strings.Count(out, "stale")
+	if count > 1 {
+		t.Errorf("motd must have at most one 'stale' mention, got %d:\n%s", count, out)
+	}
+}

@@ -137,17 +137,14 @@ func scriveMotd(ctx context.Context, proto *parchment.Protocol) (*MotdResult, er
 	// These are database health metrics — they belong in dashboard, not session start context.
 	// At scale (thousands of artifacts) they drown out actionable signals.
 
-	// Unknown kinds, stale drafts, completable goals, unimplemented specs.
+	// Unknown kinds, completable goals, unimplemented specs.
+	// Stale count moved to handleMotd (drafts only, more specific).
 	unknownCounts := make(map[string]int)
-	staleDrafts, completable, unimplemented := 0, 0, 0
-	staleCutoff := time.Now().Add(-7 * 24 * time.Hour)
+	completable, unimplemented := 0, 0
 
 	for _, art := range all {
 		if schema.UnknownKind(art.Kind) {
 			unknownCounts[art.Kind]++
-		}
-		if !schema.IsTerminal(art.Status) && !art.UpdatedAt.IsZero() && art.UpdatedAt.Before(staleCutoff) {
-			staleDrafts++
 		}
 		isEffortKind := art.Kind == parchment.KindCampaign || art.Kind == parchment.KindGoal
 		if !schema.IsTerminal(art.Status) && isEffortKind { //nolint:nestif // motd check is inherently nested
@@ -184,10 +181,6 @@ func scriveMotd(ctx context.Context, proto *parchment.Protocol) (*MotdResult, er
 		result.Warnings = append(result.Warnings,
 			fmt.Sprintf("%d artifact(s) have unrecognized kinds: %s — consider updating schema or migrating",
 				total, strings.Join(kinds, ", ")))
-	}
-	if staleDrafts > 0 {
-		result.Warnings = append(result.Warnings,
-			fmt.Sprintf("%d artifact(s) stale (not updated in 7+ days)", staleDrafts))
 	}
 	if completable > 0 {
 		result.Warnings = append(result.Warnings,
