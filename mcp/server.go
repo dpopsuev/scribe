@@ -42,6 +42,7 @@ func NewServer(s parchment.Store, homeScopes, vocab []string, idc parchment.Prot
 		proto:       parchment.New(s, parchment.KnowledgeSchema(), homeScopes, vocab, idc),
 		snapshotter: snap,
 		version:     version,
+		homeScopes:  homeScopes,
 		readLog:     make(map[string]bool),
 	}
 
@@ -130,6 +131,7 @@ type handler struct {
 	proto       *parchment.Protocol
 	snapshotter *parchment.Snapshotter
 	version     string
+	homeScopes  []string        // default scopes for operations that need a scope
 	readLog     map[string]bool // tracks which artifact IDs have been read this session
 }
 
@@ -222,7 +224,7 @@ type edgeInput struct {
 
 // knowledgeInput defines the input schema for the knowledge tool.
 type knowledgeInput struct {
-	Action string `json:"action" jsonschema:"required,orient | catalog | lint | capture | promote | daily | backlinks | export_vault | import_vault | ingest | synthesize"`
+	Action string `json:"action" jsonschema:"required,orient | catalog | lint | capture | promote | daily | backlinks | export_vault | import_vault | ingest | synthesize | ingest_session"`
 
 	// capture: create a fleeting note
 	Title  string   `json:"title,omitempty" jsonschema:"note title (required for capture)"`
@@ -239,6 +241,9 @@ type knowledgeInput struct {
 
 	// ingest: external source URL
 	URL string `json:"url,omitempty" jsonschema:"source URL for ingest"`
+
+	// ingest_session: filesystem path to a .jsonl session file or directory
+	Path string `json:"path,omitempty" jsonschema:"path to .jsonl session file or directory (ingest_session)"`
 
 	// synthesize: full-text search query
 	Query string `json:"query,omitempty" jsonschema:"search query (required for synthesize)"`
@@ -887,6 +892,8 @@ func (h *handler) handleKnowledge(ctx context.Context, _ *sdkmcp.CallToolRequest
 		}
 		return text(fmt.Sprintf("imported %d note(s) from %s", count, in.Dir)), nil, nil
 
+	case "ingest_session":
+		return h.handleIngestSession(ctx, in)
 	case "ingest":
 		// ingest: file the source AND return its content so the agent can
 		// immediately extract concepts and build the codex.
