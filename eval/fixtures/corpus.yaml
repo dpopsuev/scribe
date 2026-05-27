@@ -1,0 +1,730 @@
+# CTF Fixture Corpus — 50 knowledge artifacts with known ground truth.
+#
+# Structure:
+#   Golden artifacts  (10) — contain the exact CTF flag
+#   Red herrings      (30) — related to the challenge but lack the flag
+#   Noise             (20) — unrelated topics, make retrieval non-trivial
+#
+# All artifacts scoped to "fixture" so they don't pollute real vaults.
+
+artifacts:
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # GOLDEN ARTIFACTS — each contains exactly one flag value
+  # ─────────────────────────────────────────────────────────────────────────
+
+  - id: FIX-CTX-001
+    kind: context
+    status: active
+    title: "Production analysis — ghost field sets silently written to Extra"
+    sections:
+      - name: body
+        text: |
+          Analysis of 29,097 Claude Code Scribe tool calls across 38 sessions.
+          Ghost field sets — calls to set(field=description/body/notes/...) that
+          returned OK but wrote silently to Artifact.Extra instead of erroring:
+            419 × description
+             70 × body
+             28 × notes
+             22 × goals
+             16 × mission
+             16 × success_criteria
+          Total: 571 ghost field sets observed before the SetField fix.
+          Data stranded in Extra, never surfaced to agents reading the artifact.
+    # flag: C01 → "571"
+
+  - id: FIX-CTX-002
+    kind: context
+    status: active
+    title: "Production analysis — template conformance errors at create time"
+    sections:
+      - name: body
+        text: |
+          Template conformance errors observed across 38 Claude Code sessions:
+            138 × missing sections: architecture
+            130 × missing sections: goals
+            100 × missing sections: overview
+             87 × missing sections: fix
+             81 × missing sections: source
+             61 × missing sections: acceptance
+          Total: 597 template conformance errors at artifact create time.
+          Each error triggered the stash-on-create path; 240 promote_stash
+          recovery calls observed as agents repaired the rejected creates.
+    # flag: C02 → "597"
+
+  - id: FIX-CTX-003
+    kind: context
+    status: active
+    title: "Production analysis — artifact(move) routing errors"
+    sections:
+      - name: body
+        text: |
+          Agents attempting to re-parent artifacts via artifact(action=move):
+          63 errors observed — agents called artifact(action=move) expecting
+          re-parent semantics. The action does not exist on the artifact tool;
+          re-parenting lives on graph(action=move).
+          Error message was generic: "unknown artifact action 'move'"
+          with no redirect hint. Fix: added case "move" to artifact dispatcher
+          returning: "use graph(action=move, id=..., target=...) to re-parent".
+    # flag: C03 → "63"
+
+  - id: FIX-CTX-004
+    kind: context
+    status: active
+    title: "Locus scan — AdminManager ISP violations before cleanup"
+    sections:
+      - name: body
+        text: |
+          Locus architecture scan of Parchment Protocol AdminManager interface:
+          AdminManager had 17 methods mixing generic artifact graph operations
+          with Scribe-specific domain logic (Motd, Dashboard, Inventory, SetGoal,
+          DrainDiscover, DrainCleanup, IsComponentLabel).
+          Violations flagged: 5 ISP violations — one interface, two concerns.
+          ISP test: "would a second consumer need this method?" — answer No for
+          all 6 Scribe-specific methods. Moved to Scribe mcp/scribe_admin.go.
+          AdminManager trimmed from 17 to 11 methods post-cleanup.
+    # flag: C04 → "17"
+
+  - id: FIX-SRC-001
+    kind: source
+    status: active
+    title: "Production session data — Scribe MCP tool call analysis"
+    sections:
+      - name: provenance
+        text: "~/.claude/projects/ — 38 Claude Code sessions, 25 projects"
+      - name: summary
+        text: |
+          Total Scribe MCP tool calls analyzed: 29,097
+          Top actions: set(7,260), create(6,313), attach_section(2,968),
+          list(2,500), get(2,326), update(1,463), graph.move(1,087).
+          Heavy consumers: djinn(8,221), tako(6,620), origami(6,519).
+          Total errors: 1,543 (5.3% error rate).
+    # flag: C05 → "29,097"
+
+  - id: FIX-NOTE-007
+    kind: note
+    status: evergreen
+    title: "Partial draft: artifact status when template sections missing"
+    sections:
+      - name: body
+        text: |
+          When an artifact is created with template-required sections missing,
+          it is now accepted in draft status rather than hard-rejected.
+          Artifact.Warnings carries the conformance message so the agent sees it.
+          Template conformance fires when promoting out of draft (→ active).
+          Previously: create → ConformanceError with stash_id.
+          Now: create → draft (with warnings) → attach_section → promote.
+    # flag: C06 → "draft"
+
+  - id: FIX-NOTE-008
+    kind: note
+    status: evergreen
+    title: "recall() kind weights — ranking formula for memory retrieval"
+    sections:
+      - name: body
+        text: |
+          recall() ranks candidates by: BM25_proxy × kind_weight × recency_decay.
+          Kind weights by artifact type and status:
+            evergreen note:  2.0   (most authoritative, curated)
+            concept:         1.4
+            decision:        1.3   (accepted rationale is high-value memory)
+            bug (fixed):     1.2   (root cause is knowledge)
+            source:          1.1
+            spec (complete): 1.0
+            context:         1.0
+            task (complete): 0.9   (execution record, lower signal)
+            journal:         0.8
+          Recency decay: 0.5 + 0.5×exp(-days/130), half-weight at ~90 days.
+    # flag: C07 → "1.3"
+
+  - id: FIX-NOTE-010
+    kind: note
+    status: evergreen
+    title: "recall() unified boundary — IsTerminal replaces kind filter"
+    sections:
+      - name: body
+        text: |
+          The recall() retrieval boundary was changed from kind-based to
+          status-based. Previously: only knowledge kinds (note/journal/source/
+          concept/context) were searched. Now: isRecallable() is used.
+
+          isRecallable(art, schema):
+            if knowledgeKinds[art.Kind]: return true   // always memory
+            return schema.IsTerminal(art.Status)        // done work is history
+
+          Key function: schema.IsTerminal(art.Status) — replaces the static
+          knowledgeKindSet map. Completed tasks, fixed bugs, accepted decisions
+          are now searchable as memory alongside knowledge artifacts.
+    # flag: C08 → "IsTerminal"
+
+  - id: FIX-CTX-006
+    kind: context
+    status: active
+    title: "System A (FTS5) baseline evaluation results"
+    sections:
+      - name: body
+        text: |
+          Retrieval evaluation — System A (SQLite FTS5), 20 queries × 5 results.
+          Corpus: 110 context artifacts from 140 session compaction summaries.
+          Results:
+            Total result slots: 100
+            Unique artifacts returned: 34
+            Duplicate slots: 66 (same 5 Origami/Tako sessions repeated)
+          Root cause: FTS5 is volume-biased. Multi-day Origami mega-sessions
+          contain every keyword by sheer volume. BM25 cannot distinguish
+          "mentioned in passing" from "primary topic of this session".
+          System B (cosine) next — encodes meaning, not volume.
+    # flag: C09 → "66"
+
+  - id: FIX-NOTE-012
+    kind: note
+    status: evergreen
+    title: "knowledge(action=ingest_session) — session JSONL import"
+    sections:
+      - name: body
+        text: |
+          knowledge(action=ingest_session, path=<file-or-dir>, scope=<scope>)
+          Imports Pi v3 and Claude Code JSONL session files into the knowledge vault.
+          Detects format: Pi (type=session/compaction/message) or Claude Code
+          (type=assistant/user/permission-mode).
+          Creates: one source artifact per session with provenance section.
+          Extracts: compaction summaries and branch summaries as context artifacts,
+          linked via cites edge back to the session source.
+          Idempotent: re-ingesting same session skips (checks provenance path).
+    # flag: C10 → "ingest_session"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # RED HERRINGS — related but do not contain the flag
+  # ─────────────────────────────────────────────────────────────────────────
+
+  # C01 red herrings (about SetField fix, not the count)
+  - id: FIX-NOTE-001
+    kind: note
+    status: evergreen
+    title: "SetField rejects unknown fields — redirect to attach_section"
+    sections:
+      - name: body
+        text: |
+          SetField now returns Result{OK:false, Error:...} for any field not in
+          the known Field* set (alias, status, title, goal, scope, parent,
+          priority, sprint, kind, depends_on, labels).
+          Error message includes: "use attach_section(id=<id>, name=<field>, text=...)"
+          Previously: unknown fields silently wrote to Artifact.Extra map.
+
+  - id: FIX-NOTE-002
+    kind: note
+    status: evergreen
+    title: "Ghost field sets — agent behavior before SetField fix"
+    sections:
+      - name: body
+        text: |
+          Agents called set(field=description/body/notes/goals/mission) expecting
+          to update real artifact fields. Calls returned OK=true. Data routed to
+          Artifact.Extra[field] — a map agents never read. Data stranded silently.
+          Most common ghost fields: description, body, notes, goals, mission,
+          success_criteria. All now return errors with attach_section redirect.
+
+  - id: FIX-TSK-001
+    kind: task
+    status: complete
+    title: "SetField unknown field error must redirect to attach_section"
+    goal: "Error message must include 'use attach_section' so agents know what to do"
+    sections:
+      - name: context
+        text: |
+          After SetField fix: unknown fields return error instead of writing to Extra.
+          But agents now hit a dead end — the error must redirect them to attach_section.
+
+  # C02 red herrings (about the fix, not the 597 count)
+  - id: FIX-NOTE-003
+    kind: note
+    status: evergreen
+    title: "Template conformance deferred from create to promote"
+    sections:
+      - name: body
+        text: |
+          Template conformance was moved from artifact creation time to status
+          promotion (draft → active). Partial creates now succeed as draft with
+          Artifact.Warnings carrying the conformance message. Full validation
+          fires when promoting out of draft via SetField(status=active).
+
+  - id: FIX-DEC-001
+    kind: decision
+    status: accepted
+    title: "Partial drafts accepted at create — conformance fires on promote"
+    goal: "Eliminate create→reject→stash→promote cycle observed 597 times in production"
+
+  - id: FIX-TSK-002
+    kind: task
+    status: complete
+    title: "Fix template conformance to fire on promote not create"
+    goal: "Add template_conformance_promote guard on StatusActive transition"
+    sections:
+      - name: context
+        text: |
+          New guard: template_conformance_promote fires when status → active.
+          Checks sections marked "required:" in template guidance + schema MustSections.
+          Investigation-time sections (fix, root_cause) without "required:" defer to complete.
+
+  # C03 red herrings (about the fix, not the 63 count)
+  - id: FIX-NOTE-004
+    kind: note
+    status: evergreen
+    title: "artifact(action=move) redirects to graph(action=move)"
+    sections:
+      - name: body
+        text: |
+          artifact(action=move) is not a valid action. To re-parent an artifact,
+          use graph(action=move, id=<id>, target=<new-parent-id>).
+          Added case "move" to artifact dispatcher returning a clear redirect error.
+
+  - id: FIX-TSK-003
+    kind: task
+    status: complete
+    title: "Add artifact(move) redirect hint to artifact dispatcher"
+    goal: "Agents trying artifact(action=move) get a redirect to graph(action=move)"
+
+  - id: FIX-CON-001
+    kind: concept
+    status: active
+    title: "Agent friction — three MCP routing errors from production data"
+    sections:
+      - name: body
+        text: |
+          Three categories of agent routing confusion observed in production:
+          1. artifact(action=move) — re-parent lives on graph tool
+          2. admin(action=restore) — restore lives on artifact(de-archive)
+          3. artifact(action=create) with sections-as-object — coercion works
+          All three have redirect hints added to error messages.
+
+  # C04 red herrings (about ISP fix, not the 17 count)
+  - id: FIX-NOTE-005
+    kind: note
+    status: evergreen
+    title: "ISP cleanup — Scribe-specific methods moved out of Parchment"
+    sections:
+      - name: body
+        text: |
+          Six methods moved from parchment.Protocol to scribe/mcp/scribe_admin.go:
+          Motd, Dashboard, Inventory, SetGoal, DrainDiscover, DrainCleanup.
+          Also: IsComponentLabel (Scribe label convention, not engine logic).
+          Test: "would a second consumer need this?" — No for all six.
+          Parchment is now a clean generic artifact graph engine.
+
+  - id: FIX-DEC-002
+    kind: decision
+    status: accepted
+    title: "Scribe-specific ops belong in Scribe, not Parchment engine"
+    goal: "Any consumer gets Protocol without Scribe session rituals baked in"
+
+  - id: FIX-TSK-004
+    kind: task
+    status: complete
+    title: "Move Motd Dashboard Inventory SetGoal DrainDiscover to Scribe"
+    goal: "Remove 6 Scribe-specific methods from parchment.Protocol"
+
+  # C05 red herrings (about production data, not the 29,097 count)
+  - id: FIX-CTX-005
+    kind: context
+    status: active
+    title: "Production data — top Scribe MCP actions by call count"
+    sections:
+      - name: body
+        text: |
+          Most-called Scribe actions across Claude Code sessions:
+          artifact.set:          7,260
+          artifact.create:       6,313
+          artifact.attach_section: 2,968
+          artifact.list:         2,500
+          artifact.get:          2,326
+          graph.move:            1,087
+          artifact.promote_stash:  240
+
+  - id: FIX-NOTE-006
+    kind: note
+    status: evergreen
+    title: "Production agent behavior — what agents actually do with Scribe"
+    sections:
+      - name: body
+        text: |
+          Agents use Scribe primarily as a task tracker, not a knowledge base.
+          Knowledge tool (knowledge action=orient/capture/recall) had zero calls
+          in production data despite being implemented. Session startup ritual
+          (orient → catalog → motd) does not happen in practice.
+          motd called 75 times — the only knowledge-adjacent action used.
+
+  - id: FIX-CON-002
+    kind: concept
+    status: active
+    title: "Agent friction taxonomy — four categories from production analysis"
+    sections:
+      - name: body
+        text: |
+          Four friction categories identified from 38 Claude Code sessions:
+          1. Silent data loss: 571 ghost field sets writing to Extra
+          2. Template friction: 597 create-time conformance rejections
+          3. Routing confusion: 63 artifact(move) errors
+          4. JSON type errors: 168 wrong-shape argument errors
+          Total errors: 1,543 across 29,097 tool calls (5.3% error rate).
+
+  # C06 red herrings (about the behavior, not the status word)
+  # (uses FIX-DEC-001 and FIX-NOTE-003 already defined above)
+
+  # C07 red herrings (about recall, not the weight value)
+  - id: FIX-CON-003
+    kind: concept
+    status: active
+    title: "recall() — unified memory retrieval across work and knowledge"
+    sections:
+      - name: body
+        text: |
+          recall() searches knowledge artifacts AND completed work artifacts.
+          The boundary is status (IsTerminal), not kind (family).
+          Completed tasks, fixed bugs, accepted decisions are memory.
+          Active work (draft, active, open) is excluded — that is the tracker.
+          This removes the artificial separation between work tracking and
+          knowledge management for agents using a single store.
+
+  - id: FIX-TSK-005
+    kind: task
+    status: complete
+    title: "Implement recall() with multi-pass FTS and recency decay"
+    goal: "knowledge(action=recall, query=<text>) finds relevant memory artifacts"
+
+  - id: FIX-NOTE-009
+    kind: note
+    status: evergreen
+    title: "recall() multi-pass FTS query strategy"
+    sections:
+      - name: body
+        text: |
+          recall() builds three FTS passes from most to least strict:
+          Pass 1: exact phrase — "template conformance on promote"
+          Pass 2: all terms (AND) — template conformance promote
+          Pass 3: individual terms ≥4 chars — template, conformance, promote
+          Results deduplicated and ranked. Top-5 returned with excerpts.
+
+  # C08 red herrings (about the boundary concept, not the function name)
+  - id: FIX-DEC-003
+    kind: decision
+    status: accepted
+    title: "Work and knowledge are two sides of the same coin"
+    goal: |
+      Completed work IS memory. The kind boundary in recall() is artificial
+      for agents using a single store. Replace with status boundary.
+
+  # C09 red herrings (about FTS5 analysis, not the 66 number)
+  - id: FIX-NOTE-011
+    kind: note
+    status: evergreen
+    title: "FTS5 volume bias — why large documents dominate retrieval"
+    sections:
+      - name: body
+        text: |
+          FTS5 BM25 normalizes for document length but cannot distinguish
+          "mentions this topic in passing" from "this is the primary topic".
+          Origami/Tako mega-sessions (multi-day, 3000+ words) mention Scribe,
+          template, SetField etc. because they use Scribe to track their work.
+          These sessions dominate FTS5 results for any Scribe-related query.
+          Cosine similarity encodes meaning — not vulnerable to volume bias.
+
+  - id: FIX-SRC-002
+    kind: source
+    status: active
+    title: "Retrieval evaluation harness design"
+    sections:
+      - name: provenance
+        text: "scribe/eval/ — cmd/eval/main.go, queries.yaml, fixtures/"
+      - name: summary
+        text: |
+          A/B test framework: System A (FTS5) vs System B (cosine).
+          Metric: precision@5 and turns-to-flag (CTF scenario).
+          Corpus: fixture artifacts with known ground truth (qrels).
+          20 evaluation queries across 4 bands: easy/medium/hard/cross.
+
+  - id: FIX-CON-004
+    kind: concept
+    status: active
+    title: "CTF evaluation — turns to flag as agent memory metric"
+    sections:
+      - name: body
+        text: |
+          Turns to flag (TTF): how many recall() calls before an agent finds
+          a specific fact buried in the knowledge vault.
+          Better than precision@5 because it measures task completion not
+          retrieval quality — fewer turns = cheaper agents in production.
+          TTF=1: perfect recall, TTF=2-3: good, TTF=4-5: poor, DNF: broken.
+
+  # C10 red herrings (about session memory, not the action name)
+  - id: FIX-NOTE-013
+    kind: note
+    status: evergreen
+    title: "Agent memory write path — capture, ingest, promote"
+    sections:
+      - name: body
+        text: |
+          Three ways agents deposit memory:
+          1. knowledge(action=capture) — deliberate note during work
+          2. knowledge(action=ingest_session) — post-session bulk import
+          3. task/decision completion → future recall finds completed work
+          The vault grows from deliberate capture and from automatic session
+          ingestion. Promote elevates fleeting notes to evergreen.
+
+  - id: FIX-TSK-006
+    kind: task
+    status: complete
+    title: "Implement session JSONL ingestion for Pi and Claude Code formats"
+    goal: "knowledge(action=ingest_session) reads both Pi v3 and Claude Code JSONL"
+
+  - id: FIX-SRC-003
+    kind: source
+    status: active
+    title: "Pi session format documentation"
+    sections:
+      - name: provenance
+        text: "~/.config/pi/agent/sessions/ — Pi v3 JSONL format"
+      - name: summary
+        text: |
+          Pi v3 session format: JSONL with entries typed as session/message/
+          compaction/branch_summary/custom/label/model_change.
+          Compaction entries contain summary field with rich context.
+          Differs from Claude Code format (user/assistant/tool_result types).
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # NOISE ARTIFACTS — unrelated topics, make retrieval non-trivial
+  # ─────────────────────────────────────────────────────────────────────────
+
+  - id: FIX-NOISE-001
+    kind: note
+    status: evergreen
+    title: "PTP clock synchronization — T-BC holdover test methodology"
+    sections:
+      - name: body
+        text: |
+          T-BC holdover tests verify PTP clock stability during GPS signal loss.
+          Test sequence: lock to GPS → enter holdover → measure drift over 1000s.
+          Pass criteria: frequency offset < 1.5ppb after 1000s holdover period.
+
+  - id: FIX-NOISE-002
+    kind: concept
+    status: active
+    title: "Bevy ECS — entity component system for game dev in Rust"
+    sections:
+      - name: body
+        text: |
+          Bevy uses an ECS where entities are IDs, components are data structs,
+          and systems are functions over component queries. World holds all state.
+          Parallelism is automatic — systems that don't conflict run concurrently.
+
+  - id: FIX-NOISE-003
+    kind: note
+    status: evergreen
+    title: "Hegemony — triangular prism cells for volumetric world model"
+    sections:
+      - name: body
+        text: |
+          Each hexagonal column consists of triangular prism cells (6 per hex).
+          Prism: 6 vertices, 5 faces (2 triangular end-faces, 3 quad side-faces).
+          Replacing kite quads with triangle sub-tiles improves rendering fidelity.
+
+  - id: FIX-NOISE-004
+    kind: source
+    status: active
+    title: "Ansible AWX REST API reference"
+    sections:
+      - name: provenance
+        text: "https://docs.ansible.com/automation-controller/latest/html/controllerapi/"
+      - name: summary
+        text: |
+          AWX exposes a RESTful API for job templates, inventory, credentials.
+          Authentication via OAuth2 tokens. Pagination with next/previous links.
+
+  - id: FIX-NOISE-005
+    kind: note
+    status: fleeting
+    title: "Python Textual — terminal UI framework for rich CLI apps"
+    sections:
+      - name: body
+        text: |
+          Textual provides reactive TUI widgets with CSS-like styling.
+          DataTable, Tree, Log widgets are well-tested. Async-first design.
+          Good alternative to Bubbletea for Python-native agent shells.
+
+  - id: FIX-NOISE-006
+    kind: concept
+    status: active
+    title: "Dolt — version-controlled MySQL-compatible database"
+    sections:
+      - name: body
+        text: |
+          Dolt is a SQL database with Git semantics: branch, commit, diff, merge.
+          MySQL-compatible wire protocol. dolthub/driver for embedded Go use.
+          VECTOR column type (Jan 2025) with ANN index for semantic search.
+          Use case: version-controlled knowledge graphs, agent memory with history.
+
+  - id: FIX-NOISE-007
+    kind: note
+    status: evergreen
+    title: "OpenTelemetry tracing in Go — span context propagation"
+    sections:
+      - name: body
+        text: |
+          Use otel.Tracer("component") to create spans. Propagate via context.
+          trace.SpanFromContext(ctx) retrieves current span. Add attributes with
+          span.SetAttributes(attribute.String("key", "value")).
+
+  - id: FIX-NOISE-008
+    kind: source
+    status: active
+    title: "Llama 3.1 — Meta's open source LLM family"
+    sections:
+      - name: provenance
+        text: "https://ai.meta.com/blog/meta-llama-3-1/"
+      - name: summary
+        text: |
+          Llama 3.1 405B matches GPT-4 on many benchmarks. Context window 128K.
+          Tool calling supported. Available via Ollama for local inference.
+
+  - id: FIX-NOISE-009
+    kind: note
+    status: fleeting
+    title: "K3s — lightweight Kubernetes for edge and dev environments"
+    sections:
+      - name: body
+        text: |
+          K3s is a CNCF-certified Kubernetes distribution under 100MB.
+          Replaces etcd with SQLite by default. Single binary deployment.
+          Suitable for agent runtime isolation on constrained hardware.
+
+  - id: FIX-NOISE-010
+    kind: concept
+    status: active
+    title: "Stigmergy — indirect coordination through environment modification"
+    sections:
+      - name: body
+        text: |
+          Stigmergy: agents coordinate by modifying shared environment, not by
+          direct communication. Ant pheromone trails are the classic example.
+          Applied to agent routing: performance data deposited as byproduct of
+          work (not reported). Scheduler reads accumulated signals. Trails decay.
+
+  - id: FIX-NOISE-011
+    kind: note
+    status: evergreen
+    title: "go-mysql-server — pure Go MySQL-compatible SQL engine"
+    sections:
+      - name: body
+        text: |
+          go-mysql-server (dolthub) implements the MySQL wire protocol in pure Go.
+          Used as Dolt's query engine. Supports most MySQL syntax including
+          FULLTEXT indexes. No CGO dependency — maintains pure Go build constraint.
+
+  - id: FIX-NOISE-012
+    kind: source
+    status: active
+    title: "Mem0 — production agent memory with graph-based retrieval"
+    sections:
+      - name: provenance
+        text: "https://arxiv.org/abs/2504.19413"
+      - name: summary
+        text: |
+          Mem0 achieves 26% improvement over OpenAI baseline on LOCOMO benchmark.
+          Uses graph-based memory to capture relational structure. Selective
+          addition/deletion prevents memory bloat. Production-ready API.
+
+  - id: FIX-NOISE-013
+    kind: note
+    status: fleeting
+    title: "nomic-embed-text — 274MB local embedding model via Ollama"
+    sections:
+      - name: body
+        text: |
+          nomic-embed-text produces 768-dimensional embeddings. Runs locally
+          via Ollama. Excellent for code + prose mixed content. No API costs.
+          Pull with: ollama pull nomic-embed-text. ~50ms per embedding on CPU.
+
+  - id: FIX-NOISE-014
+    kind: concept
+    status: active
+    title: "Jidoka — automation with human judgment, stop on defect"
+    sections:
+      - name: body
+        text: |
+          Jidoka (自働化) is one of Toyota Production System's two pillars.
+          Machines stop automatically when defect detected. Humans investigate.
+          Applied to agent systems: agents stop and signal when unable to proceed
+          (Andon cord). Never self-defer or silently skip failures.
+
+  - id: FIX-NOISE-015
+    kind: note
+    status: evergreen
+    title: "fastembed — Rust-backed embedding library with Python/Go bindings"
+    sections:
+      - name: body
+        text: |
+          fastembed generates embeddings locally without GPU. Supports
+          BAAI/bge-small-en-v1.5 (384-dim), BAAI/bge-base-en-v1.5 (768-dim).
+          Pure Rust ONNX runtime. Go bindings via CGO. ~10ms per embedding.
+
+  - id: FIX-NOISE-016
+    kind: source
+    status: active
+    title: "Logseq — local-first knowledge graph for Markdown notes"
+    sections:
+      - name: provenance
+        text: "https://logseq.com"
+      - name: summary
+        text: |
+          Logseq stores pages as Markdown with [[page links]]. Supports
+          block-level references, queries via Datalog, and journal pages.
+          Not open source (core is proprietary). Prior art for wikilink-based
+          knowledge graphs in agent systems.
+
+  - id: FIX-NOISE-017
+    kind: note
+    status: fleeting
+    title: "Hyprland — dynamic tiling Wayland compositor in C++"
+    sections:
+      - name: body
+        text: |
+          Hyprland supports arbitrary window rules, workspaces, animations.
+          Configuration via hyprland.conf — INI-like syntax. IPC via Unix socket.
+          HyprPi bridges Pi agent to Hyprland for workspace and window automation.
+
+  - id: FIX-NOISE-018
+    kind: concept
+    status: active
+    title: "BM25 — Best Match 25 probabilistic text ranking function"
+    sections:
+      - name: body
+        text: |
+          BM25 ranks documents by term frequency (TF) normalized by document
+          length and inverse document frequency (IDF). Parameters k1 and b tune
+          TF saturation and length normalization. SQLite FTS5 uses BM25 via rank.
+          Volume bias: high-TF documents score well even when match is incidental.
+
+  - id: FIX-NOISE-019
+    kind: note
+    status: evergreen
+    title: "WAL mode — SQLite Write-Ahead Logging for concurrent reads"
+    sections:
+      - name: body
+        text: |
+          SQLite WAL mode allows concurrent readers during a write.
+          Enable with: PRAGMA journal_mode=WAL. Readers don't block writers.
+          Checkpointing: WAL file merged back to main DB periodically.
+          Parchment SQLiteStore uses WAL mode for read/write separation.
+
+  - id: FIX-NOISE-020
+    kind: source
+    status: active
+    title: "MIRIX — six-tier hierarchical agent memory architecture"
+    sections:
+      - name: provenance
+        text: "https://arxiv.org/abs/2507.07957"
+      - name: summary
+        text: |
+          MIRIX uses six distinct memory types: Core, Episodic, Semantic,
+          Procedural, Resource, Knowledge Vault. Each managed by a dedicated
+          agent, coordinated by a meta memory controller. Supports multimodal
+          inputs and task-specific persistence across sessions.
