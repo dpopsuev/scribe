@@ -1409,8 +1409,13 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 		return text(fmt.Sprintf("transferred %d artifacts from %s to %s", result.Count, in.Scope, in.Target)), nil, nil
 	case "schema":
 		return h.handleSchema()
+	case "restore", "unarchive":
+		// Redirect: restoring archived artifacts uses artifact(action=de-archive).
+		return nil, nil, fmt.Errorf( //nolint:err113 // agent-facing redirect
+			"admin(%s) is not supported — use artifact(action=de-archive, id=<id>) to restore an archived artifact",
+			in.Action)
 	default:
-		return nil, nil, fmt.Errorf("unknown admin action %q", in.Action)
+		return nil, nil, fmt.Errorf("unknown admin action %q (valid: motd, changelog, dashboard, snapshot, set_goal, vacuum, detect, lint, check, set_scope_labels, list_scope_labels, transfer_scope, seed, schema)", in.Action) //nolint:err113 // agent-facing hint
 	}
 }
 
