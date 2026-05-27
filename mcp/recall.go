@@ -23,8 +23,8 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// knowledgeKindSet is the set of kinds that constitute agent memory.
-var knowledgeKindSet = map[string]bool{
+// knowledgeKinds are always memory regardless of status.
+var knowledgeKinds = map[string]bool{
 	parchment.KindNote:    true,
 	parchment.KindJournal: true,
 	parchment.KindSource:  true,
@@ -32,8 +32,23 @@ var knowledgeKindSet = map[string]bool{
 	parchment.KindContext: true,
 }
 
-// kindWeight returns the relevance multiplier for a knowledge kind + status.
-// Evergreen notes are the most authoritative memory; journals the least.
+// isRecallable returns true when an artifact should be included in recall.
+// The boundary is status, not kind:
+//   - Knowledge artifacts: always recallable (they are memory by definition)
+//   - Work artifacts: recallable only when terminal (completed work is history)
+//   - Active/open work: excluded (that is the tracker, not memory)
+func isRecallable(art *parchment.Artifact, schema *parchment.Schema) bool {
+	if knowledgeKinds[art.Kind] {
+		return true
+	}
+	// Work artifacts become memory once they are done.
+	return schema.IsTerminal(art.Status)
+}
+
+// kindWeight returns the relevance multiplier for a kind + status combination.
+// Knowledge artifacts are weighted above work artifacts because they are curated.
+// Among work artifacts, accepted decisions and fixed bugs carry more signal than
+// completed tasks because they contain explicit rationale and root causes.
 func kindWeight(kind, status string) float64 {
 	switch kind {
 	case parchment.KindNote:
@@ -43,14 +58,22 @@ func kindWeight(kind, status string) float64 {
 		return 1.0 // fleeting
 	case parchment.KindConcept:
 		return 1.4
+	case parchment.KindDecision:
+		return 1.3 // accepted rationale is high-value memory
+	case parchment.KindBug:
+		return 1.2 // fixed bugs carry root cause knowledge
 	case parchment.KindSource:
-		return 1.2
-	case parchment.KindContext:
 		return 1.1
+	case parchment.KindSpec:
+		return 1.0 // completed specs document design
+	case parchment.KindContext:
+		return 1.0
+	case parchment.KindTask:
+		return 0.9 // completed tasks: lower signal than curated notes
 	case parchment.KindJournal:
 		return 0.8
 	default:
-		return 1.0
+		return 0.7 // other completed work
 	}
 }
 
@@ -81,6 +104,7 @@ func (h *handler) handleRecall(ctx context.Context, in knowledgeInput) (*sdkmcp.
 	if scope == "" && len(h.homeScopes) > 0 {
 		scope = h.homeScopes[0]
 	}
+	schema := h.proto.Schema()
 
 	// Multi-pass FTS: collect candidates from all passes, deduplicate, score.
 	seen := make(map[string]bool)
@@ -94,10 +118,7 @@ func (h *handler) handleRecall(ctx context.Context, in knowledgeInput) (*sdkmcp.
 			continue
 		}
 		for _, a := range arts {
-			if seen[a.ID] {
-				continue
-			}
-			if !knowledgeKindSet[a.Kind] {
+			if seen[a.ID] || !isRecallable(a, schema) {
 				continue
 			}
 			seen[a.ID] = true

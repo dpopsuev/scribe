@@ -63,32 +63,84 @@ func TestRecall_FindsRelevantNote(t *testing.T) {
 	}
 }
 
-// TestRecall_OnlyKnowledgeKinds verifies that work artifacts (task, spec, bug)
-// are NOT returned by recall — only knowledge kinds.
-func TestRecall_OnlyKnowledgeKinds(t *testing.T) {
+// TestRecall_ActiveWorkExcluded verifies that ACTIVE work artifacts are not
+// returned by recall — they are current work, not memory.
+func TestRecall_ActiveWorkExcluded(t *testing.T) {
 	proto, call := newRecallServer(t)
 	ctx := context.Background()
 
-	// Create a task and a note both containing "retry logic"
-	task, _ := proto.CreateArtifact(ctx, parchment.CreateInput{
+	// Active task — should NOT appear in recall
+	activeTask, _ := proto.CreateArtifact(ctx, parchment.CreateInput{
 		Kind: parchment.KindTask, Title: "implement retry logic", Scope: "test",
 	})
+	// Knowledge note — SHOULD appear
 	note, _ := proto.CreateArtifact(ctx, parchment.CreateInput{
 		Kind: parchment.KindNote, Title: "retry logic pattern", Scope: "test",
 		Sections: []parchment.Section{{Name: "body", Text: "exponential backoff with jitter, cap at 5 retries"}},
 	})
 
+	out := call(map[string]any{"action": "recall", "query": "retry logic", "scope": "test"})
+
+	if strings.Contains(out, activeTask.ID) {
+		t.Errorf("recall must not return active task %s\nGot: %s", activeTask.ID, out)
+	}
+	if !strings.Contains(out, note.ID) && !strings.Contains(strings.ToLower(out), "retry") {
+		t.Errorf("recall must return knowledge note\nGot: %s", out)
+	}
+}
+
+// TestRecall_CompletedTaskIsMemory verifies that COMPLETED work artifacts are
+// returned by recall — completed work is history, and history is memory.
+//
+// The canonical example: recall("why did we remove SetField Extra fallback?")
+// should return the completed task that made the change, not just a note
+// someone wrote about it.
+func TestRecall_CompletedTaskIsMemory(t *testing.T) {
+	proto, call := newRecallServer(t)
+	ctx := context.Background()
+
+	// Create and complete a task
+	task, _ := proto.CreateArtifact(ctx, parchment.CreateInput{
+		Kind:  parchment.KindTask,
+		Title: "Remove SetField Extra fallback — error on unknown fields",
+		Scope: "test",
+		Goal:  "SetField must reject unknown fields instead of writing silently to Extra",
+	})
+	_, _ = proto.SetField(ctx, []string{task.ID}, parchment.FieldStatus, parchment.StatusComplete, parchment.SetFieldOptions{Force: true})
+
 	out := call(map[string]any{
 		"action": "recall",
-		"query":  "retry logic",
+		"query":  "SetField Extra fallback unknown fields",
 		"scope":  "test",
 	})
 
-	if strings.Contains(out, task.ID) {
-		t.Errorf("recall must not return work artifact %s (kind=task)\nGot: %s", task.ID, out)
+	if !strings.Contains(out, task.ID) {
+		t.Errorf("recall must return completed task %s — completed work is memory\nGot: %s", task.ID, out)
 	}
-	if !strings.Contains(out, note.ID) && !strings.Contains(strings.ToLower(out), "retry") {
-		t.Errorf("recall must return knowledge note about retry logic\nGot: %s", out)
+}
+
+// TestRecall_CompletedDecisionIsMemory verifies that accepted decisions surface
+// in recall — a decision's rationale is high-value permanent memory.
+func TestRecall_CompletedDecisionIsMemory(t *testing.T) {
+	proto, call := newRecallServer(t)
+	ctx := context.Background()
+
+	decision, _ := proto.CreateArtifact(ctx, parchment.CreateInput{
+		Kind:  parchment.KindDecision,
+		Title: "Template conformance fires on promote not create",
+		Scope: "test",
+		Goal:  "Partial drafts accepted at create time, full validation deferred to promote",
+	})
+	_, _ = proto.SetField(ctx, []string{decision.ID}, parchment.FieldStatus, "accepted", parchment.SetFieldOptions{Force: true})
+
+	out := call(map[string]any{
+		"action": "recall",
+		"query":  "template conformance promote create",
+		"scope":  "test",
+	})
+
+	if !strings.Contains(out, decision.ID) {
+		t.Errorf("recall must return accepted decision %s\nGot: %s", decision.ID, out)
 	}
 }
 
