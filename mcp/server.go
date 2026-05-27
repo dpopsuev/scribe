@@ -224,7 +224,7 @@ type edgeInput struct {
 
 // knowledgeInput defines the input schema for the knowledge tool.
 type knowledgeInput struct {
-	Action string `json:"action" jsonschema:"required,orient | catalog | lint | capture | promote | daily | backlinks | export_vault | import_vault | ingest | synthesize | ingest_session | recall"`
+	Action string `json:"action" jsonschema:"required,orient | catalog | lint | capture | promote | daily | backlinks | export_vault | import_vault | ingest | synthesize | ingest_session | recall | session_start | session_commit | session_diff | session_merge"`
 
 	// capture: create a fleeting note
 	Title  string   `json:"title,omitempty" jsonschema:"note title (required for capture)"`
@@ -905,6 +905,12 @@ func (h *handler) handleKnowledge(ctx context.Context, _ *sdkmcp.CallToolRequest
 		return h.handleIngestSession(ctx, in)
 	case "recall":
 		return h.handleRecall(ctx, in)
+	case "session_start", "session_commit", "session_diff", "session_merge":
+		return text(fmt.Sprintf(
+			"knowledge(action=%s) requires a Dolt-backed store. "+
+				"Configure scribe with a DoltStore to enable session isolation. "+
+				"Current store: SQLite (FTS5 + cosine, no branch support).",
+			in.Action)), nil, nil
 	case "ingest":
 		// ingest: file the source AND return its content so the agent can
 		// immediately extract concepts and build the codex.
