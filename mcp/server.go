@@ -250,7 +250,7 @@ type knowledgeInput struct {
 }
 
 type adminInput struct {
-	Action  string `json:"action" jsonschema:"required,motd | changelog | dashboard | snapshot | set_goal | vacuum | detect | lint | check | set_scope_labels | list_scope_labels | transfer_scope | seed | schema"`
+	Action  string `json:"action" jsonschema:"required,motd | changelog | dashboard | snapshot | set_goal | vacuum | detect | lint | check | set_scope_labels | list_scope_labels | transfer_scope | seed | schema | correlate"`
 	Compact bool   `json:"compact,omitempty" jsonschema:"minimal output for repeat calls (motd)"`
 
 	SnapshotAction string `json:"snapshot_action,omitempty" jsonschema:"create, list, diff, or restore"`
@@ -274,6 +274,9 @@ type adminInput struct {
 	Project string `json:"project,omitempty"`
 
 	Labels []string `json:"labels,omitempty"`
+
+	// correlate: freeform text containing artifact IDs and delivery signals
+	Evidence string `json:"evidence,omitempty" jsonschema:"freeform text with artifact IDs (correlate)"`
 }
 
 // --- dispatchers ---
@@ -1414,6 +1417,8 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 		return text(fmt.Sprintf("transferred %d artifacts from %s to %s", result.Count, in.Scope, in.Target)), nil, nil
 	case "schema":
 		return h.handleSchema()
+	case "correlate":
+		return h.handleCorrelate(ctx, in)
 	case "restore", "unarchive":
 		// Redirect: restoring archived artifacts uses artifact(action=de-archive).
 		return nil, nil, fmt.Errorf( //nolint:err113 // agent-facing redirect
