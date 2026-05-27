@@ -1,0 +1,906 @@
+{
+  "run_at": "2026-05-27T13:56:01.82470532+03:00",
+  "system": "A",
+  "queries": [
+    {
+      "query": {
+        "ID": "Q01",
+        "Band": "easy",
+        "Text": "template conformance check on create vs promote",
+        "ExpectedTheme": "shifting template validation from artifact creation time to status promotion"
+      },
+      "hits": [
+        {
+          "id": "CTX-2026-088",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "Request and Intent:\n   The user's session covered a massive multi-day effort across the Origami circuit agent orchestra"
+        },
+        {
+          "id": "CTX-2026-085",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "Request and Intent:\n   The user's session covered a massive multi-day effort across the Origami circuit agent orchestra"
+        },
+        {
+          "id": "CTX-2026-083",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "Primary Request and Intent:\n   The session covered a massive multi-day design and implementation effort across the Origa"
+        },
+        {
+          "id": "CTX-2026-082",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "Request and Intent:\n   The user's session covered a massive multi-day effort across the Origami circuit agent orchestra"
+        },
+        {
+          "id": "CTX-2026-080",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "alternatives**: evaluate jennifer, text/template consolidation, go/ast for reducing hand-rolled code generation\n   - **D"
+        }
+      ]
+    },
+    {
+      "query": {
+        "ID": "Q02",
+        "Band": "easy",
+        "Text": "SetField unknown field redirect to attach_section",
+        "ExpectedTheme": "SetField rejecting unknown fields like description/body and redirecting to attach_section"
+      },
+      "hits": [
+        {
+          "id": "CTX-2026-080",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "ltiple interconnected goals all driving toward dogfooding the autonomous SDLC flywheel:\n   - **Audit the Origami codebas"
+        },
+        {
+          "id": "CTX-2026-062",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "ltiple interconnected goals all driving toward dogfooding the autonomous SDLC flywheel:\n   - **Audit the Origami codebas"
+        },
+        {
+          "id": "CTX-2026-048",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "** (SCR-BUG-22) — attach_section body field silently dropped\n   - **Architecture Design** — Substrate as K8s-like ro"
+        },
+        {
+          "id": "CTX-2026-015",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "4), anthropic_version in body, no model field in body\n   - **ApiResponse** — flexible response struct with String mode"
+        },
+        {
+          "id": "CTX-2026-011",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "4), anthropic_version in body, no model field in body\n   - **ApiResponse** — flexible response struct with String mode"
+        }
+      ]
+    },
+    {
+      "query": {
+        "ID": "Q03",
+        "Band": "easy",
+        "Text": "Scribe-specific methods extracted from Parchment Protocol ISP cleanup",
+        "ExpectedTheme": "moving Motd/Dashboard/Inventory/SetGoal/DrainDiscover out of parchment into Scribe"
+      },
+      "hits": [
+        {
+          "id": "CTX-2026-095",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "he Troupe codebase. The session evolved from operational cleanup (E2E test moves, Bugle/Jericho scrubbing) into a deep a"
+        },
+        {
+          "id": "CTX-2026-093",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "yBus/MotorBus), redesigning the Reactor from 5 flat phases to 4 dialectic triads, and establishing event-driven architec"
+        },
+        {
+          "id": "CTX-2026-092",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "plete ReActivity model design evolution from 5-phase FSM → Sephirot 10-node model with 3 triads (Reason/Plan/Act), dia"
+        },
+        {
+          "id": "CTX-2026-091",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "Runtime / FAR). This session continued from a previous architecture design conversation and focused on:\n   - Implementi"
+        },
+        {
+          "id": "CTX-2026-090",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "skeleton accretion, prior art research from Toyota TPS, networking (OSI/TCP-IP/NAT), K8s, Linux kernel, and gaming indu"
+        }
+      ]
+    },
+    {
+      "query": {
+        "ID": "Q04",
+        "Band": "easy",
+        "Text": "golangci-lint v2 config migration linters-settings",
+        "ExpectedTheme": "migrating .golangci.yml from v1 format to v2 format"
+      },
+      "hits": [
+        {
+          "id": "CTX-2026-090",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "ing of all 12 sub-systems, Scribe scope migration (origami→tako, troupe→tangled), campaign reconciliation, DOC-44 de"
+        },
+        {
+          "id": "CTX-2026-079",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "ngine calls in production\n   - **Scribe Migration (SCR-TSK-252)**: Migrate Scribe MCP server to battery.Server framework"
+        },
+        {
+          "id": "CTX-2026-078",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "ast \u0026 E2E Testing (GOL-60/61):** SessionConfig.Preflight, gather-code silent skip fix, composition contract tests, walke"
+        },
+        {
+          "id": "CTX-2026-077",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "ne Go binary\n   - **SessionHooks/SessionConfig**: Consumer returns domain config, framework wires infrastructure (dispat"
+        },
+        {
+          "id": "CTX-2026-072",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "ing of all 12 sub-systems, Scribe scope migration (origami→tako, troupe→tangled), campaign reconciliation, DOC-44 de"
+        }
+      ]
+    },
+    {
+      "query": {
+        "ID": "Q05",
+        "Band": "easy",
+        "Text": "session JSONL ingest Pi Claude Code compaction summaries",
+        "ExpectedTheme": "ingest_session action that reads Pi/Claude JSONL and creates source artifacts"
+      },
+      "hits": [
+        {
+          "id": "CTX-2026-095",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "user initiated a multi-day architecture session (April 16-19, 2026) on the Troupe codebase. The session evolved from ope"
+        },
+        {
+          "id": "CTX-2026-094",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "tent:\n   The user initiated a multi-day session (April 16-19, 2026) to analyze the agentgateway repository using Locus,"
+        },
+        {
+          "id": "SRC-2026-014",
+          "kind": "source",
+          "status": "active",
+          "title": "Session: da03d352-13ec-4e9a-b350-21120bd38c98.jsonl [troupe]",
+          "excerpt": "pe/da03d352-13ec-4e9a-b350-21120bd38c98.jsonl"
+        },
+        {
+          "id": "CTX-2026-093",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "Tako — a Jidoka Agent Platform. This session covered: designing Minitako (digital pet acceptance test), reforming ins"
+        },
+        {
+          "id": "CTX-2026-092",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "yota Production System principles. This session (April 28-29, 2026) covered an enormous scope:\n   - Spike research on ML"
+        }
+      ]
+    },
+    {
+      "query": {
+        "ID": "Q06",
+        "Band": "medium",
+        "Text": "why agent creates are no longer rejected when template sections are missing",
+        "ExpectedTheme": "partial draft accepted at create time, conformance deferred to promote"
+      },
+      "hits": [
+        {
+          "id": "CTX-2026-095",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "ng an authoritative ECS World for multi-agent orchestration, and (2) an exportable harness component library for agent b"
+        },
+        {
+          "id": "CTX-2026-094",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "sion (April 16-19, 2026) to analyze the agentgateway repository using Locus, learn patterns applicable to Troupe, and th"
+        },
+        {
+          "id": "CTX-2026-093",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "The user is building Tako — a Jidoka Agent Platform. This session covered: designing Minitako (digital pet acceptance"
+        },
+        {
+          "id": "CTX-2026-092",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "hing goal is building Tako — a Jidoka Agent Platform built on Toyota Production System principles. This session (April"
+        },
+        {
+          "id": "CTX-2026-091",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "arching goal is to build Tako (a Jidoka Agent Platform) on top of Tangled (Federated Agent Runtime / FAR). This session"
+        }
+      ]
+    },
+    {
+      "query": {
+        "ID": "Q07",
+        "Band": "medium",
+        "Text": "AdminManager had too many methods and what we did about it",
+        "ExpectedTheme": "ISP violations in AdminManager, 17 methods reduced, Scribe-specific moved out"
+      },
+      "hits": [
+        {
+          "id": "CTX-2026-095",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "e=infrastructure, Origami=orchestration+tools, Djinn=operator frontend), uniform A2A protocol, K8s-ready daemon interfac"
+        },
+        {
+          "id": "CTX-2026-081",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "MCPAdapter**: bridges MCP servers into tool.Registry with prefix namespacing (scribe.artifact, locus.analysis). Serve c"
+        },
+        {
+          "id": "CTX-2026-076",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "Summary:\n1. Primary Request and Intent:\n   The conversation covers two major threads: (a) fixing a bug where"
+        },
+        {
+          "id": "CTX-2026-063",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "MCPAdapter**: bridges MCP servers into tool.Registry with prefix namespacing (scribe.artifact, locus.analysis). Serve c"
+        },
+        {
+          "id": "CTX-2026-049",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "ering (terminal + web/Electron) without tools importing TUI code and without reimplementing agent interaction per platfo"
+        }
+      ]
+    },
+    {
+      "query": {
+        "ID": "Q08",
+        "Band": "medium",
+        "Text": "de-archive discovered as already implemented but untestable",
+        "ExpectedTheme": "PRC-BUG-11, de-archive existed but had no tests and agents tried admin(restore)"
+      },
+      "hits": [
+        {
+          "id": "CTX-2026-078",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "12-worker calibration via MCP tools — discovered and fixed deployment config bugs, mediator alias routing, worker erro"
+        },
+        {
+          "id": "CTX-2026-060",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "12-worker calibration via MCP tools — discovered and fixed deployment config bugs, mediator alias routing, worker erro"
+        },
+        {
+          "id": "CTX-2026-056",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary: ~19 of 30 SOLID violations are false positives from the hexa misclassi…",
+          "excerpt": "are false positives from the hexa misclassification of arch. The real SOLID score is closer to 90+. And ~25 of 56 smell"
+        },
+        {
+          "id": "CTX-2026-045",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary: What Djinn Should Steal",
+          "excerpt": "AC model |\n| Small-model selection per task type | **High** | Compaction/title tasks should use cheap models |\n| Conditi"
+        },
+        {
+          "id": "CTX-2026-022",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "ists in `printConsumerLog()`. The user has been iterating on finding the best fix approach, which was determined to be u"
+        }
+      ]
+    },
+    {
+      "query": {
+        "ID": "Q09",
+        "Band": "medium",
+        "Text": "how motd now surfaces memory without agents calling a separate tool",
+        "ExpectedTheme": "motd memory section showing top-3 evergreen knowledge artifacts automatically"
+      },
+      "hits": [
+        {
+          "id": "CTX-2026-093",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "ero imports of discourse/, instrument/, memory/. Signal/Command types defined in cerebrum/bus.go.\n   - **Cerebrum IS an"
+        },
+        {
+          "id": "CTX-2026-092",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "plementation (37 tests, gauntlet passes without LLM)\n   - M3.5 Cerebrum implementation (vertical slice: Need → Think \ufffd"
+        },
+        {
+          "id": "CTX-2026-089",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "ue as Blackboard. Reactivity FSM. DIKUW Memory. Three-level scheduling. TPS mapping. 14 Needs, 8 ADRs, 11 Specs filed."
+        },
+        {
+          "id": "CTX-2026-087",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "nt Vision / Agent DOM**: the agent's in-memory data structure IS the D"
+        },
+        {
+          "id": "CTX-2026-086",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "ue as Blackboard. Reactivity FSM. DIKUW Memory. Three-level scheduling. TPS mapping. 14 Needs, 8 ADRs, 11 Specs filed."
+        }
+      ]
+    },
+    {
+      "query": {
+        "ID": "Q10",
+        "Band": "medium",
+        "Text": "how artifact move re-parent action was missing from artifact tool",
+        "ExpectedTheme": "agents tried artifact(move) but it lived on graph tool, redirect added"
+      },
+      "hits": [
+        {
+          "id": "CTX-2026-094",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "for misplaced E2E tests, file a task to move them to test/e2e/, and execute the move.\n\n2. Key Technical Concepts:\n   - *"
+        },
+        {
+          "id": "CTX-2026-091",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "/Organs (agent body model), Depo/Shelf (artifact storage), Labels/Policy/hash seal, PDP-PEP authorization, Artifact/Reli"
+        },
+        {
+          "id": "CTX-2026-089",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "esign, architecture, naming, and Scribe artifact management. The primary intents evolved through the conversation:"
+        },
+        {
+          "id": "CTX-2026-086",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "esign, architecture, naming, and Scribe artifact management. The primary intents evolved through the conversation:"
+        },
+        {
+          "id": "CTX-2026-083",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "- **Battery Absorption (GOL-102)**: Move battery/tool into origami/tool/, eliminate external dependency\n   - **Agent"
+        }
+      ]
+    },
+    {
+      "query": {
+        "ID": "Q11",
+        "Band": "hard",
+        "Text": "reducing friction when agents create structured work items",
+        "ExpectedTheme": "agent friction analysis: 597 template errors, 63 move errors, 571 ghost field sets"
+      },
+      "hits": [
+        {
+          "id": "CTX-2026-095",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "ching. The user wants to next build toy agents (TSK-247) to discover the server↔client contract shape before formalizi"
+        },
+        {
+          "id": "CTX-2026-088",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "**Agent-Driven Engine Design**: Delete when: expressions (agent routes, not heuristics), agent-aware nodes (full contex"
+        },
+        {
+          "id": "CTX-2026-087",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "inement. Agent resubmits. Thread closes when all signed.\n   - **Agent Vision / Agent DOM**: the agent's in-memory data s"
+        },
+        {
+          "id": "CTX-2026-085",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "**Agent-Driven Engine Design**: Delete when: expressions (agent routes, not heuristics), agent-aware nodes (full contex"
+        },
+        {
+          "id": "CTX-2026-083",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "L-101)**: AgentCard-based routing, kill when: expressions, approval gate contextual input\n   - **Workbench Design (GOL-1"
+        }
+      ]
+    },
+    {
+      "query": {
+        "ID": "Q12",
+        "Band": "hard",
+        "Text": "connecting what agents actually did to what the tracker says is open",
+        "ExpectedTheme": "correlate action matching evidence text against live Scribe artifacts"
+      },
+      "hits": [
+        {
+          "id": "CTX-2026-095",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "ching. The user wants to next build toy agents (TSK-247) to discover the server↔client contract shape before formalizi"
+        },
+        {
+          "id": "CTX-2026-094",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "ng Troupe's A2A a first-class API worth connecting to, with proper trust boundaries, observability, and clean architectu"
+        },
+        {
+          "id": "CTX-2026-083",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "Workbench is premature — instead give agents a shell with 3 commands to discover and execute instruments on demand"
+        },
+        {
+          "id": "CTX-2026-077",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "uild automated calibration tuning where agents self-improve prompts without human intervention\n   - **Production Deploym"
+        },
+        {
+          "id": "CTX-2026-065",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "Workbench is premature — instead give agents a shell with 3 commands to discover and execute instruments on demand"
+        }
+      ]
+    },
+    {
+      "query": {
+        "ID": "Q13",
+        "Band": "hard",
+        "Text": "agents getting smarter each session without extra ritual steps",
+        "ExpectedTheme": "recall action, motd memory section — read path for agent memory management"
+      },
+      "hits": [
+        {
+          "id": "CTX-2026-095",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "ching. The user wants to next build toy agents (TSK-247) to discover the server↔client contract shape before formalizi"
+        },
+        {
+          "id": "CTX-2026-088",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "nt-Driven Engine) with 9 serial sprints each ending with dogfood.\n   \n   - **Agent-Driven Engine Design**: Delete when:"
+        },
+        {
+          "id": "CTX-2026-085",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "nt-Driven Engine) with 9 serial sprints each ending with dogfood.\n   \n   - **Agent-Driven Engine Design**: Delete when:"
+        },
+        {
+          "id": "CTX-2026-083",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "Workbench is premature — instead give agents a shell with 3 commands to discover and execute instruments on demand"
+        },
+        {
+          "id": "CTX-2026-082",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "nt-Driven Engine) with 9 serial sprints each ending with dogfood.\n   \n   - **Agent-Driven Engine Design**: Delete when:"
+        }
+      ]
+    },
+    {
+      "query": {
+        "ID": "Q14",
+        "Band": "hard",
+        "Text": "silent data loss when setting fields on tracked artifacts",
+        "ExpectedTheme": "ghost field sets succeeding silently, writing to Extra, 571 calls observed"
+      },
+      "hits": [
+        {
+          "id": "CTX-2026-094",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": ", three-bus event architecture (Control/Data/Observability), A2A v1.0 compliance (server + client), universal agent admi"
+        },
+        {
+          "id": "CTX-2026-092",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "hapter 1 drafted with real ReportPortal data\n   - Agent architecture design (Corpus/Cerebrum/Organs, Spiral Dynamics Per"
+        },
+        {
+          "id": "CTX-2026-087",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "1, 12 for archive cascade issues\n   - **Database maintenance**: fixing the cascade damage by directly modifying Scribe's"
+        },
+        {
+          "id": "CTX-2026-078",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "** SessionConfig.Preflight, gather-code silent skip fix, composition contract tests, walker coverage assertion\n   - **On"
+        },
+        {
+          "id": "CTX-2026-074",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "hapter 1 drafted with real ReportPortal data\n   - Agent architecture design (Corpus/Cerebrum/Organs, Spiral Dynamics Per"
+        }
+      ]
+    },
+    {
+      "query": {
+        "ID": "Q15",
+        "Band": "hard",
+        "Text": "the boundary between what the engine knows and what the consumer adds",
+        "ExpectedTheme": "Parchment as generic engine vs Scribe as domain consumer, ISP principle"
+      },
+      "hits": [
+        {
+          "id": "CTX-2026-093",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "mary:\n1. Primary Request and Intent:\n   The user is building Tako — a Jidoka Agent Platform. This session covered: des"
+        },
+        {
+          "id": "CTX-2026-092",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "mary:\n1. Primary Request and Intent:\n   The user's overarching goal is building Tako — a Jidoka Agent Platform built o"
+        },
+        {
+          "id": "CTX-2026-090",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "mary:\n1. Primary Request and Intent:\n   The user initiated a prior art research session across 6 agent platforms (CrewAI"
+        },
+        {
+          "id": "CTX-2026-089",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "mary:\n1. Primary Request and Intent:\n   The user is building **Tako** — a Jidoka Agent Platform built on Toyota Produc"
+        },
+        {
+          "id": "CTX-2026-088",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "mary:\n1. Primary Request and Intent:\n   The user's session covered a massive multi-day effort across the Origami circuit"
+        }
+      ]
+    },
+    {
+      "query": {
+        "ID": "Q16",
+        "Band": "cross",
+        "Text": "strangler fig refactoring extract concerns behind interfaces",
+        "ExpectedTheme": "strangler fig applied to god packages — origami, djinn, or parchment"
+      },
+      "hits": [
+        {
+          "id": "CTX-2026-095",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "uniform A2A protocol, K8s-ready daemon interfaces, namespace multi-tenancy, and solo-to-multi-agent runtime switching."
+        },
+        {
+          "id": "CTX-2026-094",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "sion (Lobby), Troupe Facade, structural refactoring (dead code deletion, package splits, SOLID fixes), and test coverage"
+        },
+        {
+          "id": "CTX-2026-093",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "interfaces, cannibalizing legacy code (Strangler Fig), upgrading Cerebrum with 5 capabilities, implementing DIP buses ("
+        },
+        {
+          "id": "CTX-2026-080",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "** using Locus, Scribe, and Lex to find refactoring opportunities and hidden leverage points\n   - **Execute GOL-91 (Code"
+        },
+        {
+          "id": "CTX-2026-076",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "families, with scope hygiene via Tomes, strangler fig refactoring of protocol.go, and walking skeleton architecture."
+        }
+      ]
+    },
+    {
+      "query": {
+        "ID": "Q17",
+        "Band": "cross",
+        "Text": "EDA event-driven architecture organs corpus Go agent system",
+        "ExpectedTheme": "djinn/alef/tako organ-based EDA architecture"
+      },
+      "hits": [
+        {
+          "id": "CTX-2026-095",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "tent:\n   The user initiated a multi-day architecture session (April 16-19, 2026) on the Troupe codebase. The session evo"
+        },
+        {
+          "id": "CTX-2026-094",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "(Gate/Pick/Threshold), three-bus event architecture (Control/Data/Observability), A2A v1.0 compliance (server + client)"
+        },
+        {
+          "id": "CTX-2026-093",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "to 4 dialectic triads, and establishing event-driven architecture. The user wants all code to follow ROGYB TDD, SOLID pr"
+        },
+        {
+          "id": "CTX-2026-092",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "with real ReportPortal data\n   - Agent architecture design (Corpus/Cerebrum/Organs, Spiral Dynamics Personas, Ford/Toyo"
+        },
+        {
+          "id": "CTX-2026-091",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "This session continued from a previous architecture design conversation and focused on:\n   - Implementing the CMP-35 (F"
+        }
+      ]
+    },
+    {
+      "query": {
+        "ID": "Q18",
+        "Band": "cross",
+        "Text": "test-driven development red green refactor MCP tools",
+        "ExpectedTheme": "ROGYB test discipline applied to MCP server development"
+      },
+      "hits": [
+        {
+          "id": "CTX-2026-093",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "Jidoka Agent Platform. This session covered: designing Minitako (digital pet acceptance test), reforming instrument inte"
+        },
+        {
+          "id": "CTX-2026-089",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "ogfood (completed)**: Verify the refactored engine works. Fixed gate interrupt bug in delegate sub-walks. Switched to Ve"
+        },
+        {
+          "id": "CTX-2026-086",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "ogfood (completed)**: Verify the refactored engine works. Fixed gate interrupt bug in delegate sub-walks. Switched to Ve"
+        },
+        {
+          "id": "CTX-2026-079",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "nomous SDLC flywheel — a self-feeding development loop where circuits write code, Scribe manages the work queue, Lex p"
+        },
+        {
+          "id": "CTX-2026-075",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "Jidoka Agent Platform. This session covered: designing Minitako (digital pet acceptance test), reforming instrument inte"
+        }
+      ]
+    },
+    {
+      "query": {
+        "ID": "Q19",
+        "Band": "cross",
+        "Text": "SOLID violations hexagonal architecture locus scan results",
+        "ExpectedTheme": "locus/oculus architecture analysis finding SOLID violations"
+      },
+      "hits": [
+        {
+          "id": "CTX-2026-095",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "tent:\n   The user initiated a multi-day architecture session (April 16-19, 2026) on the Troupe codebase. The session evo"
+        },
+        {
+          "id": "CTX-2026-094",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "ng (dead code deletion, package splits, SOLID fixes), and test coverage improvements. The user's overarching goal is mak"
+        },
+        {
+          "id": "CTX-2026-093",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "ser wants all code to follow ROGYB TDD, SOLID principles, hexagonal architecture, and Lex naming rules. Minitako must us"
+        },
+        {
+          "id": "CTX-2026-092",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "with real ReportPortal data\n   - Agent architecture design (Corpus/Cerebrum/Organs, Spiral Dynamics Personas, Ford/Toyo"
+        },
+        {
+          "id": "CTX-2026-091",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "This session continued from a previous architecture design conversation and focused on:\n   - Implementing the CMP-35 (F"
+        }
+      ]
+    },
+    {
+      "query": {
+        "ID": "Q20",
+        "Band": "cross",
+        "Text": "walking skeleton end to end wired before real implementation",
+        "ExpectedTheme": "walking skeleton pattern used in djinn/tako/origami/alef"
+      },
+      "hits": [
+        {
+          "id": "CTX-2026-091",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "- Implementing the CMP-35 (Foundations) walking skeleton with all 12 sub-systems as stubs\n   - Creating the complete Tan"
+        },
+        {
+          "id": "CTX-2026-090",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "domain modeling using DDD patterns with walking skeleton accretion, prior art research from Toyota TPS, networking (OSI/"
+        },
+        {
+          "id": "CTX-2026-087",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "**Creating 5 new goals**: GOL-161 (TUI Skeleton), GOL-162 (Architecture Freeze), GOL-163 (UI Seam + Agent DOM), GOL-164"
+        },
+        {
+          "id": "CTX-2026-083",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "nd execute instruments on demand\n   - **Walking Skeleton**: Restructure → Reform → Wire phases for CMP-24 (Battery S"
+        },
+        {
+          "id": "CTX-2026-081",
+          "kind": "context",
+          "status": "active",
+          "title": "Summary:",
+          "excerpt": "not optional\n   - \"Refactors first, E2E skeleton Forge style\" — methodology discipline\n   - \"Let's finish each sprint,"
+        }
+      ]
+    }
+  ]
+}
