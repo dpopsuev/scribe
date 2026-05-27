@@ -707,6 +707,23 @@ type CTFTurn struct {
 	Captured bool   `json:"captured"` // agent extracted correct flag
 }
 
+// ctfVocab covers domain terms from the fixture corpus for SemanticEmbeddingFunc.
+var ctfVocab = []string{
+	"accepted", "action", "active", "adminmanager", "agent", "agents", "analysis",
+	"artifact", "artifacts", "attach_section", "bm25", "body", "boundary",
+	"capture", "claude", "compaction", "completed", "conformance", "context",
+	"create", "description", "draft", "evaluation", "extra", "fires", "fts5",
+	"ghost", "goals", "graph", "inventory", "isterminal", "jsonl", "kind",
+	"knowledge", "memory", "missing", "motd", "move", "moved", "observed",
+	"parchment", "production", "promote", "protocol", "queries", "recall",
+	"redirect", "results", "retrieval", "returned", "routing", "scribe",
+	"sections", "session", "sessions", "setfield", "sets", "silently",
+	"source", "sqlite", "status", "system", "task", "template", "tool",
+	"total", "unknown", "volume", "work", "ranking", "cosine", "weight",
+	"decision", "accepted", "isp", "method", "methods", "cleanup",
+	"ingest_session", "ingest", "duplicate", "flag", "baseline",
+}
+
 func runCTF(args []string) {
 	challengesFile := "eval/fixtures/challenges.yaml"
 	corpusFile := "eval/fixtures/corpus.yaml"
@@ -748,6 +765,15 @@ func runCTF(args []string) {
 		fatal("parse challenges: %v", err)
 	}
 
+	// Choose embed function based on system.
+	var embedFn parchment.EmbeddingFunc
+	if system == "B" {
+		embedFn = parchment.SemanticEmbeddingFunc(ctfVocab)
+		fmt.Println("System B: SemanticEmbeddingFunc (cosine similarity)")
+	} else {
+		fmt.Println("System A: FTS5 keyword search")
+	}
+
 	// Seed corpus into fresh DB.
 	s, err := parchment.OpenSQLite(dbPath)
 	if err != nil {
@@ -755,7 +781,8 @@ func runCTF(args []string) {
 	}
 	defer func() { _ = s.Close() }()
 
-	proto := parchment.New(s, parchment.KnowledgeSchema(), []string{"fixture"}, nil, parchment.ProtocolConfig{})
+	cfg := parchment.ProtocolConfig{EmbedFunc: embedFn}
+	proto := parchment.New(s, parchment.KnowledgeSchema(), []string{"fixture"}, nil, cfg)
 	ctx := context.Background()
 
 	if err := seedCorpus(ctx, proto, corpusFile); err != nil {
@@ -763,7 +790,11 @@ func runCTF(args []string) {
 	}
 
 	all, _ := proto.ListArtifacts(ctx, parchment.ListInput{Scope: "fixture"})
-	fmt.Printf("Corpus seeded: %d artifacts\n\n", len(all))
+	fmt.Printf("Corpus seeded: %d artifacts", len(all))
+	if embedFn != nil {
+		fmt.Printf(" (embeddings indexed)")
+	}
+	fmt.Println()
 
 	run := CTFRun{RunAt: time.Now(), System: system}
 
@@ -917,11 +948,39 @@ func artifactContainsFlag(art *parchment.Artifact, flag string) bool {
 	return strings.Contains(haystack, strings.ToLower(flag))
 }
 
-// recallCTF is like recall() but searches fixture scope and includes all recallable kinds.
+// recallCTF retrieves artifacts for a CTF turn.
+// System A: multi-pass FTS5 keyword search.
+// System B: semantic search via cosine similarity on stored embeddings.
 func recallCTF(ctx context.Context, proto *parchment.Protocol, schema *parchment.Schema, query string, n int) []Hit {
+	terms := strings.Fields(strings.ToLower(query))
+
+	// System B: try semantic search first when embeddings are available.
+	semanticResults, _ := proto.SearchSemantic(ctx, query, parchment.ListInput{Scope: "fixture", Limit: n * 2})
+	if len(semanticResults) > 0 {
+		hits := make([]Hit, 0, minInt(n, len(semanticResults)))
+		for _, a := range semanticResults {
+			if !evalKnowledgeKinds[a.Kind] && !schema.IsTerminal(a.Status) {
+				continue
+			}
+			hits = append(hits, Hit{
+				ID:      a.ID,
+				Kind:    a.Kind,
+				Status:  a.Status,
+				Title:   a.Title,
+				Excerpt: extractExcerpt(a, terms),
+			})
+			if len(hits) >= n {
+				break
+			}
+		}
+		if len(hits) > 0 {
+			return hits
+		}
+	}
+
+	// System A fallback (or primary when no embeddings): multi-pass FTS5.
 	seen := map[string]bool{}
 	var candidates []*parchment.Artifact
-
 	for _, q := range buildPasses(query) {
 		arts, err := proto.SearchArtifacts(ctx, q, parchment.ListInput{Scope: "fixture"})
 		if err != nil {
@@ -941,25 +1000,15 @@ func recallCTF(ctx context.Context, proto *parchment.Protocol, schema *parchment
 			break
 		}
 	}
-
 	sort.Slice(candidates, func(i, j int) bool {
 		return candidates[i].UpdatedAt.After(candidates[j].UpdatedAt)
 	})
-
-	limit := n
-	if len(candidates) < limit {
-		limit = len(candidates)
-	}
-
+	limit := minInt(n, len(candidates))
 	hits := make([]Hit, 0, limit)
-	terms := strings.Fields(strings.ToLower(query))
 	for _, a := range candidates[:limit] {
 		hits = append(hits, Hit{
-			ID:      a.ID,
-			Kind:    a.Kind,
-			Status:  a.Status,
-			Title:   a.Title,
-			Excerpt: extractExcerpt(a, terms),
+			ID: a.ID, Kind: a.Kind, Status: a.Status,
+			Title: a.Title, Excerpt: extractExcerpt(a, terms),
 		})
 	}
 	return hits
