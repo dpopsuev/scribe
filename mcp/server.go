@@ -1967,7 +1967,7 @@ func (h *handler) handleArchive(ctx context.Context, _ *sdkmcp.CallToolRequest, 
 		}
 		return text(fmt.Sprintf("dry run: would archive %d artifacts: %v", len(affected), affected)), nil, nil
 	}
-	results, err := h.proto.ArchiveArtifact(ctx, in.IDs, in.Cascade)
+	results, err := h.proto.ArchiveArtifact(ctx, in.IDs, in.Cascade, in.DryRun)
 	if err != nil {
 		return nil, nil, err
 	}
