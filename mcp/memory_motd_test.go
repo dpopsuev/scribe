@@ -27,7 +27,7 @@ func newMemoryServer(t *testing.T) (proto *parchment.Protocol, callAdmin, callKn
 		return callTool(t, cs, "admin", args)
 	}
 	callKnowledge = func(args map[string]any) string {
-		return callTool(t, cs, "knowledge", args)
+		return callTool(t, cs, "artifact", args)
 	}
 	return
 }

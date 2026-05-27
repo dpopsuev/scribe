@@ -19,8 +19,27 @@ func newKnowledgeDetectServer(t *testing.T) (
 	s := openStore(t)
 	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
-	return func(args map[string]any) string { return callTool(t, cs, "knowledge", args) },
-		func(args map[string]any) string { return callTool(t, cs, "admin", args) }
+	// knowledge routes each action to the canonical tool post-consolidation
+	knowledgeFn := func(args map[string]any) string {
+		action, _ := args["action"].(string)
+		switch action {
+		case "orient", "catalog":
+			// orient/catalog are now direct artifact actions
+			return callTool(t, cs, "artifact", args)
+		case "capture", "promote", "daily", "recall", "backlinks":
+			return callTool(t, cs, "artifact", translateKnowledgeToArtifact(args))
+		case "ingest":
+			args["action"] = "create"
+			if args["kind"] == nil {
+				args["kind"] = "source"
+			}
+			return callTool(t, cs, "artifact", args)
+		default:
+			return callTool(t, cs, "admin", args)
+		}
+	}
+	adminFn := func(args map[string]any) string { return callTool(t, cs, "admin", args) }
+	return knowledgeFn, adminFn
 }
 
 // TestDetect_Knowledge_StuckFleeting surfaces notes that have been
