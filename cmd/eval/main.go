@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -42,6 +43,8 @@ func main() {
 		runScore(os.Args[2:])
 	case "report":
 		runReport(os.Args[2:])
+	case "ctf":
+		runCTF(os.Args[2:])
 	default:
 		usage()
 		os.Exit(1)
@@ -55,7 +58,8 @@ Commands:
   ingest  --sessions <dir> [--db <path>]   ingest compactions into knowledge store
   run     --queries <yaml> [--db <path>]   run queries and print results
   score   --results <json>                  interactively score results
-  report  [--results <dir>]                 show precision@5 summary`)
+  report  [--results <dir>]                 show precision@5 summary
+  ctf     [--challenges <yaml>] [--corpus <yaml>] [--system A]  run CTF challenges`)
 }
 
 // --- ingest ---
@@ -659,3 +663,369 @@ func minInt(a, b int) int {
 // Ensure mcp import is used (for future System B wiring).
 var _ = mcp.IsComponentLabel
 var _ io.Reader // ensure io is used
+
+// evalKnowledgeKinds mirrors mcp.knowledgeKinds for the eval binary.
+var evalKnowledgeKinds = map[string]bool{
+	parchment.KindNote: true, parchment.KindJournal: true,
+	parchment.KindSource: true, parchment.KindConcept: true, parchment.KindContext: true,
+}
+
+// ─── CTF ─────────────────────────────────────────────────────────────────────
+
+type CTFChallenge struct {
+	ID          string   `yaml:"id"`
+	Prompt      string   `yaml:"prompt"`
+	Flag        string   `yaml:"flag"`
+	FlagPattern string   `yaml:"flag_pattern"`
+	Hint        string   `yaml:"hint"`
+	Golden      string   `yaml:"golden"`
+	RedHerrings []string `yaml:"red_herrings"`
+}
+
+type CTFFile struct {
+	Challenges []CTFChallenge `yaml:"challenges"`
+}
+
+type CTFRun struct {
+	RunAt      time.Time   `json:"run_at"`
+	System     string      `json:"system"`
+	Challenges []CTFResult `json:"challenges"`
+}
+
+type CTFResult struct {
+	Challenge CTFChallenge `json:"challenge"`
+	Turns     []CTFTurn    `json:"turns"`
+	TTF       int          `json:"ttf"` // turns to flag, 0 = DNF
+	Captured  bool         `json:"captured"`
+}
+
+type CTFTurn struct {
+	Turn     int    `json:"turn"`
+	Query    string `json:"query"`
+	Hits     []Hit  `json:"hits"`
+	Found    bool   `json:"found"`    // golden artifact appeared
+	Captured bool   `json:"captured"` // agent extracted correct flag
+}
+
+func runCTF(args []string) {
+	challengesFile := "eval/fixtures/challenges.yaml"
+	corpusFile := "eval/fixtures/corpus.yaml"
+	dbPath := "/tmp/eval-ctf.sqlite"
+	system := "A"
+	outDir := "eval/results"
+	maxTurns := 5
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--challenges":
+			i++
+			challengesFile = args[i]
+		case "--corpus":
+			i++
+			corpusFile = args[i]
+		case "--db":
+			i++
+			dbPath = args[i]
+		case "--system":
+			i++
+			system = args[i]
+		case "--out":
+			i++
+			outDir = args[i]
+		case "--max-turns":
+			i++
+			maxTurns, _ = strconv.Atoi(args[i])
+		}
+	}
+
+	// Load challenges.
+	cdata, err := os.ReadFile(challengesFile) //nolint:gosec // operator-provided path
+	if err != nil {
+		fatal("read challenges: %v", err)
+	}
+	var cf CTFFile
+	if err := yaml.Unmarshal(cdata, &cf); err != nil {
+		fatal("parse challenges: %v", err)
+	}
+
+	// Seed corpus into fresh DB.
+	s, err := parchment.OpenSQLite(dbPath)
+	if err != nil {
+		fatal("open db: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	proto := parchment.New(s, parchment.KnowledgeSchema(), []string{"fixture"}, nil, parchment.ProtocolConfig{})
+	ctx := context.Background()
+
+	if err := seedCorpus(ctx, proto, corpusFile); err != nil {
+		fatal("seed corpus: %v", err)
+	}
+
+	all, _ := proto.ListArtifacts(ctx, parchment.ListInput{Scope: "fixture"})
+	fmt.Printf("Corpus seeded: %d artifacts\n\n", len(all))
+
+	run := CTFRun{RunAt: time.Now(), System: system}
+
+	captured, dnf := 0, 0
+	for _, ch := range cf.Challenges {
+		fmt.Printf("[%s] %s\n", ch.ID, strings.TrimSpace(ch.Prompt)[:60]+"...")
+		result := runChallenge(ctx, proto, ch, maxTurns)
+		run.Challenges = append(run.Challenges, result)
+
+		if result.Captured {
+			captured++
+			fmt.Printf("  ✓ captured in %d turn(s)  flag=%q\n", result.TTF, ch.Flag)
+		} else {
+			dnf++
+			fmt.Printf("  ✗ DNF after %d turn(s)\n", maxTurns)
+		}
+	}
+
+	// Summary.
+	fmt.Printf("\n%s results: %d/%d captured", system, captured, len(cf.Challenges))
+	if len(cf.Challenges) > 0 {
+		var totalTTF int
+		for i := range run.Challenges {
+			r := &run.Challenges[i]
+			if r.Captured {
+				totalTTF += r.TTF
+			}
+		}
+		if captured > 0 {
+			fmt.Printf("  mean TTF=%.1f", float64(totalTTF)/float64(captured))
+		}
+	}
+	fmt.Println()
+
+	// Save results.
+	if err := os.MkdirAll(outDir, 0o750); err != nil { //nolint:gosec // ctf output dir — operator-provided
+		fatal("mkdir: %v", err)
+	}
+	outPath := filepath.Join(outDir, fmt.Sprintf("ctf-%s-%s.json", system, time.Now().Format("20060102-150405")))
+	out, _ := json.MarshalIndent(run, "", "  ")
+	if err := os.WriteFile(outPath, out, 0o600); err != nil { //nolint:gosec // ctf result — operator-provided path
+		fatal("write: %v", err)
+	}
+	fmt.Printf("Results saved to %s\n", outPath)
+}
+
+// runChallenge simulates an agent solving one CTF challenge.
+// The agent has maxTurns recall() calls. Each turn queries, reads top hit,
+// checks if the flag appears in the artifact text.
+func runChallenge(ctx context.Context, proto *parchment.Protocol, ch CTFChallenge, maxTurns int) CTFResult {
+	result := CTFResult{Challenge: ch}
+	schema := proto.Schema()
+
+	// Build query variations from prompt and hint.
+	queries := buildCTFQueries(ch.Prompt, ch.Hint)
+
+	for turn := 1; turn <= maxTurns; turn++ {
+		q := ""
+		if turn-1 < len(queries) {
+			q = queries[turn-1]
+		} else {
+			break
+		}
+
+		hits := recallCTF(ctx, proto, schema, q, 5)
+		ctfTurn := CTFTurn{Turn: turn, Query: q, Hits: hits}
+
+		// Check if golden artifact appeared.
+		for _, h := range hits {
+			if h.ID == ch.Golden {
+				ctfTurn.Found = true
+			}
+		}
+
+		// Check if any hit contains the flag.
+		for _, h := range hits {
+			art, err := proto.GetArtifact(ctx, h.ID)
+			if err != nil {
+				continue
+			}
+			if artifactContainsFlag(art, ch.Flag) {
+				ctfTurn.Captured = true
+				result.TTF = turn
+				result.Captured = true
+			}
+		}
+
+		result.Turns = append(result.Turns, ctfTurn)
+		if result.Captured {
+			break
+		}
+	}
+	return result
+}
+
+// buildCTFQueries generates up to 5 query variations from the challenge prompt.
+func buildCTFQueries(prompt, hint string) []string {
+	// Extract key phrases from prompt by taking significant words.
+	promptWords := significantWords(prompt)
+	hintWords := significantWords(hint)
+
+	queries := []string{
+		strings.Join(promptWords[:minInt(6, len(promptWords))], " "),
+		strings.Join(promptWords[:minInt(4, len(promptWords))], " "),
+		strings.Join(hintWords[:minInt(5, len(hintWords))], " "),
+		strings.Join(append(promptWords[:minInt(3, len(promptWords))], hintWords[:minInt(2, len(hintWords))]...), " "),
+		strings.Join(promptWords[:minInt(2, len(promptWords))], " ") + " " + strings.Join(hintWords[:minInt(2, len(hintWords))], " "),
+	}
+
+	// Deduplicate.
+	seen := map[string]bool{}
+	var out []string
+	for _, q := range queries {
+		q = strings.TrimSpace(q)
+		if q != "" && !seen[q] {
+			seen[q] = true
+			out = append(out, q)
+		}
+	}
+	return out
+}
+
+func significantWords(text string) []string {
+	stopWords := map[string]bool{
+		"the": true, "a": true, "an": true, "is": true, "are": true,
+		"was": true, "were": true, "be": true, "been": true, "have": true,
+		"has": true, "had": true, "do": true, "does": true, "did": true,
+		"for": true, "in": true, "on": true, "at": true, "to": true,
+		"of": true, "and": true, "or": true, "but": true, "not": true,
+		"with": true, "this": true, "that": true, "by": true, "from": true,
+		"how": true, "what": true, "when": true, "where": true, "why": true,
+		"which": true, "who": true, "give": true, "exact": true, "number": true,
+		"one": true, "word": true, "name": true,
+	}
+
+	var words []string
+	for _, w := range strings.Fields(strings.ToLower(text)) {
+		w = strings.Trim(w, `.,?!"':;()[]{}`)
+		if len(w) >= 4 && !stopWords[w] {
+			words = append(words, w)
+		}
+	}
+	return words
+}
+
+func artifactContainsFlag(art *parchment.Artifact, flag string) bool {
+	haystack := strings.ToLower(art.Title + " " + art.Goal)
+	for _, sec := range art.Sections {
+		haystack += " " + strings.ToLower(sec.Text)
+	}
+	return strings.Contains(haystack, strings.ToLower(flag))
+}
+
+// recallCTF is like recall() but searches fixture scope and includes all recallable kinds.
+func recallCTF(ctx context.Context, proto *parchment.Protocol, schema *parchment.Schema, query string, n int) []Hit {
+	seen := map[string]bool{}
+	var candidates []*parchment.Artifact
+
+	for _, q := range buildPasses(query) {
+		arts, err := proto.SearchArtifacts(ctx, q, parchment.ListInput{Scope: "fixture"})
+		if err != nil {
+			continue
+		}
+		for _, a := range arts {
+			if seen[a.ID] {
+				continue
+			}
+			if !evalKnowledgeKinds[a.Kind] && !schema.IsTerminal(a.Status) {
+				continue
+			}
+			seen[a.ID] = true
+			candidates = append(candidates, a)
+		}
+		if len(candidates) >= 20 {
+			break
+		}
+	}
+
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].UpdatedAt.After(candidates[j].UpdatedAt)
+	})
+
+	limit := n
+	if len(candidates) < limit {
+		limit = len(candidates)
+	}
+
+	hits := make([]Hit, 0, limit)
+	terms := strings.Fields(strings.ToLower(query))
+	for _, a := range candidates[:limit] {
+		hits = append(hits, Hit{
+			ID:      a.ID,
+			Kind:    a.Kind,
+			Status:  a.Status,
+			Title:   a.Title,
+			Excerpt: extractExcerpt(a, terms),
+		})
+	}
+	return hits
+}
+
+// seedCorpus loads fixture artifacts into the protocol from a YAML file.
+func seedCorpus(ctx context.Context, proto *parchment.Protocol, path string) error {
+	data, err := os.ReadFile(path) //nolint:gosec // operator-provided fixture path
+	if err != nil {
+		return err
+	}
+
+	type FixtureSection struct {
+		Name string `yaml:"name"`
+		Text string `yaml:"text"`
+	}
+	type FixtureArtifact struct {
+		ID       string           `yaml:"id"`
+		Kind     string           `yaml:"kind"`
+		Status   string           `yaml:"status"`
+		Title    string           `yaml:"title"`
+		Goal     string           `yaml:"goal"`
+		Sections []FixtureSection `yaml:"sections"`
+	}
+	type FixtureFile struct {
+		Artifacts []FixtureArtifact `yaml:"artifacts"`
+	}
+
+	var ff FixtureFile
+	if err := yaml.Unmarshal(data, &ff); err != nil {
+		return err
+	}
+
+	for _, fa := range ff.Artifacts {
+		// Skip if already seeded (idempotent).
+		if _, err := proto.GetArtifact(ctx, fa.ID); err == nil {
+			continue
+		}
+
+		sections := make([]parchment.Section, len(fa.Sections))
+		for i, s := range fa.Sections {
+			sections[i] = parchment.Section{Name: s.Name, Text: s.Text}
+		}
+
+		status := fa.Status
+		if status == "" {
+			status = "active"
+		}
+
+		art, err := proto.CreateArtifact(ctx, parchment.CreateInput{
+			Kind:       fa.Kind,
+			Title:      fa.Title,
+			Goal:       fa.Goal,
+			Scope:      "fixture",
+			Sections:   sections,
+			ExplicitID: fa.ID,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  warn: seed %s: %v\n", fa.ID, err)
+			continue
+		}
+		// Set status if not the default.
+		if status != "draft" && status != art.Status {
+			_, _ = proto.SetField(ctx, []string{art.ID}, parchment.FieldStatus, status,
+				parchment.SetFieldOptions{Force: true})
+		}
+	}
+	return nil
+}
