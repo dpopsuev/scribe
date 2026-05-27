@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	parchment "github.com/dpopsuev/parchment"
+	"github.com/dpopsuev/scribe/mcp"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/renderer/html"
@@ -62,7 +63,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	inv, err := s.proto.Inventory(r.Context())
+	inv, err := mcp.Inventory(r.Context(), s.proto)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

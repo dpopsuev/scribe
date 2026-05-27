@@ -618,7 +618,7 @@ func goalCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, close := mustProto()
 			defer close()
-			m, _ := p.Motd(context.Background())
+			m, _ := mcp.Motd(context.Background(), p)
 			if len(m.Goals) == 0 {
 				fmt.Println("no current goal set")
 				return nil
@@ -741,7 +741,7 @@ func dfCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, close := mustProto()
 			defer close()
-			report, err := p.Dashboard(context.Background(), staleDays)
+			report, err := mcp.Dashboard(context.Background(), p, staleDays)
 			if err != nil {
 				return err
 			}
@@ -779,7 +779,7 @@ func motdCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, close := mustProto()
 			defer close()
-			m, err := p.Motd(context.Background())
+			m, err := mcp.Motd(context.Background(), p)
 			if err != nil {
 				return err
 			}
