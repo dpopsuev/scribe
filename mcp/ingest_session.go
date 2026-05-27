@@ -126,7 +126,7 @@ func (h *handler) ingestSessionFile(ctx context.Context, path, scope string) (cr
 		}
 		art, err := h.proto.CreateArtifact(ctx, parchment.CreateInput{
 			Kind:  parchment.KindContext,
-			Title: truncate(c, 80),
+			Title: extractTitle(c),
 			Scope: scope,
 			Sections: []parchment.Section{
 				{Name: "summary", Text: c},
@@ -286,6 +286,40 @@ func jsonString(raw json.RawMessage) string {
 		return ""
 	}
 	return s
+}
+
+// extractTitle returns a meaningful title from a compaction summary.
+// Claude Code compactions start with structural headers like
+// "1. Primary Request and Intent:" that are useless as titles.
+// Pi compactions start with the actual goal.
+func extractTitle(s string) string {
+	skip := map[string]bool{
+		"summary:": true, "primary request and intent:": true,
+		"primary request:": true, "the relationship": true,
+	}
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		// Skip empty, short, or structural lines.
+		if len(line) < 15 {
+			continue
+		}
+		lower := strings.ToLower(line)
+		if skip[lower] {
+			continue
+		}
+		// Skip numbered section headers: "1. Foo:", "2. Bar and Baz:"
+		if line != "" && line[0] >= '1' && line[0] <= '9' &&
+			strings.HasPrefix(line[1:], ". ") && strings.HasSuffix(line, ":") {
+			continue
+		}
+		// Skip markdown bold headers: "**Foo:**"
+		if strings.HasPrefix(line, "**") && strings.HasSuffix(line, "**") {
+			continue
+		}
+		// Found a real line.
+		return truncate(line, 80)
+	}
+	return "Session memory"
 }
 
 // truncate returns s truncated to maxLen with "…" if needed.

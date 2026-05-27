@@ -594,13 +594,27 @@ func projectFromPath(path string) string {
 	return filepath.Base(filepath.Dir(path))
 }
 
+// firstLine returns the first meaningful line from a compaction summary,
+// skipping structural headers like "1. Primary Request and Intent:".
 func firstLine(s string) string {
+	skip := map[string]bool{
+		"summary:": true, "primary request and intent:": true,
+		"primary request:": true,
+	}
 	for _, l := range strings.Split(s, "\n") {
-		l = strings.TrimSpace(strings.TrimPrefix(l, "#"))
 		l = strings.TrimSpace(l)
-		if l != "" && len(l) > 5 {
-			return l
+		if len(l) < 15 {
+			continue
 		}
+		lower := strings.ToLower(l)
+		if skip[lower] {
+			continue
+		}
+		if l != "" && l[0] >= '1' && l[0] <= '9' &&
+			strings.HasPrefix(l[1:], ". ") && strings.HasSuffix(l, ":") {
+			continue
+		}
+		return l
 	}
 	return ""
 }
