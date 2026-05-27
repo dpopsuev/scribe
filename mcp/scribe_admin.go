@@ -1,13 +1,7 @@
 package mcp
 
-// scribe_admin.go — Scribe-specific admin operations.
-//
-// These methods were extracted from parchment.Protocol because they encode
-// Scribe's domain model (goals, motd format, dashboard shape, drain pattern)
-// rather than generic artifact graph operations.
-//
-// They use only public parchment.Protocol methods, making Parchment reusable
-// by any consumer without Scribe-specific business logic leaking in.
+// scribe_admin.go — session, dashboard, and drain operations that encode
+// Scribe's domain model. Use only public parchment.Protocol methods.
 
 import (
 	"context"
@@ -21,8 +15,6 @@ import (
 
 	parchment "github.com/dpopsuev/parchment"
 )
-
-// --- Types (previously in parchment) ---
 
 // MotdResult is the message-of-the-day payload for Scribe.
 type MotdResult struct {
