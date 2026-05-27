@@ -136,9 +136,10 @@ type handler struct {
 // --- consolidated input types ---
 
 type artifactInput struct {
-	Action string `json:"action" jsonschema:"required,create | batch_create | clone | get | list | search | set | update | archive | de-archive | attach_section | get_section | detach_section | list_sections | search_sections | batch_update | diff | promote_stash | inspect_stash | recall | orient | catalog"`
+	Action string `json:"action" jsonschema:"required,create | batch_create | clone | get | list | search | set | update | archive | de-archive | attach_section | get_section | detach_section | list_sections | search_sections | bulk_section_update | batch_update | move | diff | promote_stash | inspect_stash | recall | orient | catalog"`
 
-	ID    string `json:"id,omitempty" jsonschema:"artifact ID (required for get, set, update, archive, *_section)"`
+	ID     string `json:"id,omitempty" jsonschema:"artifact ID (required for get, set, update, archive, *_section)"`
+	Target string `json:"target,omitempty" jsonschema:"new parent ID for move"`
 	Kind  string `json:"kind,omitempty" jsonschema:"task, spec, bug, goal, campaign, doc, ref, need, decision, config, template, mirror"`
 	Scope string `json:"scope,omitempty"`
 
@@ -913,6 +914,32 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 			return text("no artifacts match"), nil, nil
 		}
 		return text(parchment.RenderTable(arts)), nil, nil
+	case "bulk_section_update":
+		if in.ID == "" {
+			return nil, nil, fmt.Errorf("id is required for bulk_section_update") //nolint:err113 // agent-facing input validation
+		}
+		if in.Query == "" {
+			return nil, nil, fmt.Errorf("query (find text) is required for bulk_section_update") //nolint:err113 // agent-facing input validation
+		}
+		art, err := h.proto.GetArtifact(ctx, in.ID)
+		if err != nil {
+			return nil, nil, err
+		}
+		replacement := in.Text
+		if replacement == "" {
+			replacement = in.Body
+		}
+		updated := 0
+		for _, sec := range art.Sections {
+			if strings.Contains(sec.Text, in.Query) {
+				newText := strings.ReplaceAll(sec.Text, in.Query, replacement)
+				if _, err := h.proto.AttachSection(ctx, in.ID, sec.Name, newText); err != nil {
+					return nil, nil, fmt.Errorf("update section %q: %w", sec.Name, err)
+				}
+				updated++
+			}
+		}
+		return text(fmt.Sprintf("bulk_section_update: %d section(s) updated in %s", updated, in.ID)), nil, nil
 	case "batch_update":
 		if len(in.IDs) == 0 {
 			return nil, nil, fmt.Errorf("ids is required for batch_update") //nolint:err113 // agent-facing input validation
@@ -995,10 +1022,10 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		}
 		return h.handleDiff(ctx, in.ID, in.Against)
 	case "move":
-		// Redirect: re-parenting lives on the graph tool, not artifact.
-		return nil, nil, fmt.Errorf( //nolint:err113 // agent-facing redirect
-			"artifact(action=move) is not supported — use graph(action=move, id=%q, target=\"<new-parent-id>\") to re-parent",
-			in.ID)
+		if in.ID == "" || in.Target == "" {
+			return nil, nil, fmt.Errorf("id and target are required for move — use move(id=<child>, target=<new-parent>)") //nolint:err113 // agent-facing input validation
+		}
+		return h.handleMove(ctx, in.ID, in.Target)
 	case "recall":
 		return h.handleRecall(ctx, knowledgeInput{Query: in.Query, Scope: in.Scope})
 	case "orient":
