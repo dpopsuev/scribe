@@ -588,7 +588,7 @@ func goalCmd() *cobra.Command {
 		Use:   "goal",
 		Short: "Manage the current goal (short-term north star)",
 	}
-	var in parchment.SetGoalInput
+	var in mcp.SetGoalInput
 	setGoalCmd := &cobra.Command{
 		Use:   "set <title>",
 		Short: "Set the current goal (retires any previous, creates a root delivery artifact)",
@@ -597,7 +597,7 @@ func goalCmd() *cobra.Command {
 			p, close := mustProto()
 			defer close()
 			in.Title = args[0]
-			res, err := p.SetGoal(context.Background(), in)
+			res, err := mcp.SetGoal(context.Background(), p, in)
 			if err != nil {
 				return err
 			}
@@ -824,9 +824,7 @@ func drainCmd() *cobra.Command {
 		Short: "List .md files under a directory for agent-driven migration",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, close := mustProto()
-			defer close()
-			entries, err := p.DrainDiscover(context.Background(), args[0])
+			entries, err := mcp.DrainDiscover(context.Background(), args[0])
 			if err != nil {
 				return err
 			}
@@ -854,9 +852,7 @@ func drainCmd() *cobra.Command {
 		Short: "Delete .md files under a directory after migration",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, close := mustProto()
-			defer close()
-			n, err := p.DrainCleanup(context.Background(), args[0])
+			n, err := mcp.DrainCleanup(context.Background(), args[0])
 			if err != nil {
 				return err
 			}
@@ -878,7 +874,7 @@ func inventoryCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, close := mustProto()
 			defer close()
-			inv, err := p.Inventory(context.Background())
+			inv, err := mcp.Inventory(context.Background(), p)
 			if err != nil {
 				return err
 			}

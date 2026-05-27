@@ -1334,7 +1334,7 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 	case "dashboard":
 		return h.handleDashboard(ctx, req, dashboardInput{StaleDays: in.StaleDays})
 	case "set_goal":
-		return h.handleSetGoal(ctx, req, parchment.SetGoalInput{
+		return h.handleSetGoal(ctx, req, SetGoalInput{
 			Title: in.Title, Scope: in.Scope, Kind: in.Kind,
 		})
 	case "vacuum":
@@ -2127,8 +2127,8 @@ func (h *handler) handleBriefing(ctx context.Context, id string) (*sdkmcp.CallTo
 	return text(b.String()), nil, nil
 }
 
-func (h *handler) handleSetGoal(ctx context.Context, _ *sdkmcp.CallToolRequest, in parchment.SetGoalInput) (*sdkmcp.CallToolResult, any, error) {
-	res, err := h.proto.SetGoal(ctx, in)
+func (h *handler) handleSetGoal(ctx context.Context, _ *sdkmcp.CallToolRequest, in SetGoalInput) (*sdkmcp.CallToolResult, any, error) {
+	res, err := scriveSetGoal(ctx, h.proto, in)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -2238,7 +2238,7 @@ type motdInput struct {
 }
 
 func (h *handler) handleMotd(ctx context.Context, _ *sdkmcp.CallToolRequest, in motdInput) (*sdkmcp.CallToolResult, any, error) {
-	m, err := h.proto.Motd(ctx)
+	m, err := scriveMotd(ctx, h.proto)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -2469,7 +2469,7 @@ func (h *handler) handleDashboard(ctx context.Context, _ *sdkmcp.CallToolRequest
 	if staleDays <= 0 {
 		staleDays = 30
 	}
-	report, err := h.proto.Dashboard(ctx, staleDays)
+	report, err := scriveDashboard(ctx, h.proto, staleDays)
 	if err != nil {
 		return nil, nil, err
 	}
