@@ -136,7 +136,7 @@ type handler struct {
 // --- consolidated input types ---
 
 type artifactInput struct {
-	Action string `json:"action" jsonschema:"required,create | batch_create | clone | get | list | search | set | update | archive | de-archive | attach_section | get_section | detach_section | diff | promote_stash | inspect_stash | recall | orient | catalog"`
+	Action string `json:"action" jsonschema:"required,create | batch_create | clone | get | list | search | set | update | archive | de-archive | attach_section | get_section | detach_section | list_sections | search_sections | batch_update | diff | promote_stash | inspect_stash | recall | orient | catalog"`
 
 	ID    string `json:"id,omitempty" jsonschema:"artifact ID (required for get, set, update, archive, *_section)"`
 	Kind  string `json:"kind,omitempty" jsonschema:"task, spec, bug, goal, campaign, doc, ref, need, decision, config, template, mirror"`
@@ -172,6 +172,7 @@ type artifactInput struct {
 	Top            int      `json:"top,omitempty" jsonschema:"return N most relevant artifacts ranked by status+priority+recency"`
 	Fields         []string `json:"fields,omitempty" jsonschema:"id, kind, scope, status, title, parent, priority, sprint, depends_on, labels"`
 	Query          string   `json:"query,omitempty" jsonschema:"substring search across title, goal, and section text"`
+	TitleContains  string   `json:"title_contains,omitempty" jsonschema:"case-insensitive substring filter on title (list action)"`
 	CreatedAfter   string   `json:"created_after,omitempty" jsonschema:"RFC 3339"`
 	CreatedBefore  string   `json:"created_before,omitempty" jsonschema:"RFC 3339"`
 	UpdatedAfter   string   `json:"updated_after,omitempty" jsonschema:"RFC 3339"`
@@ -805,6 +806,7 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 			ExcludeKind: in.ExcludeKind, ExcludeStatus: in.ExcludeStatus,
 			Labels: in.Labels, LabelsOr: in.LabelsOr, ExcludeLabels: in.ExcludeLabels,
 			GroupBy: in.GroupBy, Sort: in.Sort, Limit: in.Limit, Query: in.Query,
+			TitleContains: in.TitleContains,
 			CreatedAfter: in.CreatedAfter, CreatedBefore: in.CreatedBefore,
 			UpdatedAfter: in.UpdatedAfter, UpdatedBefore: in.UpdatedBefore,
 			InsertedAfter: in.InsertedAfter, InsertedBefore: in.InsertedBefore,
@@ -881,6 +883,71 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		return h.handleGetSection(ctx, req, getSectionInput{ID: in.ID, Name: in.Name})
 	case "detach_section":
 		return h.handleDetachSection(ctx, req, getSectionInput{ID: in.ID, Name: in.Name})
+	case "list_sections":
+		if in.ID == "" {
+			return nil, nil, fmt.Errorf("id is required for list_sections") //nolint:err113 // agent-facing input validation
+		}
+		art, err := h.proto.GetArtifact(ctx, in.ID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(art.Sections) == 0 {
+			return text(fmt.Sprintf("%s has no sections", in.ID)), nil, nil
+		}
+		names := make([]string, len(art.Sections))
+		for i, s := range art.Sections {
+			names[i] = s.Name
+		}
+		return text(strings.Join(names, "\n")), nil, nil
+	case "search_sections":
+		if in.Query == "" {
+			return nil, nil, fmt.Errorf("query is required for search_sections") //nolint:err113 // agent-facing input validation
+		}
+		arts, err := h.proto.SearchArtifacts(ctx, in.Query, parchment.ListInput{
+			Scope: in.Scope, Kind: in.Kind, Status: in.Status,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(arts) == 0 {
+			return text("no artifacts match"), nil, nil
+		}
+		return text(parchment.RenderTable(arts)), nil, nil
+	case "batch_update":
+		if len(in.IDs) == 0 {
+			return nil, nil, fmt.Errorf("ids is required for batch_update") //nolint:err113 // agent-facing input validation
+		}
+		if len(in.Patch) == 0 && in.Field == "" {
+			return nil, nil, fmt.Errorf("patch or field+value is required for batch_update") //nolint:err113 // agent-facing input validation
+		}
+		var results []parchment.Result
+		if len(in.Patch) > 0 {
+			for field, value := range in.Patch {
+				r, err := h.proto.SetField(ctx, in.IDs, field, value, parchment.SetFieldOptions{Force: in.Force})
+				if err != nil {
+					return nil, nil, err
+				}
+				results = r
+			}
+		} else {
+			var err error
+			results, err = h.proto.SetField(ctx, in.IDs, in.Field, in.Value, parchment.SetFieldOptions{Force: in.Force})
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+		ok, failed := 0, 0
+		for _, r := range results {
+			if r.OK {
+				ok++
+			} else {
+				failed++
+			}
+		}
+		if failed > 0 {
+			return text(fmt.Sprintf("batch_update: %d updated, %d failed", ok, failed)), nil, nil
+		}
+		return text(fmt.Sprintf("batch_update: %d updated", ok)), nil, nil
 	case "inspect_stash":
 		if in.StashID == "" {
 			return nil, nil, fmt.Errorf("stash_id is required for inspect_stash") //nolint:err113 // agent-facing hint
