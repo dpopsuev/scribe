@@ -136,7 +136,7 @@ type handler struct {
 // --- consolidated input types ---
 
 type artifactInput struct {
-	Action string `json:"action" jsonschema:"required,create | batch_create | clone | get | list | search | set | update | archive | de-archive | attach_section | get_section | detach_section | list_sections | search_sections | bulk_section_update | batch_update | move | diff | promote_stash | inspect_stash | recall | orient | catalog"`
+	Action string `json:"action" jsonschema:"required,create | batch_create | clone | get | list | search | set | update | archive | de-archive | retire | attach_section | get_section | detach_section | list_sections | search_sections | bulk_section_update | batch_update | move | diff | promote_stash | inspect_stash | recall | orient | catalog"`
 
 	ID     string `json:"id,omitempty" jsonschema:"artifact ID (required for get, set, update, archive, *_section)"`
 	Target string `json:"target,omitempty" jsonschema:"new parent ID for move"`
@@ -850,27 +850,26 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 			Kind: in.Kind, Status: in.Status, IDPrefix: in.IDPrefix,
 			ExcludeKind: in.ExcludeKind, DryRun: in.DryRun,
 		})
-	case "de-archive":
-		ids := in.IDs
-		if len(ids) == 0 && in.ID != "" {
-			ids = []string{in.ID}
+	case "retire":
+		retireIDs := resolveIDs(in.IDs, in.ID)
+		if len(retireIDs) == 0 {
+			return nil, nil, fmt.Errorf("id or ids required for retire") //nolint:err113 // agent-facing input validation
 		}
+		results, err := h.proto.RetireArtifact(ctx, retireIDs, in.Cascade)
+		if err != nil {
+			return nil, nil, err
+		}
+		return text(renderResults(results, "retired", "restored to draft")), nil, nil
+	case "de-archive":
+		ids := resolveIDs(in.IDs, in.ID)
 		if len(ids) == 0 {
-			return nil, nil, fmt.Errorf("id or ids required for de-archive")
+			return nil, nil, fmt.Errorf("id or ids required for de-archive") //nolint:err113 // agent-facing input validation
 		}
 		results, err := h.proto.DeArchive(ctx, ids, in.Cascade)
 		if err != nil {
 			return nil, nil, err
 		}
-		var lines []string
-		for _, r := range results {
-			if r.OK {
-				lines = append(lines, fmt.Sprintf("%s -> restored to draft", r.ID))
-			} else {
-				lines = append(lines, fmt.Sprintf("%s -> error: %s", r.ID, r.Error))
-			}
-		}
-		return text(strings.Join(lines, "\n")), nil, nil
+		return text(renderResults(results, "restored to draft", "")), nil, nil
 	case "attach_section":
 		if len(in.Sections) > 0 {
 			return h.handleBatchAttachSections(ctx, in.ID, in.Sections)
@@ -2958,6 +2957,31 @@ func bindHandler[In any](h func(context.Context, *sdkmcp.CallToolRequest, In) (*
 
 // text creates a CallToolResult with a single TextContent block.
 // Uses a direct SDK result because Battery v0.11 exposes transport-neutral results.
+// resolveIDs merges explicit ids slice with a single id fallback.
+func resolveIDs(ids []string, id string) []string {
+	if len(ids) > 0 {
+		return ids
+	}
+	if id != "" {
+		return []string{id}
+	}
+	return nil
+}
+
+// renderResults formats []parchment.Result as human-readable lines.
+// okLabel is used for successful results; errLabel is unused (errors always show the error text).
+func renderResults(results []parchment.Result, okLabel, _ string) string {
+	lines := make([]string, 0, len(results))
+	for _, r := range results {
+		if r.OK {
+			lines = append(lines, r.ID+" -> "+okLabel)
+		} else {
+			lines = append(lines, r.ID+" -> error: "+r.Error)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 func text(s string) *sdkmcp.CallToolResult {
 	return &sdkmcp.CallToolResult{
 		Content: []sdkmcp.Content{
