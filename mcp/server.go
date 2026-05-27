@@ -222,7 +222,7 @@ type edgeInput struct {
 
 // knowledgeInput defines the input schema for the knowledge tool.
 type knowledgeInput struct {
-	Action string `json:"action" jsonschema:"required,orient | capture | promote | daily | backlinks | export_vault | import_vault | ingest | synthesize"`
+	Action string `json:"action" jsonschema:"required,orient | lint | capture | promote | daily | backlinks | export_vault | import_vault | ingest | synthesize"`
 
 	// capture: create a fleeting note
 	Title  string   `json:"title,omitempty" jsonschema:"note title (required for capture)"`
@@ -304,6 +304,165 @@ func (h *handler) appendRelatedNotes(ctx context.Context, b *strings.Builder, ex
 	for _, r := range candidates[:min(5, len(candidates))] {
 		fmt.Fprintf(b, "  %s [%s] %s\n", r.ID, r.Status, r.Title)
 	}
+}
+
+// handleKnowledgeLint runs all knowledge health checks and returns a
+// structured report. Karpathy's third operation: periodically lint the wiki.
+//
+// Checks:
+//  1. Stuck-fleeting notes (> stale_days, reuses detectKnowledge)
+//  2. Uncited sources (reuses detectKnowledge)
+//  3. Unresolved [[wikilinks]] — titles with no matching artifact
+//  4. Orphaned notes — zero incoming AND outgoing knowledge edges
+//  5. Cluster synthesis gaps — 3+ notes sharing a source, no synthesis
+func (h *handler) handleKnowledgeLint(ctx context.Context, in knowledgeInput) (*sdkmcp.CallToolResult, any, error) {
+	var b strings.Builder
+	total := 0
+
+	// --- Check 1+2: stuck-fleeting + uncited sources (reuse existing) ---
+	basic := h.detectKnowledge(ctx, detectInput{Scope: in.Scope})
+	if !strings.Contains(basic, "0 knowledge issue") {
+		fmt.Fprintf(&b, "## Health (fleeting + uncited)\n\n%s\n\n", strings.TrimSpace(basic))
+	}
+
+	// --- Check 3: unresolved [[wikilinks]] ---
+	unresolved := h.lintUnresolvedWikilinks(ctx, in.Scope)
+	if len(unresolved) > 0 {
+		total += len(unresolved)
+		fmt.Fprintf(&b, "## Unresolved [[wikilinks]] (%d)\n\n", len(unresolved))
+		for _, entry := range unresolved {
+			fmt.Fprintln(&b, "  "+entry)
+		}
+		b.WriteString("\n")
+	}
+
+	// --- Check 4: orphaned notes ---
+	orphan := h.lintOrphanedNotes(ctx, in.Scope)
+	if len(orphan) > 0 {
+		total += len(orphan)
+		fmt.Fprintf(&b, "## Orphaned notes (%d)\n\n", len(orphan))
+		for _, entry := range orphan {
+			fmt.Fprintln(&b, "  "+entry)
+		}
+		b.WriteString("\n")
+	}
+
+	// --- Check 5: cluster synthesis gaps ---
+	gaps := h.lintClusterGaps(ctx, in.Scope)
+	if len(gaps) > 0 {
+		total += len(gaps)
+		fmt.Fprintf(&b, "## Cluster synthesis gaps (%d)\n\n", len(gaps))
+		for _, entry := range gaps {
+			fmt.Fprintln(&b, "  "+entry)
+		}
+		b.WriteString("\n")
+	}
+
+	if b.Len() == 0 {
+		return text("Lint clean — no issues found."), nil, nil
+	}
+	fmt.Fprintf(&b, "Total issues: %d", total)
+	return text(b.String()), nil, nil
+}
+
+// lintUnresolvedWikilinks scans all knowledge note sections for [[Title]]
+// references and reports any that cannot be resolved to an existing artifact
+// by EXACT title match. Unlike ResolveWikilinks (which uses FTS fallback),
+// lint uses strict matching: if no artifact has that exact title, it's a gap.
+func (h *handler) lintUnresolvedWikilinks(ctx context.Context, scope string) []string {
+	// Build a title index for fast exact lookup.
+	all, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{Scope: scope})
+	titleIndex := make(map[string]bool, len(all))
+	for _, a := range all {
+		titleIndex[strings.ToLower(a.Title)] = true
+	}
+
+	kinds := []string{parchment.KindNote, parchment.KindJournal, parchment.KindConcept}
+	var issues []string
+	for _, kind := range kinds {
+		arts, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{Kind: kind, Scope: scope})
+		for _, art := range arts {
+			body := ""
+			for _, sec := range art.Sections {
+				body += sec.Text + "\n"
+			}
+			for _, title := range parchment.UniqueWikilinks(body) {
+				if !titleIndex[strings.ToLower(title)] {
+					issues = append(issues, fmt.Sprintf("%s — [[%s]] has no matching artifact",
+						art.ID, title))
+				}
+			}
+		}
+	}
+	return issues
+}
+
+// lintOrphanedNotes finds knowledge notes with zero incoming AND outgoing
+// edges of any knowledge relation (cites, elaborates, synthesizes, contradicts, remembers).
+// Journals are excluded — they are inherently standalone.
+func (h *handler) lintOrphanedNotes(ctx context.Context, scope string) []string {
+	knowledgeRels := map[string]bool{
+		parchment.RelCites: true, parchment.RelElaborates: true,
+		parchment.RelSynthesises: true, parchment.RelContradicts: true,
+		parchment.RelRemembers: true, parchment.RelDocuments: true,
+	}
+	kinds := []string{parchment.KindNote, parchment.KindConcept, parchment.KindSource}
+	var issues []string
+	for _, kind := range kinds {
+		arts, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{Kind: kind, Scope: scope})
+		for _, art := range arts {
+			edges, _ := h.proto.GetArtifactEdges(ctx, art.ID)
+			connected := false
+			for _, e := range edges {
+				if knowledgeRels[e.Relation] {
+					connected = true
+					break
+				}
+			}
+			if !connected {
+				issues = append(issues, fmt.Sprintf("%s [%s|%s] %s — no knowledge edges",
+					art.ID, art.Kind, art.Status, art.Title))
+			}
+		}
+	}
+	return issues
+}
+
+// lintClusterGaps finds groups of 3+ notes that share a common source
+// (via cites edges) but have no synthesizes artifact connecting them.
+func (h *handler) lintClusterGaps(ctx context.Context, scope string) []string {
+	// Build source → citing notes map.
+	sources, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{Kind: parchment.KindSource, Scope: scope})
+	var issues []string
+	for _, src := range sources {
+		backlinks, _ := h.proto.Backlinks(ctx, src.ID, parchment.RelCites)
+		if len(backlinks) < 3 {
+			continue
+		}
+		// Check if any of these notes has a synthesizes edge.
+		hasSynthesis := false
+		for _, note := range backlinks {
+			edges, _ := h.proto.GetArtifactEdges(ctx, note.ID)
+			for _, e := range edges {
+				if e.Relation == parchment.RelSynthesises {
+					hasSynthesis = true
+					break
+				}
+			}
+			if hasSynthesis {
+				break
+			}
+		}
+		if !hasSynthesis {
+			ids := make([]string, 0, len(backlinks))
+			for _, n := range backlinks {
+				ids = append(ids, n.ID)
+			}
+			issues = append(issues, fmt.Sprintf("%d notes cite %s (%s) with no synthesis: %s",
+				len(backlinks), src.ID, src.Title, strings.Join(ids, ", ")))
+		}
+	}
+	return issues
 }
 
 // handleKnowledgeOrient generates the vault map legend — the index.md equivalent.
@@ -435,6 +594,9 @@ func (h *handler) handleKnowledge(ctx context.Context, _ *sdkmcp.CallToolRequest
 	switch in.Action {
 	case "orient":
 		return h.handleKnowledgeOrient(ctx, in)
+
+	case "lint":
+		return h.handleKnowledgeLint(ctx, in)
 
 	case "capture":
 		// capture: quick-capture a fleeting note. Zettelkasten: fleeting note.
