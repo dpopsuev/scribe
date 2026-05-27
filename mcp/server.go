@@ -224,7 +224,7 @@ type edgeInput struct {
 
 // knowledgeInput defines the input schema for the knowledge tool.
 type knowledgeInput struct {
-	Action string `json:"action" jsonschema:"required,orient | catalog | lint | capture | promote | daily | backlinks | export_vault | import_vault | ingest | synthesize | ingest_session"`
+	Action string `json:"action" jsonschema:"required,orient | catalog | lint | capture | promote | daily | backlinks | export_vault | import_vault | ingest | synthesize | ingest_session | recall"`
 
 	// capture: create a fleeting note
 	Title  string   `json:"title,omitempty" jsonschema:"note title (required for capture)"`
@@ -680,6 +680,14 @@ func (h *handler) handleKnowledgeOrient(ctx context.Context, in knowledgeInput) 
 	healthPart := h.detectKnowledge(ctx, detectInput{Scope: scope})
 	fmt.Fprintf(&b, "\n## Health\n\n  %s\n", strings.TrimSpace(healthPart))
 
+	// --- Recent Sessions ---
+	if sessionLines := h.orientSessionLines(ctx, scope, 3); len(sessionLines) > 0 {
+		b.WriteString("\n## Recent Sessions\n\n")
+		for _, l := range sessionLines {
+			b.WriteString(l + "\n")
+		}
+	}
+
 	// --- Operating Instructions ---
 	b.WriteString("\n## You are the compiler\n\n")
 	b.WriteString("  ingest(source) → read it, extract concepts, create notes, link via cites/elaborates\n")
@@ -895,6 +903,8 @@ func (h *handler) handleKnowledge(ctx context.Context, _ *sdkmcp.CallToolRequest
 
 	case "ingest_session":
 		return h.handleIngestSession(ctx, in)
+	case "recall":
+		return h.handleRecall(ctx, in)
 	case "ingest":
 		// ingest: file the source AND return its content so the agent can
 		// immediately extract concepts and build the codex.
@@ -2362,6 +2372,19 @@ func (h *handler) handleMotd(ctx context.Context, _ *sdkmcp.CallToolRequest, in 
 		}
 		sections = append(sections, "Warnings:\n"+strings.Join(lines, "\n"))
 	}
+
+	// Memory: top-3 evergreen knowledge artifacts for this scope.
+	// Surfaces without requiring the agent to call a separate recall action.
+	scope := ""
+	if len(h.homeScopes) > 0 {
+		scope = h.homeScopes[0]
+	}
+	if in.Since == "" { // skip on delta calls — memory is session-start context
+		if memLines := h.motdMemoryLines(ctx, scope, 3); len(memLines) > 0 {
+			sections = append(sections, "Memory:\n"+strings.Join(memLines, "\n"))
+		}
+	}
+
 	if len(sections) == 0 {
 		return text("nothing to report"), nil, nil
 	}
