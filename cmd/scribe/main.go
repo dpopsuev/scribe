@@ -1215,7 +1215,6 @@ func startMemoryWatchdog(ctx context.Context) {
 					slog.Warn("heap dump captured", "path", heapPath)
 				}
 
-				// Reset flags if memory drops back below thresholds
 				if heapMB < warnMB {
 					warnFired = false
 					critFired = false
@@ -1257,7 +1256,7 @@ func serveCmd() *cobra.Command {
 			}
 			defer s.Close()
 
-			// Auto-seed from config seed_dir if DB has zero templates
+			// Seed once on first run; skip if templates already exist.
 			if cfg.SeedDir != "" {
 				proto := parchment.New(s, cfg.Schema, nil, nil, cfg.ProtocolIDConfig())
 				templates, _ := proto.ListArtifacts(context.Background(), parchment.ListInput{Kind: "template"})
@@ -1289,7 +1288,6 @@ func serveCmd() *cobra.Command {
 
 			idc := cfg.ProtocolIDConfig()
 
-			// Populate scope_keys from ScopeConfigs
 			if len(cfg.ScopeConfigs) > 0 {
 				for name, sc := range cfg.ScopeConfigs {
 					if sc.Key != "" {
@@ -1326,7 +1324,6 @@ func serveCmd() *cobra.Command {
 				}()
 			}
 
-			// Start memory watchdog
 			watchdogCtx, watchdogCancel := context.WithCancel(context.Background())
 			defer watchdogCancel()
 			startMemoryWatchdog(watchdogCtx)
@@ -1382,8 +1379,6 @@ func serveCmd() *cobra.Command {
 				go func() {
 					<-ctx.Done()
 					slog.Info("shutdown signal received, draining connections")
-
-					// Capture crash dumps on shutdown
 					if heapPath := dumpHeapProfile("shutdown"); heapPath != "" {
 						slog.Info("shutdown heap dump captured", "path", heapPath)
 					}
@@ -1851,7 +1846,7 @@ func migrateIDsCmd() *cobra.Command {
 		Use:   "migrate-ids",
 		Short: "Copy a database and replace all artifact IDs with UUID v4 values",
 		Long: `migrate-ids copies the source SQLite database to the destination path
-and rewrites every scope-derived artifact ID (e.g. SCR-TSK-309) to a UUID v4.
+and rewrites every scope-derived artifact ID (e.g. PROJ-TSK-309) to a UUID v4.
 All cross-references (parent, depends_on, links, edges) are updated.
 The source database is never modified.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
