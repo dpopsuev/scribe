@@ -673,7 +673,7 @@ func archiveCmd() *cobra.Command {
 			if len(args) == 0 {
 				return fmt.Errorf("provide IDs or filter flags (--scope, --kind, --status, --id-prefix, --exclude-kind)")
 			}
-			results, err := p.ArchiveArtifact(context.Background(), args, cascade)
+			results, err := p.ArchiveArtifact(context.Background(), args, cascade, false)
 			if err != nil {
 				return err
 			}
