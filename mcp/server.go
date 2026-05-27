@@ -21,9 +21,9 @@ import (
 
 // scribeInstructions is the MCP server instructions shown to clients.
 const scribeInstructions = "Work artifact graph + knowledge vault. " +
-	"SESSION START: call knowledge(action=orient) for the vault map, then admin(action=motd) for work context. " +
-	"You are the compiler, not the retriever: ingest reads sources and extracts notes, synthesize compiles related notes, file answers back as notes. " +
-	"Knowledge: orient | capture | promote | daily | backlinks | ingest | synthesize | export_vault | import_vault. " +
+	"SESSION START: knowledge(action=orient) for vault map, knowledge(action=catalog) to browse all artifacts, admin(action=motd) for work context. " +
+	"You are the compiler: ingest reads sources and extracts notes, synthesize compiles related notes, file answers back as notes. " +
+	"Knowledge: orient | catalog | lint | capture | promote | daily | backlinks | ingest | synthesize | export_vault | import_vault. " +
 	"Work: artifact(create|get|list|search|set|archive) graph(tree|link|briefing) admin(motd|detect|vacuum)."
 
 // NewServer creates an MCP server exposing Scribe tools over the given store.
@@ -101,7 +101,7 @@ func NewServer(s parchment.Store, homeScopes, vocab []string, idc parchment.Prot
 	})
 
 	// knowledge tool — vault operations: capture, promote, daily, backlinks.
-	knowledgeDesc := "Knowledge vault: orient (map legend), capture (fleeting note), promote (→evergreen), daily (today's journal), backlinks, ingest, synthesize, export_vault, import_vault."
+	knowledgeDesc := "Knowledge vault: orient (map legend), catalog (full inventory), lint (health check), capture, promote, daily, backlinks, ingest, synthesize, export_vault, import_vault."
 	var knowledgeSchema any
 	_ = json.Unmarshal(schemaFor[knowledgeInput](), &knowledgeSchema)
 	sdk.AddTool(&sdkmcp.Tool{
@@ -222,7 +222,7 @@ type edgeInput struct {
 
 // knowledgeInput defines the input schema for the knowledge tool.
 type knowledgeInput struct {
-	Action string `json:"action" jsonschema:"required,orient | lint | capture | promote | daily | backlinks | export_vault | import_vault | ingest | synthesize"`
+	Action string `json:"action" jsonschema:"required,orient | catalog | lint | capture | promote | daily | backlinks | export_vault | import_vault | ingest | synthesize"`
 
 	// capture: create a fleeting note
 	Title  string   `json:"title,omitempty" jsonschema:"note title (required for capture)"`
@@ -304,6 +304,101 @@ func (h *handler) appendRelatedNotes(ctx context.Context, b *strings.Builder, ex
 	for _, r := range candidates[:min(5, len(candidates))] {
 		fmt.Fprintf(b, "  %s [%s] %s\n", r.ID, r.Status, r.Title)
 	}
+}
+
+// handleKnowledgeCatalog returns the full Container List of all knowledge
+// artifacts — the Finding Aid inventory. Equivalent to Lex's inspect action,
+// a library catalog, or Karpathy's index.md.
+//
+// Format per entry:
+//
+//	ID  [kind|status]  labels  N edges
+//	"one-line summary from goal or title"
+//
+// Sorted: evergreen > active > fleeting. Grouped by kind.
+func (h *handler) handleKnowledgeCatalog(ctx context.Context, in knowledgeInput) (*sdkmcp.CallToolResult, any, error) { //nolint:funlen // catalog report is inherently multi-section
+	var b strings.Builder
+	total := 0
+
+	// Kind groups in display order.
+	groups := []struct {
+		kind    string
+		heading string
+	}{
+		{parchment.KindConcept, "Concepts"},
+		{parchment.KindNote, "Notes"},
+		{parchment.KindSource, "Sources"},
+		{parchment.KindJournal, "Journals"},
+		{parchment.KindContext, "Context"},
+	}
+
+	for _, g := range groups {
+		arts, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{Kind: g.kind, Scope: in.Scope})
+		if len(arts) == 0 {
+			continue
+		}
+
+		// Sort: evergreen first, then active, then fleeting, then rest.
+		statusOrder := map[string]int{
+			parchment.StatusEvergreen: 0,
+			parchment.StatusActive:    1,
+			parchment.StatusFleeting:  2,
+		}
+		for i := 1; i < len(arts); i++ {
+			for j := i; j > 0; j-- {
+				ai := statusOrder[arts[j].Status]
+				aj := statusOrder[arts[j-1].Status]
+				if ai == 0 && aj == 0 {
+					ai = 99
+					aj = 99
+				}
+				if ai < aj {
+					arts[j], arts[j-1] = arts[j-1], arts[j]
+				}
+			}
+		}
+
+		fmt.Fprintf(&b, "## %s (%d)\n\n", g.heading, len(arts))
+		for _, art := range arts {
+			// Edge count.
+			edges, _ := h.proto.GetArtifactEdges(ctx, art.ID)
+
+			// Labels.
+			labelStr := ""
+			if len(art.Labels) > 0 {
+				labelStr = "  [" + strings.Join(art.Labels, ", ") + "]"
+			}
+
+			// Summary: goal field, or truncated title.
+			summary := art.Goal
+			if summary == "" {
+				// Fall back to first non-empty section body.
+				for _, sec := range art.Sections {
+					if sec.Text != "" {
+						summary = sec.Text
+						if len(summary) > 120 {
+							summary = summary[:117] + "..."
+						}
+						break
+					}
+				}
+			}
+
+			fmt.Fprintf(&b, "  %-22s [%s|%s]%s  %d edges\n",
+				art.ID, art.Kind, art.Status, labelStr, len(edges))
+			if summary != "" {
+				fmt.Fprintf(&b, "  %s\n", summary)
+			}
+			b.WriteByte('\n')
+			total++
+		}
+	}
+
+	if total == 0 {
+		return text("Vault is empty. Start with knowledge(action=capture) or knowledge(action=ingest)."), nil, nil
+	}
+	fmt.Fprintf(&b, "Total: %d artifact(s)", total)
+	return text(b.String()), nil, nil
 }
 
 // handleKnowledgeLint runs all knowledge health checks and returns a
@@ -594,6 +689,9 @@ func (h *handler) handleKnowledge(ctx context.Context, _ *sdkmcp.CallToolRequest
 	switch in.Action {
 	case "orient":
 		return h.handleKnowledgeOrient(ctx, in)
+
+	case "catalog":
+		return h.handleKnowledgeCatalog(ctx, in)
 
 	case "lint":
 		return h.handleKnowledgeLint(ctx, in)
