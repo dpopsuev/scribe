@@ -120,71 +120,69 @@ type handler struct {
 // --- consolidated input types ---
 
 type artifactInput struct {
-	Action string `json:"action" jsonschema:"required,create | batch_create | clone | get | list | search | set | update | archive | de-archive | retire | attach_section | get_section | detach_section | list_sections | search_sections | bulk_section_update | batch_update | move | diff | promote_stash | inspect_stash | recall | orient | catalog"`
+	Action string `json:"action" jsonschema:"required,create | batch_create | clone | get | list | set | update | archive | de-archive | retire | attach_section | get_section | detach_section | list_sections | search_sections | bulk_section_update | batch_update | move | diff | promote_stash | inspect_stash | recall"`
 
-	ID     string `json:"id,omitempty" jsonschema:"artifact ID (required for get, set, update, archive, *_section)"`
-	Target string `json:"target,omitempty" jsonschema:"new parent ID for move"`
-	Kind  string `json:"kind,omitempty" jsonschema:"task, spec, bug, goal, campaign, doc, ref, need, decision, config, template, mirror"`
-	Scope string `json:"scope,omitempty"`
+	ID     string `json:"id,omitempty"`
+	Target string `json:"target,omitempty" jsonschema:"new parent ID (move)"`
+	Kind   string `json:"kind,omitempty" jsonschema:"task, spec, bug, goal, campaign, doc, ref, need, decision"`
+	Scope  string `json:"scope,omitempty"`
 
 	Title     string              `json:"title,omitempty"`
 	Goal      string              `json:"goal,omitempty"`
-	Parent    string              `json:"parent,omitempty" jsonschema:"parent artifact ID for hierarchy"`
-	Status    string              `json:"status,omitempty" jsonschema:"draft, active, complete, archived"`
+	Parent    string              `json:"parent,omitempty"`
+	Status    string              `json:"status,omitempty" jsonschema:"draft, active, complete, archived, retired"`
 	Priority  string              `json:"priority,omitempty" jsonschema:"none, low, medium, high, critical"`
 	DependsOn []string            `json:"depends_on,omitempty"`
 	Labels    []string            `json:"labels,omitempty"`
-	Prefix    string              `json:"prefix,omitempty" jsonschema:"override ID prefix (default derived from kind)"`
-	Links     map[string][]string `json:"links,omitempty" jsonschema:"named link groups, e.g. {\"docs\": [\"url1\"]}"`
+	Links     map[string][]string `json:"links,omitempty"`
 	Extra     map[string]any      `json:"extra,omitempty"`
-	CreatedAt string              `json:"created_at,omitempty" jsonschema:"RFC 3339 timestamp to backdate creation"`
-	Sections  []map[string]string `json:"sections,omitempty" jsonschema:"array of {name, text} objects"`
+	Sections  []map[string]string `json:"sections,omitempty" jsonschema:"[{name, text}, ...]"`
 
-	IncludeEdges bool   `json:"include_edges,omitempty" jsonschema:"if true, get returns resolved neighbor summaries"`
-	Format       string `json:"format,omitempty" jsonschema:"summary (id/title/status/kind/scope only) or full (default)"`
+	Format  string   `json:"format,omitempty" jsonschema:"summary or full (default)"`
+	GroupBy string   `json:"group_by,omitempty" jsonschema:"status, scope, kind, sprint"`
+	Sort    string   `json:"sort,omitempty" jsonschema:"id, title, status, scope, kind"`
+	Limit   int      `json:"limit,omitempty"`
+	Offset  int      `json:"offset,omitempty"`
+	Count   bool     `json:"count,omitempty"`
+	Top     int      `json:"top,omitempty" jsonschema:"N most relevant by status+priority+recency"`
+	Fields  []string `json:"fields,omitempty" jsonschema:"id, kind, scope, status, title, parent, priority"`
+	Query   string   `json:"query,omitempty" jsonschema:"substring search across title, goal, sections"`
 
-	Sprint         string   `json:"sprint,omitempty"`
+	TitleContains  string   `json:"title_contains,omitempty"`
+	CreatedAfter   string   `json:"created_after,omitempty"`
+	CreatedBefore  string   `json:"created_before,omitempty"`
+	UpdatedAfter   string   `json:"updated_after,omitempty"`
+	UpdatedBefore  string   `json:"updated_before,omitempty"`
+	InsertedAfter  string   `json:"inserted_after,omitempty"`
+	InsertedBefore string   `json:"inserted_before,omitempty"`
 	IDPrefix       string   `json:"id_prefix,omitempty"`
+	Sprint         string   `json:"sprint,omitempty"`
 	ExcludeKind    string   `json:"exclude_kind,omitempty"`
 	ExcludeStatus  string   `json:"exclude_status,omitempty"`
-	LabelsOr       []string `json:"labels_or,omitempty" jsonschema:"OR semantics: at least one label must match"`
+	LabelsOr       []string `json:"labels_or,omitempty"`
 	ExcludeLabels  []string `json:"exclude_labels,omitempty"`
-	GroupBy        string   `json:"group_by,omitempty" jsonschema:"status, scope, kind, sprint, or scope_label"`
-	Sort           string   `json:"sort,omitempty" jsonschema:"id, title, status, scope, kind, or sprint"`
-	Limit          int      `json:"limit,omitempty"`
-	Offset         int      `json:"offset,omitempty"`
-	Count          bool     `json:"count,omitempty"`
-	Top            int      `json:"top,omitempty" jsonschema:"return N most relevant artifacts ranked by status+priority+recency"`
-	Fields         []string `json:"fields,omitempty" jsonschema:"id, kind, scope, status, title, parent, priority, sprint, depends_on, labels"`
-	Query          string   `json:"query,omitempty" jsonschema:"substring search across title, goal, and section text"`
-	TitleContains  string   `json:"title_contains,omitempty" jsonschema:"case-insensitive substring filter on title (list action)"`
-	CreatedAfter   string   `json:"created_after,omitempty" jsonschema:"RFC 3339"`
-	CreatedBefore  string   `json:"created_before,omitempty" jsonschema:"RFC 3339"`
-	UpdatedAfter   string   `json:"updated_after,omitempty" jsonschema:"RFC 3339"`
-	UpdatedBefore  string   `json:"updated_before,omitempty" jsonschema:"RFC 3339"`
-	InsertedAfter  string   `json:"inserted_after,omitempty" jsonschema:"RFC 3339"`
-	InsertedBefore string   `json:"inserted_before,omitempty" jsonschema:"RFC 3339"`
 
-	Field string `json:"field,omitempty" jsonschema:"title, goal, scope, status, parent, priority, sprint, kind, depends_on, labels"`
-	Value string `json:"value,omitempty" jsonschema:"new value; comma-separated for depends_on/labels"`
-	Force bool   `json:"force,omitempty" jsonschema:"bypass transition validation for status changes"`
+	Field string `json:"field,omitempty" jsonschema:"title, goal, scope, status, parent, priority, kind, depends_on, labels"`
+	Value string `json:"value,omitempty" jsonschema:"new value (comma-separated for list fields)"`
+	Force bool   `json:"force,omitempty" jsonschema:"bypass transition validation"`
 
+	Name          string   `json:"name,omitempty"`
+	Text          string   `json:"text,omitempty"`
+	Body          string   `json:"body,omitempty"`
 	SectionFilter []string `json:"section_filter,omitempty"`
 	Against       string   `json:"against,omitempty"`
 
-	IDs     []string `json:"ids,omitempty" jsonschema:"artifact IDs for bulk operations (get, set, archive)"`
-	Cascade bool     `json:"cascade,omitempty" jsonschema:"recursively archive child subtrees"`
+	IDs     []string `json:"ids,omitempty"`
+	Cascade bool     `json:"cascade,omitempty"`
 	DryRun  bool     `json:"dry_run,omitempty"`
 
-	Name string `json:"name,omitempty"`
-	Text string `json:"text,omitempty"`
-	Body string `json:"body,omitempty" jsonschema:"alias for text"`
-
-	Patch map[string]string `json:"patch,omitempty" jsonschema:"map of field->value for multi-field update"`
-
-	Artifacts []map[string]any `json:"artifacts,omitempty"`
-	SkipHooks bool             `json:"skip_hooks,omitempty" jsonschema:"suppress template hook auto-generation on create"`
-	StashID   string           `json:"stash_id,omitempty" jsonschema:"stash ID from failed create, used with promote_stash"`
+	Patch        map[string]string `json:"patch,omitempty" jsonschema:"{field: value} pairs for batch_update"`
+	Artifacts    []map[string]any  `json:"artifacts,omitempty"`
+	SkipHooks    bool              `json:"skip_hooks,omitempty"`
+	StashID      string            `json:"stash_id,omitempty"`
+	IncludeEdges bool              `json:"include_edges,omitempty"`
+	CreatedAt    string            `json:"created_at,omitempty"`
+	Prefix       string            `json:"prefix,omitempty"`
 }
 
 type graphInput struct {
@@ -234,7 +232,7 @@ type knowledgeInput struct {
 }
 
 type adminInput struct {
-	Action  string `json:"action" jsonschema:"required,motd | changelog | dashboard | snapshot | set_goal | vacuum | detect | lint | check | set_scope_labels | list_scope_labels | transfer_scope | seed | schema | correlate | ingest_session | knowledge_lint | session_start | session_commit | session_diff | session_merge"`
+	Action  string `json:"action" jsonschema:"required,motd | changelog | dashboard | set_goal | detect | check | correlate | ingest_session | knowledge_lint | set_scope_labels | list_scope_labels | session_start | session_commit | session_diff | session_merge"`
 	Compact bool   `json:"compact,omitempty" jsonschema:"minimal output for repeat calls (motd)"`
 
 	SnapshotAction string `json:"snapshot_action,omitempty" jsonschema:"create, list, diff, or restore"`
@@ -686,7 +684,6 @@ func (h *handler) handleKnowledgeOrient(ctx context.Context, in knowledgeInput) 
 	return text(b.String()), nil, nil
 }
 
-
 func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolRequest, in artifactInput) (*sdkmcp.CallToolResult, any, error) {
 	switch in.Action {
 	case "create":
@@ -738,8 +735,9 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		}
 		return h.handleBulkGet(ctx, ids, in.SectionFilter)
 	case "search":
+		// search is an alias for list(query=...) — kept for backward compat, not advertised.
 		if in.Query == "" {
-			return nil, nil, fmt.Errorf("query is required for search action") //nolint:err113 // agent-facing hint
+			return nil, nil, fmt.Errorf("use list(query=...) to search artifacts") //nolint:err113 // migration hint
 		}
 		fallthrough
 	case "list":
@@ -750,7 +748,7 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 			Labels: in.Labels, LabelsOr: in.LabelsOr, ExcludeLabels: in.ExcludeLabels,
 			GroupBy: in.GroupBy, Sort: in.Sort, Limit: in.Limit, Query: in.Query,
 			TitleContains: in.TitleContains,
-			CreatedAfter: in.CreatedAfter, CreatedBefore: in.CreatedBefore,
+			CreatedAfter:  in.CreatedAfter, CreatedBefore: in.CreatedBefore,
 			UpdatedAfter: in.UpdatedAfter, UpdatedBefore: in.UpdatedBefore,
 			InsertedAfter: in.InsertedAfter, InsertedBefore: in.InsertedBefore,
 		}
@@ -970,10 +968,10 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 	case "recall":
 		return h.handleRecall(ctx, knowledgeInput{Query: in.Query, Scope: in.Scope})
 	case "orient":
-		// orient: vault map — schema legend, state counts, hub nodes, health.
+		// orient: alias for list(family=knowledge) with overview formatting. Not advertised — use list.
 		return h.handleKnowledgeOrient(ctx, knowledgeInput{Scope: in.Scope})
 	case "catalog":
-		// catalog: full inventory of knowledge artifacts grouped by kind.
+		// catalog: alias for list(family=knowledge, group_by=kind). Not advertised — use list.
 		return h.handleKnowledgeCatalog(ctx, knowledgeInput{Scope: in.Scope})
 	default:
 		return nil, nil, fmt.Errorf("unknown artifact action %q (valid: create, batch_create, clone, get, list, recall, set, update, archive, attach_section, get_section, detach_section, diff, promote_stash, inspect_stash)", in.Action) //nolint:err113 // agent-facing hint
@@ -1134,22 +1132,25 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 	case "changelog":
 		return h.handleChangelog(ctx, in.Since, in.Scope)
 	case "snapshot":
+		// snapshot: CLI operation, not advertised on MCP surface but kept functional.
 		return h.handleSnapshot(ctx, in)
+	case "seed", "schema", "transfer_scope", "vacuum":
+		// CLI-only operations — not advertised on the MCP surface.
+		return text(fmt.Sprintf("admin(action=%s) is a CLI operation — use: scribe %s", in.Action, in.Action)), nil, nil
+	case "lint":
+		// schema lint — CLI-only. For knowledge lint use knowledge_lint.
+		return text("admin(action=lint) is a CLI operation — use: scribe lint. For knowledge checks use admin(action=knowledge_lint)"), nil, nil
 	case "dashboard":
 		return h.handleDashboard(ctx, req, dashboardInput{StaleDays: in.StaleDays})
 	case "set_goal":
 		return h.handleSetGoal(ctx, req, SetGoalInput{
 			Title: in.Title, Scope: in.Scope, Kind: in.Kind,
 		})
-	case "vacuum":
-		return h.handleVacuum(ctx, req, vacuumInput{Days: in.Days, Scope: in.Scope, Force: in.Force})
 	case "detect":
 		return h.handleDetect(ctx, req, detectInput{
 			Check: in.Check, Scope: in.Scope, Status: in.Status,
 			Kind: in.Kind, Project: in.Project,
 		})
-	case "lint":
-		return h.handleLint(ctx)
 	case "check":
 		return h.handleCheck(ctx, in.Scope)
 	case "set_scope_labels":
@@ -1174,40 +1175,6 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 			fmt.Fprintf(&b, "%-20s %s → %s\n", info.Scope, info.Key, labels)
 		}
 		return text(b.String()), nil, nil
-	case "seed":
-		dir := in.Scope // reuse scope field as dir path
-		if dir == "" {
-			return nil, nil, fmt.Errorf("scope field required as seed directory path")
-		}
-		result, err := h.proto.Seed(ctx, dir)
-		if err != nil {
-			return nil, nil, err
-		}
-		var lines []string
-		for _, id := range result.Created {
-			lines = append(lines, "created "+id)
-		}
-		for _, id := range result.Skipped {
-			lines = append(lines, "skipped "+id)
-		}
-		return text(fmt.Sprintf("seed: %d created, %d skipped\n%s",
-			len(result.Created), len(result.Skipped), strings.Join(lines, "\n"))), nil, nil
-	case "transfer_scope":
-		if in.Scope == "" || in.Target == "" {
-			return nil, nil, fmt.Errorf("scope and target required for transfer_scope")
-		}
-		result, err := h.proto.BulkSetField(ctx, parchment.BulkMutationInput{
-			Scope: in.Scope, Kind: in.Kind, Status: in.Status, DryRun: in.DryRun,
-		}, "scope", in.Target)
-		if err != nil {
-			return nil, nil, err
-		}
-		if result.DryRun {
-			return text(fmt.Sprintf("dry run: would transfer %d artifacts from %s to %s", result.Count, in.Scope, in.Target)), nil, nil
-		}
-		return text(fmt.Sprintf("transferred %d artifacts from %s to %s", result.Count, in.Scope, in.Target)), nil, nil
-	case "schema":
-		return h.handleSchema()
 	case "correlate":
 		return h.handleCorrelate(ctx, in)
 	case "ingest_session":
