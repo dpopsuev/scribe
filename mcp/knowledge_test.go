@@ -48,8 +48,8 @@ func newKnowledgeServer(t *testing.T) func(map[string]any) string {
 		case adminActions[action]:
 			return callTool(t, cs, "admin", args)
 		default:
-			// export_vault, import_vault, etc. → keep on knowledge (redirect)
-			return callTool(t, cs, "knowledge", args)
+			// knowledge tool removed — unknown actions go to artifact (returns unknown action error)
+			return callTool(t, cs, "artifact", args)
 		}
 	}
 }

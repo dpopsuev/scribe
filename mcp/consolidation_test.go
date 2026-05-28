@@ -12,7 +12,7 @@ package mcp_test
 //   admin(action=ingest_session, path=...)   — was knowledge(action=ingest_session)
 //   admin(action=detect, check=knowledge)    — was knowledge(action=lint)
 //
-// knowledge tool → redirect hints for all 14 actions (not hard-removed for compat).
+// knowledge tool fully removed — all actions live on artifact and admin.
 
 import (
 	"context"
@@ -23,7 +23,7 @@ import (
 	scribemcp "github.com/dpopsuev/scribe/mcp"
 )
 
-func newConsolidatedServer(t *testing.T) (proto *parchment.Protocol, callArtifact, callAdmin, callKnowledge func(map[string]any) string) {
+func newConsolidatedServer(t *testing.T) (proto *parchment.Protocol, callArtifact, callAdmin func(map[string]any) string) {
 	t.Helper()
 	s := openStore(t)
 	proto = parchment.New(s, parchment.KnowledgeSchema(), []string{"test"}, nil, parchment.ProtocolConfig{
@@ -39,7 +39,6 @@ func newConsolidatedServer(t *testing.T) (proto *parchment.Protocol, callArtifac
 	cs := connectClient(t, srv)
 	callArtifact = func(args map[string]any) string { return callTool(t, cs, "artifact", args) }
 	callAdmin = func(args map[string]any) string { return callTool(t, cs, "admin", args) }
-	callKnowledge = func(args map[string]any) string { return callTool(t, cs, "knowledge", args) }
 	return
 }
 
@@ -48,7 +47,7 @@ func newConsolidatedServer(t *testing.T) (proto *parchment.Protocol, callArtifac
 // TestConsolidation_ArtifactRecall verifies that recall moved from the knowledge
 // tool to the artifact tool. artifact(action=recall) must find knowledge artifacts.
 func TestConsolidation_ArtifactRecall(t *testing.T) {
-	proto, callArtifact, _, _ := newConsolidatedServer(t)
+	proto, callArtifact, _ := newConsolidatedServer(t)
 	ctx := context.Background()
 
 	_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{
@@ -74,7 +73,7 @@ func TestConsolidation_ArtifactRecall(t *testing.T) {
 // TestConsolidation_ArtifactCreateNote verifies that knowledge artifacts are
 // created via artifact(action=create, kind=note) — same tool, different kind.
 func TestConsolidation_ArtifactCreateNote(t *testing.T) {
-	_, callArtifact, _, _ := newConsolidatedServer(t)
+	_, callArtifact, _ := newConsolidatedServer(t)
 
 	out := callArtifact(map[string]any{
 		"action": "create",
@@ -95,7 +94,7 @@ func TestConsolidation_ArtifactCreateNote(t *testing.T) {
 // TestConsolidation_ArtifactListKnowledgeFamily verifies that knowledge artifacts
 // can be listed via artifact(action=list, family=knowledge).
 func TestConsolidation_ArtifactListKnowledgeFamily(t *testing.T) {
-	proto, callArtifact, _, _ := newConsolidatedServer(t)
+	proto, callArtifact, _ := newConsolidatedServer(t)
 	ctx := context.Background()
 
 	_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{
@@ -128,7 +127,7 @@ func TestConsolidation_AdminIngestSession(t *testing.T) {
 	dir := t.TempDir()
 	path := buildPiSession(t, dir)
 
-	_, _, callAdmin, _ := newConsolidatedServer(t)
+	_, _, callAdmin := newConsolidatedServer(t)
 
 	out := callAdmin(map[string]any{
 		"action": "ingest_session",
@@ -147,72 +146,10 @@ func TestConsolidation_AdminIngestSession(t *testing.T) {
 
 // ─── knowledge tool → redirect hints ─────────────────────────────────────────
 
-// TestConsolidation_KnowledgeCapture_Redirect verifies that knowledge(capture)
-// returns a redirect hint pointing agents to artifact(create, kind=note).
-func TestConsolidation_KnowledgeCapture_Redirect(t *testing.T) {
-	_, _, _, callKnowledge := newConsolidatedServer(t)
-
-	out := callKnowledge(map[string]any{
-		"action": "capture",
-		"title":  "test",
-		"scope":  "test",
-	})
-
-	// Must NOT error with "unknown action" — must give a redirect
-	if strings.Contains(strings.ToLower(out), "unknown knowledge action") {
-		t.Errorf("knowledge(capture) must redirect, not error\nGot: %s", out)
-	}
-	// Must mention artifact tool or kind=note
-	hasRedirect := strings.Contains(strings.ToLower(out), "artifact") ||
-		strings.Contains(strings.ToLower(out), "kind=note") ||
-		strings.Contains(strings.ToLower(out), "kind: note")
-	if !hasRedirect {
-		t.Errorf("knowledge(capture) redirect must mention artifact or kind=note\nGot: %s", out)
-	}
-}
-
-// TestConsolidation_KnowledgeRecall_Redirect verifies that knowledge(recall)
-// redirects to artifact(recall).
-func TestConsolidation_KnowledgeRecall_Redirect(t *testing.T) {
-	_, _, _, callKnowledge := newConsolidatedServer(t)
-
-	out := callKnowledge(map[string]any{
-		"action": "recall",
-		"query":  "test query",
-		"scope":  "test",
-	})
-
-	if strings.Contains(strings.ToLower(out), "unknown knowledge action") {
-		t.Errorf("knowledge(recall) must redirect, not error\nGot: %s", out)
-	}
-	if !strings.Contains(strings.ToLower(out), "artifact") {
-		t.Errorf("knowledge(recall) redirect must mention artifact tool\nGot: %s", out)
-	}
-}
-
-// TestConsolidation_KnowledgeOrient_Redirect verifies orient redirects to artifact(list).
-func TestConsolidation_KnowledgeOrient_Redirect(t *testing.T) {
-	_, _, _, callKnowledge := newConsolidatedServer(t)
-
-	out := callKnowledge(map[string]any{
-		"action": "orient",
-		"scope":  "test",
-	})
-
-	if strings.Contains(strings.ToLower(out), "unknown knowledge action") {
-		t.Errorf("knowledge(orient) must redirect\nGot: %s", out)
-	}
-	if !strings.Contains(strings.ToLower(out), "artifact") {
-		t.Errorf("knowledge(orient) redirect must mention artifact tool\nGot: %s", out)
-	}
-}
-
-// ─── Removed artifact actions → redirect hints ───────────────────────────────
-
-// TestConsolidation_BatchCreate_Folded verifies that batch_create is folded
+// // TestConsolidation_BatchCreate_Folded verifies that batch_create is folded
 // into create with an artifacts[] parameter.
 func TestConsolidation_BatchCreate_Folded(t *testing.T) {
-	_, callArtifact, _, _ := newConsolidatedServer(t)
+	_, callArtifact, _ := newConsolidatedServer(t)
 
 	// batch_create via create with artifacts[] — new unified interface
 	out := callArtifact(map[string]any{

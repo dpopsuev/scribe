@@ -99,22 +99,6 @@ func NewServer(s parchment.Store, homeScopes, vocab []string, idc parchment.Prot
 		Categories: []string{"lifecycle", "maintenance"},
 	})
 
-	// knowledge tool — vault operations: capture, promote, daily, backlinks.
-	knowledgeDesc := "[DEPRECATED] All knowledge actions have moved to artifact and admin. Use artifact(action=recall/orient/catalog/capture) and admin(action=ingest_session/knowledge_lint). This tool will return redirect hints."
-	var knowledgeSchema any
-	_ = json.Unmarshal(schemaFor[knowledgeInput](), &knowledgeSchema)
-	sdk.AddTool(&sdkmcp.Tool{
-		Name:        "knowledge",
-		Title:       "Knowledge Vault",
-		Description: knowledgeDesc,
-		InputSchema: knowledgeSchema,
-	}, bindHandler(h.handleKnowledge))
-	reg.Register(directive.ToolMeta{
-		Name: "knowledge", Description: knowledgeDesc,
-		Keywords:   []string{"capture", "promote", "daily", "backlinks", "note", "journal", "evergreen", "fleeting"},
-		Categories: []string{"knowledge"},
-	})
-
 	return sdk, reg
 }
 
@@ -250,7 +234,7 @@ type knowledgeInput struct {
 }
 
 type adminInput struct {
-	Action  string `json:"action" jsonschema:"required,motd | changelog | dashboard | snapshot | set_goal | vacuum | detect | lint | check | set_scope_labels | list_scope_labels | transfer_scope | seed | schema | correlate | ingest_session"`
+	Action  string `json:"action" jsonschema:"required,motd | changelog | dashboard | snapshot | set_goal | vacuum | detect | lint | check | set_scope_labels | list_scope_labels | transfer_scope | seed | schema | correlate | ingest_session | knowledge_lint | session_start | session_commit | session_diff | session_merge"`
 	Compact bool   `json:"compact,omitempty" jsonschema:"minimal output for repeat calls (motd)"`
 
 	SnapshotAction string `json:"snapshot_action,omitempty" jsonschema:"create, list, diff, or restore"`
@@ -702,48 +686,6 @@ func (h *handler) handleKnowledgeOrient(ctx context.Context, in knowledgeInput) 
 	return text(b.String()), nil, nil
 }
 
-// knowledgeRedirect is the canonical message for all knowledge tool actions.
-// Everything is an Artifact. The knowledge tool is deprecated.
-// All actions redirect to artifact or admin with the correct canonical call.
-func knowledgeRedirect(action string) (*sdkmcp.CallToolResult, any, error) {
-	hints := map[string]string{
-		"capture":        "artifact(action=create, kind=note, status=fleeting, title=..., scope=...)",
-		"promote":        "artifact(action=set, id=..., field=status, value=evergreen)",
-		"recall":         "artifact(action=recall, query=..., scope=...)",
-		"orient":         "artifact(action=list, family=knowledge, scope=...)",
-		"catalog":        "artifact(action=list, family=knowledge, group_by=kind, scope=...)",
-		"lint":           "admin(action=detect, check=knowledge, scope=...)",
-		"daily":          "artifact(action=create, kind=journal, scope=...)",
-		"backlinks":      "graph(action=tree, id=..., direction=incoming)",
-		"ingest_session": "admin(action=ingest_session, path=..., scope=...)",
-		"ingest":         "artifact(action=create, kind=source, title=..., url=..., scope=...)",
-		"synthesize":     "artifact(action=create, kind=note, title=..., scope=...)",
-		"export_vault":   "scribe CLI: scribe export",
-		"import_vault":   "scribe CLI: scribe import",
-	}
-	hint, ok := hints[action]
-	if !ok {
-		hint = "artifact or admin tool"
-	}
-	return text(fmt.Sprintf(
-		"knowledge(action=%s) is deprecated — everything is an Artifact.\nUse: %s",
-		action, hint,
-	)), nil, nil
-}
-
-// handleKnowledge redirects all actions. The knowledge tool is kept for
-// backward compatibility but all functionality has moved to artifact and admin.
-func (h *handler) handleKnowledge(_ context.Context, _ *sdkmcp.CallToolRequest, in knowledgeInput) (*sdkmcp.CallToolResult, any, error) {
-	switch in.Action {
-	case "session_start", "session_commit", "session_diff", "session_merge":
-		return text(fmt.Sprintf(
-			"knowledge(action=%s) requires a Dolt-backed store. "+
-				"Configure scribe with a DoltStore to enable session isolation.",
-			in.Action)), nil, nil
-	default:
-		return knowledgeRedirect(in.Action)
-	}
-}
 
 func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolRequest, in artifactInput) (*sdkmcp.CallToolResult, any, error) {
 	switch in.Action {
@@ -1274,13 +1216,17 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 		// knowledge_lint: wikilink resolution, orphan detection, cluster gaps.
 		// Distinct from schema lint (admin=lint checks schema consistency).
 		return h.handleKnowledgeLint(ctx, knowledgeInput{Scope: in.Scope})
+	case "session_start", "session_commit", "session_diff", "session_merge":
+		return text(fmt.Sprintf(
+			"admin(action=%s) requires a Dolt-backed store. "+
+				"Configure scribe with DoltStore to enable session isolation.",
+			in.Action)), nil, nil
 	case "restore", "unarchive":
-		// Redirect: restoring archived artifacts uses artifact(action=de-archive).
 		return nil, nil, fmt.Errorf( //nolint:err113 // agent-facing redirect
 			"admin(%s) is not supported — use artifact(action=de-archive, id=<id>) to restore an archived artifact",
 			in.Action)
 	default:
-		return nil, nil, fmt.Errorf("unknown admin action %q (valid: motd, changelog, dashboard, snapshot, set_goal, vacuum, detect, lint, check, set_scope_labels, list_scope_labels, transfer_scope, seed, schema)", in.Action) //nolint:err113 // agent-facing hint
+		return nil, nil, fmt.Errorf("unknown admin action %q (valid: motd, changelog, dashboard, snapshot, set_goal, vacuum, detect, lint, check, set_scope_labels, list_scope_labels, transfer_scope, seed, schema, correlate, ingest_session, knowledge_lint, session_start, session_commit, session_diff, session_merge)", in.Action) //nolint:err113 // agent-facing hint
 	}
 }
 
