@@ -786,7 +786,7 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 			archiveIDs = []string{in.ID}
 		}
 		return h.handleArchive(ctx, req, archiveInput{
-			IDs: archiveIDs, Cascade: in.Cascade, Scope: in.Scope,
+			IDs: archiveIDs, Scope: in.Scope,
 			Kind: in.Kind, Status: in.Status, IDPrefix: in.IDPrefix,
 			ExcludeKind: in.ExcludeKind, DryRun: in.DryRun,
 		})
@@ -1930,7 +1930,6 @@ func (h *handler) handleSetGoal(ctx context.Context, _ *sdkmcp.CallToolRequest, 
 
 type archiveInput struct {
 	IDs         []string `json:"ids"`
-	Cascade     bool     `json:"cascade,omitempty"`
 	Scope       string   `json:"scope,omitempty"`
 	Kind        string   `json:"kind,omitempty"`
 	Status      string   `json:"status,omitempty"`
@@ -1955,25 +1954,9 @@ func (h *handler) handleArchive(ctx context.Context, _ *sdkmcp.CallToolRequest, 
 		return text(fmt.Sprintf("archived %d artifacts", res.Count)), nil, nil
 	}
 	if in.DryRun {
-		var affected []string
-		var collectDescendants func(id string)
-		collectDescendants = func(id string) {
-			affected = append(affected, id)
-			if in.Cascade {
-				children, _ := h.proto.Store().Children(ctx, id)
-				for _, ch := range children {
-					if !parchment.DefaultSchema().IsReadonly(ch.Status) {
-						collectDescendants(ch.ID)
-					}
-				}
-			}
-		}
-		for _, id := range in.IDs {
-			collectDescendants(id)
-		}
-		return text(fmt.Sprintf("dry run: would archive %d artifacts: %v", len(affected), affected)), nil, nil
+		return text(fmt.Sprintf("dry run: would archive %d artifact(s): %v", len(in.IDs), in.IDs)), nil, nil
 	}
-	results, err := h.proto.ArchiveArtifact(ctx, in.IDs, in.Cascade, in.DryRun)
+	results, err := h.proto.ArchiveArtifact(ctx, in.IDs, in.DryRun)
 	if err != nil {
 		return nil, nil, err
 	}
