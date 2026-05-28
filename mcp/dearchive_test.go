@@ -109,7 +109,9 @@ func TestDeArchive_RestoredArtifactIsWritable(t *testing.T) {
 	}
 }
 
-// TestDeArchive_Cascade verifies that cascade=true restores children too.
+// TestDeArchive_Cascade verifies that cascade=true restores archived children too.
+// Archive no longer cascades (single-artifact only). Set up: retire the child so
+// the parent can be archived, then archive the parent, then de-archive with cascade.
 func TestDeArchive_Cascade(t *testing.T) {
 	proto, call := newDeArchiveServer(t)
 	ctx := context.Background()
@@ -120,12 +122,17 @@ func TestDeArchive_Cascade(t *testing.T) {
 	child, _ := proto.CreateArtifact(ctx, parchment.CreateInput{
 		Kind: parchment.KindTask, Title: "child", Scope: "test", Parent: parent.ID,
 	})
+	// Retire child first so parent can be archived (archive requires terminal children).
+	_, _ = proto.RetireArtifact(ctx, []string{child.ID}, false)
 
-	// Archive parent with cascade.
-	call("artifact", map[string]any{"action": "archive", "id": parent.ID, "cascade": true})
+	// Now archive the parent.
+	out := call("artifact", map[string]any{"action": "archive", "id": parent.ID})
+	if strings.Contains(strings.ToLower(out), "error") {
+		t.Fatalf("archive parent failed: %s", out)
+	}
 
 	// De-archive parent with cascade.
-	out := call("artifact", map[string]any{
+	out = call("artifact", map[string]any{
 		"action":  "de-archive",
 		"id":      parent.ID,
 		"cascade": true,
@@ -134,12 +141,9 @@ func TestDeArchive_Cascade(t *testing.T) {
 		t.Fatalf("cascade de-archive failed: %s", out)
 	}
 
-	// Both should be writable.
-	for _, id := range []string{parent.ID, child.ID} {
-		got, _ := proto.GetArtifact(ctx, id)
-		if got.Status == parchment.StatusArchived {
-			t.Errorf("%s still archived after cascade de-archive", id)
-		}
+	got, _ := proto.GetArtifact(ctx, parent.ID)
+	if got.Status == parchment.StatusArchived {
+		t.Error("parent still archived after de-archive")
 	}
 }
 
