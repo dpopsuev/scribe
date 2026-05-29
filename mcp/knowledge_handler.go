@@ -392,5 +392,8 @@ func (h *handler) handleKnowledgeOrient(ctx context.Context, in knowledgeInput) 
 	b.WriteString("  lint (detect check=knowledge) → periodically health-check the wiki\n")
 	b.WriteString("  File synthesis answers back as notes — don't let them disappear into chat\n")
 
+	// Tier 2→3 navigation hint — discovery layer.
+	b.WriteString("\n→ artifact(action=search, query=) for keyword lookup; artifact(action=recall, query=, top=10) for semantic; artifact(action=get, id=) to read a specific artifact\n")
+
 	return text(b.String()), nil, nil
 }

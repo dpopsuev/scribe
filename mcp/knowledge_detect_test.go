@@ -208,3 +208,21 @@ func TestKnowledge_Orient_Empty(t *testing.T) {
 		t.Errorf("orient on empty vault errored: %s", out)
 	}
 }
+
+// TestKnowledge_Orient_DiscoveryPointer verifies that orient closes with a
+// Tier 2→3 navigation hint so agents know how to move to discovery.
+func TestKnowledge_Orient_DiscoveryPointer(t *testing.T) {
+	knowledge, _ := newKnowledgeDetectServer(t)
+
+	out := knowledge(map[string]any{"action": "orient", "scope": "test"})
+
+	if !strings.Contains(out, "artifact(action=search") {
+		t.Errorf("orient must include search navigation hint; got:\n%s", out)
+	}
+	if !strings.Contains(out, "artifact(action=recall") {
+		t.Errorf("orient must include recall navigation hint; got:\n%s", out)
+	}
+	if !strings.Contains(out, "artifact(action=get") {
+		t.Errorf("orient must include get navigation hint; got:\n%s", out)
+	}
+}

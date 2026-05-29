@@ -141,7 +141,11 @@ func (h *handler) handleMotd(ctx context.Context, _ *sdkmcp.CallToolRequest, in 
 		return nil, nil, err
 	}
 	var sections []string
-	sections = append(sections, fmt.Sprintf("Scribe %s", h.version))
+	scopeStr := "all"
+	if len(h.homeScopes) > 0 {
+		scopeStr = strings.Join(h.homeScopes, ", ")
+	}
+	sections = append(sections, fmt.Sprintf("Scribe %s | Scope: %s", h.version, scopeStr))
 
 	// Open bugs — fires first
 	bugs, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{Kind: parchment.KindBug, Status: parchment.StatusOpen})
@@ -240,6 +244,11 @@ func (h *handler) handleMotd(ctx context.Context, _ *sdkmcp.CallToolRequest, in 
 		if memLines := h.motdMemoryLines(ctx, scope, 3); len(memLines) > 0 {
 			sections = append(sections, "Memory:\n"+strings.Join(memLines, "\n"))
 		}
+	}
+
+	// Tier 1→2 navigation hint — only on full session-start motd, not delta calls.
+	if in.Since == "" {
+		sections = append(sections, "→ artifact(action=orient) for vault structure and schema map")
 	}
 
 	if len(sections) == 0 {
