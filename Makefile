@@ -19,7 +19,7 @@ push-image:
 	@test -n "$(VERSION)" || (echo "error: VERSION is not set" && exit 1)
 	podman push $(IMAGE_REPO):$(VERSION)
 
-SCRIBE_DATA ?= $(HOME)/.scribe
+SCRIBE_DATA ?= $(HOME)/.local/share/scribe
 
 run:
 	@SERVICE=$${HOME}/.config/systemd/user/container-scribe.service; \
