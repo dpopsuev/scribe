@@ -181,3 +181,32 @@ func TestOrient_NoSessionsSection_WhenNoneIngested(t *testing.T) {
 		t.Errorf("orient must not show empty Recent Sessions section\nGot: %s", out)
 	}
 }
+
+// TestMotd_SurfacesScope verifies that motd discloses the active scope filter
+// so agents know what they can see without making an additional tool call.
+func TestMotd_SurfacesScope(t *testing.T) {
+	_, callAdmin, _ := newMemoryServer(t) // homeScopes = ["test"]
+
+	out := callAdmin(map[string]any{"action": "motd"})
+
+	if !strings.Contains(out, "Scope: test") {
+		t.Errorf("motd must include active scope; got:\n%s", out)
+	}
+}
+
+// TestMotd_OrientPointer verifies that a full (non-delta) motd appends a
+// Tier 1→2 navigation hint pointing agents to artifact(action=orient).
+func TestMotd_OrientPointer(t *testing.T) {
+	_, callAdmin, _ := newMemoryServer(t)
+
+	full := callAdmin(map[string]any{"action": "motd"})
+	if !strings.Contains(full, "artifact(action=orient)") {
+		t.Errorf("full motd must include orient navigation hint; got:\n%s", full)
+	}
+
+	// Delta call (since= set) must NOT include the pointer — it's redundant noise.
+	delta := callAdmin(map[string]any{"action": "motd", "since": "2020-01-01T00:00:00Z"})
+	if strings.Contains(delta, "artifact(action=orient)") {
+		t.Errorf("delta motd must not include orient pointer; got:\n%s", delta)
+	}
+}

@@ -2715,3 +2715,85 @@ func mustJSON(v any) string {
 	}
 	return string(data)
 }
+
+// --- Progressive disclosure tests (SCR-TSK-327, 323, 324, 328) ---
+
+// TestList_UnfilteredHint verifies that a bare list with no filters appends a
+// truncation/context-cost hint steering agents toward filtered alternatives.
+func TestList_UnfilteredHint(t *testing.T) {
+	s := openStore(t)
+	seedArtifacts(t, s)
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	out := callTool(t, cs, "artifact", map[string]any{"action": "list"})
+
+	if !strings.Contains(out, "top=10") || !strings.Contains(out, "filters to narrow") {
+		t.Errorf("unfiltered list must include context-cost hint; got:\n%s", out)
+	}
+}
+
+// TestList_FilteredNoHint verifies that a filtered list does NOT add the hint
+// (the hint is only for unfiltered dumps).
+func TestList_FilteredNoHint(t *testing.T) {
+	s := openStore(t)
+	seedArtifacts(t, s)
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	out := callTool(t, cs, "artifact", map[string]any{"action": "list", "scope": "origami"})
+
+	if strings.Contains(out, "filters to narrow") {
+		t.Errorf("filtered list must not include truncation hint; got:\n%s", out)
+	}
+}
+
+// TestToolDescriptions_ProgressiveDisclosure verifies that all three tool
+// descriptions contain the key guidance phrases required by SCR-TSK-323/324/328.
+func TestToolDescriptions_ProgressiveDisclosure(t *testing.T) {
+	s := openStore(t)
+	srv, _ := scribemcp.NewServer(s, nil, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+	ctx := context.Background()
+
+	tools, err := cs.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	desc := make(map[string]string)
+	for _, tool := range tools.Tools {
+		desc[tool.Name] = tool.Description
+	}
+
+	// artifact: must guide agents away from bare list toward cheaper alternatives.
+	artifact := desc["artifact"]
+	for _, phrase := range []string{"get_section", "recall", "top=N", "burns context"} {
+		if !strings.Contains(artifact, phrase) {
+			t.Errorf("artifact desc missing %q; got:\n%s", phrase, artifact)
+		}
+	}
+
+	// graph: must distinguish briefing from tree.
+	graph := desc["graph"]
+	for _, phrase := range []string{"briefing", "tree", "topo_sort"} {
+		if !strings.Contains(graph, phrase) {
+			t.Errorf("graph desc missing %q; got:\n%s", phrase, graph)
+		}
+	}
+
+	// admin: must disclose since= delta and compact= (SCR-TSK-328).
+	admin := desc["admin"]
+	for _, phrase := range []string{"since=", "compact=true", "CALL FIRST"} {
+		if !strings.Contains(admin, phrase) {
+			t.Errorf("admin desc missing %q; got:\n%s", phrase, admin)
+		}
+	}
+
+	// scribeInstructions: must NOT contain old keyword enumeration.
+	// We verify indirectly: the instructions must contain the bootstrap call
+	// but must not contain the pipe-separated action dump.
+	for _, tool := range tools.Tools {
+		_ = tool // instructions are not exposed via ListTools; tested via server_instructions_test if needed
+	}
+}

@@ -17,10 +17,8 @@ import (
 
 // scribeInstructions is the MCP server instructions shown to clients.
 const scribeInstructions = "Work artifact graph + knowledge vault. " +
-	"SESSION START: knowledge(action=orient) for vault map, knowledge(action=catalog) to browse all artifacts, admin(action=motd) for work context. " +
-	"You are the compiler: ingest reads sources and extracts notes, synthesize compiles related notes, file answers back as notes. " +
-	"Knowledge: orient | catalog | lint | capture | promote | daily | backlinks | ingest | synthesize | export_vault | import_vault. " +
-	"Work: artifact(create|get|list|search|set|archive) graph(tree|link|briefing) admin(motd|detect|vacuum)."
+	"SESSION START: call admin(action=motd) — it discloses your scope, active goal, and open bugs. " +
+	"You are the compiler: ingest reads sources and extracts notes, synthesize compiles related notes, file answers back as notes."
 
 // NewServer creates an MCP server exposing Scribe tools over the given store.
 // Returns both the server and a directive registry for CLI introspection.
@@ -47,7 +45,12 @@ func NewServer(s parchment.Store, homeScopes, vocab []string, idc parchment.Prot
 	destructiveHint := true
 
 	// artifact tool
-	artifactDesc := "Manage all Artifacts (Work: task/spec/bug/goal/need; Knowledge: note/concept/source/journal). Actions: create, get, list, set, archive, de-archive, attach_section, get_section, detach_section, search, recall, orient, catalog."
+	artifactDesc := "CRUD + search for work (task/spec/bug/goal) and knowledge (note/concept/source) artifacts. " +
+		"FIND: search(query=) for keyword FTS; recall(query=, top=10) for semantic — both cheaper than list. " +
+		"READ: get(id=) full artifact; get_section(id=, name=) for one section only (cheaper). " +
+		"LIST: always add scope/kind/status or top=N — bare list returns ALL artifacts and burns context. " +
+		"WRITE: create, set, attach_section, archive. " +
+		"ORIENT: orient for vault map (call after motd); catalog for full inventory."
 	var artifactSchema any
 	_ = json.Unmarshal(schemaFor[artifactInput](), &artifactSchema)
 	sdk.AddTool(&sdkmcp.Tool{
@@ -64,7 +67,11 @@ func NewServer(s parchment.Store, homeScopes, vocab []string, idc parchment.Prot
 	})
 
 	// graph tool
-	graphDesc := "Navigate and modify artifact relationships: tree, briefing, topo_sort, link, unlink, move."
+	graphDesc := "Artifact relationships and DAG traversal. " +
+		"briefing(id=) — full edge-aware context chain including parents, specs, and dependencies; use before starting work on an artifact. " +
+		"tree(id=) — direct children only, shallow. " +
+		"topo_sort — dependency-ordered work queue. " +
+		"link/unlink — add or remove edges. move — reparent an artifact."
 	var graphSchema any
 	_ = json.Unmarshal(schemaFor[graphInput](), &graphSchema)
 	sdk.AddTool(&sdkmcp.Tool{
@@ -81,7 +88,11 @@ func NewServer(s parchment.Store, homeScopes, vocab []string, idc parchment.Prot
 	})
 
 	// admin tool
-	adminDesc := "System operations: motd (session context), dashboard, vacuum, detect, correlate, ingest_session, knowledge_lint, schema."
+	adminDesc := "Session bootstrap and housekeeping. " +
+		"CALL FIRST: motd — returns scope, open bugs, active goal, and memory surface. " +
+		"CONTINUATION: motd(since=<RFC3339>) for delta only — returns only what changed since that timestamp. " +
+		"motd(compact=true) for a one-line status summary. " +
+		"dashboard for scope health and staleness. vacuum(dry_run=true) before pruning. detect for orphans/overlaps."
 	var adminSchema any
 	_ = json.Unmarshal(schemaFor[adminInput](), &adminSchema)
 	sdk.AddTool(&sdkmcp.Tool{

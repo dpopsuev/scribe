@@ -509,6 +509,15 @@ func (h *handler) handleList(ctx context.Context, _ *sdkmcp.CallToolRequest, in 
 	if off > 0 || (in.Limit > 0 && in.Limit < total) {
 		out += fmt.Sprintf("\n(showing %d of %d total)", len(arts), total)
 	}
+	// Truncation hint: warn when no filter was applied so agents don't treat a
+	// partial dump as the complete set and burn context on unfiltered responses.
+	isUnfiltered := in.Kind == "" && in.Scope == "" && in.Status == "" &&
+		in.Query == "" && in.TitleContains == "" && len(in.Labels) == 0 &&
+		len(in.LabelsOr) == 0 && in.Parent == "" && in.IDPrefix == "" &&
+		in.ExcludeKind == "" && in.ExcludeStatus == "" && in.Limit == 0
+	if isUnfiltered && total > 0 {
+		out += fmt.Sprintf("\n(%d artifacts — use top=10 for relevance ranking or add scope/kind/status filters to narrow)", total)
+	}
 	return text(out), nil, nil
 }
 
