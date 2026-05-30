@@ -17,7 +17,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -777,8 +776,19 @@ func motdCmd() *cobra.Command {
 		Use:   "motd",
 		Short: "Message of the day: due reminders, recent notes, and current goal",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, close := mustProto()
-			defer close()
+			cfg := mustConfig()
+			s, err := parchment.OpenSQLiteConfig(cfg.SQLiteConfig())
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error: open store: %v\n", err)
+				os.Exit(1)
+			}
+			defer func() { _ = s.Close() }()
+			cwd, _ := os.Getwd()
+			var homeScopes []string
+			if sc := cfg.ScopeForDir(cwd); sc != "" {
+				homeScopes = []string{sc}
+			}
+			p := parchment.New(s, cfg.Schema, homeScopes, nil, cfg.ProtocolIDConfig())
 			m, err := mcp.Motd(context.Background(), p)
 			if err != nil {
 				return err
@@ -1280,10 +1290,12 @@ func serveCmd() *cobra.Command {
 			}
 			homeScopes := scopes
 			if len(homeScopes) == 0 {
-				homeScopes = cfg.ResolvedScopes()
-			}
-			if len(homeScopes) == 0 {
-				homeScopes = detectScopes()
+				cwd, _ := os.Getwd()
+				if sc := cfg.ScopeForDir(cwd); sc != "" {
+					homeScopes = []string{sc}
+				} else {
+					homeScopes = cfg.ResolvedScopes()
+				}
 			}
 
 			idc := cfg.ProtocolIDConfig()
@@ -1296,13 +1308,6 @@ func serveCmd() *cobra.Command {
 					if len(sc.Labels) > 0 {
 						_ = s.SetScopeLabels(context.Background(), name, sc.Labels)
 					}
-				}
-			}
-
-			if ws := os.Getenv("SCRIBE_WORKSPACE"); ws != "" && cfg.Workspaces != nil {
-				if wsScopes, ok := cfg.Workspaces[ws]; ok {
-					homeScopes = wsScopes
-					slog.Info("workspace override from env", "workspace", ws, "scopes", wsScopes)
 				}
 			}
 
@@ -1332,28 +1337,8 @@ func serveCmd() *cobra.Command {
 			defer stop()
 
 			if t == "http" {
-				var serverCache sync.Map
-				serverCache.Store("", srv)
-
 				handler := sdkmcp.NewStreamableHTTPHandler(
-					func(r *http.Request) *sdkmcp.Server {
-						ws := r.URL.Query().Get("workspace")
-						if ws == "" {
-							return srv
-						}
-						if cached, ok := serverCache.Load(ws); ok {
-							return cached.(*sdkmcp.Server)
-						}
-						wsScopes, ok := cfg.Workspaces[ws]
-						if !ok {
-							slog.Warn("unknown workspace, using default", "workspace", ws)
-							return srv
-						}
-						wsSrv, _ := mcp.NewServer(s, wsScopes, nil, idc, Version)
-						serverCache.Store(ws, wsSrv)
-						slog.Info("created workspace server", "workspace", ws, "scopes", wsScopes)
-						return wsSrv
-					},
+					func(r *http.Request) *sdkmcp.Server { return srv },
 					&sdkmcp.StreamableHTTPOptions{
 						SessionTimeout: sessionTimeout(),
 					},
@@ -1410,35 +1395,6 @@ func serveCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&enablePprof, "pprof", false, "enable pprof profiling endpoint (localhost only)")
 	cmd.Flags().StringVar(&pprofAddr, "pprof-addr", "127.0.0.1:6060", "listen address for pprof")
 	return cmd
-}
-
-func detectScopes() []string {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil
-	}
-	if isGitRepo(cwd) {
-		return []string{filepath.Base(cwd)}
-	}
-	entries, err := os.ReadDir(cwd)
-	if err != nil {
-		return nil
-	}
-	var scopes []string
-	for _, e := range entries {
-		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
-			continue
-		}
-		if isGitRepo(filepath.Join(cwd, e.Name())) {
-			scopes = append(scopes, e.Name())
-		}
-	}
-	return scopes
-}
-
-func isGitRepo(dir string) bool {
-	info, err := os.Stat(filepath.Join(dir, ".git"))
-	return err == nil && info.IsDir()
 }
 
 // --- reseed / seed (store-level plumbing) ---
@@ -1671,9 +1627,10 @@ func uiCmd() *cobra.Command {
 			}
 			defer s.Close()
 
-			scopes := cfg.Scopes
-			if len(scopes) == 0 {
-				scopes = detectScopes()
+			cwd, _ := os.Getwd()
+			scopes := []string{cfg.ScopeForDir(cwd)}
+			if scopes[0] == "" {
+				scopes = cfg.ResolvedScopes()
 			}
 			proto := parchment.New(s, cfg.Schema, scopes, nil, cfg.ProtocolIDConfig())
 			uiSrv := web.NewServer(proto)

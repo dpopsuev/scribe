@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 
 	parchment "github.com/dpopsuev/parchment"
 	"gopkg.in/yaml.v3"
@@ -48,6 +49,7 @@ type DBConfig struct {
 // ScopeConfig defines per-scope settings in YAML.
 type ScopeConfig struct {
 	Key             string   `yaml:"key,omitempty"`
+	Path            string   `yaml:"path,omitempty"`
 	Labels          []string `yaml:"labels,omitempty"`
 	AllowedKinds    []string `yaml:"allowed_kinds,omitempty"`
 	DefaultPriority string   `yaml:"default_priority,omitempty"`
@@ -59,9 +61,7 @@ type Config struct {
 	LogLevel         string                 `yaml:"log_level,omitempty"`
 	Transport        string                 `yaml:"transport"`
 	Addr             string                 `yaml:"addr"`
-	Scopes           []string               `yaml:"scopes"`
 	ScopeConfigs     map[string]ScopeConfig `yaml:"scope_configs,omitempty"`
-	Workspaces       map[string][]string    `yaml:"workspaces,omitempty"`
 	Schema           *parchment.Schema      `yaml:"schema"`
 	IDFormat         string                 `yaml:"id_format"`
 	IDTemplate       *parchment.IDTemplate  `yaml:"id_template,omitempty"`
@@ -108,15 +108,13 @@ func Load(path string) (*Config, error) {
 // Resolve walks the resolution order to find and load a config file:
 //  1. explicit path (from --config flag)
 //  2. $SCRIBE_CONFIG
-//  3. ./scribe.yaml
-//  4. ~/.scribe/scribe.yaml
-//  5. no file → built-in defaults
+//  3. ~/.scribe/scribe.yaml
+//  4. no file → built-in defaults
 func Resolve(explicit string) (*Config, error) {
 	candidates := []string{explicit}
 	if v := os.Getenv("SCRIBE_CONFIG"); v != "" {
 		candidates = append(candidates, v)
 	}
-	candidates = append(candidates, "scribe.yaml")
 	if root := os.Getenv("SCRIBE_ROOT"); root != "" {
 		candidates = append(candidates, filepath.Join(root, "scribe.yaml"))
 	}
@@ -215,6 +213,9 @@ func (c *Config) ModelIDConfig() parchment.IDConfig {
 // ErrInvalidIDFormat is returned when the config specifies an unknown id_format.
 var ErrInvalidIDFormat = errors.New("id_format must be \"scoped\", \"uuid\", or empty")
 
+// ErrNestedScopePath is returned when one scope's path is a prefix of another's.
+var ErrNestedScopePath = errors.New("scope_configs: nested scope paths")
+
 func (c *Config) ValidateIDConfig() error {
 	if c.IDFormat != "" && c.IDFormat != "scoped" && c.IDFormat != "uuid" {
 		return fmt.Errorf("%w (got %q)", ErrInvalidIDFormat, c.IDFormat)
@@ -226,6 +227,9 @@ func (c *Config) ValidateIDConfig() error {
 		return err
 	}
 	if err := validateUniqueKeys(c.KindCodes, "kind_codes", keyPattern); err != nil {
+		return err
+	}
+	if err := c.validateScopePaths(); err != nil {
 		return err
 	}
 	return nil
@@ -288,17 +292,83 @@ func Save(cfg *Config) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
-// ResolvedScopes returns scope names from ScopeConfigs if defined, otherwise Scopes.
+// ResolvedScopes returns all scope names defined in ScopeConfigs, sorted.
 func (c *Config) ResolvedScopes() []string {
-	if len(c.ScopeConfigs) > 0 {
-		scopes := make([]string, 0, len(c.ScopeConfigs))
-		for name := range c.ScopeConfigs {
-			scopes = append(scopes, name)
-		}
-		sort.Strings(scopes)
-		return scopes
+	scopes := make([]string, 0, len(c.ScopeConfigs))
+	for name := range c.ScopeConfigs {
+		scopes = append(scopes, name)
 	}
-	return c.Scopes
+	sort.Strings(scopes)
+	return scopes
+}
+
+// ScopeForDir returns the scope whose configured path is the longest prefix of dir.
+// Returns "" when no scope has a path configured or none match.
+func (c *Config) ScopeForDir(dir string) string {
+	best, bestLen := "", 0
+	for name, sc := range c.ScopeConfigs {
+		p := expandHome(sc.Path)
+		if p == "" {
+			continue
+		}
+		if !strings.HasSuffix(p, "/") {
+			p += "/"
+		}
+		if strings.HasPrefix(dir+"/", p) && len(p) > bestLen {
+			best, bestLen = name, len(p)
+		}
+	}
+	return best
+}
+
+func expandHome(path string) string {
+	if path == "" {
+		return ""
+	}
+	if path == "~" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return path
+		}
+		return home
+	}
+	if strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return path
+		}
+		return filepath.Join(home, path[2:])
+	}
+	return path
+}
+
+func (c *Config) validateScopePaths() error {
+	type entry struct {
+		name string
+		path string
+	}
+	var paths []entry
+	for name, sc := range c.ScopeConfigs {
+		if sc.Path == "" {
+			continue
+		}
+		p := expandHome(sc.Path)
+		if !strings.HasSuffix(p, "/") {
+			p += "/"
+		}
+		paths = append(paths, entry{name, p})
+	}
+	for i, a := range paths {
+		for j, b := range paths {
+			if i == j {
+				continue
+			}
+			if strings.HasPrefix(a.path, b.path) {
+				return fmt.Errorf("%w: %q is nested under %q", ErrNestedScopePath, a.name, b.name)
+			}
+		}
+	}
+	return nil
 }
 
 // ScopePolicies converts ScopeConfigs to parchment.ScopePolicy map.
