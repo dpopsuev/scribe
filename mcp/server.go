@@ -276,7 +276,7 @@ type adminInput struct {
 	Target string `json:"target,omitempty"`
 	DryRun bool   `json:"dry_run,omitempty"`
 
-	Check   string `json:"check,omitempty" jsonschema:"orphans (default), overlaps, or all"`
+	Check   string `json:"check,omitempty" jsonschema:"orphans (default), overlaps, knowledge, eviction, or all"`
 	Status  string `json:"status,omitempty"`
 	Project string `json:"project,omitempty"`
 

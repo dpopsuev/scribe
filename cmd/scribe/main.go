@@ -721,18 +721,21 @@ func vacuumCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p, close := mustProto()
 			defer close()
-			deleted, err := p.Vacuum(context.Background(), days, scope, force)
+			result, err := p.Vacuum(context.Background(), days, scope, force)
 			if err != nil {
 				return err
 			}
-			if len(deleted) == 0 {
+			for _, id := range result.Skipped {
+				fmt.Printf("skipped %s (has incoming edges — use --force to override)\n", id)
+			}
+			if len(result.Deleted) == 0 {
 				fmt.Println("nothing to vacuum")
 				return nil
 			}
-			for _, id := range deleted {
+			for _, id := range result.Deleted {
 				fmt.Printf("deleted %s\n", id)
 			}
-			fmt.Printf("%d archived artifacts vacuumed\n", len(deleted))
+			fmt.Printf("%d archived artifacts vacuumed\n", len(result.Deleted))
 			return nil
 		},
 	}

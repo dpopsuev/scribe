@@ -19,6 +19,7 @@ const (
 	checkOverlaps  = "overlaps"
 	checkOrphans   = "orphans"
 	checkKnowledge = "knowledge"
+	checkEviction  = "eviction"
 )
 
 func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, in adminInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocyclo,cyclop,gocritic // dispatch switch; hugeParam: value semantics intentional
@@ -454,7 +455,39 @@ func (h *handler) handleDetect(ctx context.Context, _ *sdkmcp.CallToolRequest, i
 		}
 	}
 
+	if check == checkEviction {
+		ePart, err := h.detectEviction(ctx, in.Scope)
+		if err != nil {
+			return nil, nil, err
+		}
+		parts = append(parts, ePart)
+	}
+
 	return text(strings.Join(parts, "\n\n")), nil, nil
+}
+
+func (h *handler) detectEviction(ctx context.Context, scope string) (string, error) {
+	candidates, err := h.proto.DetectEvictionCandidates(ctx, parchment.EvictionPolicy{
+		MinAgeDays:        30,
+		RecencyWindowDays: 90,
+		Scope:             scope,
+	})
+	if err != nil {
+		return "", err
+	}
+	if len(candidates) == 0 {
+		return "No eviction candidates found.", nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d eviction candidate(s):\n\n", len(candidates))
+	for _, c := range candidates {
+		fmt.Fprintf(&b, "%-16s %-10s [%s] %s\n  reason: %s\n  tensor: access=%.2f structural=%.2f quality=%.2f recency=%.2f\n\n",
+			c.Artifact.ID, string(c.Label), c.Artifact.Status, c.Artifact.Title,
+			c.Reason,
+			c.Tensor.AccessHeat, c.Tensor.StructuralHeat, c.Tensor.QualityScore, c.Tensor.Recency,
+		)
+	}
+	return b.String(), nil
 }
 
 
