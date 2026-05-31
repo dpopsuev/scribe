@@ -231,7 +231,7 @@ type edgeInput struct {
 
 // knowledgeInput defines the input schema for the knowledge tool.
 type knowledgeInput struct {
-	Action string `json:"action" jsonschema:"required,orient | catalog | lint | capture | promote | daily | backlinks | export_vault | import_vault | ingest | synthesize | ingest_session | recall | session_start | session_commit | session_diff | session_merge"`
+	Action string `json:"action" jsonschema:"required,lint | capture | promote | daily | backlinks | export_vault | import_vault | ingest | synthesize | ingest_session | recall | session_start | session_commit | session_diff | session_merge"`
 
 	// capture: create a fleeting note
 	Title  string   `json:"title,omitempty" jsonschema:"note title (required for capture)"`
