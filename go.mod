@@ -11,6 +11,8 @@ require (
 )
 
 require (
+	github.com/dpopsuev/ordo v0.1.2 // indirect
+	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	modernc.org/sqlite v1.48.1 // indirect
