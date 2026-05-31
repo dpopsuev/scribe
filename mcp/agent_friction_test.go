@@ -31,7 +31,7 @@ import (
 func newFrictionServer(t *testing.T) func(tool string, args map[string]any) string {
 	t.Helper()
 	s := openStore(t)
-	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "v0")
+	srv, _ := scribemcp.NewServerFromStore(s, []string{"test"}, parchment.ProtocolConfig{}, "v0")
 	cs := connectClient(t, srv)
 	return func(tool string, args map[string]any) string {
 		return callTool(t, cs, tool, args)
@@ -154,7 +154,7 @@ func TestArtifact_Create_TemplatePartialDraft_Accepted(t *testing.T) {
 	tplStore := parchment.NewMemoryStore()
 	_ = tplStore
 
-	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "v0")
+	srv, _ := scribemcp.NewServerFromStore(s, []string{"test"}, parchment.ProtocolConfig{}, "v0")
 	cs := connectClient(t, srv)
 
 	// First create the template
@@ -221,7 +221,7 @@ func TestArtifact_Promote_TemplateConformanceEnforced(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 
-	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "v0")
+	srv, _ := scribemcp.NewServerFromStore(s, []string{"test"}, parchment.ProtocolConfig{}, "v0")
 	cs := connectClient(t, srv)
 	proto := parchment.New(s, nil, []string{"test"}, nil, parchment.ProtocolConfig{})
 

@@ -42,7 +42,7 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 	case "dashboard":
 		return h.handleDashboard(ctx, req, dashboardInput{StaleDays: in.StaleDays})
 	case "set_goal":
-		return h.handleSetGoal(ctx, req, SetGoalInput{
+		return h.handleSetGoal(ctx, req, service.SetGoalInput{
 			Title: in.Title, Scope: in.Scope, Kind: in.Kind,
 		})
 	case "detect":
@@ -99,7 +99,7 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 	}
 }
 
-func (h *handler) handleSetGoal(ctx context.Context, _ *sdkmcp.CallToolRequest, in SetGoalInput) (*sdkmcp.CallToolResult, any, error) {
+func (h *handler) handleSetGoal(ctx context.Context, _ *sdkmcp.CallToolRequest, in service.SetGoalInput) (*sdkmcp.CallToolResult, any, error) {
 	res, err := h.svc.SetGoal(ctx, in)
 	if err != nil {
 		return nil, nil, err

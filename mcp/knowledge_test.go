@@ -20,13 +20,7 @@ import (
 func newKnowledgeServer(t *testing.T) func(map[string]any) string {
 	t.Helper()
 	s := openStore(t)
-	srv, _ := scribemcp.NewServer(
-		s,
-		[]string{"test"},
-		nil,
-		parchment.ProtocolConfig{},
-		"test",
-	)
+	srv, _ := scribemcp.NewServerFromStore(s, []string{"test"}, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
 	// Route to canonical tool based on action.
@@ -331,7 +325,7 @@ func TestKnowledge_EagerWikilinks(t *testing.T) {
 func TestKnowledge_EagerWikilinks_OnAttachSection(t *testing.T) {
 	t.Skip("uses export_vault which moved to CLI")
 	s := openStore(t)
-	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
+	srv, _ := scribemcp.NewServerFromStore(s, []string{"test"}, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 	knowledge := func(args map[string]any) string { return callTool(t, cs, "knowledge", args) }
 	artifact := func(args map[string]any) string { return callTool(t, cs, "artifact", args) }

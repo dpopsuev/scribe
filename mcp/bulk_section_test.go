@@ -10,7 +10,7 @@ import (
 
 func TestBulkSectionUpdate_ReplacesInAllSections(t *testing.T) {
 	s := openStore(t)
-	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
+	srv, _ := scribemcp.NewServerFromStore(s, []string{"test"}, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 	call := func(args map[string]any) string { return callTool(t, cs, "artifact", args) }
 
@@ -47,7 +47,7 @@ func TestBulkSectionUpdate_ReplacesInAllSections(t *testing.T) {
 
 func TestBulkSectionUpdate_NoMatchIsNoop(t *testing.T) {
 	s := openStore(t)
-	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
+	srv, _ := scribemcp.NewServerFromStore(s, []string{"test"}, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 	call := func(args map[string]any) string { return callTool(t, cs, "artifact", args) }
 

@@ -12,7 +12,7 @@ import (
 func newLintServer(t *testing.T) func(map[string]any) string {
 	t.Helper()
 	s := openStore(t)
-	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
+	srv, _ := scribemcp.NewServerFromStore(s, []string{"test"}, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 	return func(args map[string]any) string {
 		action, _ := args["action"].(string)

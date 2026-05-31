@@ -20,7 +20,7 @@ func newDeArchiveServer(t *testing.T) (proto *parchment.Protocol, call func(stri
 	t.Helper()
 	s := openStore(t)
 	proto = parchment.New(s, nil, []string{"test"}, nil, parchment.ProtocolConfig{})
-	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "v0")
+	srv, _ := scribemcp.NewServerFromStore(s, []string{"test"}, parchment.ProtocolConfig{}, "v0")
 	cs := connectClient(t, srv)
 	call = func(tool string, args map[string]any) string {
 		return callTool(t, cs, tool, args)

@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	parchment "github.com/dpopsuev/parchment"
-	"github.com/dpopsuev/scribe/mcp"
+	"github.com/dpopsuev/scribe/service"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/renderer/html"
@@ -24,12 +24,17 @@ var md = goldmark.New(
 
 type Server struct {
 	proto *parchment.Protocol
+	svc   *service.Service
 	pages map[string]*template.Template
 	mux   *http.ServeMux
 }
 
 func NewServer(proto *parchment.Protocol) *Server {
-	s := &Server{proto: proto, pages: make(map[string]*template.Template)}
+	s := &Server{
+		proto: proto,
+		svc:   service.New(proto, nil, nil),
+		pages: make(map[string]*template.Template),
+	}
 
 	funcMap := template.FuncMap{
 		"renderMarkdown": renderMarkdown,
@@ -63,7 +68,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	inv, err := mcp.Inventory(r.Context(), s.proto)
+	inv, err := s.svc.Inventory(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

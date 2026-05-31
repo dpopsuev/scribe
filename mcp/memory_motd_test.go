@@ -21,7 +21,7 @@ func newMemoryServer(t *testing.T) (proto *parchment.Protocol, callAdmin, callKn
 	t.Helper()
 	s := openStore(t)
 	proto = parchment.New(s, parchment.KnowledgeSchema(), []string{"test"}, nil, parchment.ProtocolConfig{})
-	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "v0")
+	srv, _ := scribemcp.NewServerFromStore(s, []string{"test"}, parchment.ProtocolConfig{}, "v0")
 	cs := connectClient(t, srv)
 	callAdmin = func(args map[string]any) string {
 		return callTool(t, cs, "admin", args)

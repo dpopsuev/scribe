@@ -22,7 +22,7 @@ func newRecallServer(t *testing.T) (proto *parchment.Protocol, call func(map[str
 	t.Helper()
 	s := openStore(t)
 	proto = parchment.New(s, parchment.KnowledgeSchema(), []string{"test"}, nil, parchment.ProtocolConfig{})
-	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "v0")
+	srv, _ := scribemcp.NewServerFromStore(s, []string{"test"}, parchment.ProtocolConfig{}, "v0")
 	cs := connectClient(t, srv)
 	call = func(args map[string]any) string {
 		return callTool(t, cs, "artifact", args)

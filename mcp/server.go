@@ -24,25 +24,25 @@ const scribeInstructions = "Work artifact graph + knowledge vault. " +
 // NewServer creates an MCP server exposing Scribe tools over the given store.
 // Returns both the server and a directive registry for CLI introspection.
 // Built on battery/mcp framework — auto-Observable, panic recovery, result helpers.
-func NewServer(s parchment.Store, homeScopes, vocab []string, idc parchment.ProtocolConfig, version string, snapshotter ...*parchment.Snapshotter) (*sdkmcp.Server, *directive.Registry) {
+// svc must be constructed via service.Open — both CLI and MCP use the same factory
+// so Protocol configuration, homeScopes, and schema are identical across surfaces.
+func NewServer(svc *service.Service, vocab []string, version string) (*sdkmcp.Server, *directive.Registry) {
 	batt := battmcp.NewServer("scribe", version).
 		WithInstructions(scribeInstructions)
 
 	reg := directive.New()
-	var snap *parchment.Snapshotter
-	if len(snapshotter) > 0 && snapshotter[0] != nil {
-		snap = snapshotter[0]
-	}
 	sid := newSessionID()
-	proto := parchment.New(s, nil, homeScopes, vocab, idc)
-	svc := service.New(proto, snap, homeScopes)
+	var store parchment.Store
+	if svc.Proto != nil {
+		store = svc.Proto.Store()
+	}
 	h := &handler{
-		proto:       proto,
+		proto:       svc.Proto,
 		svc:         svc,
-		snapshotter: snap,
+		snapshotter: svc.Snapshotter,
 		version:     version,
-		homeScopes:  homeScopes,
-		readLog:     loadReadLog(context.Background(), s, proto, sid),
+		homeScopes:  svc.HomeScopes,
+		readLog:     loadReadLog(context.Background(), store, svc.Proto, sid),
 		sessionID:   sid,
 	}
 
@@ -120,8 +120,16 @@ func NewServer(s parchment.Store, homeScopes, vocab []string, idc parchment.Prot
 // ToolRegistry returns a populated directive registry without requiring
 // a database connection. Useful for CLI introspection (scribe tools).
 func ToolRegistry() *directive.Registry {
-	_, reg := NewServer(nil, nil, nil, parchment.ProtocolConfig{}, "dev")
+	_, reg := NewServer(service.New(nil, nil, nil), nil, "dev")
 	return reg
+}
+
+// NewServerFromStore constructs a Server from a raw store + config — used by
+// tests that open a store directly rather than going through service.Open.
+func NewServerFromStore(s parchment.Store, homeScopes []string, idc parchment.ProtocolConfig, version string) (*sdkmcp.Server, *directive.Registry) {
+	proto := parchment.New(s, nil, homeScopes, nil, idc)
+	svc := service.New(proto, nil, homeScopes)
+	return NewServer(svc, nil, version)
 }
 
 type handler struct {

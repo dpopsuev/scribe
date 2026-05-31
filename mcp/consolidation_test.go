@@ -31,7 +31,7 @@ func newConsolidatedServer(t *testing.T) (proto *parchment.Protocol, callArtifac
 			"template", "conformance", "setfield", "recall", "archive", "knowledge",
 		}),
 	})
-	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{
+	srv, _ := scribemcp.NewServerFromStore(s, []string{"test"}, parchment.ProtocolConfig{
 		EmbedFunc: parchment.SemanticEmbeddingFunc([]string{
 			"template", "conformance", "setfield", "recall", "archive", "knowledge",
 		}),

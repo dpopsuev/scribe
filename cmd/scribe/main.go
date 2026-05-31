@@ -24,6 +24,7 @@ import (
 	"github.com/dpopsuev/scribe/config"
 	"github.com/dpopsuev/scribe/directive"
 	"github.com/dpopsuev/scribe/mcp"
+	"github.com/dpopsuev/scribe/service"
 	"github.com/dpopsuev/scribe/web"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
@@ -113,6 +114,18 @@ func mustProto() (proto *parchment.Protocol, cleanup func()) {
 		os.Exit(1)
 	}
 	return parchment.New(s, nil, nil, nil, cfg.ProtocolIDConfig()), func() { _ = s.Close() }
+}
+
+// mustService is the single construction path for CLI commands.
+// Uses service.Open so homeScopes and schema loading are identical to the MCP server.
+func mustService() (svc *service.Service, cleanup func()) {
+	cfg := mustConfig()
+	s, cl, err := service.Open(cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	return s, cl
 }
 
 func mustStore() *parchment.SQLiteStore {
@@ -587,16 +600,16 @@ func goalCmd() *cobra.Command {
 		Use:   "goal",
 		Short: "Manage the current goal (short-term north star)",
 	}
-	var in mcp.SetGoalInput
+	var in service.SetGoalInput
 	setGoalCmd := &cobra.Command{
 		Use:   "set <title>",
 		Short: "Set the current goal (retires any previous, creates a root delivery artifact)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, close := mustProto()
+			svc, close := mustService()
 			defer close()
 			in.Title = args[0]
-			res, err := mcp.SetGoal(context.Background(), p, in)
+			res, err := svc.SetGoal(context.Background(), in)
 			if err != nil {
 				return err
 			}
@@ -615,9 +628,9 @@ func goalCmd() *cobra.Command {
 		Use:   "show",
 		Short: "Show the current goal",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, close := mustProto()
+			svc, close := mustService()
 			defer close()
-			m, _ := mcp.Motd(context.Background(), p)
+			m, _ := svc.Motd(context.Background())
 			if len(m.Goals) == 0 {
 				fmt.Println("no current goal set")
 				return nil
@@ -738,9 +751,9 @@ func dfCmd() *cobra.Command {
 		Use:   "df",
 		Short: "Housekeeping dashboard: storage, staleness, scope health",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, close := mustProto()
+			svc, close := mustService()
 			defer close()
-			report, err := mcp.Dashboard(context.Background(), p, staleDays)
+			report, err := svc.Dashboard(context.Background(), staleDays)
 			if err != nil {
 				return err
 			}
@@ -777,19 +790,17 @@ func motdCmd() *cobra.Command {
 		Short: "Message of the day: due reminders, recent notes, and current goal",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg := mustConfig()
-			s, err := parchment.OpenSQLiteConfig(cfg.SQLiteConfig())
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "error: open store: %v\n", err)
-				os.Exit(1)
-			}
-			defer func() { _ = s.Close() }()
 			cwd, _ := os.Getwd()
 			var homeScopes []string
 			if sc := cfg.ScopeForDir(cwd); sc != "" {
 				homeScopes = []string{sc}
 			}
-			p := parchment.New(s, nil, homeScopes, nil, cfg.ProtocolIDConfig())
-			m, err := mcp.Motd(context.Background(), p)
+			svc, closeDB, err := service.Open(cfg, homeScopes)
+			if err != nil {
+				return err
+			}
+			defer closeDB()
+			m, err := svc.Motd(context.Background())
 			if err != nil {
 				return err
 			}
@@ -834,7 +845,9 @@ func drainCmd() *cobra.Command {
 		Short: "List .md files under a directory for agent-driven migration",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			entries, err := mcp.DrainDiscover(context.Background(), args[0])
+			svc, close := mustService()
+			defer close()
+			entries, err := svc.DrainDiscover(context.Background(), args[0])
 			if err != nil {
 				return err
 			}
@@ -862,7 +875,9 @@ func drainCmd() *cobra.Command {
 		Short: "Delete .md files under a directory after migration",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			n, err := mcp.DrainCleanup(context.Background(), args[0])
+			svc, close := mustService()
+			defer close()
+			n, err := svc.DrainCleanup(context.Background(), args[0])
 			if err != nil {
 				return err
 			}
@@ -882,9 +897,9 @@ func inventoryCmd() *cobra.Command {
 		Use:   "inventory",
 		Short: "Show a dashboard summary of all artifacts",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, close := mustProto()
+			svc, close := mustService()
 			defer close()
-			inv, err := mcp.Inventory(context.Background(), p)
+			inv, err := svc.Inventory(context.Background())
 			if err != nil {
 				return err
 			}
@@ -1259,23 +1274,47 @@ func serveCmd() *cobra.Command {
 				"id_format", cfg.IDFormat,
 			)
 
-			s, err := parchment.OpenSQLiteConfig(cfg.SQLiteConfig())
+			// Resolve homeScopes: flag > CWD detection > config-derived.
+			homeScopes := scopes
+			if len(homeScopes) == 0 {
+				cwd, _ := os.Getwd()
+				if sc := cfg.ScopeForDir(cwd); sc != "" {
+					homeScopes = []string{sc}
+				} else {
+					homeScopes = cfg.ResolvedScopes()
+				}
+			}
+
+			// Single construction path via service.Open.
+			svc, cleanup, err := service.Open(cfg, homeScopes)
 			if err != nil {
 				slog.Error("failed to open store", "db", cfg.DBPath(), "error", err)
-				return fmt.Errorf("open store: %w", err)
+				return err
 			}
-			defer s.Close()
+			defer cleanup()
 
 			// Seed once on first run; skip if templates already exist.
 			if cfg.SeedDir != "" {
-				proto := parchment.New(s, nil, nil, nil, cfg.ProtocolIDConfig())
-				templates, _ := proto.ListArtifacts(context.Background(), parchment.ListInput{Kind: "template"})
+				templates, _ := svc.Proto.ListArtifacts(context.Background(), parchment.ListInput{Kind: "template"})
 				if len(templates) == 0 {
-					result, err := proto.Seed(context.Background(), cfg.SeedDir)
+					result, err := svc.Proto.Seed(context.Background(), cfg.SeedDir)
 					if err != nil {
 						slog.Warn("auto-seed failed", "dir", cfg.SeedDir, "error", err)
 					} else if len(result.Created) > 0 {
 						slog.Info("auto-seed completed", "dir", cfg.SeedDir, "created", len(result.Created))
+					}
+				}
+			}
+
+			// Apply scope config (key + labels).
+			if len(cfg.ScopeConfigs) > 0 {
+				store := svc.Proto.Store()
+				for name, sc := range cfg.ScopeConfigs {
+					if sc.Key != "" {
+						_ = store.SetScopeKey(context.Background(), name, sc.Key, false)
+					}
+					if len(sc.Labels) > 0 {
+						_ = store.SetScopeLabels(context.Background(), name, sc.Labels)
 					}
 				}
 			}
@@ -1288,30 +1327,8 @@ func serveCmd() *cobra.Command {
 			if cmd.Flags().Changed("addr") {
 				a = addr
 			}
-			homeScopes := scopes
-			if len(homeScopes) == 0 {
-				cwd, _ := os.Getwd()
-				if sc := cfg.ScopeForDir(cwd); sc != "" {
-					homeScopes = []string{sc}
-				} else {
-					homeScopes = cfg.ResolvedScopes()
-				}
-			}
 
-			idc := cfg.ProtocolIDConfig()
-
-			if len(cfg.ScopeConfigs) > 0 {
-				for name, sc := range cfg.ScopeConfigs {
-					if sc.Key != "" {
-						_ = s.SetScopeKey(context.Background(), name, sc.Key, false)
-					}
-					if len(sc.Labels) > 0 {
-						_ = s.SetScopeLabels(context.Background(), name, sc.Labels)
-					}
-				}
-			}
-
-			srv, _ := mcp.NewServer(s, homeScopes, nil, idc, Version)
+			srv, _ := mcp.NewServer(svc, nil, Version)
 
 			slog.Info("server configured",
 				"transport", t,
@@ -1319,8 +1336,7 @@ func serveCmd() *cobra.Command {
 			)
 
 			if enableUI {
-				proto := parchment.New(s, nil, homeScopes, nil, idc) // nil → loadSchema from store
-				uiSrv := web.NewServer(proto)
+				uiSrv := web.NewServer(svc.Proto)
 				go func() {
 					slog.Info("UI listening", "addr", uiAddr)
 					if err := http.ListenAndServe(uiAddr, uiSrv); err != nil {
@@ -1621,22 +1637,19 @@ func uiCmd() *cobra.Command {
 		Short: "Start the read-only web UI (standalone, no MCP server)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg := mustConfig()
-			s, err := parchment.OpenSQLiteConfig(cfg.SQLiteConfig())
-			if err != nil {
-				return fmt.Errorf("open store: %w", err)
-			}
-			defer s.Close()
-
 			cwd, _ := os.Getwd()
-			scopes := []string{cfg.ScopeForDir(cwd)}
-			if scopes[0] == "" {
-				scopes = cfg.ResolvedScopes()
+			uiScopes := []string{cfg.ScopeForDir(cwd)}
+			if uiScopes[0] == "" {
+				uiScopes = cfg.ResolvedScopes()
 			}
-			proto := parchment.New(s, nil, scopes, nil, cfg.ProtocolIDConfig())
-			uiSrv := web.NewServer(proto)
-
+			svc, cleanup, err := service.Open(cfg, uiScopes)
+			if err != nil {
+				return err
+			}
+			defer cleanup()
+			uiSrv := web.NewServer(svc.Proto)
 			fmt.Fprintf(os.Stderr, "scribe: UI listening on %s\n", addr)
-			return http.ListenAndServe(addr, uiSrv)
+			return http.ListenAndServe(addr, uiSrv) //nolint:gosec // operator-configured address
 		},
 	}
 	cmd.Flags().StringVar(&addr, "addr", ":8082", "listen address for the web UI")

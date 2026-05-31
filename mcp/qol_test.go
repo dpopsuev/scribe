@@ -11,7 +11,7 @@ import (
 func newQoLSetup(t *testing.T) func(args map[string]any) string {
 	t.Helper()
 	s := openStore(t)
-	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "test")
+	srv, _ := scribemcp.NewServerFromStore(s, []string{"test"}, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 	return func(args map[string]any) string { return callTool(t, cs, "artifact", args) }
 }

@@ -20,7 +20,7 @@ func newCorrelateServer(t *testing.T) (proto *parchment.Protocol, call func(map[
 	t.Helper()
 	s := openStore(t)
 	proto = parchment.New(s, nil, []string{"test"}, nil, parchment.ProtocolConfig{})
-	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "v0")
+	srv, _ := scribemcp.NewServerFromStore(s, []string{"test"}, parchment.ProtocolConfig{}, "v0")
 	cs := connectClient(t, srv)
 	call = func(args map[string]any) string {
 		return callTool(t, cs, "admin", args)
@@ -167,7 +167,7 @@ func TestCorrelate_Recommendations(t *testing.T) {
 // as a valid action (agents can discover it).
 func TestCorrelate_SchemaField(t *testing.T) {
 	s := openStore(t)
-	srv, _ := scribemcp.NewServer(s, []string{"test"}, nil, parchment.ProtocolConfig{}, "v0")
+	srv, _ := scribemcp.NewServerFromStore(s, []string{"test"}, parchment.ProtocolConfig{}, "v0")
 	cs := connectClient(t, srv)
 
 	// Use the schema action to inspect the admin tool definition.
