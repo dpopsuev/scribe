@@ -10,6 +10,7 @@ import (
 	"time"
 
 	parchment "github.com/dpopsuev/parchment"
+	"github.com/dpopsuev/scribe/service"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -346,21 +347,9 @@ type getInput struct {
 	SectionFilter []string `json:"section_filter,omitempty"`
 }
 
+// filterSections delegates to service.FilterSections.
 func filterSections(art *parchment.Artifact, filter []string) {
-	if len(filter) == 0 {
-		return
-	}
-	keep := make(map[string]bool, len(filter))
-	for _, f := range filter {
-		keep[f] = true
-	}
-	filtered := art.Sections[:0]
-	for _, s := range art.Sections {
-		if keep[s.Name] {
-			filtered = append(filtered, s)
-		}
-	}
-	art.Sections = filtered
+	service.FilterSections(art, filter)
 }
 
 func (h *handler) handleGet(ctx context.Context, _ *sdkmcp.CallToolRequest, in getInput) (*sdkmcp.CallToolResult, any, error) {
@@ -369,6 +358,7 @@ func (h *handler) handleGet(ctx context.Context, _ *sdkmcp.CallToolRequest, in g
 		return nil, nil, err
 	}
 	h.readLog[in.ID] = true
+	go h.persistReadLog(context.Background()) //nolint:contextcheck,gosec // background intentional: persist must not be canceled with request
 	filterSections(art, in.SectionFilter)
 
 	score := h.proto.CompletionScore(ctx, art)
@@ -561,41 +551,8 @@ func (h *handler) handleListCount(ctx context.Context, in parchment.ListInput) (
 	return text(fmt.Sprintf("%d", len(arts))), nil, nil
 }
 
-func relevanceScore(a *parchment.Artifact) int {
-	score := 0
-	// Status weight: active > draft > complete > archived
-	switch a.Status {
-	case "active", "current", "open":
-		score += 100
-	case "draft":
-		score += 50
-	case "complete":
-		score += 10
-	}
-	// Priority weight
-	switch a.Priority {
-	case "critical":
-		score += 40
-	case "high":
-		score += 30
-	case "medium":
-		score += 20
-	case "low":
-		score += 10
-	}
-	// Recency: more recently updated scores higher (days since update)
-	if !a.UpdatedAt.IsZero() {
-		daysSince := int(time.Since(a.UpdatedAt).Hours() / 24)
-		switch {
-		case daysSince < 1:
-			score += 30
-		case daysSince < 7:
-			score += 20
-		case daysSince < 30:
-			score += 10
-		}
-	}
-	return score
+func relevanceScore(a *parchment.Artifact) float64 {
+	return service.RelevanceScore(a)
 }
 
 func (h *handler) handleListTop(ctx context.Context, in parchment.ListInput, top int) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: value semantics intentional, changing to pointer would require updating all callers
@@ -1067,6 +1024,21 @@ func (h *handler) handleGetSummary(ctx context.Context, ids []string) (*sdkmcp.C
 	}
 	data, _ := json.Marshal(results)
 	return text(string(data)), nil, nil
+}
+
+// --- readLog persistence ---
+
+// newSessionID delegates to service.NewSessionID.
+func newSessionID() string { return service.NewSessionID() }
+
+// persistReadLog delegates to service.PersistReadLog.
+func (h *handler) persistReadLog(ctx context.Context) {
+	h.svc.PersistReadLog(ctx, h.sessionID, h.readLog)
+}
+
+// loadReadLog delegates to service.LoadReadLog.
+func loadReadLog(ctx context.Context, store parchment.Store, proto *parchment.Protocol, sessionID string) map[string]bool {
+	return service.LoadReadLog(ctx, store, proto, sessionID)
 }
 
 // unmarshalInput decodes raw JSON into in, returning a populated error result on failure.

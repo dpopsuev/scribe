@@ -11,6 +11,7 @@ import (
 	"github.com/dpopsuev/battery/tool"
 	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/directive"
+	"github.com/dpopsuev/scribe/service"
 	"github.com/google/jsonschema-go/jsonschema"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -32,12 +33,17 @@ func NewServer(s parchment.Store, homeScopes, vocab []string, idc parchment.Prot
 	if len(snapshotter) > 0 && snapshotter[0] != nil {
 		snap = snapshotter[0]
 	}
+	sid := newSessionID()
+	proto := parchment.New(s, nil, homeScopes, vocab, idc)
+	svc := service.New(proto, snap, homeScopes)
 	h := &handler{
-		proto:       parchment.New(s, parchment.KnowledgeSchema(), homeScopes, vocab, idc),
+		proto:       proto,
+		svc:         svc,
 		snapshotter: snap,
 		version:     version,
 		homeScopes:  homeScopes,
-		readLog:     make(map[string]bool),
+		readLog:     loadReadLog(context.Background(), s, proto, sid),
+		sessionID:   sid,
 	}
 
 	// Build SDK directly for full MCP 2025 spec support (Title, Annotations).
@@ -120,10 +126,12 @@ func ToolRegistry() *directive.Registry {
 
 type handler struct {
 	proto       *parchment.Protocol
+	svc         *service.Service
 	snapshotter *parchment.Snapshotter
 	version     string
 	homeScopes  []string        // default scopes for operations that need a scope
 	readLog     map[string]bool // tracks which artifact IDs have been read this session
+	sessionID   string          // stable per-process ID used to persist readLog as a config artifact
 }
 
 // --- consolidated input types ---

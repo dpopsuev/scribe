@@ -112,7 +112,7 @@ func mustProto() (proto *parchment.Protocol, cleanup func()) {
 		fmt.Fprintf(os.Stderr, "error: open store: %v\n", err)
 		os.Exit(1)
 	}
-	return parchment.New(s, cfg.Schema, nil, nil, cfg.ProtocolIDConfig()), func() { s.Close() }
+	return parchment.New(s, nil, nil, nil, cfg.ProtocolIDConfig()), func() { _ = s.Close() }
 }
 
 func mustStore() *parchment.SQLiteStore {
@@ -788,7 +788,7 @@ func motdCmd() *cobra.Command {
 			if sc := cfg.ScopeForDir(cwd); sc != "" {
 				homeScopes = []string{sc}
 			}
-			p := parchment.New(s, cfg.Schema, homeScopes, nil, cfg.ProtocolIDConfig())
+			p := parchment.New(s, nil, homeScopes, nil, cfg.ProtocolIDConfig())
 			m, err := mcp.Motd(context.Background(), p)
 			if err != nil {
 				return err
@@ -1268,7 +1268,7 @@ func serveCmd() *cobra.Command {
 
 			// Seed once on first run; skip if templates already exist.
 			if cfg.SeedDir != "" {
-				proto := parchment.New(s, cfg.Schema, nil, nil, cfg.ProtocolIDConfig())
+				proto := parchment.New(s, nil, nil, nil, cfg.ProtocolIDConfig())
 				templates, _ := proto.ListArtifacts(context.Background(), parchment.ListInput{Kind: "template"})
 				if len(templates) == 0 {
 					result, err := proto.Seed(context.Background(), cfg.SeedDir)
@@ -1319,7 +1319,7 @@ func serveCmd() *cobra.Command {
 			)
 
 			if enableUI {
-				proto := parchment.New(s, parchment.KnowledgeSchema(), homeScopes, nil, idc)
+				proto := parchment.New(s, nil, homeScopes, nil, idc) // nil → loadSchema from store
 				uiSrv := web.NewServer(proto)
 				go func() {
 					slog.Info("UI listening", "addr", uiAddr)
@@ -1632,7 +1632,7 @@ func uiCmd() *cobra.Command {
 			if scopes[0] == "" {
 				scopes = cfg.ResolvedScopes()
 			}
-			proto := parchment.New(s, cfg.Schema, scopes, nil, cfg.ProtocolIDConfig())
+			proto := parchment.New(s, nil, scopes, nil, cfg.ProtocolIDConfig())
 			uiSrv := web.NewServer(proto)
 
 			fmt.Fprintf(os.Stderr, "scribe: UI listening on %s\n", addr)

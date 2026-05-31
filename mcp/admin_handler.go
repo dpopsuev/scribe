@@ -9,6 +9,7 @@ import (
 	"time"
 
 	parchment "github.com/dpopsuev/parchment"
+	"github.com/dpopsuev/scribe/service"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -81,11 +82,14 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 		// knowledge_lint: wikilink resolution, orphan detection, cluster gaps.
 		// Distinct from schema lint (admin=lint checks schema consistency).
 		return h.handleKnowledgeLint(ctx, knowledgeInput{Scope: in.Scope})
-	case "session_start", "session_commit", "session_diff", "session_merge":
-		return text(fmt.Sprintf(
-			"admin(action=%s) requires a Dolt-backed store. "+
-				"Configure scribe with DoltStore to enable session isolation.",
-			in.Action)), nil, nil
+	case "session_start":
+		return h.handleSessionStart(ctx, in)
+	case "session_commit":
+		return h.handleSessionCommit(ctx, in)
+	case "session_diff":
+		return h.handleSessionDiff(ctx, in)
+	case "session_merge":
+		return h.handleSessionMerge(ctx, in)
 	case "restore", "unarchive":
 		return nil, nil, fmt.Errorf( //nolint:err113 // agent-facing redirect
 			"admin(%s) is not supported — use artifact(action=de-archive, id=<id>) to restore an archived artifact",
@@ -96,7 +100,7 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 }
 
 func (h *handler) handleSetGoal(ctx context.Context, _ *sdkmcp.CallToolRequest, in SetGoalInput) (*sdkmcp.CallToolResult, any, error) {
-	res, err := scriveSetGoal(ctx, h.proto, in)
+	res, err := h.svc.SetGoal(ctx, in)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -136,7 +140,7 @@ type motdInput struct {
 }
 
 func (h *handler) handleMotd(ctx context.Context, _ *sdkmcp.CallToolRequest, in motdInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocyclo,funlen,nestif // motd report is inherently multi-check
-	m, err := scriveMotd(ctx, h.proto)
+	m, err := h.svc.Motd(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -377,7 +381,7 @@ func (h *handler) handleDashboard(ctx context.Context, _ *sdkmcp.CallToolRequest
 	if staleDays <= 0 {
 		staleDays = 30
 	}
-	report, err := scriveDashboard(ctx, h.proto, staleDays)
+	report, err := h.svc.Dashboard(ctx, staleDays)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -451,81 +455,7 @@ func (h *handler) handleDetect(ctx context.Context, _ *sdkmcp.CallToolRequest, i
 	return text(strings.Join(parts, "\n\n")), nil, nil
 }
 
-// detectKnowledge surfaces knowledge-specific health signals:
-//   - notes stuck as fleeting beyond the stale threshold
-//   - source artifacts that nothing has cited
-//   - context artifacts with no remembers edges
-func (h *handler) detectKnowledge(ctx context.Context, in detectInput) string {
-	staleDays := in.StaleDays
-	if staleDays == 0 {
-		staleDays = 7 // default: flag notes fleeting for more than a week
-	}
-	threshold := time.Now().AddDate(0, 0, -staleDays).Format(time.RFC3339)
 
-	var issues []string
-
-	// 1. Notes stuck as fleeting beyond threshold.
-	fleetingNotes, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{
-		Kind:          parchment.KindNote,
-		Status:        parchment.StatusFleeting,
-		Scope:         in.Scope,
-		CreatedBefore: threshold,
-	})
-	for _, art := range fleetingNotes {
-		issues = append(issues, fmt.Sprintf(
-			"%-20s %-8s [fleeting >%dd] %s",
-			art.ID, art.Kind, staleDays, art.Title,
-		))
-	}
-
-	// 2. Source artifacts with no incoming cites edges (nothing references them).
-	sources, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{
-		Kind:  parchment.KindSource,
-		Scope: in.Scope,
-	})
-	for _, art := range sources {
-		backlinks, _ := h.proto.Backlinks(ctx, art.ID, parchment.RelCites)
-		if len(backlinks) == 0 {
-			issues = append(issues, fmt.Sprintf(
-				"%-20s %-8s [no cites] %s",
-				art.ID, art.Kind, art.Title,
-			))
-		}
-	}
-
-	// 3. Context artifacts with no outgoing remembers edges (empty agent memory).
-	contexts, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{
-		Kind:  parchment.KindContext,
-		Scope: in.Scope,
-	})
-	for _, art := range contexts {
-		// Backlinks with RelRemembers direction inverted: we want outgoing
-		// (context remembers something). Use Neighbors directly.
-		neighbors, _ := h.proto.GetArtifactEdges(ctx, art.ID)
-		remembersCount := 0
-		for _, e := range neighbors {
-			if e.Relation == parchment.RelRemembers && e.Direction == "outgoing" {
-				remembersCount++
-			}
-		}
-		if remembersCount == 0 {
-			issues = append(issues, fmt.Sprintf(
-				"%-20s %-8s [no remembers] %s",
-				art.ID, art.Kind, art.Title,
-			))
-		}
-	}
-
-	if len(issues) == 0 {
-		return fmt.Sprintf("No knowledge issues (fleeting >%dd: 0, uncited sources: 0).", staleDays)
-	}
-	var b strings.Builder
-	for _, issue := range issues {
-		fmt.Fprintln(&b, issue)
-	}
-	fmt.Fprintf(&b, "%d knowledge issue(s) (staleDays=%d)", len(issues), staleDays)
-	return b.String()
-}
 
 func (h *handler) handleCheck(ctx context.Context, scope string) (*sdkmcp.CallToolResult, any, error) {
 	report, err := h.proto.Check(ctx, scope)
@@ -540,24 +470,120 @@ func (h *handler) handleCheck(ctx context.Context, scope string) (*sdkmcp.CallTo
 
 // --- rendering helpers ---
 
+// sortArtifacts delegates to service.SortArtifacts.
 func sortArtifacts(arts []*parchment.Artifact, field string) {
-	sort.Slice(arts, func(i, j int) bool {
-		switch field {
-		case "title":
-			return arts[i].Title < arts[j].Title
-		case "status":
-			return arts[i].Status < arts[j].Status
-		case "scope":
-			return arts[i].Scope < arts[j].Scope
-		case "kind":
-			return arts[i].Kind < arts[j].Kind
-		case "sprint":
-			return arts[i].Sprint < arts[j].Sprint
-		default:
-			return arts[i].ID < arts[j].ID
-		}
-	})
+	service.SortArtifacts(arts, field)
 }
 
 // handleGetSummary returns a compact summary for one or more artifacts.
 // Only id, title, kind, scope, status, priority, parent, sprint — no sections.
+
+// handleSessionStart creates a named snapshot that marks the session baseline.
+// The snapshot key is used in subsequent session_diff and session_merge calls.
+// Target field carries the session name.
+func (h *handler) handleSessionStart(ctx context.Context, in adminInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: value semantics intentional
+	if h.snapshotter == nil {
+		return nil, nil, fmt.Errorf("snapshot system not configured — cannot start session") //nolint:err113 // agent-facing
+	}
+	name := in.Target
+	if name == "" {
+		name = fmt.Sprintf("session-%d", time.Now().UnixMilli())
+	}
+	meta, err := h.snapshotter.Create(ctx, name)
+	if err != nil {
+		return nil, nil, fmt.Errorf("session_start: %w", err)
+	}
+	return text(fmt.Sprintf("session started: key=%s ts=%s artifacts=%d",
+		meta.Key, meta.Timestamp.Format(time.RFC3339), meta.Artifacts)), nil, nil
+}
+
+// handleSessionCommit is a no-op — SQLite WAL writes are already durable.
+// Returns the current snapshot key for reference.
+func (h *handler) handleSessionCommit(_ context.Context, in adminInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: value semantics intentional
+	return text(fmt.Sprintf(
+		"session committed (SQLite WAL is always durable; no explicit commit required). "+
+			"Use session_diff(target=%s) to inspect changes.", in.Target)), nil, nil
+}
+
+// handleSessionDiff reports artifacts modified since the named session snapshot.
+// Uses EventLog events since the snapshot timestamp when available, falling back
+// to Filter{UpdatedAfter: baseline} scan.
+func (h *handler) handleSessionDiff(ctx context.Context, in adminInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: value semantics intentional
+	if h.snapshotter == nil {
+		return nil, nil, fmt.Errorf("snapshot system not configured — cannot diff session") //nolint:err113 // agent-facing
+	}
+	if in.Target == "" && in.SnapshotName == "" {
+		return nil, nil, fmt.Errorf("session_diff requires target= (session name/key)") //nolint:err113 // agent-facing
+	}
+	key := in.Target
+	if key == "" {
+		key = in.SnapshotName
+	}
+
+	diff, err := h.snapshotter.Diff(ctx, key)
+	if err != nil {
+		return nil, nil, fmt.Errorf("session_diff: %w", err)
+	}
+
+	var lines []string
+	if len(diff.Added) > 0 {
+		lines = append(lines, fmt.Sprintf("added (%d): %s", len(diff.Added), strings.Join(diff.Added, ", ")))
+	}
+	if len(diff.Modified) > 0 {
+		lines = append(lines, fmt.Sprintf("modified (%d): %s", len(diff.Modified), strings.Join(diff.Modified, ", ")))
+	}
+	if len(diff.Removed) > 0 {
+		lines = append(lines, fmt.Sprintf("removed (%d): %s", len(diff.Removed), strings.Join(diff.Removed, ", ")))
+	}
+	if len(lines) == 0 {
+		return text("no changes since session baseline"), nil, nil
+	}
+	return text(strings.Join(lines, "\n")), nil, nil
+}
+
+// handleSessionMerge identifies artifacts added or modified since the session
+// snapshot and re-scopes them from the session scope into the target scope.
+// Target field carries the session key; Scope carries the destination scope.
+func (h *handler) handleSessionMerge(ctx context.Context, in adminInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: value semantics intentional
+	if h.snapshotter == nil {
+		return nil, nil, fmt.Errorf("snapshot system not configured — cannot merge session") //nolint:err113 // agent-facing
+	}
+	if in.Target == "" {
+		return nil, nil, fmt.Errorf("session_merge requires target= (session snapshot key)") //nolint:err113 // agent-facing
+	}
+	if in.Scope == "" {
+		return nil, nil, fmt.Errorf("session_merge requires scope= (destination scope)") //nolint:err113 // agent-facing
+	}
+
+	diff, err := h.snapshotter.Diff(ctx, in.Target)
+	if err != nil {
+		return nil, nil, fmt.Errorf("session_merge diff: %w", err)
+	}
+
+	toMerge := make([]string, 0, len(diff.Added)+len(diff.Modified))
+	toMerge = append(toMerge, diff.Added...)
+	toMerge = append(toMerge, diff.Modified...)
+
+	if len(toMerge) == 0 {
+		return text("nothing to merge — no changes since session baseline"), nil, nil
+	}
+
+	var merged, failed []string
+	for _, id := range toMerge {
+		_, err := h.proto.SetField(ctx, []string{id}, parchment.FieldScope, in.Scope, parchment.SetFieldOptions{Force: true})
+		if err != nil {
+			failed = append(failed, fmt.Sprintf("%s: %v", id, err))
+			continue
+		}
+		merged = append(merged, id)
+	}
+
+	var lines []string
+	if len(merged) > 0 {
+		lines = append(lines, fmt.Sprintf("merged %d artifact(s) to scope %q: %s", len(merged), in.Scope, strings.Join(merged, ", ")))
+	}
+	if len(failed) > 0 {
+		lines = append(lines, fmt.Sprintf("failed: %s", strings.Join(failed, "; ")))
+	}
+	return text(strings.Join(lines, "\n")), nil, nil
+}
