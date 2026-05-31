@@ -82,6 +82,8 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 		// knowledge_lint: wikilink resolution, orphan detection, cluster gaps.
 		// Distinct from schema lint (admin=lint checks schema consistency).
 		return h.handleKnowledgeLint(ctx, knowledgeInput{Scope: in.Scope})
+	case "context_read":
+		return h.handleContextRead(ctx, in)
 	case "session_start":
 		return h.handleSessionStart(ctx, in)
 	case "session_commit":
@@ -95,7 +97,7 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 			"admin(%s) is not supported — use artifact(action=de-archive, id=<id>) to restore an archived artifact",
 			in.Action)
 	default:
-		return nil, nil, fmt.Errorf("unknown admin action %q (valid: motd, changelog, dashboard, snapshot, set_goal, vacuum, detect, lint, check, set_scope_labels, list_scope_labels, transfer_scope, seed, schema, correlate, ingest_session, knowledge_lint, session_start, session_commit, session_diff, session_merge)", in.Action) //nolint:err113 // agent-facing hint
+		return nil, nil, fmt.Errorf("unknown admin action %q (valid: motd, changelog, dashboard, snapshot, set_goal, vacuum, detect, lint, check, set_scope_labels, list_scope_labels, transfer_scope, seed, schema, correlate, ingest_session, knowledge_lint, context_read, session_start, session_commit, session_diff, session_merge)", in.Action) //nolint:err113 // agent-facing hint
 	}
 }
 
@@ -586,4 +588,16 @@ func (h *handler) handleSessionMerge(ctx context.Context, in adminInput) (*sdkmc
 		lines = append(lines, fmt.Sprintf("failed: %s", strings.Join(failed, "; ")))
 	}
 	return text(strings.Join(lines, "\n")), nil, nil
+}
+
+func (h *handler) handleContextRead(ctx context.Context, in adminInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: consistent with all other admin handlers
+	if in.Target == "" {
+		return text("context_read requires target= (task ID)"), nil, nil
+	}
+	packet, err := h.svc.ContextRead(ctx, in.Target)
+	if err != nil {
+		return nil, nil, err
+	}
+	data, _ := json.Marshal(packet)
+	return text(string(data)), nil, nil
 }
