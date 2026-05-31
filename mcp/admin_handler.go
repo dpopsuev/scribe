@@ -98,7 +98,7 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 			"admin(%s) is not supported — use artifact(action=de-archive, id=<id>) to restore an archived artifact",
 			in.Action)
 	default:
-		return nil, nil, fmt.Errorf("unknown admin action %q (valid: motd, changelog, dashboard, snapshot, set_goal, vacuum, detect, lint, check, set_scope_labels, list_scope_labels, transfer_scope, seed, schema, correlate, ingest_session, knowledge_lint, context_read, session_start, session_commit, session_diff, session_merge)", in.Action) //nolint:err113 // agent-facing hint
+		return nil, nil, fmt.Errorf("unknown admin action %q (valid: motd, changelog, dashboard, snapshot, set_goal, detect, check, set_scope_labels, list_scope_labels, correlate, ingest_session, knowledge_lint, context_read, session_start, session_diff, session_merge)", in.Action) //nolint:err113 // agent-facing hint
 	}
 }
 
