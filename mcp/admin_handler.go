@@ -14,12 +14,14 @@ import (
 )
 
 const (
-	labelNone      = "(none)"
-	checkAll       = "all"
-	checkOverlaps  = "overlaps"
-	checkOrphans   = "orphans"
-	checkKnowledge = "knowledge"
-	checkEviction  = "eviction"
+	labelNone          = "(none)"
+	checkAll           = "all"
+	checkOverlaps      = "overlaps"
+	checkOrphans       = "orphans"
+	checkKnowledge     = "knowledge"
+	checkKnowledgeFull = "knowledge_full"
+	checkEviction      = "eviction"
+	checkSchema        = "schema"
 )
 
 func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, in adminInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocyclo,cyclop,gocritic // dispatch switch; hugeParam: value semantics intentional
@@ -45,8 +47,7 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 			Check: in.Check, Scope: in.Scope, Status: in.Status,
 			Kind: in.Kind, Project: in.Project,
 		})
-	case "check":
-		return h.handleCheck(ctx, in.Scope)
+
 	case "set_scope_labels":
 		if in.Scope == "" {
 			return nil, nil, fmt.Errorf("scope is required for set_scope_labels") //nolint:err113 // agent-facing input validation
@@ -73,10 +74,7 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 		return h.handleCorrelate(ctx, in)
 	case "ingest_session":
 		return h.handleIngestSession(ctx, knowledgeInput{Path: in.Path, Scope: in.Scope})
-	case "knowledge_lint":
-		// knowledge_lint: wikilink resolution, orphan detection, cluster gaps.
-		// Distinct from schema lint (admin=lint checks schema consistency).
-		return h.handleKnowledgeLint(ctx, knowledgeInput{Scope: in.Scope})
+
 	case "context_read":
 		return h.handleContextRead(ctx, in)
 	case "session_start":
@@ -453,6 +451,34 @@ func (h *handler) handleDetect(ctx context.Context, _ *sdkmcp.CallToolRequest, i
 		parts = append(parts, ePart)
 	}
 
+	if check == checkKnowledgeFull {
+		result, _, err := h.handleKnowledgeLint(ctx, knowledgeInput{Scope: in.Scope})
+		if err != nil {
+			return nil, nil, err
+		}
+		if result != nil {
+			for _, c := range result.Content {
+				if tc, ok := c.(*sdkmcp.TextContent); ok {
+					parts = append(parts, tc.Text)
+				}
+			}
+		}
+	}
+
+	if check == checkSchema {
+		result, _, err := h.handleCheck(ctx, in.Scope)
+		if err != nil {
+			return nil, nil, err
+		}
+		if result != nil {
+			for _, c := range result.Content {
+				if tc, ok := c.(*sdkmcp.TextContent); ok {
+					parts = append(parts, tc.Text)
+				}
+			}
+		}
+	}
+
 	return text(strings.Join(parts, "\n\n")), nil, nil
 }
 
@@ -479,8 +505,6 @@ func (h *handler) detectEviction(ctx context.Context, scope string) (string, err
 	}
 	return b.String(), nil
 }
-
-
 
 func (h *handler) handleCheck(ctx context.Context, scope string) (*sdkmcp.CallToolResult, any, error) {
 	report, err := h.proto.Check(ctx, scope)

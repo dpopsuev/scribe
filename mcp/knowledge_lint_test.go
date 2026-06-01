@@ -18,9 +18,8 @@ func newLintServer(t *testing.T) func(map[string]any) string {
 		action, _ := args["action"].(string)
 		switch action {
 		case "lint":
-			// lint → admin(knowledge_lint) for wikilinks/orphans/clusters
 			return callTool(t, cs, "admin", map[string]any{
-				"action": "knowledge_lint", "scope": args["scope"],
+				"action": "detect", "check": "knowledge_full", "scope": args["scope"],
 			})
 		case "catalog":
 			// catalog → orient (lists all knowledge artifacts grouped by kind)
