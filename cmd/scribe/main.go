@@ -62,7 +62,8 @@ func main() {
 		cmds.ImportCmd(),
 		cmds.SeedDirCmd(),
 		cmds.CapsuleCmd(),
-		cmds.LexiconCmd(),
+		cmds.SyncCmd(),
+		cmds.DaemonCmd(),
 	)
 
 	if err := root.Execute(); err != nil {
