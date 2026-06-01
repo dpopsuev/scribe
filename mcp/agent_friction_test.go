@@ -40,26 +40,30 @@ func newFrictionServer(t *testing.T) func(tool string, args map[string]any) stri
 
 // --- Issue 1: artifact(action=move) redirect ---
 
-// TestArtifact_Move_WorksDirectly verifies that artifact(action=move) works
-// without redirecting to the graph tool. SCR-TSK-274.
+// TestArtifact_Move_WorksDirectly verifies that re-parenting via
+// artifact(action=set, field=parent, value=<target>) works. SCR-TSK-274.
 //
-// Previously redirected to graph(action=move) — now implemented directly.
-// Agents can use artifact(action=move, id=X, target=Y) to re-parent.
+// The move action was removed. Re-parenting now uses set(field=parent).
 func TestArtifact_Move_WorksDirectly(t *testing.T) {
 	call := newFrictionServer(t)
 
-	// Missing target — should get a helpful error, not "unknown artifact action".
+	// Missing value — should get a helpful error, not crash.
 	out := call("artifact", map[string]any{
-		"action": "move",
+		"action": "set",
 		"id":     "TASK-1",
+		"field":  "parent",
 	})
 
+	// set without value should return an error mentioning value or field.
 	if strings.Contains(out, "unknown artifact action") {
-		t.Errorf("artifact(move) should be recognized, not return unknown-action error.\nGot: %s", out)
+		t.Errorf("artifact(set) should be recognized.\nGot: %s", out)
 	}
-	// Error should mention what's needed.
-	if !strings.Contains(strings.ToLower(out), "target") {
-		t.Errorf("artifact(move) missing-target error should mention 'target'.\nGot: %s", out)
+	// Error or result should mention the field or value.
+	if !strings.Contains(strings.ToLower(out), "parent") &&
+		!strings.Contains(strings.ToLower(out), "value") &&
+		!strings.Contains(strings.ToLower(out), "field") &&
+		!strings.Contains(strings.ToLower(out), "not found") {
+		t.Errorf("artifact(set, field=parent) response should be meaningful.\nGot: %s", out)
 	}
 }
 

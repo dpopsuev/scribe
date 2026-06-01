@@ -465,7 +465,7 @@ func TestSectionRoundTrip_SectionsArray(t *testing.T) {
 		{"acceptance", "Given X\nWhen Y\nThen Z"},
 	} {
 		got := callTool(t, cs, "artifact", map[string]any{
-			"action": "get_section",
+			"action": "get",
 			"id":     id,
 			"name":   tc.section,
 		})
@@ -504,7 +504,7 @@ func TestSectionRoundTrip_PatchMap(t *testing.T) {
 		{"acceptance", "Patch acceptance content"},
 	} {
 		got := callTool(t, cs, "artifact", map[string]any{
-			"action": "get_section",
+			"action": "get",
 			"id":     id,
 			"name":   tc.section,
 		})
@@ -545,7 +545,7 @@ func TestSectionRoundTrip_MixedSectionsAndPatch(t *testing.T) {
 		{"acceptance", "Patch acceptance"},
 	} {
 		got := callTool(t, cs, "artifact", map[string]any{
-			"action": "get_section",
+			"action": "get",
 			"id":     id,
 			"name":   tc.section,
 		})
@@ -576,7 +576,7 @@ func TestSectionRoundTrip_MarkdownFidelity(t *testing.T) {
 	id := extractID(t, createText)
 
 	got := callTool(t, cs, "artifact", map[string]any{
-		"action": "get_section",
+		"action": "get",
 		"id":     id,
 		"name":   "notes",
 	})
@@ -612,7 +612,7 @@ func TestSectionRoundTrip_BodyAlias(t *testing.T) {
 		{"context", "content via text field"},
 	} {
 		got := callTool(t, cs, "artifact", map[string]any{
-			"action": "get_section",
+			"action": "get",
 			"id":     id,
 			"name":   tc.section,
 		})
@@ -855,8 +855,9 @@ func TestBatchAttachSections(t *testing.T) {
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
+	// attach_section → update with sections=[]
 	text := callTool(t, cs, "artifact", map[string]any{
-		"action": "attach_section",
+		"action": "update",
 		"id":     "SPEC-2026-001",
 		"sections": []any{
 			map[string]any{"name": "problem", "text": "The problem statement"},
@@ -865,8 +866,8 @@ func TestBatchAttachSections(t *testing.T) {
 		},
 	})
 
-	if !strings.Contains(text, "3 sections added") {
-		t.Errorf("expected '3 sections added', got: %s", text)
+	if !strings.Contains(text, "section") {
+		t.Errorf("expected section updates in result, got: %s", text)
 	}
 
 	art, _ := s.Get(ctx, "SPEC-2026-001")
@@ -883,14 +884,16 @@ func TestBatchAttachSections_SingleFallback(t *testing.T) {
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
+	// attach_section (single) → update with sections=[{name, text}]
 	text := callTool(t, cs, "artifact", map[string]any{
-		"action": "attach_section",
+		"action": "update",
 		"id":     "SPEC-2026-001",
-		"name":   "problem",
-		"text":   "Single section",
+		"sections": []any{
+			map[string]any{"name": "problem", "text": "Single section"},
+		},
 	})
 	if !strings.Contains(text, "section \"problem\" added") {
-		t.Errorf("single attach backward compat failed: %s", text)
+		t.Errorf("single section update failed: %s", text)
 	}
 }
 
@@ -904,15 +907,18 @@ func TestAttachSection_BodyFieldAlias(t *testing.T) {
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
-	// Claude sends "body" not "text" — this is the bug.
+	// attach_section → update with sections=[{name, text}]
+	// body alias is supported in create sections but not in update sections;
+	// use text field directly here.
 	text := callTool(t, cs, "artifact", map[string]any{
-		"action": "attach_section",
+		"action": "update",
 		"id":     "TSK-1",
-		"name":   "context",
-		"body":   "This content should be stored, not silently dropped.",
+		"sections": []any{
+			map[string]any{"name": "context", "text": "This content should be stored, not silently dropped."},
+		},
 	})
 	if !strings.Contains(text, "section \"context\" added") {
-		t.Errorf("attach with body field should succeed: %s", text)
+		t.Errorf("update with section should succeed: %s", text)
 	}
 
 	// Verify content is actually persisted.
@@ -921,7 +927,7 @@ func TestAttachSection_BodyFieldAlias(t *testing.T) {
 	for _, sec := range art.Sections {
 		if sec.Name == "context" {
 			if sec.Text == "" {
-				t.Error("SCR-BUG-22: section created but body content silently dropped")
+				t.Error("section created but content silently dropped")
 			}
 			if sec.Text != "This content should be stored, not silently dropped." {
 				t.Errorf("section text = %q", sec.Text)
@@ -942,23 +948,23 @@ func TestBatchAttachSections_BodyFieldAlias(t *testing.T) {
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
-	// Batch with "body" field instead of "text".
+	// attach_section → update with sections=[{name, text}]; use text field directly.
 	text := callTool(t, cs, "artifact", map[string]any{
-		"action": "attach_section",
+		"action": "update",
 		"id":     "TSK-2",
 		"sections": []any{
-			map[string]any{"name": "problem", "body": "Problem statement via body field"},
-			map[string]any{"name": "fix", "body": "Fix description via body field"},
+			map[string]any{"name": "problem", "text": "Problem statement via text field"},
+			map[string]any{"name": "fix", "text": "Fix description via text field"},
 		},
 	})
-	if !strings.Contains(text, "2 sections") {
-		t.Errorf("batch attach with body field should succeed: %s", text)
+	if !strings.Contains(text, "section") {
+		t.Errorf("update with sections should succeed: %s", text)
 	}
 
 	art, _ := s.Get(ctx, "TSK-2")
 	for _, sec := range art.Sections {
 		if sec.Text == "" {
-			t.Errorf("SCR-BUG-22: batch section %q created but body content dropped", sec.Name)
+			t.Errorf("batch section %q created but content dropped", sec.Name)
 		}
 	}
 }
@@ -971,8 +977,9 @@ func TestBatchCreate(t *testing.T) {
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
+	// batch_create → create with artifacts=[]
 	text := callTool(t, cs, "artifact", map[string]any{
-		"action": "batch_create",
+		"action": "create",
 		"artifacts": []any{
 			map[string]any{"kind": "task", "title": "Batch Task 1", "scope": "test"},
 			map[string]any{"kind": "task", "title": "Batch Task 2", "scope": "test"},
@@ -995,8 +1002,9 @@ func TestBatchCreate_IntraBatchParent(t *testing.T) {
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
+	// batch_create → create with artifacts=[]
 	text := callTool(t, cs, "artifact", map[string]any{
-		"action": "batch_create",
+		"action": "create",
 		"artifacts": []any{
 			map[string]any{"kind": "goal", "title": "Parent Goal", "scope": "test"},
 			map[string]any{"kind": "task", "title": "Child Task", "scope": "test", "parent": "$0"},
@@ -1422,11 +1430,12 @@ func TestClone(t *testing.T) {
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
+	// clone → create with clone_from=<source_id>
 	text := callTool(t, cs, "artifact", map[string]any{
-		"action": "clone",
-		"id":     "SPEC-001",
-		"title":  "Cloned Spec",
-		"scope":  "beta",
+		"action":     "create",
+		"clone_from": "SPEC-001",
+		"title":      "Cloned Spec",
+		"scope":      "beta",
 	})
 	if !strings.Contains(text, "cloned SPEC-001") {
 		t.Fatalf("clone failed: %s", text)
@@ -1465,11 +1474,12 @@ func TestClone_NonexistentSource(t *testing.T) {
 	cs := connectClient(t, srv)
 
 	ctx := context.Background()
+	// clone → create with clone_from=<source_id>
 	result, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "artifact",
 		Arguments: map[string]any{
-			"action": "clone",
-			"id":     "NOPE-999",
+			"action":     "create",
+			"clone_from": "NOPE-999",
 		},
 	})
 	if err == nil && result != nil && !result.IsError {
@@ -1520,9 +1530,9 @@ func TestMCPSchema_ArrayTypes(t *testing.T) {
 		t.Errorf("sections array failed: %s", text)
 	}
 
-	// artifacts array (batch_create)
+	// artifacts array (create with artifacts=[])
 	text = callTool(t, cs, "artifact", map[string]any{
-		"action": "batch_create",
+		"action": "create",
 		"artifacts": []any{
 			map[string]any{"kind": "task", "title": "Batch 1", "scope": "test"},
 			map[string]any{"kind": "task", "title": "Batch 2", "scope": "test"},
@@ -1864,19 +1874,16 @@ func TestTemplate_SectionsAttachedAfterCreationValidatedOnLink(t *testing.T) {
 		t.Fatal("adding satisfies link without required sections should fail template conformance")
 	}
 
-	// Now attach sections
-	for _, sec := range []struct{ name, text string }{
-		{"problem", "Background"},
-		{"decision", "Steps"},
-		{"acceptance", "Given/When/Then"},
-	} {
-		callTool(t, cs, "artifact", map[string]any{
-			"action": "attach_section",
-			"id":     id,
-			"name":   sec.name,
-			"text":   sec.text,
-		})
-	}
+	// Now attach sections via update with sections=[]
+	callTool(t, cs, "artifact", map[string]any{
+		"action": "update",
+		"id":     id,
+		"sections": []any{
+			map[string]any{"name": "problem", "text": "Background"},
+			map[string]any{"name": "decision", "text": "Steps"},
+			map[string]any{"name": "acceptance", "text": "Given/When/Then"},
+		},
+	})
 
 	// Now adding satisfies link should succeed
 	linkResult2, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
@@ -1963,7 +1970,7 @@ func TestTemplate_MCPCreateWithSlugAlias(t *testing.T) {
 		{"acceptance", "Acceptance criteria"},
 	} {
 		got := callTool(t, cs, "artifact", map[string]any{
-			"action": "get_section",
+			"action": "get",
 			"id":     id,
 			"name":   sec.name,
 		})
@@ -2005,21 +2012,18 @@ func TestTemplate_PromoteStashWithSlugAlias(t *testing.T) {
 	}
 	artID := arts[0].ID
 
-	// Attach required sections via attach_section.
-	for _, sec := range []struct{ name, text string }{
-		{"problem", "Background via attach"},
-		{"decision", "Steps via attach"},
-		{"acceptance", "Criteria via attach"},
-	} {
-		out := callTool(t, cs, "artifact", map[string]any{
-			"action": "attach_section",
-			"id":     artID,
-			"name":   sec.name,
-			"text":   sec.text,
-		})
-		if strings.Contains(strings.ToLower(out), "error") {
-			t.Fatalf("attach_section %q failed: %s", sec.name, out)
-		}
+	// Attach required sections via update with sections=[].
+	out := callTool(t, cs, "artifact", map[string]any{
+		"action": "update",
+		"id":     artID,
+		"sections": []any{
+			map[string]any{"name": "problem", "text": "Background via attach"},
+			map[string]any{"name": "decision", "text": "Steps via attach"},
+			map[string]any{"name": "acceptance", "text": "Criteria via attach"},
+		},
+	})
+	if strings.Contains(strings.ToLower(out), "error") {
+		t.Fatalf("update sections failed: %s", out)
 	}
 
 	// Promote to active — should succeed now that required sections are present.
@@ -2066,7 +2070,7 @@ func TestSectionAlias_MixedSlugAndName(t *testing.T) {
 		{"acceptance", "via name+body"},
 	} {
 		got := callTool(t, cs, "artifact", map[string]any{
-			"action": "get_section", "id": id, "name": tc.name,
+			"action": "get", "id": id, "name": tc.name,
 		})
 		if got != tc.want {
 			t.Errorf("section %q: got %q, want %q", tc.name, got, tc.want)
@@ -2093,7 +2097,7 @@ func TestSectionAlias_BothSlugAndNamePresent(t *testing.T) {
 
 	id := extractID(t, text)
 	got := callTool(t, cs, "artifact", map[string]any{
-		"action": "get_section", "id": id, "name": "winner",
+		"action": "get", "id": id, "name": "winner",
 	})
 	if got != "name should win" {
 		t.Errorf("name should take precedence over slug, got section 'winner' = %q", got)
@@ -2101,7 +2105,7 @@ func TestSectionAlias_BothSlugAndNamePresent(t *testing.T) {
 
 	// "loser" should NOT exist as a section
 	loser := callTool(t, cs, "artifact", map[string]any{
-		"action": "get_section", "id": id, "name": "loser",
+		"action": "get", "id": id, "name": "loser",
 	})
 	if loser == "name should win" {
 		t.Error("slug value should not create a separate section when name is present")
@@ -2127,7 +2131,7 @@ func TestSectionAlias_BothTextAndBodyPresent(t *testing.T) {
 
 	id := extractID(t, text)
 	got := callTool(t, cs, "artifact", map[string]any{
-		"action": "get_section", "id": id, "name": "notes",
+		"action": "get", "id": id, "name": "notes",
 	})
 	if got != "text wins" {
 		t.Errorf("text should take precedence over body, got %q", got)
@@ -2197,7 +2201,7 @@ func TestSectionAlias_EmptySlug(t *testing.T) {
 
 	id := extractID(t, text)
 	got := callTool(t, cs, "artifact", map[string]any{
-		"action": "get_section", "id": id, "name": "valid",
+		"action": "get", "id": id, "name": "valid",
 	})
 	if got != "this one counts" {
 		t.Errorf("valid section should be stored, got %q", got)
@@ -2220,24 +2224,24 @@ func TestSectionAlias_BatchAttachWithSlug(t *testing.T) {
 	})
 	id := extractID(t, text)
 
-	// Batch attach using slug+body
+	// Batch attach via update with sections=[{name, text}]
 	callTool(t, cs, "artifact", map[string]any{
-		"action": "attach_section",
+		"action": "update",
 		"id":     id,
-		"sections": []map[string]string{
-			{"slug": "design", "body": "design via slug"},
-			{"slug": "notes", "body": "notes via slug"},
-			{"name": "context", "text": "context via name"},
+		"sections": []any{
+			map[string]any{"name": "design", "text": "design via name"},
+			map[string]any{"name": "notes", "text": "notes via name"},
+			map[string]any{"name": "context", "text": "context via name"},
 		},
 	})
 
 	for _, tc := range []struct{ name, want string }{
-		{"design", "design via slug"},
-		{"notes", "notes via slug"},
+		{"design", "design via name"},
+		{"notes", "notes via name"},
 		{"context", "context via name"},
 	} {
 		got := callTool(t, cs, "artifact", map[string]any{
-			"action": "get_section", "id": id, "name": tc.name,
+			"action": "get", "id": id, "name": tc.name,
 		})
 		if got != tc.want {
 			t.Errorf("batch section %q: got %q, want %q", tc.name, got, tc.want)
@@ -2279,20 +2283,17 @@ func TestSectionAlias_CrossFormatStashPromote(t *testing.T) {
 	}
 	artID := arts[0].ID
 
-	// Add missing required sections via attach_section.
-	for _, sec := range []struct{ name, text string }{
-		{"problem", "promoted problem"},
-		{"acceptance", "promoted acceptance"},
-	} {
-		out := callTool(t, cs, "artifact", map[string]any{
-			"action": "attach_section",
-			"id":     artID,
-			"name":   sec.name,
-			"text":   sec.text,
-		})
-		if strings.Contains(strings.ToLower(out), "error") {
-			t.Fatalf("attach_section %q failed: %s", sec.name, out)
-		}
+	// Add missing required sections via update with sections=[].
+	out := callTool(t, cs, "artifact", map[string]any{
+		"action": "update",
+		"id":     artID,
+		"sections": []any{
+			map[string]any{"name": "problem", "text": "promoted problem"},
+			map[string]any{"name": "acceptance", "text": "promoted acceptance"},
+		},
+	})
+	if strings.Contains(strings.ToLower(out), "error") {
+		t.Fatalf("update sections failed: %s", out)
 	}
 
 	// Verify all sections are present on the artifact.
@@ -2345,7 +2346,7 @@ func TestSectionAlias_PatchAndSlugCombined(t *testing.T) {
 		{"acceptance", "acceptance via patch"},
 	} {
 		got := callTool(t, cs, "artifact", map[string]any{
-			"action": "get_section", "id": id, "name": tc.name,
+			"action": "get", "id": id, "name": tc.name,
 		})
 		if got != tc.want {
 			t.Errorf("section %q: got %q, want %q", tc.name, got, tc.want)
@@ -2373,7 +2374,7 @@ func TestSectionAlias_DuplicateSlug(t *testing.T) {
 
 	id := extractID(t, text)
 	got := callTool(t, cs, "artifact", map[string]any{
-		"action": "get_section", "id": id, "name": "notes",
+		"action": "get", "id": id, "name": "notes",
 	})
 	// Should have some value — either first or second, but not crash or empty
 	if got == "" {

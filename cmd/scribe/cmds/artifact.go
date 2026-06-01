@@ -17,14 +17,14 @@ func CreateCmd() *cobra.Command {
 		Use:   "create",
 		Short: "Create an artifact",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, cleanup := MustProto()
+			svc, cleanup := MustService()
 			defer cleanup()
 
 			if explicitID != "" {
 				in.ExplicitID = explicitID
 			}
 
-			art, err := p.CreateArtifact(context.Background(), in)
+			art, err := svc.Proto.CreateArtifact(context.Background(), in)
 			if err != nil {
 				return err
 			}
@@ -52,9 +52,9 @@ func ShowCmd() *cobra.Command {
 		Short: "Show a single artifact",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, cleanup := MustProto()
+			svc, cleanup := MustService()
 			defer cleanup()
-			art, err := p.GetArtifact(context.Background(), args[0])
+			art, err := svc.Proto.GetArtifact(context.Background(), args[0])
 			if err != nil {
 				return err
 			}
@@ -81,9 +81,9 @@ func ListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List artifacts with optional filters",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, cleanup := MustProto()
+			svc, cleanup := MustService()
 			defer cleanup()
-			arts, err := p.ListArtifacts(context.Background(), in)
+			arts, err := svc.Proto.ListArtifacts(context.Background(), in)
 			if err != nil {
 				return err
 			}
@@ -103,7 +103,7 @@ func ListCmd() *cobra.Command {
 				enc.SetIndent("", "  ")
 				return enc.Encode(arts)
 			default:
-				renderList(context.Background(), p, arts, in.GroupBy)
+				renderList(context.Background(), svc.Proto, arts, in.GroupBy)
 				return nil
 			}
 		},
@@ -153,9 +153,9 @@ func SetCmd() *cobra.Command {
 		Short: "Set a field on an artifact",
 		Args:  cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, cleanup := MustProto()
+			svc, cleanup := MustService()
 			defer cleanup()
-			results, err := p.SetField(context.Background(), []string{args[0]}, args[1], args[2])
+			results, err := svc.Proto.SetField(context.Background(), []string{args[0]}, args[1], args[2])
 			if err != nil {
 				return err
 			}
@@ -179,9 +179,9 @@ func DeleteCmd() *cobra.Command {
 		Short: "Delete an artifact (must be archived unless --force)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, cleanup := MustProto()
+			svc, cleanup := MustService()
 			defer cleanup()
-			return p.DeleteArtifact(context.Background(), args[0], force)
+			return svc.Proto.DeleteArtifact(context.Background(), args[0], force)
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "bypass archive-required guard")
@@ -196,7 +196,7 @@ func ArchiveCmd() *cobra.Command {
 		Short: "Archive artifacts (marks read-only; use --cascade for subtrees). With filter flags and no IDs, bulk-archives matching artifacts.",
 		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, cleanup := MustProto()
+			svc, cleanup := MustService()
 			defer cleanup()
 			hasFilter := scope != "" || kind != "" || status != "" || idPrefix != "" || excludeKind != ""
 			if hasFilter && len(args) == 0 {
@@ -204,7 +204,7 @@ func ArchiveCmd() *cobra.Command {
 					Scope: scope, Kind: kind, Status: status,
 					IDPrefix: idPrefix, ExcludeKind: excludeKind, DryRun: dryRun,
 				}
-				res, err := p.BulkArchive(context.Background(), in)
+				res, err := svc.Proto.BulkArchive(context.Background(), in)
 				if err != nil {
 					return err
 				}
@@ -221,7 +221,7 @@ func ArchiveCmd() *cobra.Command {
 			if len(args) == 0 {
 				return fmt.Errorf("provide IDs or filter flags (--scope, --kind, --status, --id-prefix, --exclude-kind)") //nolint:err113 // user-facing hint
 			}
-			results, err := p.ArchiveArtifact(context.Background(), args, false)
+			results, err := svc.Proto.ArchiveArtifact(context.Background(), args, false)
 			if err != nil {
 				return err
 			}

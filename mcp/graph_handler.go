@@ -16,7 +16,7 @@ const (
 	directionIncoming = "incoming"
 )
 
-func (h *handler) handleGraph(ctx context.Context, req *sdkmcp.CallToolRequest, in graphInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocyclo,cyclop,funlen // dispatch switch
+func (h *handler) handleGraph(ctx context.Context, req *sdkmcp.CallToolRequest, in graphInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocyclo,cyclop,funlen,nestif // dispatch switch
 	switch in.Action {
 	case "tree":
 		tree, err := h.proto.ArtifactTree(ctx, parchment.TreeInput{
@@ -33,6 +33,9 @@ func (h *handler) handleGraph(ctx context.Context, req *sdkmcp.CallToolRequest, 
 			ID: in.ID, Relation: in.Relation, Direction: in.Direction, Depth: in.Depth,
 		})
 	case "link":
+		if len(in.Edges) > 0 {
+			return h.handleBulkEdge(ctx, in.Edges, false)
+		}
 		if in.ID == "" {
 			return nil, nil, fmt.Errorf("id is required (source artifact ID) for link action") //nolint:err113 // agent-facing hint
 		}
@@ -56,7 +59,7 @@ func (h *handler) handleGraph(ctx context.Context, req *sdkmcp.CallToolRequest, 
 			data, _ := json.Marshal(tree)
 			return text(string(data)), nil, nil
 		}
-		return h.handleBriefing(ctx, in.ID)
+		return h.handleBriefing(ctx, in.ID, in.Depth)
 	case "topo_sort":
 		if in.ID == "" {
 			return nil, nil, fmt.Errorf("id required for topo_sort (root artifact)") //nolint:err113 // agent-facing hint
@@ -64,6 +67,41 @@ func (h *handler) handleGraph(ctx context.Context, req *sdkmcp.CallToolRequest, 
 		entries, err := h.proto.TopoSort(ctx, in.ID)
 		if err != nil && len(entries) == 0 {
 			return nil, nil, err
+		}
+		if in.Unblocked { //nolint:nestif // blocking check requires walking deps per entry
+			limit := in.Depth
+			if limit <= 0 {
+				limit = 5
+			}
+			schema := h.proto.Schema()
+			var ready []parchment.TopoEntry
+			for _, e := range entries {
+				if schema.IsTerminal(e.Status) {
+					continue
+				}
+				art, _ := h.proto.GetArtifact(ctx, e.ID)
+				if art == nil {
+					continue
+				}
+				blocked := false
+				for _, depID := range art.DependsOn {
+					dep, _ := h.proto.GetArtifact(ctx, depID)
+					if dep != nil && !schema.IsTerminal(dep.Status) {
+						blocked = true
+						break
+					}
+				}
+				if !blocked {
+					ready = append(ready, e)
+					if len(ready) >= limit {
+						break
+					}
+				}
+			}
+			if len(ready) == 0 {
+				return text("no unblocked tasks found"), nil, nil
+			}
+			entries = ready
 		}
 		if in.Format == formatJSON {
 			data, _ := json.Marshal(entries)
@@ -81,82 +119,20 @@ func (h *handler) handleGraph(ctx context.Context, req *sdkmcp.CallToolRequest, 
 			fmt.Fprintf(&b, "\n%s\n", err)
 		}
 		return text(b.String()), nil, nil
-	case "next":
-		if in.ID == "" {
-			return nil, nil, fmt.Errorf("id required for next (root artifact)") //nolint:err113 // agent-facing hint
-		}
-		limit := in.Depth // reuse depth as limit
-		if limit <= 0 {
-			limit = 5
-		}
-		entries, err := h.proto.TopoSort(ctx, in.ID)
-		if err != nil && len(entries) == 0 {
-			return nil, nil, err
-		}
-		schema := h.proto.Schema()
-		var ready []parchment.TopoEntry
-		for _, e := range entries {
-			if schema.IsTerminal(e.Status) {
-				continue
-			}
-			// Check if all depends_on are terminal
-			art, _ := h.proto.GetArtifact(ctx, e.ID)
-			if art == nil {
-				continue
-			}
-			blocked := false
-			for _, depID := range art.DependsOn {
-				dep, _ := h.proto.GetArtifact(ctx, depID)
-				if dep != nil && !schema.IsTerminal(dep.Status) {
-					blocked = true
-					break
-				}
-			}
-			if !blocked {
-				ready = append(ready, e)
-				if len(ready) >= limit {
-					break
-				}
-			}
-		}
-		if len(ready) == 0 {
-			return text("no unblocked tasks found"), nil, nil
-		}
-		var b strings.Builder
-		fmt.Fprintf(&b, "Next %d unblocked tasks:\n", len(ready))
-		for i, e := range ready {
-			fmt.Fprintf(&b, "%d. %s [%s] %s", i+1, e.ID, e.Status, e.Title)
-			if e.Priority != "" && e.Priority != priorityNone {
-				fmt.Fprintf(&b, " (%s)", e.Priority)
-			}
-			b.WriteString("\n")
-		}
-		return text(b.String()), nil, nil
 	case "unlink":
+		if len(in.Edges) > 0 {
+			return h.handleBulkEdge(ctx, in.Edges, true)
+		}
 		return h.handleLink(ctx, req, linkInput{
 			ID: in.ID, Relation: in.Relation, Targets: in.Targets, Unlink: true,
 		})
-	case "bulk_link":
-		return h.handleBulkEdge(ctx, in.Edges, false)
-	case "bulk_unlink":
-		return h.handleBulkEdge(ctx, in.Edges, true)
-	case "move":
-		if in.ID == "" || in.Target == "" {
-			return nil, nil, fmt.Errorf("id and target required for move") //nolint:err113 // agent-facing input validation
-		}
-		return h.handleMove(ctx, in.ID, in.Target)
 	case "replace":
 		if in.ID == "" || in.Relation == "" || in.OldTarget == "" || in.Target == "" {
 			return nil, nil, fmt.Errorf("id, relation, old_target, and target required for replace") //nolint:err113 // agent-facing input validation
 		}
 		return h.handleReplace(ctx, in.ID, in.Relation, in.OldTarget, in.Target)
-	case "impact":
-		if in.ID == "" {
-			return nil, nil, fmt.Errorf("id required for impact analysis") //nolint:err113 // agent-facing input validation
-		}
-		return h.handleImpact(ctx, in.ID)
 	default:
-		return nil, nil, fmt.Errorf("unknown graph action %q (valid: tree, briefing, topo_sort, link, unlink, bulk_link, bulk_unlink, move, replace, impact)", in.Action) //nolint:err113 // agent-facing hint
+		return nil, nil, fmt.Errorf("unknown graph action %q — pass via artifact tool: tree, link, unlink, topo_sort, replace", in.Action) //nolint:err113 // agent-facing hint
 	}
 }
 
@@ -171,11 +147,12 @@ func (h *handler) handleTree(ctx context.Context, _ *sdkmcp.CallToolRequest, in 
 	return text(b.String()), nil, nil
 }
 
-func (h *handler) handleBriefing(ctx context.Context, id string) (*sdkmcp.CallToolResult, any, error) {
+func (h *handler) handleBriefing(ctx context.Context, id string, depth int) (*sdkmcp.CallToolResult, any, error) {
 	tree, err := h.proto.ArtifactTree(ctx, parchment.TreeInput{
 		ID:        id,
 		Relation:  "*",
 		Direction: "both",
+		Depth:     depth,
 	})
 	if err != nil {
 		return nil, nil, err

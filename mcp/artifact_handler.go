@@ -16,13 +16,14 @@ import (
 
 func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolRequest, in artifactInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocyclo,cyclop,funlen,gocritic // dispatch switch; hugeParam: value semantics intentional
 	switch in.Action {
-	case "tree", "link", "briefing", "topo_sort", "next", "unlink", "bulk_link", "bulk_unlink", "replace", "impact":
+	case "tree", "link", "briefing", "topo_sort", "unlink", "replace": //nolint:goconst // "briefing" is an action name, not a magic string
 		return h.handleGraph(ctx, req, graphInput{
 			Action:    in.Action,
 			ID:        in.ID,
 			Relation:  in.Relation,
 			Direction: in.Direction,
 			Depth:     in.Depth,
+			Unblocked: in.Unblocked,
 			Targets:   in.Targets,
 			Target:    in.Target,
 			OldTarget: in.OldTarget,
@@ -35,6 +36,9 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 	case "create":
 		if in.StashID != "" {
 			return h.handlePromoteStash(ctx, in)
+		}
+		if in.CloneFrom != "" {
+			return h.handleCloneFrom(ctx, in)
 		}
 		if len(in.Artifacts) > 0 {
 			return h.handleBatchCreate(ctx, in)
@@ -63,13 +67,12 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 			Links: in.Links, Extra: in.Extra, CreatedAt: in.CreatedAt,
 			Sections: sections, Patch: in.Patch, SkipHooks: in.SkipHooks,
 		})
-	case "batch_create":
-		return h.handleBatchCreate(ctx, in)
-	case "clone":
-		return h.handleClone(ctx, in)
 	case "get":
 		if in.StashID != "" {
 			return h.handleInspectStash(ctx, in.StashID)
+		}
+		if in.Name != "" {
+			return h.handleGetSection(ctx, req, getSectionInput{ID: in.ID, Name: in.Name})
 		}
 		ids := in.IDs
 		if len(ids) == 0 && in.ID != "" {
@@ -78,8 +81,13 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		if len(ids) == 0 {
 			return nil, nil, fmt.Errorf("id or ids required for get action") //nolint:err113 // agent-facing input validation
 		}
-		if in.Format == "summary" {
+		switch in.Format {
+		case "summary":
 			return h.handleGetSummary(ctx, ids)
+		case "briefing":
+			return h.handleBriefing(ctx, in.ID, in.Depth)
+		case "impact":
+			return h.handleImpact(ctx, in.ID)
 		}
 		if len(ids) == 1 {
 			return h.handleGet(ctx, req, getInput{ID: ids[0], IncludeEdges: in.IncludeEdges, SectionFilter: in.SectionFilter})
@@ -117,12 +125,9 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		}
 		return h.handleBulkSetField(ctx, ids, in.Field, in.Value, in.Force)
 	case "update":
-		ids := in.IDs
-		if len(ids) == 0 && in.ID != "" {
-			ids = []string{in.ID}
-		}
+		ids := resolveIDs(in.IDs, in.ID)
 		if len(ids) == 0 {
-			return nil, nil, fmt.Errorf("id is required (artifact ID) or ids (array of artifact IDs) for update action") //nolint:err113 // agent-facing hint
+			return nil, nil, fmt.Errorf("id or ids required for update") //nolint:err113 // agent-facing hint
 		}
 		return h.handleBatchUpdate(ctx, in, ids)
 	case "archive":
@@ -155,49 +160,8 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 			return nil, nil, err
 		}
 		return text(renderResults(results, "restored to draft", "")), nil, nil
-	case "attach_section":
-		if len(in.Sections) > 0 {
-			return h.handleBatchAttachSections(ctx, in.ID, in.Sections)
-		}
-		sectionText := in.Text
-		if sectionText == "" {
-			sectionText = in.Body
-		}
-		return h.handleAttachSection(ctx, req, sectionInput{ID: in.ID, Name: in.Name, Text: sectionText})
-	case "get_section":
-		return h.handleGetSection(ctx, req, getSectionInput{ID: in.ID, Name: in.Name})
 	case "detach_section":
 		return h.handleDetachSection(ctx, req, getSectionInput{ID: in.ID, Name: in.Name})
-	case "list_sections":
-		if in.ID == "" {
-			return nil, nil, fmt.Errorf("id is required for list_sections") //nolint:err113 // agent-facing input validation
-		}
-		art, err := h.proto.GetArtifact(ctx, in.ID)
-		if err != nil {
-			return nil, nil, err
-		}
-		if len(art.Sections) == 0 {
-			return text(fmt.Sprintf("%s has no sections", in.ID)), nil, nil
-		}
-		names := make([]string, len(art.Sections))
-		for i, s := range art.Sections {
-			names[i] = s.Name
-		}
-		return text(strings.Join(names, "\n")), nil, nil
-	case "search_sections":
-		if in.Query == "" {
-			return nil, nil, fmt.Errorf("query is required for search_sections") //nolint:err113 // agent-facing input validation
-		}
-		arts, err := h.proto.SearchArtifacts(ctx, in.Query, parchment.ListInput{
-			Scope: in.Scope, Kind: in.Kind, Status: in.Status,
-		})
-		if err != nil {
-			return nil, nil, err
-		}
-		if len(arts) == 0 {
-			return text("no artifacts match"), nil, nil
-		}
-		return text(parchment.RenderTable(arts)), nil, nil
 	case "bulk_section_update":
 		if in.ID == "" {
 			return nil, nil, fmt.Errorf("id is required for bulk_section_update") //nolint:err113 // agent-facing input validation
@@ -224,61 +188,17 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 			}
 		}
 		return text(fmt.Sprintf("bulk_section_update: %d section(s) updated in %s", updated, in.ID)), nil, nil
-	case "batch_update":
-		if len(in.IDs) == 0 {
-			return nil, nil, fmt.Errorf("ids is required for batch_update") //nolint:err113 // agent-facing input validation
-		}
-		if len(in.Patch) == 0 && in.Field == "" {
-			return nil, nil, fmt.Errorf("patch or field+value is required for batch_update") //nolint:err113 // agent-facing input validation
-		}
-		var results []parchment.Result
-		if len(in.Patch) > 0 {
-			for field, value := range in.Patch {
-				r, err := h.proto.SetField(ctx, in.IDs, field, value, parchment.SetFieldOptions{Force: in.Force})
-				if err != nil {
-					return nil, nil, err
-				}
-				results = r
-			}
-		} else {
-			var err error
-			results, err = h.proto.SetField(ctx, in.IDs, in.Field, in.Value, parchment.SetFieldOptions{Force: in.Force})
-			if err != nil {
-				return nil, nil, err
-			}
-		}
-		ok, failed := 0, 0
-		for _, r := range results {
-			if r.OK {
-				ok++
-			} else {
-				failed++
-			}
-		}
-		if failed > 0 {
-			return text(fmt.Sprintf("batch_update: %d updated, %d failed", ok, failed)), nil, nil
-		}
-		return text(fmt.Sprintf("batch_update: %d updated", ok)), nil, nil
 	case "diff":
 		if in.ID == "" || in.Against == "" {
 			return nil, nil, fmt.Errorf("id and against required for diff") //nolint:err113 // agent-facing input validation
 		}
 		return h.handleDiff(ctx, in.ID, in.Against)
-	case "move":
-		if in.ID == "" || in.Target == "" {
-			return nil, nil, fmt.Errorf("id and target are required for move — use move(id=<child>, target=<new-parent>)") //nolint:err113 // agent-facing input validation
-		}
-		return h.handleMove(ctx, in.ID, in.Target)
 	case "recall":
 		return h.handleRecall(ctx, knowledgeInput{Query: in.Query, Scope: in.Scope})
 	case "orient":
-		// orient: alias for list(family=knowledge) with overview formatting. Not advertised — use list.
 		return h.handleKnowledgeOrient(ctx, knowledgeInput{Scope: in.Scope})
-	case "catalog":
-		// catalog: alias for list(family=knowledge, group_by=kind). Not advertised — use list.
-		return h.handleKnowledgeCatalog(ctx, knowledgeInput{Scope: in.Scope})
 	default:
-		return nil, nil, fmt.Errorf("unknown artifact action %q (valid: create, batch_create, clone, get, list, recall, set, update, archive, de-archive, retire, attach_section, get_section, detach_section, list_sections, search_sections, bulk_section_update, batch_update, diff, move, orient, catalog, tree, briefing, link, unlink, bulk_link, bulk_unlink, topo_sort, next, impact, replace)", in.Action) //nolint:err113 // agent-facing hint
+		return nil, nil, fmt.Errorf("unknown artifact action %q (valid: create, get, list, set, update, archive, de-archive, retire, detach_section, bulk_section_update, diff, recall, orient, tree, briefing, link, unlink, topo_sort, replace)", in.Action) //nolint:err113 // agent-facing hint
 	}
 }
 
@@ -689,7 +609,7 @@ func (h *handler) handleBatchAttachSections(ctx context.Context, id string, sect
 	return text(fmt.Sprintf("%s: %d sections added, %d replaced", id, added, replaced)), nil, nil
 }
 
-func (h *handler) handleBatchUpdate(ctx context.Context, in artifactInput, ids []string) (*sdkmcp.CallToolResult, any, error) { //nolint:gocyclo,gocritic // pre-existing complexity; hugeParam: value semantics intentional
+func (h *handler) handleBatchUpdate(ctx context.Context, in artifactInput, ids []string) (*sdkmcp.CallToolResult, any, error) { //nolint:gocyclo,gocritic,nestif // dispatch; hugeParam: value semantics intentional
 	// Build field map — patch map takes precedence, then individual fields
 	fieldMap := map[string]string{}
 	for k, v := range in.Patch {
@@ -720,8 +640,9 @@ func (h *handler) handleBatchUpdate(ctx context.Context, in artifactInput, ids [
 		fieldMap["kind"] = in.Kind
 	}
 
-	if len(fieldMap) == 0 && len(in.Sections) == 0 {
-		return nil, nil, fmt.Errorf("update requires at least one field or section to change") //nolint:err113 // agent-facing input validation
+	hasSectionReplace := in.Query != "" && (in.Text != "" || in.Body != "")
+	if len(fieldMap) == 0 && len(in.Sections) == 0 && !hasSectionReplace {
+		return nil, nil, fmt.Errorf("update requires at least one field, section, or query+text for find-replace") //nolint:err113 // agent-facing input validation
 	}
 
 	var lines []string
@@ -751,11 +672,38 @@ func (h *handler) handleBatchUpdate(ctx context.Context, in artifactInput, ids [
 				lines = append(lines, fmt.Sprintf("%s -> error: section %q: %v", id, name, err))
 				continue
 			}
+			if t != "" {
+				_, _ = h.proto.SyncWikilinks(ctx, id)
+			}
 			action := "added"
 			if replaced {
 				action = "replaced"
 			}
 			lines = append(lines, fmt.Sprintf("%s: section %q %s", id, name, action))
+		}
+
+		if hasSectionReplace { //nolint:nestif // find-replace path is inherently branchy
+			replacement := in.Text
+			if replacement == "" {
+				replacement = in.Body
+			}
+			art, err := h.proto.GetArtifact(ctx, id)
+			if err != nil {
+				lines = append(lines, fmt.Sprintf("%s -> error: %v", id, err))
+				continue
+			}
+			updated := 0
+			for _, sec := range art.Sections {
+				if strings.Contains(sec.Text, in.Query) {
+					newText := strings.ReplaceAll(sec.Text, in.Query, replacement)
+					if _, err := h.proto.AttachSection(ctx, id, sec.Name, newText); err != nil {
+						lines = append(lines, fmt.Sprintf("%s -> error: section %q: %v", id, sec.Name, err))
+						continue
+					}
+					updated++
+				}
+			}
+			lines = append(lines, fmt.Sprintf("%s: %d section(s) updated", id, updated))
 		}
 	}
 
@@ -822,6 +770,11 @@ func (h *handler) handleBatchCreate(ctx context.Context, in artifactInput) (*sdk
 		b.WriteString("\n")
 	}
 	return text(b.String()), nil, nil
+}
+
+func (h *handler) handleCloneFrom(ctx context.Context, in artifactInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: value semantics intentional
+	in.ID = in.CloneFrom
+	return h.handleClone(ctx, in)
 }
 
 func (h *handler) handleClone(ctx context.Context, in artifactInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: value semantics intentional

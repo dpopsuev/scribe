@@ -24,10 +24,10 @@ func TestArtifactMove_ReparentsAtomically(t *testing.T) {
 		"sections": []map[string]string{{"name": "context", "text": "x"}},
 	}))
 
-	// artifact(action=move) should work — not redirect to graph tool.
-	out := call(map[string]any{"action": "move", "id": child, "target": parentB})
-	if strings.Contains(out, "use graph(action=move") {
-		t.Fatalf("artifact(action=move) should not redirect to graph tool, got: %s", out)
+	// Re-parent via set(field=parent).
+	out := call(map[string]any{"action": "set", "id": child, "field": "parent", "value": parentB})
+	if strings.Contains(strings.ToLower(out), "error") {
+		t.Fatalf("set(field=parent) should succeed, got: %s", out)
 	}
 
 	// Verify parent field updated.

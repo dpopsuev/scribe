@@ -23,8 +23,11 @@ func newLintServer(t *testing.T) func(map[string]any) string {
 				"action": "knowledge_lint", "scope": args["scope"],
 			})
 		case "catalog":
-			// catalog is now a direct artifact action
-			return callTool(t, cs, "artifact", args)
+			// catalog → orient (lists all knowledge artifacts grouped by kind)
+			return callTool(t, cs, "artifact", map[string]any{
+				"action": "orient",
+				"scope":  args["scope"],
+			})
 		case "capture", "promote", "daily", "recall", "backlinks", "ingest", "synthesize":
 			return callTool(t, cs, "artifact", translateKnowledgeToArtifact(args))
 		default:

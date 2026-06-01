@@ -125,7 +125,7 @@ type handler struct {
 // --- consolidated input types ---
 
 type artifactInput struct {
-	Action string `json:"action" jsonschema:"required,create | batch_create | clone | get | list | set | update | archive | de-archive | retire | attach_section | get_section | detach_section | list_sections | search_sections | bulk_section_update | batch_update | move | diff | recall | tree | briefing | link | unlink | bulk_link | bulk_unlink | topo_sort | next | impact | replace"`
+	Action string `json:"action" jsonschema:"required,create | get | list | set | update | archive | de-archive | retire | detach_section | bulk_section_update | diff | recall | orient | tree | briefing | link | unlink | topo_sort | replace"`
 
 	ID     string `json:"id,omitempty"`
 	Target string `json:"target,omitempty" jsonschema:"new parent ID (move)"`
@@ -184,29 +184,32 @@ type artifactInput struct {
 	Patch        map[string]string `json:"patch,omitempty" jsonschema:"{field: value} pairs for batch_update"`
 	Artifacts    []map[string]any  `json:"artifacts,omitempty"`
 	SkipHooks    bool              `json:"skip_hooks,omitempty"`
-	StashID      string            `json:"stash_id,omitempty"`
+	StashID      string            `json:"stash_id,omitempty" jsonschema:"get: inspect stash; create: promote stash"`
+	CloneFrom    string            `json:"clone_from,omitempty" jsonschema:"create: source artifact ID to clone from"`
 	IncludeEdges bool              `json:"include_edges,omitempty"`
 	CreatedAt    string            `json:"created_at,omitempty"`
 	Prefix       string            `json:"prefix,omitempty"`
 
 	Relation  string      `json:"relation,omitempty" jsonschema:"parent_of, depends_on, follows, justifies, implements, documents"`
 	Direction string      `json:"direction,omitempty" jsonschema:"outbound (default) or inbound"`
-	Depth     int         `json:"depth,omitempty" jsonschema:"max traversal depth (0 = unlimited)"`
+	Depth     int         `json:"depth,omitempty" jsonschema:"tree/briefing: max depth; topo_sort: max results when unblocked=true"`
+	Unblocked bool        `json:"unblocked,omitempty" jsonschema:"topo_sort: return only unblocked ready tasks"`
 	Targets   []string    `json:"targets,omitempty"`
 	OldTarget string      `json:"old_target,omitempty"`
-	Edges     []edgeInput `json:"edges,omitempty"`
+	Edges     []edgeInput `json:"edges,omitempty" jsonschema:"link/unlink bulk mode: [{from, relation, to}]"`
 }
 
 type graphInput struct {
-	Action    string      `json:"action" jsonschema:"required,tree | briefing | topo_sort | next | link | unlink | bulk_link | bulk_unlink | move | replace | impact"`
-	ID        string      `json:"id,omitempty" jsonschema:"root ID for tree/briefing, or source for link/unlink/move/replace"`
+	Action    string      `json:"action" jsonschema:"required,tree | briefing | topo_sort | link | unlink | replace"`
+	ID        string      `json:"id,omitempty"`
 	Relation  string      `json:"relation,omitempty" jsonschema:"parent_of, depends_on, follows, justifies, implements, documents"`
 	Direction string      `json:"direction,omitempty" jsonschema:"outbound (default) or inbound"`
-	Depth     int         `json:"depth,omitempty" jsonschema:"max traversal depth (0 = unlimited)"`
+	Depth     int         `json:"depth,omitempty" jsonschema:"max traversal depth (0 = unlimited); topo_sort: max results when unblocked=true"`
+	Unblocked bool        `json:"unblocked,omitempty" jsonschema:"topo_sort: return only unblocked ready tasks"`
 	Targets   []string    `json:"targets,omitempty"`
-	Target    string      `json:"target,omitempty" jsonschema:"new parent ID (move) or new target ID (replace)"`
+	Target    string      `json:"target,omitempty" jsonschema:"new target ID (replace)"`
 	OldTarget string      `json:"old_target,omitempty"`
-	Edges     []edgeInput `json:"edges,omitempty"`
+	Edges     []edgeInput `json:"edges,omitempty" jsonschema:"bulk edges for link/unlink — [{from, relation, to}]"`
 	Format    string      `json:"format,omitempty" jsonschema:"text (default) or json"`
 }
 

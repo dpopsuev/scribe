@@ -31,16 +31,14 @@ func TestListSections_ReturnsSectionNamesOnly(t *testing.T) {
 	})
 	id := qolExtractID(t, out)
 
-	result := call(map[string]any{"action": "list_sections", "id": id})
+	// list_sections → get with id=X; get response contains section names.
+	result := call(map[string]any{"action": "get", "id": id})
 
 	if !strings.Contains(result, "context") {
 		t.Errorf("list_sections: want 'context', got: %s", result)
 	}
 	if !strings.Contains(result, "checklist") {
 		t.Errorf("list_sections: want 'checklist', got: %s", result)
-	}
-	if strings.Contains(result, "the full context text") {
-		t.Error("list_sections must return names only, not section body text")
 	}
 }
 
@@ -53,10 +51,10 @@ func TestListSections_EmptySections(t *testing.T) {
 	})
 	id := qolExtractID(t, out)
 
-	result := call(map[string]any{"action": "list_sections", "id": id})
-	// Should return empty list or "no sections", not an error.
+	// list_sections → get with id=X; should succeed even with no sections.
+	result := call(map[string]any{"action": "get", "id": id})
 	if strings.Contains(result, "error") || strings.Contains(result, "Error") {
-		t.Errorf("list_sections on artifact with no sections: unexpected error: %s", result)
+		t.Errorf("get on artifact with no sections: unexpected error: %s", result)
 	}
 }
 
@@ -76,7 +74,8 @@ func TestSearchSections_FindsTextInSection(t *testing.T) {
 		"sections": []map[string]string{{"name": "context", "text": "completely different content"}},
 	})
 
-	result := call(map[string]any{"action": "search_sections", "scope": "test", "query": "xyz987"})
+	// search_sections → list with query=
+	result := call(map[string]any{"action": "list", "scope": "test", "query": "xyz987"})
 	if !strings.Contains(result, "has the phrase") {
 		t.Errorf("search_sections: expected to find matching artifact, got: %s", result)
 	}
@@ -115,17 +114,18 @@ func TestBatchUpdate_SetsPriorityAcrossAll(t *testing.T) {
 	id2 := qolExtractID(t, call(map[string]any{"action": "create", "kind": "task", "title": "BU two", "scope": "test", "status": "draft"}))
 	id3 := qolExtractID(t, call(map[string]any{"action": "create", "kind": "task", "title": "BU three", "scope": "test", "status": "draft"}))
 
+	// batch_update → update with ids + patch
 	result := call(map[string]any{
-		"action": "batch_update",
+		"action": "update",
 		"ids":    []string{id1, id2, id3},
 		"patch":  map[string]string{"priority": "high"},
 	})
-	t.Logf("batch_update response: %s", result)
+	t.Logf("update response: %s", result)
 
 	for _, id := range []string{id1, id2, id3} {
 		out := call(map[string]any{"action": "get", "id": id})
 		if !strings.Contains(out, "high") {
-			t.Errorf("%s: expected priority=high after batch_update, got: %s", id, out)
+			t.Errorf("%s: expected priority=high after update, got: %s", id, out)
 		}
 	}
 }
@@ -136,8 +136,9 @@ func TestBatchUpdate_SetsStatusWithForce(t *testing.T) {
 	id1 := qolExtractID(t, call(map[string]any{"action": "create", "kind": "task", "title": "BU status A", "scope": "test", "status": "draft"}))
 	id2 := qolExtractID(t, call(map[string]any{"action": "create", "kind": "task", "title": "BU status B", "scope": "test", "status": "draft"}))
 
+	// batch_update → update with ids + patch + force
 	call(map[string]any{
-		"action": "batch_update",
+		"action": "update",
 		"ids":    []string{id1, id2},
 		"patch":  map[string]string{"status": "active"},
 		"force":  true,
