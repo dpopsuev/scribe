@@ -22,6 +22,7 @@ import (
 
 	"github.com/dpopsuev/ordo/registry"
 	parchment "github.com/dpopsuev/parchment"
+	"github.com/dpopsuev/scribe/cmd/scribe/cmds"
 	"github.com/dpopsuev/scribe/config"
 	"github.com/dpopsuev/scribe/directive"
 	"github.com/dpopsuev/scribe/mcp"
@@ -61,7 +62,7 @@ func main() {
 		briefingCmd(),
 		sectionCmd(),
 		searchCmd(),
-		goalCmd(),
+		cmds.GoalCmd(),
 		archiveCmd(),
 		vacuumCmd(),
 		dfCmd(),
@@ -593,63 +594,6 @@ func searchCmd() *cobra.Command {
 	cmd.Flags().StringVar(&kind, "kind", "", "filter by kind")
 	cmd.Flags().StringVar(&status, "status", "", "filter by status")
 	cmd.Flags().StringVar(&format, "format", "table", "output format (table, json)")
-	return cmd
-}
-
-// --- goal ---
-
-func goalCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "goal",
-		Short: "Manage the current goal (short-term north star)",
-	}
-	var in service.SetGoalInput
-	setGoalCmd := &cobra.Command{
-		Use:   "set <title>",
-		Short: "Set the current goal (retires any previous, creates a root delivery artifact)",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, close := mustService()
-			defer close()
-			in.Title = args[0]
-			res, err := svc.SetGoal(context.Background(), in)
-			if err != nil {
-				return err
-			}
-			for _, a := range res.Archived {
-				fmt.Printf("archived %s: %s\n", a.ID, a.Title)
-			}
-			fmt.Printf("%s [current] %s\n", res.Goal.ID, res.Goal.Title)
-			fmt.Printf("%s [draft] %s (justifies %s)\n", res.Root.ID, res.Root.Title, res.Goal.ID)
-			return nil
-		},
-	}
-	setGoalCmd.Flags().StringVar(&in.Scope, "scope", "", "scope for the goal")
-	setGoalCmd.Flags().StringVar(&in.Kind, "kind", "goal", "kind for the root delivery artifact")
-
-	showGoalCmd := &cobra.Command{
-		Use:   "show",
-		Short: "Show the current goal",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, close := mustService()
-			defer close()
-			m, _ := svc.Motd(context.Background())
-			if len(m.Goals) == 0 {
-				fmt.Println("no current goal set")
-				return nil
-			}
-			for _, a := range m.Goals {
-				prefix := ""
-				if a.Scope != "" {
-					prefix = "[" + a.Scope + "] "
-				}
-				fmt.Printf("%s %s%s\n", a.ID, prefix, a.Title)
-			}
-			return nil
-		},
-	}
-
-	cmd.AddCommand(setGoalCmd, showGoalCmd)
 	return cmd
 }
 
