@@ -85,7 +85,7 @@ func (s *Service) ContextRead(ctx context.Context, taskID string) (*ContextPacke
 	}, nil
 }
 
-// resolveRules expands the signal labels via the label taxonomy and returns
+// resolveRules expands the signal labels via dot-hierarchy and returns
 // ranked rule artifacts within the token budget.
 func (s *Service) resolveRules(ctx context.Context, signalLabels []string) []RuleEntry {
 	// Always include the 'always' label — rules marked always_apply fire unconditionally.
@@ -97,11 +97,8 @@ func (s *Service) resolveRules(ctx context.Context, signalLabels []string) []Rul
 		}
 	}
 
-	// Expand labels up the taxonomy (lang:go → lang, etc.).
-	expanded, err := s.Proto.Store().ExpandLabels(ctx, signals)
-	if err != nil {
-		expanded = signals // fall back to exact match on error
-	}
+	// Expand labels up the dot-hierarchy (lang.go → lang, etc.).
+	expanded := parchment.ExpandLabels(signals)
 
 	// Fetch all rule artifacts matching the expanded label set.
 	arts, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{
