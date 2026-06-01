@@ -34,12 +34,6 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 	case "snapshot":
 		// snapshot: CLI operation, not advertised on MCP surface but kept functional.
 		return h.handleSnapshot(ctx, in)
-	case "seed", "schema", "transfer_scope", "vacuum":
-		// CLI-only operations — not advertised on the MCP surface.
-		return text(fmt.Sprintf("admin(action=%s) is a CLI operation — use: scribe %s", in.Action, in.Action)), nil, nil
-	case "lint":
-		// schema lint — CLI-only. For knowledge lint use knowledge_lint.
-		return text("admin(action=lint) is a CLI operation — use: scribe lint. For knowledge checks use admin(action=knowledge_lint)"), nil, nil
 	case "dashboard":
 		return h.handleDashboard(ctx, req, dashboardInput{StaleDays: in.StaleDays})
 	case "set_goal":
@@ -93,12 +87,8 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 		return h.handleSessionDiff(ctx, in)
 	case "session_merge":
 		return h.handleSessionMerge(ctx, in)
-	case "restore", "unarchive":
-		return nil, nil, fmt.Errorf( //nolint:err113 // agent-facing redirect
-			"admin(%s) is not supported — use artifact(action=de-archive, id=<id>) to restore an archived artifact",
-			in.Action)
 	default:
-		return nil, nil, fmt.Errorf("unknown admin action %q (valid: motd, changelog, dashboard, snapshot, set_goal, detect, check, set_scope_labels, list_scope_labels, correlate, ingest_session, knowledge_lint, context_read, session_start, session_diff, session_merge)", in.Action) //nolint:err113 // agent-facing hint
+		return nil, nil, fmt.Errorf("unknown admin action %q (valid: motd, changelog, dashboard, snapshot, set_goal, detect, check, set_scope_labels, list_scope_labels, correlate, ingest_session, knowledge_lint, context_read, session_start, session_commit, session_diff, session_merge)", in.Action) //nolint:err113 // agent-facing hint
 	}
 }
 

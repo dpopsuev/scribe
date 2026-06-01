@@ -64,12 +64,6 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 			return h.handleGet(ctx, req, getInput{ID: ids[0], IncludeEdges: in.IncludeEdges, SectionFilter: in.SectionFilter})
 		}
 		return h.handleBulkGet(ctx, ids, in.SectionFilter)
-	case "search":
-		// search is an alias for list(query=...) — kept for backward compat, not advertised.
-		if in.Query == "" {
-			return nil, nil, fmt.Errorf("use list(query=...) to search artifacts") //nolint:err113 // migration hint
-		}
-		fallthrough
 	case "list":
 		li := parchment.ListInput{
 			Kind: in.Kind, Scope: in.Scope, Status: in.Status,
@@ -304,7 +298,7 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		// catalog: alias for list(family=knowledge, group_by=kind). Not advertised — use list.
 		return h.handleKnowledgeCatalog(ctx, knowledgeInput{Scope: in.Scope})
 	default:
-		return nil, nil, fmt.Errorf("unknown artifact action %q (valid: create, batch_create, clone, get, list, recall, set, update, archive, attach_section, get_section, detach_section, diff, promote_stash, inspect_stash)", in.Action) //nolint:err113 // agent-facing hint
+		return nil, nil, fmt.Errorf("unknown artifact action %q (valid: create, batch_create, clone, get, list, recall, set, update, archive, de-archive, retire, attach_section, get_section, detach_section, list_sections, search_sections, bulk_section_update, batch_update, diff, move, orient, catalog, promote_stash, inspect_stash)", in.Action) //nolint:err113 // agent-facing hint
 	}
 }
 

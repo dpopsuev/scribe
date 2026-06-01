@@ -2383,11 +2383,10 @@ func TestSectionAlias_DuplicateSlug(t *testing.T) {
 
 // --- SCR-TSK-284: Search action alias ---
 
-func TestSearch_ActionAlias(t *testing.T) {
+func TestList_SearchByQuery(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 
-	// Create 3 artifacts with different titles
 	for _, a := range []*parchment.Artifact{
 		{ID: "T-001", Kind: "task", Scope: "test", Status: "draft", Title: "Implement auth module"},
 		{ID: "T-002", Kind: "task", Scope: "test", Status: "draft", Title: "Fix database migration"},
@@ -2401,53 +2400,19 @@ func TestSearch_ActionAlias(t *testing.T) {
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
-	// Call action=search with query matching one title
 	text := callTool(t, cs, "artifact", map[string]any{
-		"action": "search",
+		"action": "list",
 		"query":  "auth",
 	})
 
 	if !strings.Contains(text, "Implement auth module") {
-		t.Errorf("search should find 'Implement auth module', got: %s", text)
+		t.Errorf("list(query=auth) should find 'Implement auth module', got: %s", text)
 	}
 	if strings.Contains(text, "Fix database migration") {
-		t.Errorf("search should not return 'Fix database migration', got: %s", text)
+		t.Errorf("list(query=auth) should not return 'Fix database migration', got: %s", text)
 	}
 	if strings.Contains(text, "Add logging middleware") {
-		t.Errorf("search should not return 'Add logging middleware', got: %s", text)
-	}
-}
-
-func TestSearch_ActionAlias_RequiresQuery(t *testing.T) {
-	s := openStore(t)
-
-	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
-	cs := connectClient(t, srv)
-
-	ctx := context.Background()
-	result, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "artifact",
-		Arguments: map[string]any{
-			"action": "search",
-			// No query provided
-		},
-	})
-
-	if err != nil {
-		t.Fatalf("unexpected Go error: %v", err)
-	}
-	if !result.IsError {
-		t.Fatal("expected error when search action has no query")
-	}
-	var errMsg string
-	for _, c := range result.Content {
-		if tc, ok := c.(*sdkmcp.TextContent); ok {
-			errMsg = tc.Text
-			break
-		}
-	}
-	if !strings.Contains(errMsg, "query") && !strings.Contains(errMsg, "list") {
-		t.Errorf("expected query-related error, got: %s", errMsg)
+		t.Errorf("list(query=auth) should not return 'Add logging middleware', got: %s", text)
 	}
 }
 
