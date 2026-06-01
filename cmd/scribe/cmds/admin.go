@@ -110,9 +110,9 @@ func VacuumCmd() *cobra.Command {
 		Use:   "vacuum",
 		Short: "Delete archived artifacts older than --days (default 90). Protected kinds (spec, bug) are skipped unless --force.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, cleanup := MustProto()
+			svc, cleanup := MustService()
 			defer cleanup()
-			result, err := p.Vacuum(context.Background(), days, scope, force)
+			result, err := svc.Proto.Vacuum(context.Background(), days, scope, force)
 			if err != nil {
 				return err
 			}
@@ -242,9 +242,9 @@ func LintCmd() *cobra.Command {
 		Use:   "lint",
 		Short: "Validate the resolved schema for internal consistency",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, cleanup := MustProto()
+			svc, cleanup := MustService()
 			defer cleanup()
-			results := p.Lint()
+			results := svc.Proto.Lint()
 			if format == "json" {
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
@@ -283,12 +283,12 @@ func CheckCmd() *cobra.Command {
 		Use:   "check",
 		Short: "Validate DB artifacts against the resolved schema",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, cleanup := MustProto()
+			svc, cleanup := MustService()
 			defer cleanup()
 			ctx := context.Background()
 
 			if fix {
-				report, fixes, err := p.CheckFix(ctx, scope)
+				report, fixes, err := svc.Proto.CheckFix(ctx, scope)
 				if err != nil {
 					return err
 				}
@@ -317,7 +317,7 @@ func CheckCmd() *cobra.Command {
 				return nil
 			}
 
-			report, err := p.Check(ctx, scope)
+			report, err := svc.Proto.Check(ctx, scope)
 			if err != nil {
 				return err
 			}
@@ -349,9 +349,9 @@ func MigrateCmd() *cobra.Command {
 		Use:   "migrate",
 		Short: "Run DB migration: remove legacy edges, validate and fix artifacts against schema",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, cleanup := MustProto()
+			svc, cleanup := MustService()
 			defer cleanup()
-			result, err := p.Migrate(context.Background())
+			result, err := svc.Proto.Migrate(context.Background())
 			if err != nil {
 				return err
 			}
@@ -370,7 +370,7 @@ func MigrateCmd() *cobra.Command {
 				result.Report.TotalScanned, result.Report.TotalPassed,
 				result.Report.TotalViolations, len(result.Fixes))
 
-			lintResults := p.Lint()
+			lintResults := svc.Proto.Lint()
 			lintErrors := 0
 			for _, r := range lintResults {
 				if r.Level == lintLevelError {
