@@ -216,7 +216,7 @@ func TestArtifactTree_MixedScope_ShowsLabels(t *testing.T) {
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
-	text := callTool(t, cs, "graph", map[string]any{"action": "tree", "id": "SPR-1"})
+	text := callTool(t, cs, "artifact", map[string]any{"action": "tree", "id": "SPR-1"})
 
 	if !strings.Contains(text, "[origami]") {
 		t.Errorf("mixed-scope tree should show [origami] label, got:\n%s", text)
@@ -237,7 +237,7 @@ func TestArtifactTree_SingleScope_OmitsLabels(t *testing.T) {
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
-	text := callTool(t, cs, "graph", map[string]any{"action": "tree", "id": "SPR-1"})
+	text := callTool(t, cs, "artifact", map[string]any{"action": "tree", "id": "SPR-1"})
 
 	if strings.Contains(text, "[origami]") {
 		t.Errorf("single-scope tree should omit scope labels, got:\n%s", text)
@@ -259,7 +259,7 @@ func TestBriefing_EdgeAwareOutput(t *testing.T) {
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
-	text := callTool(t, cs, "graph", map[string]any{"action": "briefing", "id": "CAM-1"})
+	text := callTool(t, cs, "artifact", map[string]any{"action": "briefing", "id": "CAM-1"})
 
 	if !strings.Contains(text, "[campaign|active]") {
 		t.Errorf("briefing should show [kind|status] for root, got:\n%s", text)
@@ -289,7 +289,7 @@ func TestBriefing_IncomingEdgeArrow(t *testing.T) {
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
-	text := callTool(t, cs, "graph", map[string]any{"action": "briefing", "id": "SPC-1"})
+	text := callTool(t, cs, "artifact", map[string]any{"action": "briefing", "id": "SPC-1"})
 
 	if !strings.Contains(text, "implements <-") {
 		t.Errorf("briefing should show incoming arrow for implements edge on spec root, got:\n%s", text)
@@ -310,7 +310,7 @@ func TestTree_EdgeLabelsShownWhenPresent(t *testing.T) {
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
-	text := callTool(t, cs, "graph", map[string]any{
+	text := callTool(t, cs, "artifact", map[string]any{
 		"action":    "tree",
 		"id":        "TSK-1",
 		"relation":  "implements",
@@ -715,7 +715,7 @@ func TestTemplate_MCPLinkSatisfiesBlocksMissingSections(t *testing.T) {
 
 	// Try to link to template via MCP - should fail because "problem" (MustSection) is missing
 	result, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "graph",
+		Name: "artifact",
 		Arguments: map[string]any{
 			"action":   "link",
 			"id":       "SPEC-2026-001",
@@ -767,7 +767,7 @@ func TestTemplate_MCPLinkSatisfiesAllowsConformant(t *testing.T) {
 	cs := connectClient(t, srv)
 
 	// Link to template via MCP - should succeed
-	text := callTool(t, cs, "graph", map[string]any{
+	text := callTool(t, cs, "artifact", map[string]any{
 		"action":   "link",
 		"id":       "SPEC-2026-002",
 		"relation": "satisfies",
@@ -1849,7 +1849,7 @@ func TestTemplate_SectionsAttachedAfterCreationValidatedOnLink(t *testing.T) {
 	// Try to add satisfies link WITHOUT having sections — should fail
 	ctx := context.Background()
 	linkResult, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "graph",
+		Name: "artifact",
 		Arguments: map[string]any{
 			"action":   "link",
 			"id":       id,
@@ -1880,7 +1880,7 @@ func TestTemplate_SectionsAttachedAfterCreationValidatedOnLink(t *testing.T) {
 
 	// Now adding satisfies link should succeed
 	linkResult2, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "graph",
+		Name: "artifact",
 		Arguments: map[string]any{
 			"action":   "link",
 			"id":       id,
@@ -2447,7 +2447,7 @@ func TestErrorMessages_ContainParamNames(t *testing.T) {
 
 	// Call graph link with no id -> assert error contains "id"
 	result, err = cs.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "graph",
+		Name: "artifact",
 		Arguments: map[string]any{
 			"action":   "link",
 			"relation": "depends_on",
@@ -2467,7 +2467,7 @@ func TestErrorMessages_ContainParamNames(t *testing.T) {
 
 	// Call graph link with no targets -> assert error contains "targets"
 	result, err = cs.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "graph",
+		Name: "artifact",
 		Arguments: map[string]any{
 			"action":   "link",
 			"id":       "T-001",
@@ -2487,7 +2487,7 @@ func TestErrorMessages_ContainParamNames(t *testing.T) {
 
 	// Call graph link with no relation -> assert error contains "relation"
 	result, err = cs.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "graph",
+		Name: "artifact",
 		Arguments: map[string]any{
 			"action":  "link",
 			"id":      "T-001",
@@ -2551,8 +2551,7 @@ func TestStreamableHTTP_ToolsListPreservesTypedInputSchemas(t *testing.T) {
 
 	expectedProps := map[string][]string{
 		"admin":    {"action", "scope"},
-		"artifact": {"action", "kind"},
-		"graph":    {"action", "relation"},
+		"artifact": {"action", "kind", "id", "relation"},
 	}
 	seen := make(map[string]bool, len(expectedProps))
 
@@ -2739,11 +2738,10 @@ func TestToolDescriptions_ProgressiveDisclosure(t *testing.T) {
 		}
 	}
 
-	// graph: must distinguish briefing from tree.
-	graph := desc["graph"]
-	for _, phrase := range []string{"briefing", "tree", "topo_sort"} {
-		if !strings.Contains(graph, phrase) {
-			t.Errorf("graph desc missing %q; got:\n%s", phrase, graph)
+	// graph actions folded into artifact tool (SCR-TSK-364) — verify artifact describes them.
+	for _, phrase := range []string{"briefing", "tree", "topo_sort", "impact"} {
+		if !strings.Contains(artifact, phrase) {
+			t.Errorf("artifact desc missing graph phrase %q; got:\n%s", phrase, artifact)
 		}
 	}
 

@@ -50,13 +50,14 @@ func NewServer(svc *service.Service, vocab []string, version string) (*sdkmcp.Se
 	sdk := batt.SDK()
 	destructiveHint := true
 
-	// artifact tool
+	// artifact tool — also handles all graph/edge operations
 	artifactDesc := "CRUD + search for work (task/spec/bug/goal) and knowledge (note/concept/source) artifacts. " +
-		"FIND: search(query=) for keyword FTS; recall(query=, top=10) for semantic — both cheaper than list. " +
+		"FIND: list(query=) for keyword FTS; recall(query=, top=10) for semantic — both cheaper than list. " +
 		"READ: get(id=) full artifact; get_section(id=, name=) for one section only (cheaper). " +
 		"LIST: always add scope/kind/status or top=N — bare list returns ALL artifacts and burns context. " +
 		"WRITE: create, set, attach_section, archive. " +
-		"ORIENT: orient for vault map (call after motd); catalog for full inventory."
+		"ORIENT: orient for vault map (call after motd); catalog for full inventory. " +
+		"GRAPH: briefing(id=) — full edge-aware context chain; tree(id=) — children; link/unlink — edges; topo_sort — dependency order; impact — blast radius."
 	var artifactSchema any
 	_ = json.Unmarshal(schemaFor[artifactInput](), &artifactSchema)
 	sdk.AddTool(&sdkmcp.Tool{
@@ -68,29 +69,8 @@ func NewServer(svc *service.Service, vocab []string, version string) (*sdkmcp.Se
 	}, bindHandler(h.handleArtifact))
 	reg.Register(directive.ToolMeta{
 		Name: "artifact", Description: artifactDesc,
-		Keywords:   []string{"create", "get", "list", "set", "archive", "artifact", "section"},
-		Categories: []string{"crud"},
-	})
-
-	// graph tool
-	graphDesc := "Artifact relationships and DAG traversal. " +
-		"briefing(id=) — full edge-aware context chain including parents, specs, and dependencies; use before starting work on an artifact. " +
-		"tree(id=) — direct children only, shallow. " +
-		"topo_sort — dependency-ordered work queue. " +
-		"link/unlink — add or remove edges. move — reparent an artifact."
-	var graphSchema any
-	_ = json.Unmarshal(schemaFor[graphInput](), &graphSchema)
-	sdk.AddTool(&sdkmcp.Tool{
-		Name:        "graph",
-		Title:       "Artifact Graph",
-		Description: graphDesc,
-		InputSchema: graphSchema,
-		Annotations: &sdkmcp.ToolAnnotations{DestructiveHint: &destructiveHint},
-	}, bindHandler(h.handleGraph))
-	reg.Register(directive.ToolMeta{
-		Name: "graph", Description: graphDesc,
-		Keywords:   []string{"tree", "briefing", "topo_sort", "link", "unlink", "bulk_link", "move", "replace", "relation", "edge"},
-		Categories: []string{"query", "graph"},
+		Keywords:   []string{"create", "get", "list", "set", "archive", "artifact", "section", "tree", "briefing", "topo_sort", "link", "unlink", "move", "impact"},
+		Categories: []string{"crud", "graph"},
 	})
 
 	// admin tool
@@ -208,6 +188,13 @@ type artifactInput struct {
 	IncludeEdges bool              `json:"include_edges,omitempty"`
 	CreatedAt    string            `json:"created_at,omitempty"`
 	Prefix       string            `json:"prefix,omitempty"`
+
+	Relation  string      `json:"relation,omitempty" jsonschema:"parent_of, depends_on, follows, justifies, implements, documents"`
+	Direction string      `json:"direction,omitempty" jsonschema:"outbound (default) or inbound"`
+	Depth     int         `json:"depth,omitempty" jsonschema:"max traversal depth (0 = unlimited)"`
+	Targets   []string    `json:"targets,omitempty"`
+	OldTarget string      `json:"old_target,omitempty"`
+	Edges     []edgeInput `json:"edges,omitempty"`
 }
 
 type graphInput struct {

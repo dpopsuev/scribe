@@ -13,7 +13,7 @@ func TestArtifactMove_ReparentsAtomically(t *testing.T) {
 	srv, _ := scribemcp.NewServerFromStore(s, []string{"test"}, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 	call := func(args map[string]any) string { return callTool(t, cs, "artifact", args) }
-	gcall := func(args map[string]any) string { return callTool(t, cs, "graph", args) }
+	gcall := func(args map[string]any) string { return callTool(t, cs, "artifact", args) }
 
 	// Create parent A, parent B, and a child.
 	parentA := qolExtractID(t, call(map[string]any{"action": "create", "kind": "goal", "title": "Parent A", "scope": "test", "status": "draft"}))

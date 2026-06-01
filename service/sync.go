@@ -62,8 +62,6 @@ func (s *Service) SyncDir(ctx context.Context, path string) (int, error) {
 		if art.Scope == "" {
 			art.Scope = "global"
 		}
-		// Normalize deprecated behavioral kinds to note + label (PRC-ADR-6).
-		// kind=rule and kind=skill carry no distinct structure; the label carries the behavior.
 		switch art.Kind {
 		case "rule", "skill":
 			art.Labels = appendIfMissing(art.Labels, art.Kind)

@@ -88,7 +88,6 @@ func (s *Service) resolveRules(ctx context.Context, signalLabels []string) []Rul
 	expanded := parchment.ExpandLabels(signals)
 
 	// no scope filter — rules are global, not tied to homeScopes
-	// query by label=rule, not kind=rule (PRC-ADR-6: kind encodes structure, label encodes behavior)
 	arts, _ := s.Proto.Store().List(ctx, parchment.Filter{
 		Labels:   []string{"rule"},
 		LabelsOr: expanded,

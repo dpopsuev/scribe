@@ -16,6 +16,22 @@ import (
 
 func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolRequest, in artifactInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocyclo,cyclop,funlen,gocritic // dispatch switch; hugeParam: value semantics intentional
 	switch in.Action {
+	case "tree", "link", "briefing", "topo_sort", "next", "unlink", "bulk_link", "bulk_unlink", "replace", "impact":
+		return h.handleGraph(ctx, req, graphInput{
+			Action:    in.Action,
+			ID:        in.ID,
+			Relation:  in.Relation,
+			Direction: in.Direction,
+			Depth:     in.Depth,
+			Targets:   in.Targets,
+			Target:    in.Target,
+			OldTarget: in.OldTarget,
+			Edges:     in.Edges,
+			Format:    in.Format,
+		})
+	}
+
+	switch in.Action {
 	case "create":
 		// create with artifacts[] routes to batch_create semantics.
 		if len(in.Artifacts) > 0 {
