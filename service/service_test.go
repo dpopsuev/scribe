@@ -55,13 +55,13 @@ func TestContextRead_RulesExpandedByLabelHierarchy(t *testing.T) {
 	ctx := context.Background()
 	svc := newTestService(t)
 
-	// Create a rule with label "lang.go" (expands to include "lang")
+	// Create a note with labels "rule" and "lang.go" (PRC-ADR-6: rule is a label, not a kind)
 	_, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind:     "rule",
+		Kind:     "note",
 		Title:    "Go conventions",
 		Scope:    "global",
 		Priority: "none",
-		Labels:   []string{"lang.go"},
+		Labels:   []string{"rule", "lang.go"},
 		Sections: []parchment.Section{{Name: "content", Text: "Use gofmt."}},
 	})
 	if err != nil {
@@ -99,11 +99,11 @@ func TestContextRead_AlwaysRulesAlwaysIncluded(t *testing.T) {
 	svc := newTestService(t)
 
 	_, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind:     "rule",
+		Kind:     "note",
 		Title:    "KISS directives",
 		Scope:    "global",
 		Priority: "none",
-		Labels:   []string{"always"},
+		Labels:   []string{"rule", "always"},
 		Sections: []parchment.Section{{Name: "content", Text: "Keep it simple."}},
 	})
 	if err != nil {

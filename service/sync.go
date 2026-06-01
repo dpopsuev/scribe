@@ -62,6 +62,13 @@ func (s *Service) SyncDir(ctx context.Context, path string) (int, error) {
 		if art.Scope == "" {
 			art.Scope = "global"
 		}
+		// Normalize deprecated behavioral kinds to note + label (PRC-ADR-6).
+		// kind=rule and kind=skill carry no distinct structure; the label carries the behavior.
+		switch art.Kind {
+		case "rule", "skill":
+			art.Labels = appendIfMissing(art.Labels, art.Kind)
+			art.Kind = "note"
+		}
 		if art.Extra == nil {
 			art.Extra = make(map[string]any)
 		}
@@ -104,6 +111,15 @@ func (s *Service) SyncDir(ctx context.Context, path string) (int, error) {
 }
 
 // syncDerivedID returns a deterministic artifact ID from a relative file path.
+func appendIfMissing(labels []string, label string) []string {
+	for _, l := range labels {
+		if l == label {
+			return labels
+		}
+	}
+	return append(labels, label)
+}
+
 func syncDerivedID(rel string) string {
 	h := sha256.Sum256([]byte(rel))
 	slug := strings.TrimSuffix(filepath.Base(rel), ".md")
