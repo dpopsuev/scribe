@@ -60,6 +60,7 @@ func main() {
 		cmds.ConfigCmd(),
 		cmds.ExportCmd(),
 		cmds.ImportCmd(),
+		cmds.ExportMdCmd(),
 		cmds.SeedDirCmd(),
 		cmds.CapsuleCmd(),
 		cmds.SyncCmd(),

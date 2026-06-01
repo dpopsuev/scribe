@@ -227,3 +227,22 @@ func CapsuleCmd() *cobra.Command {
 	cmd.AddCommand(exportCapsule, importCapsule, inspectCapsule)
 	return cmd
 }
+
+// ExportMdCmd exports artifacts from a scope to .md files with YAML frontmatter.
+func ExportMdCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "export-md <scope> <output-dir>",
+		Short: "Export artifacts to .md files (YAML frontmatter + section headings)",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			svc, cleanup := MustService()
+			defer cleanup()
+			n, err := svc.ExportScope(cmd.Context(), args[0], args[1])
+			if err != nil {
+				return err
+			}
+			fmt.Printf("exported %d artifact(s) to %s\n", n, args[1])
+			return nil
+		},
+	}
+}

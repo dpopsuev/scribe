@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	parchment "github.com/dpopsuev/parchment"
@@ -105,6 +106,88 @@ func TestSyncDir_PrunesDeletedFiles(t *testing.T) {
 	}
 	if _, err := svc.Proto.GetArtifact(ctx, "SYN-B"); err == nil {
 		t.Error("SYN-B should have been pruned")
+	}
+}
+
+func TestExportScope_WritesFiles(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc := newTestService(t, "scribe")
+
+	_, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Kind: "note", Title: "Design notes", Scope: "scribe",
+		Labels:   []string{"architecture"},
+		Sections: []parchment.Section{{Name: "body", Text: "Key insight here."}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	outDir := t.TempDir()
+	n, err := svc.ExportScope(ctx, "scribe", outDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 file, got %d", n)
+	}
+
+	entries, _ := os.ReadDir(outDir)
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 .md file, got %d", len(entries))
+	}
+	content, _ := os.ReadFile(filepath.Join(outDir, entries[0].Name()))
+	s := string(content)
+	if !strings.Contains(s, "kind: note") {
+		t.Error("missing kind in frontmatter")
+	}
+	if !strings.Contains(s, "## body") {
+		t.Error("missing body section heading")
+	}
+	if !strings.Contains(s, "Key insight here.") {
+		t.Error("missing section text")
+	}
+}
+
+func TestRoundTrip_ExportThenSync(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc := newTestService(t, "test")
+
+	// Create two artifacts
+	for _, title := range []string{"Alpha note", "Beta note"} {
+		_, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+			Kind: "note", Title: title, Scope: "test",
+			Sections: []parchment.Section{{Name: "body", Text: title + " body."}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	outDir := t.TempDir()
+	n, err := svc.ExportScope(ctx, "test", outDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Fatalf("export: expected 2, got %d", n)
+	}
+
+	// Sync the exported files into a fresh store
+	svc2 := newTestService(t, "test")
+	n2, err := svc2.SyncDir(ctx, outDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n2 != 2 {
+		t.Fatalf("sync: expected 2, got %d", n2)
+	}
+
+	// Both artifacts should be retrievable by ID
+	arts, _ := svc2.Proto.Store().List(ctx, parchment.Filter{Kind: "note"})
+	if len(arts) != 2 {
+		t.Errorf("expected 2 notes after round-trip, got %d", len(arts))
 	}
 }
 
