@@ -73,7 +73,6 @@ func (s *Service) SyncLexicon(ctx context.Context, lexRoot string) (int, error) 
 		}
 	}
 
-	// Reconcile: remove stale rule/skill artifacts no longer in any source.
 	for _, scope := range []string{"global", "project"} {
 		existing, err := store.List(ctx, parchment.Filter{Scope: scope})
 		if err != nil {
@@ -92,8 +91,6 @@ func (s *Service) SyncLexicon(ctx context.Context, lexRoot string) (int, error) 
 	slog.InfoContext(ctx, "sync-lexicon: done", slog.Int(logKeyLexCount, len(arts)))
 	return len(arts), nil
 }
-
-// --- helpers -----------------------------------------------------------------
 
 func ensureLexKindDefinition(ctx context.Context, store parchment.Store, kindName string) error {
 	id := "DEF-" + kindName

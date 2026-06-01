@@ -51,7 +51,6 @@ func (s *Service) ContextRead(ctx context.Context, taskID string) (*ContextPacke
 		return nil, err
 	}
 
-	// Knowledge layer: notes and concepts in task scope matching task labels.
 	var know []*parchment.Artifact
 	if task.Scope != "" && len(task.Labels) > 0 {
 		all, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{
@@ -65,7 +64,6 @@ func (s *Service) ContextRead(ctx context.Context, taskID string) (*ContextPacke
 		}
 	}
 
-	// Code layer: file and symbol pointers from task components.
 	code := CodePointers{
 		Files:   task.Components.Files,
 		Symbols: task.Components.Symbols,
@@ -74,7 +72,6 @@ func (s *Service) ContextRead(ctx context.Context, taskID string) (*ContextPacke
 		code.Hint = "load via lector.read or file reader at these paths"
 	}
 
-	// Rule layer: expand task labels via taxonomy, fetch matching kind=rule artifacts.
 	rules := s.resolveRules(ctx, task.Labels)
 
 	return &ContextPacket{
@@ -85,10 +82,7 @@ func (s *Service) ContextRead(ctx context.Context, taskID string) (*ContextPacke
 	}, nil
 }
 
-// resolveRules expands the signal labels via dot-hierarchy and returns
-// ranked rule artifacts within the token budget.
 func (s *Service) resolveRules(ctx context.Context, signalLabels []string) []RuleEntry {
-	// Always include the 'always' label — rules marked always_apply fire unconditionally.
 	signals := make([]string, 0, len(signalLabels)+1)
 	signals = append(signals, "always")
 	for _, l := range signalLabels {
@@ -97,26 +91,20 @@ func (s *Service) resolveRules(ctx context.Context, signalLabels []string) []Rul
 		}
 	}
 
-	// Expand labels up the dot-hierarchy (lang.go → lang, etc.).
 	expanded := parchment.ExpandLabels(signals)
 
-	// Fetch all rule artifacts matching ANY of the expanded labels (OR semantics).
-	// Scope is intentionally omitted — rules are cross-scope (synced from lexicon).
-	// A rule labeled "lang.go" matches when context contains "lang.go" or "lang".
-	// A rule labeled "always" matches because "always" is always in signals.
+	// no scope filter — rules are global, not tied to homeScopes
 	arts, _ := s.Proto.Store().List(ctx, parchment.Filter{
 		Kind:     "rule",
 		LabelsOr: expanded,
 	})
 
-	// Sort by priority descending.
 	sort.Slice(arts, func(i, j int) bool {
 		pi, _ := arts[i].Extra["priority"].(float64)
 		pj, _ := arts[j].Extra["priority"].(float64)
 		return pi > pj
 	})
 
-	// Apply token budget: estimate tokens as len(body)/4.
 	var out []RuleEntry
 	used := 0
 	for _, art := range arts {
