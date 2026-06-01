@@ -2042,7 +2042,7 @@ func lexiconCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			svc, close := mustService()
 			defer close()
-			lexRoot := envOrDefault("LEX_ROOT", registry.DefaultRoot())
+			lexRoot := envOr("LEX_ROOT", registry.DefaultRoot())
 			n, err := svc.SyncLexicon(cmd.Context(), lexRoot)
 			if err != nil {
 				return err
@@ -2061,7 +2061,7 @@ Re-syncs on any .yaml/.yml/.md change. Exits on SIGTERM/SIGINT.`,
 			svc, close := mustService()
 			defer close()
 
-			lexRoot := envOrDefault("LEX_ROOT", registry.DefaultRoot())
+			lexRoot := envOr("LEX_ROOT", registry.DefaultRoot())
 
 			ctx, cancel := signal.NotifyContext(cmd.Context(), syscall.SIGTERM, syscall.SIGINT)
 			defer cancel()
@@ -2134,9 +2134,4 @@ func lexiconDaemonPoll(ctx context.Context, svc *service.Service, lexRoot string
 	}
 }
 
-func envOrDefault(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
-}
+
