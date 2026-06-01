@@ -37,14 +37,8 @@ type ContextPacket struct {
 	Rules []RuleEntry           `json:"rules,omitempty"`
 }
 
-// ContextRead assembles the working context for a task in one call.
-//
-// Iteration 2 — label expansion via label_parents taxonomy:
-//
-//	task  — the task artifact itself
-//	know  — notes and concepts in the same scope matching task labels
-//	code  — file and symbol pointers from task.Components (agent loads them)
-//	rules — kind=rule artifacts matching expanded task labels, sorted by priority
+// ContextRead assembles the four-worlds context for a task: task artifact,
+// knowledge layer (notes/concepts in scope), code pointers, and ranked rules.
 func (s *Service) ContextRead(ctx context.Context, taskID string) (*ContextPacket, error) {
 	task, err := s.Proto.GetArtifact(ctx, taskID)
 	if err != nil {
