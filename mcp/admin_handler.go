@@ -56,20 +56,7 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 			return nil, nil, err
 		}
 		return text(fmt.Sprintf("scope %q labels set to %v", in.Scope, in.Labels)), nil, nil
-	case "list_scope_labels":
-		infos, err := h.proto.ListScopeInfo(ctx)
-		if err != nil {
-			return nil, nil, err
-		}
-		var b strings.Builder
-		for _, info := range infos {
-			labels := labelNone
-			if len(info.Labels) > 0 {
-				labels = strings.Join(info.Labels, ", ")
-			}
-			fmt.Fprintf(&b, "%-20s %s → %s\n", info.Scope, info.Key, labels)
-		}
-		return text(b.String()), nil, nil
+
 	case "correlate":
 		return h.handleCorrelate(ctx, in)
 	case "ingest_session":
@@ -376,7 +363,25 @@ func (h *handler) handleDashboard(ctx context.Context, _ *sdkmcp.CallToolRequest
 	if err != nil {
 		return nil, nil, err
 	}
-	data, _ := json.Marshal(report)
+
+	type scopeLabelEntry struct {
+		Scope  string   `json:"scope"`
+		Key    string   `json:"key"`
+		Labels []string `json:"labels,omitempty"`
+	}
+	type dashboardOutput struct {
+		*service.DashboardResult
+		ScopeLabels []scopeLabelEntry `json:"scope_labels,omitempty"`
+	}
+
+	infos, _ := h.proto.ListScopeInfo(ctx)
+	out := dashboardOutput{DashboardResult: report}
+	for _, info := range infos {
+		out.ScopeLabels = append(out.ScopeLabels, scopeLabelEntry{
+			Scope: info.Scope, Key: info.Key, Labels: info.Labels,
+		})
+	}
+	data, _ := json.Marshal(out)
 	return text(string(data)), nil, nil
 }
 
