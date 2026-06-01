@@ -40,3 +40,5 @@ require (
 )
 
 replace github.com/dpopsuev/parchment => ../parchment
+
+replace github.com/dpopsuev/ordo => ../ordo
