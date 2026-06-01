@@ -24,10 +24,10 @@ func SearchCmd() *cobra.Command {
 		Short: "Search artifacts by substring across title, goal, sections, and extra",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			p, close := MustProto()
-			defer close()
+			svc, cleanup := MustService()
+			defer cleanup()
 			li := parchment.ListInput{Kind: kind, Scope: scope, Status: status}
-			matched, err := p.SearchArtifacts(context.Background(), args[0], li)
+			matched, err := svc.Proto.SearchArtifacts(context.Background(), args[0], li)
 			if err != nil {
 				return err
 			}
@@ -65,8 +65,8 @@ func SectionCmd() *cobra.Command {
 		Short: "Add or replace a named section",
 		Args:  cobra.RangeArgs(2, 3),
 		RunE: func(_ *cobra.Command, args []string) error {
-			p, close := MustProto()
-			defer close()
+			svc, cleanup := MustService()
+			defer cleanup()
 			id, name := args[0], args[1]
 			var body string
 			switch {
@@ -87,7 +87,7 @@ func SectionCmd() *cobra.Command {
 			default:
 				return fmt.Errorf("provide text as third argument, or use --file / --file=-") //nolint:err113 // user-facing hint
 			}
-			replaced, err := p.AttachSection(context.Background(), id, name, body)
+			replaced, err := svc.Proto.AttachSection(context.Background(), id, name, body)
 			if err != nil {
 				return err
 			}
@@ -106,9 +106,9 @@ func SectionCmd() *cobra.Command {
 		Short: "Print the text of a named section",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(_ *cobra.Command, args []string) error {
-			p, close := MustProto()
-			defer close()
-			t, err := p.GetSection(context.Background(), args[0], args[1])
+			svc, cleanup := MustService()
+			defer cleanup()
+			t, err := svc.Proto.GetSection(context.Background(), args[0], args[1])
 			if err != nil {
 				return err
 			}
@@ -122,9 +122,9 @@ func SectionCmd() *cobra.Command {
 		Short: "List all section names on an artifact",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			p, close := MustProto()
-			defer close()
-			art, err := p.GetArtifact(context.Background(), args[0])
+			svc, cleanup := MustService()
+			defer cleanup()
+			art, err := svc.Proto.GetArtifact(context.Background(), args[0])
 			if err != nil {
 				return err
 			}
@@ -144,9 +144,9 @@ func SectionCmd() *cobra.Command {
 		Short: "Remove a named section",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(_ *cobra.Command, args []string) error {
-			p, close := MustProto()
-			defer close()
-			found, err := p.DetachSection(context.Background(), args[0], args[1])
+			svc, cleanup := MustService()
+			defer cleanup()
+			found, err := svc.Proto.DetachSection(context.Background(), args[0], args[1])
 			if err != nil {
 				return err
 			}
@@ -173,9 +173,9 @@ func VocabCmd() *cobra.Command {
 		Use:   "list",
 		Short: "Show registered artifact kinds",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			p, close := MustProto()
-			defer close()
-			for _, k := range p.VocabList() {
+			svc, cleanup := MustService()
+			defer cleanup()
+			for _, k := range svc.Proto.VocabList() {
 				fmt.Println(k)
 			}
 			return nil
@@ -187,9 +187,9 @@ func VocabCmd() *cobra.Command {
 		Short: "Register a new artifact kind",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			p, close := MustProto()
-			defer close()
-			if err := p.VocabAdd(args[0]); err != nil {
+			svc, cleanup := MustService()
+			defer cleanup()
+			if err := svc.Proto.VocabAdd(args[0]); err != nil {
 				return err
 			}
 			fmt.Printf("registered kind %q\n", args[0])
@@ -202,9 +202,9 @@ func VocabCmd() *cobra.Command {
 		Short: "Remove an artifact kind (only if unused)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			p, close := MustProto()
-			defer close()
-			if err := p.VocabRemove(context.Background(), args[0]); err != nil {
+			svc, cleanup := MustService()
+			defer cleanup()
+			if err := svc.Proto.VocabRemove(context.Background(), args[0]); err != nil {
 				return err
 			}
 			fmt.Printf("removed kind %q\n", args[0])
