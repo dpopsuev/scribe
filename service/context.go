@@ -100,10 +100,13 @@ func (s *Service) resolveRules(ctx context.Context, signalLabels []string) []Rul
 	// Expand labels up the dot-hierarchy (lang.go → lang, etc.).
 	expanded := parchment.ExpandLabels(signals)
 
-	// Fetch all rule artifacts matching the expanded label set.
-	arts, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{
-		Kind:   "rule",
-		Labels: expanded,
+	// Fetch all rule artifacts matching ANY of the expanded labels (OR semantics).
+	// Scope is intentionally omitted — rules are cross-scope (synced from lexicon).
+	// A rule labeled "lang.go" matches when context contains "lang.go" or "lang".
+	// A rule labeled "always" matches because "always" is always in signals.
+	arts, _ := s.Proto.Store().List(ctx, parchment.Filter{
+		Kind:     "rule",
+		LabelsOr: expanded,
 	})
 
 	// Sort by priority descending.
