@@ -57,8 +57,8 @@ func main() {
 		cmds.ListCmd(),
 		cmds.SetCmd(),
 		cmds.DeleteCmd(),
-		treeCmd(),
-		briefingCmd(),
+		cmds.TreeCmd(),
+		cmds.BriefingCmd(),
 		cmds.SectionCmd(),
 		cmds.SearchCmd(),
 		cmds.GoalCmd(),
@@ -68,12 +68,12 @@ func main() {
 		motdCmd(),
 		drainCmd(),
 		inventoryCmd(),
-		linkCmd(),
-		unlinkCmd(),
-		overlapsCmd(),
-		orphansCmd(),
-		scopeKeysCmd(),
-		kindCodesCmd(),
+		cmds.LinkCmd(),
+		cmds.UnlinkCmd(),
+		cmds.OverlapsCmd(),
+		cmds.OrphansCmd(),
+		cmds.ScopeKeysCmd(),
+		cmds.KindCodesCmd(),
 		serveCmd(),
 		reseedCmd(),
 		seedCmd(),
@@ -139,130 +139,6 @@ func mustStore() *parchment.SQLiteStore {
 		os.Exit(1)
 	}
 	return s
-}
-
-// --- tree ---
-
-func treeCmd() *cobra.Command {
-	var format string
-	cmd := &cobra.Command{
-		Use:   "tree <ID>",
-		Short: "Show the parent-child tree rooted at an artifact",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			p, close := mustProto()
-			defer close()
-			tree, err := p.ArtifactTree(context.Background(), parchment.TreeInput{ID: args[0]})
-			if err != nil {
-				return err
-			}
-			if format == "json" {
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				return enc.Encode(tree)
-			}
-			var b strings.Builder
-			printTree(tree, "", true, &b)
-			fmt.Print(b.String())
-			return nil
-		},
-	}
-	cmd.Flags().StringVar(&format, "format", "text", "output format (text, json)")
-	return cmd
-}
-
-func printTree(node *parchment.TreeNode, prefix string, last bool, b *strings.Builder) {
-	connector := "├── "
-	if last {
-		connector = "└── "
-	}
-	if prefix == "" {
-		connector = ""
-	}
-	fmt.Fprintf(b, "%s%s%s [%s] %s\n", prefix, connector, node.ID, node.Status, node.Title)
-	cp := prefix
-	if prefix != "" {
-		if last {
-			cp += "    "
-		} else {
-			cp += "│   "
-		}
-	}
-	for i, ch := range node.Children {
-		printTree(ch, cp, i == len(node.Children)-1, b)
-	}
-}
-
-// --- briefing ---
-
-func briefingCmd() *cobra.Command {
-	var format string
-	cmd := &cobra.Command{
-		Use:   "briefing <ID>",
-		Short: "Recursive edge-aware traversal showing the full context chain from any artifact",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			p, close := mustProto()
-			defer close()
-			tree, err := p.ArtifactTree(context.Background(), parchment.TreeInput{
-				ID:        args[0],
-				Relation:  "*",
-				Direction: "both",
-			})
-			if err != nil {
-				return err
-			}
-			if format == "json" {
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				return enc.Encode(tree)
-			}
-			var b strings.Builder
-			printBriefing(tree, "", true, &b)
-			fmt.Print(b.String())
-			return nil
-		},
-	}
-	cmd.Flags().StringVar(&format, "format", "text", "output format (text, json)")
-	return cmd
-}
-
-func printBriefing(node *parchment.TreeNode, prefix string, last bool, b *strings.Builder) {
-	connector := "├── "
-	if last {
-		connector = "└── "
-	}
-	if prefix == "" {
-		connector = ""
-	}
-
-	edgeLabel := ""
-	if node.Edge != "" {
-		arrow := " -> "
-		if node.Direction == "incoming" {
-			arrow = " <- "
-		}
-		edgeLabel = node.Edge + arrow
-	}
-
-	kindStatus := node.Status
-	if node.Kind != "" {
-		kindStatus = node.Kind + "|" + node.Status
-	}
-
-	fmt.Fprintf(b, "%s%s%s%s [%s] %s\n", prefix, connector, edgeLabel, node.ID, kindStatus, node.Title)
-
-	cp := prefix
-	if prefix != "" {
-		if last {
-			cp += "    "
-		} else {
-			cp += "│   "
-		}
-	}
-	for i, ch := range node.Children {
-		printBriefing(ch, cp, i == len(node.Children)-1, b)
-	}
 }
 
 // --- vacuum ---
@@ -492,196 +368,6 @@ func inventoryCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&format, "format", "text", "output format (text, json)")
-	return cmd
-}
-
-// --- link / unlink ---
-
-func linkCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "link <ID> <relation> <target> [target...]",
-		Short: "Add a directed relationship between artifacts",
-		Long:  "Relations: parent_of, depends_on, justifies, implements, documents",
-		Args:  cobra.MinimumNArgs(3),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			p, close := mustProto()
-			defer close()
-			results, err := p.LinkArtifacts(context.Background(), args[0], args[1], args[2:])
-			if err != nil {
-				return err
-			}
-			for _, r := range results {
-				if r.OK {
-					fmt.Printf("%s -[%s]-> %s\n", args[0], args[1], r.ID)
-				} else {
-					fmt.Fprintf(os.Stderr, "%s -> error: %s\n", r.ID, r.Error)
-				}
-			}
-			return nil
-		},
-	}
-}
-
-func unlinkCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "unlink <ID> <relation> <target> [target...]",
-		Short: "Remove a directed relationship between artifacts",
-		Args:  cobra.MinimumNArgs(3),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			p, close := mustProto()
-			defer close()
-			results, err := p.UnlinkArtifacts(context.Background(), args[0], args[1], args[2:])
-			if err != nil {
-				return err
-			}
-			for _, r := range results {
-				if r.OK {
-					fmt.Printf("unlinked %s -[%s]-> %s\n", args[0], args[1], r.ID)
-				} else {
-					fmt.Fprintf(os.Stderr, "%s -> error: %s\n", r.ID, r.Error)
-				}
-			}
-			return nil
-		},
-	}
-}
-
-// --- scope-keys ---
-
-func scopeKeysCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "scope-keys [set SCOPE KEY | set-labels SCOPE LABEL,...]",
-		Short: "List or manage scope key mappings and labels",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			p, close := mustProto()
-			defer close()
-			if len(args) == 0 {
-				infos, err := p.ListScopeInfo(context.Background())
-				if err != nil {
-					return err
-				}
-				if len(infos) == 0 {
-					fmt.Println("no scope keys registered")
-					return nil
-				}
-				for _, info := range infos {
-					labels := ""
-					if len(info.Labels) > 0 {
-						labels = " [" + strings.Join(info.Labels, ",") + "]"
-					}
-					fmt.Printf("%s → %s%s\n", info.Scope, info.Key, labels)
-				}
-				return nil
-			}
-			if len(args) == 3 && args[0] == "set" {
-				return p.SetScopeKey(context.Background(), args[1], args[2])
-			}
-			if len(args) == 3 && args[0] == "set-labels" {
-				labels := strings.Split(args[2], ",")
-				for i := range labels {
-					labels[i] = strings.TrimSpace(labels[i])
-				}
-				return p.SetScopeLabels(context.Background(), args[1], labels)
-			}
-			return fmt.Errorf("usage: scope-keys [set SCOPE KEY | set-labels SCOPE LABEL,...]")
-		},
-	}
-}
-
-// --- kind-codes ---
-
-func kindCodesCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "kind-codes",
-		Short: "List kind code mappings",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			p, close := mustProto()
-			defer close()
-			codes := p.ListKindCodes()
-			for kind, code := range codes {
-				fmt.Printf("%s → %s\n", kind, code)
-			}
-			return nil
-		},
-	}
-}
-
-// --- overlaps ---
-
-func overlapsCmd() *cobra.Command {
-	var project, kind, status, format string
-	cmd := &cobra.Command{
-		Use:   "overlaps",
-		Short: "Detect artifacts sharing component labels (scope conflicts)",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			p, close := mustProto()
-			defer close()
-			in := parchment.OverlapInput{Kind: kind, Status: status, Project: project}
-			report, err := p.DetectOverlaps(context.Background(), in)
-			if err != nil {
-				return err
-			}
-			if format == "json" {
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				return enc.Encode(report)
-			}
-			if len(report.Overlaps) == 0 {
-				fmt.Printf("No overlaps found across %d artifacts.\n", report.TotalScanned)
-				return nil
-			}
-			for _, o := range report.Overlaps {
-				fmt.Printf("%s\n", o.Label)
-				for _, a := range o.Artifacts {
-					fmt.Printf("  %-16s %s\n", a.ID, a.Title)
-				}
-				fmt.Println()
-			}
-			fmt.Printf("%d overlap(s) across %d artifacts\n", report.TotalOverlaps, report.TotalScanned)
-			return nil
-		},
-	}
-	cmd.Flags().StringVar(&project, "project", "", "filter by project prefix")
-	cmd.Flags().StringVar(&kind, "kind", "task", "artifact kind to scan")
-	cmd.Flags().StringVar(&status, "status", "active", "artifact status to scan")
-	cmd.Flags().StringVar(&format, "format", "text", "output format (text, json)")
-	return cmd
-}
-
-// --- orphans ---
-
-func orphansCmd() *cobra.Command {
-	var scope, status, format string
-	cmd := &cobra.Command{
-		Use:   "orphans",
-		Short: "Detect tasks without specs/bugs, and specs/bugs without tasks",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			p, close := mustProto()
-			defer close()
-			in := parchment.OrphanInput{Scope: scope, Status: status}
-			report, err := p.DetectOrphans(context.Background(), in)
-			if err != nil {
-				return err
-			}
-			if format == "json" {
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				return enc.Encode(report)
-			}
-			if len(report.Orphans) == 0 {
-				fmt.Printf("No orphans found across %d artifacts.\n", report.TotalScanned)
-				return nil
-			}
-			for _, o := range report.Orphans {
-				fmt.Printf("%-16s %-5s [%s] %s\n  → %s\n\n", o.ID, o.Kind, o.Status, o.Title, o.Reason)
-			}
-			fmt.Printf("%d orphan(s) across %d artifacts\n", report.TotalOrphans, report.TotalScanned)
-			return nil
-		},
-	}
-	cmd.Flags().StringVar(&scope, "scope", "", "filter by scope")
-	cmd.Flags().StringVar(&status, "status", "", "filter by status (default: non-terminal)")
 	cmd.Flags().StringVar(&format, "format", "text", "output format (text, json)")
 	return cmd
 }
