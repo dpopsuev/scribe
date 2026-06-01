@@ -4,14 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/http"
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"runtime"
-	"runtime/pprof"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -20,12 +16,8 @@ import (
 	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/cmd/scribe/cmds"
 	"github.com/dpopsuev/scribe/config"
-	"github.com/dpopsuev/scribe/directive"
-	"github.com/dpopsuev/scribe/mcp"
 	"github.com/dpopsuev/scribe/service"
-	"github.com/dpopsuev/scribe/web"
 	"github.com/fsnotify/fsnotify"
-	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 )
 
@@ -71,11 +63,11 @@ func main() {
 		cmds.OrphansCmd(),
 		cmds.ScopeKeysCmd(),
 		cmds.KindCodesCmd(),
-		serveCmd(),
+		cmds.ServeCmd(),
 		cmds.ReseedCmd(),
 		cmds.SeedCmd(),
-		toolsCmd(),
-		uiCmd(),
+		cmds.ToolsCmd(),
+		cmds.UICmd(),
 		cmds.VocabCmd(),
 		cmds.LintCmd(),
 		cmds.CheckCmd(),
@@ -138,387 +130,11 @@ func mustStore() *parchment.SQLiteStore {
 	return s
 }
 
-// --- serve ---
-
-func initLogger() {
-	level := slog.LevelInfo
-	if v := os.Getenv("SCRIBE_LOG_LEVEL"); v != "" {
-		switch strings.ToLower(v) {
-		case "debug":
-			level = slog.LevelDebug
-		case "warn":
-			level = slog.LevelWarn
-		case "error":
-			level = slog.LevelError
-		}
-	}
-	handler := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: level})
-	slog.SetDefault(slog.New(handler))
-}
-
-// crashDir returns the crash dump directory, creating it if needed.
-func crashDir() string {
-	dir := cmds.EnvOr("SCRIBE_CRASH_DIR", filepath.Join(cmds.EnvOr("SCRIBE_ROOT", filepath.Join(os.Getenv("HOME"), ".scribe")), "crash"))
-	os.MkdirAll(dir, 0o755)
-	return dir
-}
-
-// dumpHeapProfile writes a heap profile to the crash directory.
-func dumpHeapProfile(label string) string {
-	path := filepath.Join(crashDir(), fmt.Sprintf("%s-%s.pb.gz", label, time.Now().Format("20060102-150405")))
-	f, err := os.Create(path)
-	if err != nil {
-		slog.Error("crash dump: create file failed", "path", path, "error", err)
-		return ""
-	}
-	defer f.Close()
-	if err := pprof.WriteHeapProfile(f); err != nil {
-		slog.Error("crash dump: write heap profile failed", "error", err)
-		return ""
-	}
-	return path
-}
-
-// dumpGoroutineProfile writes a goroutine profile to the crash directory.
-func dumpGoroutineProfile(label string) string {
-	path := filepath.Join(crashDir(), fmt.Sprintf("%s-goroutine-%s.txt", label, time.Now().Format("20060102-150405")))
-	f, err := os.Create(path)
-	if err != nil {
-		slog.Error("crash dump: create goroutine file failed", "error", err)
-		return ""
-	}
-	defer f.Close()
-	if p := pprof.Lookup("goroutine"); p != nil {
-		p.WriteTo(f, 1)
-	}
-	return path
-}
-
-// startMemoryWatchdog launches a background goroutine that samples memory every 60s.
-// On threshold breach, it auto-captures heap profiles to the crash directory.
-func startMemoryWatchdog(ctx context.Context) {
-	warnMB := 512
-	critMB := 2048
-	if v := os.Getenv("SCRIBE_MEM_WARN_MB"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			warnMB = n
-		}
-	}
-	if v := os.Getenv("SCRIBE_MEM_CRIT_MB"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			critMB = n
-		}
-	}
-
-	slog.Info("memory watchdog started", "warn_mb", warnMB, "crit_mb", critMB)
-
-	go func() {
-		ticker := time.NewTicker(60 * time.Second)
-		defer ticker.Stop()
-		warnFired := false
-		critFired := false
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				var m runtime.MemStats
-				runtime.ReadMemStats(&m)
-				heapMB := int(m.HeapAlloc / (1024 * 1024))
-				sysMB := int(m.HeapSys / (1024 * 1024))
-				goroutines := runtime.NumGoroutine()
-
-				slog.Debug("watchdog sample",
-					"heap_alloc_mb", heapMB,
-					"heap_sys_mb", sysMB,
-					"goroutines", goroutines,
-				)
-
-				if heapMB >= critMB && !critFired {
-					critFired = true
-					slog.Error("watchdog CRITICAL: heap exceeds critical threshold",
-						"heap_mb", heapMB, "threshold_mb", critMB)
-					heapPath := dumpHeapProfile("critical")
-					goroutinePath := dumpGoroutineProfile("critical")
-					slog.Error("crash dumps captured",
-						"heap", heapPath, "goroutine", goroutinePath)
-				} else if heapMB >= warnMB && !warnFired {
-					warnFired = true
-					slog.Warn("watchdog WARNING: heap exceeds warn threshold",
-						"heap_mb", heapMB, "threshold_mb", warnMB)
-					heapPath := dumpHeapProfile("warning")
-					slog.Warn("heap dump captured", "path", heapPath)
-				}
-
-				if heapMB < warnMB {
-					warnFired = false
-					critFired = false
-				}
-			}
-		}
-	}()
-}
-
-func serveCmd() *cobra.Command {
-	var scopes []string
-	var transport, addr string
-	var enableUI bool
-	var uiAddr string
-	var enablePprof bool
-	var pprofAddr string
-	cmd := &cobra.Command{
-		Use:   "serve",
-		Short: "Start the MCP server (stdio or HTTP)",
-		Long: `Start the Scribe MCP server.
-
-  stdio (default): reads/writes JSON-RPC over stdin/stdout.
-  http:            starts a Streamable HTTP server on --addr.
-  --ui:            also starts a read-only web UI on --ui-addr.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			initLogger()
-			cfg := mustConfig()
-
-			slog.Info("starting scribe",
-				"version", Version,
-				"db", cfg.DBPath(),
-				"id_format", cfg.IDFormat,
-			)
-
-			// Resolve homeScopes: flag > CWD detection > config-derived.
-			homeScopes := scopes
-			if len(homeScopes) == 0 {
-				cwd, _ := os.Getwd()
-				if sc := cfg.ScopeForDir(cwd); sc != "" {
-					homeScopes = []string{sc}
-				} else {
-					homeScopes = cfg.ResolvedScopes()
-				}
-			}
-
-			// Single construction path via service.Open.
-			svc, cleanup, err := service.Open(cfg, homeScopes)
-			if err != nil {
-				slog.Error("failed to open store", "db", cfg.DBPath(), "error", err)
-				return err
-			}
-			defer cleanup()
-
-			// Seed once on first run; skip if templates already exist.
-			if cfg.SeedDir != "" {
-				templates, _ := svc.Proto.ListArtifacts(context.Background(), parchment.ListInput{Kind: "template"})
-				if len(templates) == 0 {
-					result, err := svc.Proto.Seed(context.Background(), cfg.SeedDir)
-					if err != nil {
-						slog.Warn("auto-seed failed", "dir", cfg.SeedDir, "error", err)
-					} else if len(result.Created) > 0 {
-						slog.Info("auto-seed completed", "dir", cfg.SeedDir, "created", len(result.Created))
-					}
-				}
-			}
-
-			// Apply scope config (key + labels).
-			if len(cfg.ScopeConfigs) > 0 {
-				store := svc.Proto.Store()
-				for name, sc := range cfg.ScopeConfigs {
-					if sc.Key != "" {
-						_ = store.SetScopeKey(context.Background(), name, sc.Key, false)
-					}
-					if len(sc.Labels) > 0 {
-						_ = store.SetScopeLabels(context.Background(), name, sc.Labels)
-					}
-				}
-			}
-
-			t := cfg.Transport
-			if cmd.Flags().Changed("transport") {
-				t = transport
-			}
-			a := cfg.Addr
-			if cmd.Flags().Changed("addr") {
-				a = addr
-			}
-
-			srv, _ := mcp.NewServer(svc, nil, Version)
-
-			slog.Info("server configured",
-				"transport", t,
-				"scopes", homeScopes,
-			)
-
-			if enableUI {
-				uiSrv := web.NewServer(svc.Proto)
-				go func() {
-					slog.Info("UI listening", "addr", uiAddr)
-					if err := http.ListenAndServe(uiAddr, uiSrv); err != nil {
-						slog.Error("UI server error", "error", err)
-					}
-				}()
-			}
-
-			watchdogCtx, watchdogCancel := context.WithCancel(context.Background())
-			defer watchdogCancel()
-			startMemoryWatchdog(watchdogCtx)
-
-			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGTERM, syscall.SIGINT)
-			defer stop()
-
-			if t == "http" {
-				handler := sdkmcp.NewStreamableHTTPHandler(
-					func(r *http.Request) *sdkmcp.Server { return srv },
-					&sdkmcp.StreamableHTTPOptions{
-						SessionTimeout: cmds.SessionTimeout(),
-					},
-				)
-
-				if enablePprof {
-					go func() {
-						slog.Info("pprof listening", "addr", pprofAddr)
-						if err := http.ListenAndServe(pprofAddr, nil); err != nil {
-							slog.Error("pprof server error", "error", err)
-						}
-					}()
-				}
-
-				mux := http.NewServeMux()
-				mux.HandleFunc("GET /version", func(w http.ResponseWriter, _ *http.Request) {
-					w.Header().Set("Content-Type", "application/json")
-					fmt.Fprintf(w, `{"version":%q}`, Version)
-				})
-				mux.Handle("/", handler)
-
-				httpSrv := &http.Server{Addr: a, Handler: mux, ReadHeaderTimeout: 10 * time.Second} //nolint:mnd // standard timeout
-				go func() {
-					<-ctx.Done()
-					slog.Info("shutdown signal received, draining connections")
-					if heapPath := dumpHeapProfile("shutdown"); heapPath != "" {
-						slog.Info("shutdown heap dump captured", "path", heapPath)
-					}
-					if goroutinePath := dumpGoroutineProfile("shutdown"); goroutinePath != "" {
-						slog.Info("shutdown goroutine dump captured", "path", goroutinePath)
-					}
-
-					shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-					defer cancel()
-					httpSrv.Shutdown(shutCtx)
-				}()
-
-				slog.InfoContext(cmd.Context(), "listening", slog.String(logKeyAddr, a), slog.Duration(logKeySessionTimeout, cmds.SessionTimeout()))
-				if err := httpSrv.ListenAndServe(); err != http.ErrServerClosed {
-					return err
-				}
-				slog.Info("server stopped, closing store")
-				return nil
-			}
-			slog.Info("serving via stdio")
-			return srv.Run(ctx, &sdkmcp.StdioTransport{})
-		},
-	}
-	cmd.Flags().StringSliceVar(&scopes, "scope", nil, "home scopes (repeatable)")
-	cmd.Flags().StringVar(&transport, "transport", "stdio", "transport type: stdio, http")
-	cmd.Flags().StringVar(&addr, "addr", ":8080", "listen address for http transport")
-	cmd.Flags().BoolVar(&enableUI, "ui", false, "start the read-only web UI alongside the MCP server")
-	cmd.Flags().StringVar(&uiAddr, "ui-addr", ":8082", "listen address for the web UI")
-	cmd.Flags().BoolVar(&enablePprof, "pprof", false, "enable pprof profiling endpoint (localhost only)")
-	cmd.Flags().StringVar(&pprofAddr, "pprof-addr", "127.0.0.1:6060", "listen address for pprof")
-	return cmd
-}
-
-// --- tools ---
-
-func toolsCmd() *cobra.Command {
-	var category string
-	cmd := &cobra.Command{
-		Use:   "tools",
-		Short: "List all available MCP tools with descriptions",
-		Long:  "Print a table of every MCP tool Scribe exposes, with name, description, keywords, and categories. Useful for discovering what the agent can do without reading the README.",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			reg := mcp.ToolRegistry()
-
-			var tools []directive.ToolMeta
-			if category != "" {
-				tools = reg.ByCategory(category)
-			} else {
-				tools = reg.List()
-			}
-
-			if len(tools) == 0 {
-				fmt.Println("No tools found.")
-				return nil
-			}
-
-			nameW, descW, kwW := 4, 11, 8
-			for _, t := range tools {
-				if len(t.Name) > nameW {
-					nameW = len(t.Name)
-				}
-				if len(t.Description) > descW {
-					descW = len(t.Description)
-				}
-				kw := strings.Join(t.Keywords, ", ")
-				if len(kw) > kwW {
-					kwW = len(kw)
-				}
-			}
-
-			fmtStr := fmt.Sprintf("%%-%ds  %%-%ds  %%-%ds  %%s\n", nameW, descW, kwW)
-			fmt.Printf(fmtStr, "NAME", "DESCRIPTION", "KEYWORDS", "CATEGORIES")
-			fmt.Printf(fmtStr,
-				strings.Repeat("-", nameW),
-				strings.Repeat("-", descW),
-				strings.Repeat("-", kwW),
-				strings.Repeat("-", 10),
-			)
-			for _, t := range tools {
-				fmt.Printf(fmtStr,
-					t.Name,
-					t.Description,
-					strings.Join(t.Keywords, ", "),
-					strings.Join(t.Categories, ", "),
-				)
-			}
-			return nil
-		},
-	}
-	cmd.Flags().StringVar(&category, "category", "", "filter tools by category")
-	return cmd
-}
-
-// --- ui ---
-
-func uiCmd() *cobra.Command {
-	var addr string
-	cmd := &cobra.Command{
-		Use:   "ui",
-		Short: "Start the read-only web UI (standalone, no MCP server)",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg := mustConfig()
-			cwd, _ := os.Getwd()
-			uiScopes := []string{cfg.ScopeForDir(cwd)}
-			if uiScopes[0] == "" {
-				uiScopes = cfg.ResolvedScopes()
-			}
-			svc, cleanup, err := service.Open(cfg, uiScopes)
-			if err != nil {
-				return err
-			}
-			defer cleanup()
-			uiSrv := web.NewServer(svc.Proto)
-			fmt.Fprintf(os.Stderr, "scribe: UI listening on %s\n", addr)
-			return http.ListenAndServe(addr, uiSrv) //nolint:gosec // operator-configured address
-		},
-	}
-	cmd.Flags().StringVar(&addr, "addr", ":8082", "listen address for the web UI")
-	return cmd
-}
-
 const (
 	lexiconDaemonPollInterval = 30 * time.Second
 
-	// slog key constants for lexicon commands — sloglint no-raw-keys.
-	logKeyAddr           = "addr"
-	logKeySessionTimeout = "session_timeout"
-	logKeyLexRoot        = "lex_root"
+	// slog key constants for lexicon daemon — sloglint no-raw-keys.
+	logKeyLexRoot     = "lex_root"
 	logKeyLexPath     = "path"
 	logKeyLexFile     = "file"
 	logKeyLexError    = "error"
