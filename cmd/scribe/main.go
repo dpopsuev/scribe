@@ -14,7 +14,6 @@ import (
 	"regexp"
 	"runtime"
 	"runtime/pprof"
-	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -60,8 +59,8 @@ func main() {
 		deleteCmd(),
 		treeCmd(),
 		briefingCmd(),
-		sectionCmd(),
-		searchCmd(),
+		cmds.SectionCmd(),
+		cmds.SearchCmd(),
 		cmds.GoalCmd(),
 		archiveCmd(),
 		vacuumCmd(),
@@ -80,7 +79,7 @@ func main() {
 		seedCmd(),
 		toolsCmd(),
 		uiCmd(),
-		vocabCmd(),
+		cmds.VocabCmd(),
 		lintCmd(),
 		checkCmd(),
 		migrateCmd(),
@@ -226,7 +225,7 @@ func listCmd() *cobra.Command {
 				return err
 			}
 			if in.Sort != "" {
-				sortArts(arts, in.Sort)
+				cmds.SortArts(arts, in.Sort)
 			}
 			if count {
 				fmt.Println(len(arts))
@@ -322,116 +321,6 @@ func deleteCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "bypass archive-required guard")
-	return cmd
-}
-
-// --- section ---
-
-func sectionCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "section",
-		Short: "Manage named text sections on an artifact",
-	}
-	var file string
-	addCmd := &cobra.Command{
-		Use:   "add <ID> <name> [text]",
-		Short: "Add or replace a named section",
-		Args:  cobra.RangeArgs(2, 3),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			p, close := mustProto()
-			defer close()
-			id, name := args[0], args[1]
-			var body string
-			switch {
-			case file == "-":
-				data, err := io.ReadAll(os.Stdin)
-				if err != nil {
-					return fmt.Errorf("read stdin: %w", err)
-				}
-				body = string(data)
-			case file != "":
-				data, err := os.ReadFile(file)
-				if err != nil {
-					return fmt.Errorf("read %s: %w", file, err)
-				}
-				body = string(data)
-			case len(args) == 3:
-				body = args[2]
-			default:
-				return fmt.Errorf("provide text as third argument, or use --file / --file=-")
-			}
-			replaced, err := p.AttachSection(context.Background(), id, name, body)
-			if err != nil {
-				return err
-			}
-			action := "added"
-			if replaced {
-				action = "replaced"
-			}
-			fmt.Printf("%s: section %q %s (%d bytes)\n", id, name, action, len(body))
-			return nil
-		},
-	}
-	addCmd.Flags().StringVar(&file, "file", "", "read section text from file (use - for stdin)")
-
-	showSectionCmd := &cobra.Command{
-		Use:   "show <ID> <name>",
-		Short: "Print the text of a named section",
-		Args:  cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			p, close := mustProto()
-			defer close()
-			t, err := p.GetSection(context.Background(), args[0], args[1])
-			if err != nil {
-				return err
-			}
-			fmt.Print(t)
-			return nil
-		},
-	}
-
-	listSectionCmd := &cobra.Command{
-		Use:   "list <ID>",
-		Short: "List all section names on an artifact",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			p, close := mustProto()
-			defer close()
-			art, err := p.GetArtifact(context.Background(), args[0])
-			if err != nil {
-				return err
-			}
-			if len(art.Sections) == 0 {
-				fmt.Println("no sections")
-				return nil
-			}
-			for _, sec := range art.Sections {
-				fmt.Printf("%-30s %d bytes\n", sec.Name, len(sec.Text))
-			}
-			return nil
-		},
-	}
-
-	rmCmd := &cobra.Command{
-		Use:   "rm <ID> <name>",
-		Short: "Remove a named section",
-		Args:  cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			p, close := mustProto()
-			defer close()
-			found, err := p.DetachSection(context.Background(), args[0], args[1])
-			if err != nil {
-				return err
-			}
-			if !found {
-				return fmt.Errorf("section %q not found on %s", args[1], args[0])
-			}
-			fmt.Printf("%s: section %q removed\n", args[0], args[1])
-			return nil
-		},
-	}
-
-	cmd.AddCommand(addCmd, showSectionCmd, listSectionCmd, rmCmd)
 	return cmd
 }
 
@@ -557,44 +446,6 @@ func printBriefing(node *parchment.TreeNode, prefix string, last bool, b *string
 	for i, ch := range node.Children {
 		printBriefing(ch, cp, i == len(node.Children)-1, b)
 	}
-}
-
-// --- search ---
-
-func searchCmd() *cobra.Command {
-	var scope, kind, status, format string
-	cmd := &cobra.Command{
-		Use:   "search <query>",
-		Short: "Search artifacts by substring across title, goal, sections, and extra",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			p, close := mustProto()
-			defer close()
-			li := parchment.ListInput{Kind: kind, Scope: scope, Status: status}
-			matched, err := p.SearchArtifacts(context.Background(), args[0], li)
-			if err != nil {
-				return err
-			}
-			if len(matched) == 0 {
-				fmt.Printf("no artifacts matching %q\n", args[0])
-				return nil
-			}
-			switch format {
-			case "json":
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				return enc.Encode(matched)
-			default:
-				fmt.Print(parchment.RenderTable(matched))
-				return nil
-			}
-		},
-	}
-	cmd.Flags().StringVar(&scope, "scope", "", "filter by scope")
-	cmd.Flags().StringVar(&kind, "kind", "", "filter by kind")
-	cmd.Flags().StringVar(&status, "status", "", "filter by status")
-	cmd.Flags().StringVar(&format, "format", "table", "output format (table, json)")
-	return cmd
 }
 
 // --- archive ---
@@ -1097,7 +948,7 @@ func initLogger() {
 
 // crashDir returns the crash dump directory, creating it if needed.
 func crashDir() string {
-	dir := envOr("SCRIBE_CRASH_DIR", filepath.Join(envOr("SCRIBE_ROOT", filepath.Join(os.Getenv("HOME"), ".scribe")), "crash"))
+	dir := cmds.EnvOr("SCRIBE_CRASH_DIR", filepath.Join(cmds.EnvOr("SCRIBE_ROOT", filepath.Join(os.Getenv("HOME"), ".scribe")), "crash"))
 	os.MkdirAll(dir, 0o755)
 	return dir
 }
@@ -1306,7 +1157,7 @@ func serveCmd() *cobra.Command {
 				handler := sdkmcp.NewStreamableHTTPHandler(
 					func(r *http.Request) *sdkmcp.Server { return srv },
 					&sdkmcp.StreamableHTTPOptions{
-						SessionTimeout: sessionTimeout(),
+						SessionTimeout: cmds.SessionTimeout(),
 					},
 				)
 
@@ -1342,7 +1193,7 @@ func serveCmd() *cobra.Command {
 					httpSrv.Shutdown(shutCtx)
 				}()
 
-				slog.Info("listening", "addr", a, "session_timeout", sessionTimeout())
+				slog.InfoContext(cmd.Context(), "listening", slog.String(logKeyAddr, a), slog.Duration(logKeySessionTimeout, cmds.SessionTimeout()))
 				if err := httpSrv.ListenAndServe(); err != http.ErrServerClosed {
 					return err
 				}
@@ -1423,99 +1274,6 @@ func seedCmd() *cobra.Command {
 			return nil
 		},
 	}
-}
-
-// --- vocab ---
-
-func vocabCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "vocab",
-		Short: "Manage the enforced kind vocabulary",
-	}
-
-	listVocabCmd := &cobra.Command{
-		Use:   "list",
-		Short: "Show registered artifact kinds",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			p, close := mustProto()
-			defer close()
-			for _, k := range p.VocabList() {
-				fmt.Println(k)
-			}
-			return nil
-		},
-	}
-
-	addVocabCmd := &cobra.Command{
-		Use:   "add <kind>",
-		Short: "Register a new artifact kind",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			p, close := mustProto()
-			defer close()
-			if err := p.VocabAdd(args[0]); err != nil {
-				return err
-			}
-			fmt.Printf("registered kind %q\n", args[0])
-			return nil
-		},
-	}
-
-	removeVocabCmd := &cobra.Command{
-		Use:   "remove <kind>",
-		Short: "Remove an artifact kind (only if unused)",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			p, close := mustProto()
-			defer close()
-			if err := p.VocabRemove(context.Background(), args[0]); err != nil {
-				return err
-			}
-			fmt.Printf("removed kind %q\n", args[0])
-			return nil
-		},
-	}
-
-	cmd.AddCommand(listVocabCmd, addVocabCmd, removeVocabCmd)
-	return cmd
-}
-
-// --- sort helper ---
-
-func sortArts(arts []*parchment.Artifact, field string) {
-	sort.Slice(arts, func(i, j int) bool {
-		switch field {
-		case "title":
-			return arts[i].Title < arts[j].Title
-		case "status":
-			return arts[i].Status < arts[j].Status
-		case "scope":
-			return arts[i].Scope < arts[j].Scope
-		case "kind":
-			return arts[i].Kind < arts[j].Kind
-		case "sprint":
-			return arts[i].Sprint < arts[j].Sprint
-		default:
-			return arts[i].ID < arts[j].ID
-		}
-	})
-}
-
-func sessionTimeout() time.Duration {
-	if v := os.Getenv("SCRIBE_SESSION_TIMEOUT"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			return d
-		}
-		slog.Warn("invalid SCRIBE_SESSION_TIMEOUT, using default", "value", v)
-	}
-	return 8 * time.Hour
-}
-
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
 }
 
 // --- tools ---
@@ -1967,7 +1725,9 @@ const (
 	lexiconDaemonPollInterval = 30 * time.Second
 
 	// slog key constants for lexicon commands — sloglint no-raw-keys.
-	logKeyLexRoot     = "lex_root"
+	logKeyAddr           = "addr"
+	logKeySessionTimeout = "session_timeout"
+	logKeyLexRoot        = "lex_root"
 	logKeyLexPath     = "path"
 	logKeyLexFile     = "file"
 	logKeyLexError    = "error"
@@ -1986,7 +1746,7 @@ func lexiconCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			svc, close := mustService()
 			defer close()
-			lexRoot := envOr("LEX_ROOT", registry.DefaultRoot())
+			lexRoot := cmds.EnvOr("LEX_ROOT", registry.DefaultRoot())
 			n, err := svc.SyncLexicon(cmd.Context(), lexRoot)
 			if err != nil {
 				return err
@@ -2005,7 +1765,7 @@ Re-syncs on any .yaml/.yml/.md change. Exits on SIGTERM/SIGINT.`,
 			svc, close := mustService()
 			defer close()
 
-			lexRoot := envOr("LEX_ROOT", registry.DefaultRoot())
+			lexRoot := cmds.EnvOr("LEX_ROOT", registry.DefaultRoot())
 
 			ctx, cancel := signal.NotifyContext(cmd.Context(), syscall.SIGTERM, syscall.SIGINT)
 			defer cancel()

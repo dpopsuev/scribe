@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sort"
 	"strings"
+	"time"
 
 	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/config"
@@ -98,4 +100,36 @@ func EnvOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// SortArts sorts a slice of artifacts by the given field name.
+func SortArts(arts []*parchment.Artifact, field string) {
+	sort.Slice(arts, func(i, j int) bool {
+		switch field {
+		case "title":
+			return arts[i].Title < arts[j].Title
+		case "status":
+			return arts[i].Status < arts[j].Status
+		case "scope":
+			return arts[i].Scope < arts[j].Scope
+		case "kind":
+			return arts[i].Kind < arts[j].Kind
+		case "sprint":
+			return arts[i].Sprint < arts[j].Sprint
+		default:
+			return arts[i].ID < arts[j].ID
+		}
+	})
+}
+
+// SessionTimeout returns the MCP session timeout from SCRIBE_SESSION_TIMEOUT
+// env var, defaulting to 8 hours.
+func SessionTimeout() time.Duration {
+	if v := os.Getenv("SCRIBE_SESSION_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
+		slog.Warn("invalid SCRIBE_SESSION_TIMEOUT, using default") //nolint:sloglint // no context available here; gosec: env var value is not injected
+	}
+	return 8 * time.Hour
 }
