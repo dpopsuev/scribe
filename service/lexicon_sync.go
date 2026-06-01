@@ -121,7 +121,7 @@ func ensureLexKindDefinition(ctx context.Context, store parchment.Store, kindNam
 	})
 }
 
-func lexDiscoveredToArtifact(a registry.Artifact, body string) *parchment.Artifact {
+func lexDiscoveredToArtifact(a registry.DiscoveredArtifact, body string) *parchment.Artifact {
 	kind := lexKindRule
 	if a.Type == lexKindSkill {
 		kind = lexKindSkill
