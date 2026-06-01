@@ -127,6 +127,9 @@ func lexDiscoveredToArtifact(a registry.Artifact, body string) *parchment.Artifa
 		kind = lexKindSkill
 	}
 	labels := lexAppendSourceLabel(a.Labels, a.Source)
+	if a.AlwaysApply {
+		labels = append(labels, "always")
+	}
 	now := time.Now().UTC()
 	return &parchment.Artifact{
 		ID:         lexArtifactID(kind, a.Source, a.Name),
@@ -139,8 +142,9 @@ func lexDiscoveredToArtifact(a registry.Artifact, body string) *parchment.Artifa
 		UpdatedAt:  now,
 		InsertedAt: now,
 		Extra: map[string]any{
-			"priority": a.Priority,
-			"source":   a.Source,
+			"priority":     a.Priority,
+			"source":       a.Source,
+			"always_apply": a.AlwaysApply,
 		},
 		Sections: []parchment.Section{{Name: "content", Text: body}},
 	}
