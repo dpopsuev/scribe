@@ -80,9 +80,9 @@ func SeedDirCmd() *cobra.Command {
 		Long:  "Reads templates from <dir>/templates/*.md and config from <dir>/config/*.yaml. Skips artifacts that already exist.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, cleanup := MustProto()
+			svc, cleanup := MustService()
 			defer cleanup()
-			result, err := p.Seed(context.Background(), args[0])
+			result, err := svc.Proto.Seed(context.Background(), args[0])
 			if err != nil {
 				return err
 			}
@@ -104,7 +104,7 @@ func ExportCmd() *cobra.Command {
 		Use:   "export",
 		Short: "Export artifacts as JSON-lines",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, cleanup := MustProto()
+			svc, cleanup := MustService()
 			defer cleanup()
 			var w io.Writer = os.Stdout
 			if output != "" && output != "-" {
@@ -115,7 +115,7 @@ func ExportCmd() *cobra.Command {
 				defer func() { _ = f.Close() }()
 				w = f
 			}
-			n, err := p.Export(context.Background(), w, scope)
+			n, err := svc.Proto.Export(context.Background(), w, scope)
 			if err != nil {
 				return err
 			}
@@ -134,14 +134,14 @@ func ImportCmd() *cobra.Command {
 		Short: "Import artifacts from JSON-lines",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, cleanup := MustProto()
+			svc, cleanup := MustService()
 			defer cleanup()
 			f, err := os.Open(args[0])
 			if err != nil {
 				return err
 			}
 			defer func() { _ = f.Close() }()
-			n, err := p.Import(context.Background(), f)
+			n, err := svc.Proto.Import(context.Background(), f)
 			if err != nil {
 				return err
 			}
@@ -162,14 +162,14 @@ func CapsuleCmd() *cobra.Command {
 		Use:   "export",
 		Short: "Export entire Scribe instance to a .capsule file",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, cleanup := MustProto()
+			svc, cleanup := MustService()
 			defer cleanup()
 			f, err := os.Create(output) //nolint:gosec // operator-supplied output path
 			if err != nil {
 				return err
 			}
 			defer func() { _ = f.Close() }()
-			m, err := p.CapsuleExport(context.Background(), f, Version)
+			m, err := svc.Proto.CapsuleExport(context.Background(), f, Version)
 			if err != nil {
 				return err
 			}
@@ -185,14 +185,14 @@ func CapsuleCmd() *cobra.Command {
 		Short: "Import a .capsule file (replaces current state)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, cleanup := MustProto()
+			svc, cleanup := MustService()
 			defer cleanup()
 			f, err := os.Open(args[0])
 			if err != nil {
 				return err
 			}
 			defer func() { _ = f.Close() }()
-			m, err := p.CapsuleImport(context.Background(), f)
+			m, err := svc.Proto.CapsuleImport(context.Background(), f)
 			if err != nil {
 				return err
 			}
