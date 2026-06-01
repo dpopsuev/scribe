@@ -64,16 +64,21 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 
 	case "context_read":
 		return h.handleContextRead(ctx, in)
-	case "session_start":
-		return h.handleSessionStart(ctx, in)
-	case "session_commit":
-		return h.handleSessionCommit(ctx, in)
-	case "session_diff":
-		return h.handleSessionDiff(ctx, in)
-	case "session_merge":
-		return h.handleSessionMerge(ctx, in)
+	case "session":
+		switch in.SnapshotAction {
+		case "start":
+			return h.handleSessionStart(ctx, in)
+		case "commit":
+			return h.handleSessionCommit(ctx, in)
+		case "diff": //nolint:goconst // "diff" also appears in snapshot sub-dispatch; not extractable without coupling the two
+			return h.handleSessionDiff(ctx, in)
+		case "merge":
+			return h.handleSessionMerge(ctx, in)
+		default:
+			return nil, nil, fmt.Errorf("session requires snapshot_action=start|commit|diff|merge") //nolint:err113 // agent-facing hint
+		}
 	default:
-		return nil, nil, fmt.Errorf("unknown admin action %q (valid: motd, changelog, dashboard, snapshot, set_goal, detect, check, set_scope_labels, list_scope_labels, correlate, ingest_session, knowledge_lint, context_read, session_start, session_commit, session_diff, session_merge)", in.Action) //nolint:err113 // agent-facing hint
+		return nil, nil, fmt.Errorf("unknown admin action %q (valid: motd, changelog, dashboard, snapshot, set_goal, detect, correlate, ingest_session, context_read, session, set_scope_labels)", in.Action) //nolint:err113 // agent-facing hint
 	}
 }
 
