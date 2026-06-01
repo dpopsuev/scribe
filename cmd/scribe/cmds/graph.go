@@ -18,9 +18,9 @@ func TreeCmd() *cobra.Command {
 		Short: "Show the parent-child tree rooted at an artifact",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, cleanup := MustProto()
+			svc, cleanup := MustService()
 			defer cleanup()
-			tree, err := p.ArtifactTree(context.Background(), parchment.TreeInput{ID: args[0]})
+			tree, err := svc.Proto.ArtifactTree(context.Background(), parchment.TreeInput{ID: args[0]})
 			if err != nil {
 				return err
 			}
@@ -68,9 +68,9 @@ func BriefingCmd() *cobra.Command {
 		Short: "Recursive edge-aware traversal showing the full context chain from any artifact",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, cleanup := MustProto()
+			svc, cleanup := MustService()
 			defer cleanup()
-			tree, err := p.ArtifactTree(context.Background(), parchment.TreeInput{
+			tree, err := svc.Proto.ArtifactTree(context.Background(), parchment.TreeInput{
 				ID:        args[0],
 				Relation:  "*",
 				Direction: "both",
@@ -101,7 +101,6 @@ func printBriefing(node *parchment.TreeNode, prefix string, last bool, b *string
 	if prefix == "" {
 		connector = ""
 	}
-
 	edgeLabel := ""
 	if node.Edge != "" {
 		arrow := " -> "
@@ -110,14 +109,11 @@ func printBriefing(node *parchment.TreeNode, prefix string, last bool, b *string
 		}
 		edgeLabel = node.Edge + arrow
 	}
-
 	kindStatus := node.Status
 	if node.Kind != "" {
 		kindStatus = node.Kind + "|" + node.Status
 	}
-
 	fmt.Fprintf(b, "%s%s%s%s [%s] %s\n", prefix, connector, edgeLabel, node.ID, kindStatus, node.Title)
-
 	cp := prefix
 	if prefix != "" {
 		if last {
@@ -138,9 +134,9 @@ func LinkCmd() *cobra.Command {
 		Long:  "Relations: parent_of, depends_on, justifies, implements, documents",
 		Args:  cobra.MinimumNArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, cleanup := MustProto()
+			svc, cleanup := MustService()
 			defer cleanup()
-			results, err := p.LinkArtifacts(context.Background(), args[0], args[1], args[2:])
+			results, err := svc.Proto.LinkArtifacts(context.Background(), args[0], args[1], args[2:])
 			if err != nil {
 				return err
 			}
@@ -162,9 +158,9 @@ func UnlinkCmd() *cobra.Command {
 		Short: "Remove a directed relationship between artifacts",
 		Args:  cobra.MinimumNArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, cleanup := MustProto()
+			svc, cleanup := MustService()
 			defer cleanup()
-			results, err := p.UnlinkArtifacts(context.Background(), args[0], args[1], args[2:])
+			results, err := svc.Proto.UnlinkArtifacts(context.Background(), args[0], args[1], args[2:])
 			if err != nil {
 				return err
 			}
@@ -186,10 +182,10 @@ func OverlapsCmd() *cobra.Command {
 		Use:   "overlaps",
 		Short: "Detect artifacts sharing component labels (scope conflicts)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, cleanup := MustProto()
+			svc, cleanup := MustService()
 			defer cleanup()
 			in := parchment.OverlapInput{Kind: kind, Status: status, Project: project}
-			report, err := p.DetectOverlaps(context.Background(), in)
+			report, err := svc.Proto.DetectOverlaps(context.Background(), in)
 			if err != nil {
 				return err
 			}
@@ -226,10 +222,10 @@ func OrphansCmd() *cobra.Command {
 		Use:   "orphans",
 		Short: "Detect tasks without specs/bugs, and specs/bugs without tasks",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, cleanup := MustProto()
+			svc, cleanup := MustService()
 			defer cleanup()
 			in := parchment.OrphanInput{Scope: scope, Status: status}
-			report, err := p.DetectOrphans(context.Background(), in)
+			report, err := svc.Proto.DetectOrphans(context.Background(), in)
 			if err != nil {
 				return err
 			}
@@ -260,10 +256,10 @@ func ScopeKeysCmd() *cobra.Command {
 		Use:   "scope-keys [set SCOPE KEY | set-labels SCOPE LABEL,...]",
 		Short: "List or manage scope key mappings and labels",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, cleanup := MustProto()
+			svc, cleanup := MustService()
 			defer cleanup()
 			if len(args) == 0 {
-				infos, err := p.ListScopeInfo(context.Background())
+				infos, err := svc.Proto.ListScopeInfo(context.Background())
 				if err != nil {
 					return err
 				}
@@ -281,14 +277,14 @@ func ScopeKeysCmd() *cobra.Command {
 				return nil
 			}
 			if len(args) == 3 && args[0] == "set" {
-				return p.SetScopeKey(context.Background(), args[1], args[2])
+				return svc.Proto.SetScopeKey(context.Background(), args[1], args[2])
 			}
 			if len(args) == 3 && args[0] == "set-labels" {
 				labels := strings.Split(args[2], ",")
 				for i := range labels {
 					labels[i] = strings.TrimSpace(labels[i])
 				}
-				return p.SetScopeLabels(context.Background(), args[1], labels)
+				return svc.Proto.SetScopeLabels(context.Background(), args[1], labels)
 			}
 			return fmt.Errorf("usage: scope-keys [set SCOPE KEY | set-labels SCOPE LABEL,...]") //nolint:err113 // user-facing hint
 		},
@@ -300,9 +296,9 @@ func KindCodesCmd() *cobra.Command {
 		Use:   "kind-codes",
 		Short: "List kind code mappings",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, cleanup := MustProto()
+			svc, cleanup := MustService()
 			defer cleanup()
-			codes := p.ListKindCodes()
+			codes := svc.Proto.ListKindCodes()
 			for kind, code := range codes {
 				fmt.Printf("%s → %s\n", kind, code)
 			}
