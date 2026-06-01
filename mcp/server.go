@@ -50,14 +50,14 @@ func NewServer(svc *service.Service, vocab []string, version string) (*sdkmcp.Se
 	sdk := batt.SDK()
 	destructiveHint := true
 
-	// artifact tool — also handles all graph/edge operations
-	artifactDesc := "CRUD + search for work (task/spec/bug/goal) and knowledge (note/concept/source) artifacts. " +
+	artifactDesc := "CRUD + search + graph for work (task/spec/bug/goal) and knowledge (note/concept/source) artifacts. " +
 		"FIND: list(query=) for keyword FTS; recall(query=, top=10) for semantic — both cheaper than list. " +
 		"READ: get(id=) full artifact; get_section(id=, name=) for one section only (cheaper). " +
 		"LIST: always add scope/kind/status or top=N — bare list returns ALL artifacts and burns context. " +
 		"WRITE: create, set, attach_section, archive. " +
+		"GRAPH: briefing(id=) — full edge-aware context chain; tree(id=) — children; link/unlink — edges; topo_sort — dependency order; impact — blast radius. " +
 		"ORIENT: orient for vault map (call after motd); catalog for full inventory. " +
-		"GRAPH: briefing(id=) — full edge-aware context chain; tree(id=) — children; link/unlink — edges; topo_sort — dependency order; impact — blast radius."
+		"STASH: get(stash_id=) to inspect a failed-create stash; create(stash_id=) to promote it."
 	var artifactSchema any
 	_ = json.Unmarshal(schemaFor[artifactInput](), &artifactSchema)
 	sdk.AddTool(&sdkmcp.Tool{
@@ -125,7 +125,7 @@ type handler struct {
 // --- consolidated input types ---
 
 type artifactInput struct {
-	Action string `json:"action" jsonschema:"required,create | batch_create | clone | get | list | set | update | archive | de-archive | retire | attach_section | get_section | detach_section | list_sections | search_sections | bulk_section_update | batch_update | move | diff | promote_stash | inspect_stash | recall"`
+	Action string `json:"action" jsonschema:"required,create | batch_create | clone | get | list | set | update | archive | de-archive | retire | attach_section | get_section | detach_section | list_sections | search_sections | bulk_section_update | batch_update | move | diff | recall | tree | briefing | link | unlink | bulk_link | bulk_unlink | topo_sort | next | impact | replace"`
 
 	ID     string `json:"id,omitempty"`
 	Target string `json:"target,omitempty" jsonschema:"new parent ID (move)"`

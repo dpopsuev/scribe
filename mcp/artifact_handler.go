@@ -33,7 +33,9 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 
 	switch in.Action {
 	case "create":
-		// create with artifacts[] routes to batch_create semantics.
+		if in.StashID != "" {
+			return h.handlePromoteStash(ctx, in)
+		}
 		if len(in.Artifacts) > 0 {
 			return h.handleBatchCreate(ctx, in)
 		}
@@ -66,6 +68,9 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 	case "clone":
 		return h.handleClone(ctx, in)
 	case "get":
+		if in.StashID != "" {
+			return h.handleInspectStash(ctx, in.StashID)
+		}
 		ids := in.IDs
 		if len(ids) == 0 && in.ID != "" {
 			ids = []string{in.ID}
@@ -254,47 +259,6 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 			return text(fmt.Sprintf("batch_update: %d updated, %d failed", ok, failed)), nil, nil
 		}
 		return text(fmt.Sprintf("batch_update: %d updated", ok)), nil, nil
-	case "inspect_stash":
-		if in.StashID == "" {
-			return nil, nil, fmt.Errorf("stash_id is required for inspect_stash") //nolint:err113 // agent-facing hint
-		}
-		stashed, err := h.proto.Stash().Get(in.StashID)
-		if err != nil {
-			return nil, nil, fmt.Errorf("stash %s: %w", in.StashID, err) //nolint:err113 // agent-facing input validation
-		}
-		data, _ := json.Marshal(stashed.Input)
-		ttl := 10 * time.Minute
-		age := time.Since(stashed.CreatedAt).Round(time.Second)
-		return text(fmt.Sprintf("stash %s (age: %v, expires in ~%v):\n%s",
-			in.StashID, age, (ttl - age).Round(time.Second), string(data))), nil, nil
-	case "promote_stash":
-		if in.StashID == "" {
-			return nil, nil, fmt.Errorf("stash_id is required for promote_stash") //nolint:err113 // agent-facing input validation
-		}
-		var sections []parchment.Section
-		for _, sec := range in.Sections {
-			name := sec["name"]
-			if name == "" {
-				name = sec["slug"]
-			}
-			if name != "" {
-				text := sec["text"]
-				if text == "" {
-					text = sec["body"]
-				}
-				sections = append(sections, parchment.Section{Name: name, Text: text})
-			}
-		}
-		art, err := h.proto.PromoteStash(ctx, in.StashID, parchment.CreateInput{
-			Kind: in.Kind, Title: in.Title, Scope: in.Scope,
-			Goal: in.Goal, Parent: in.Parent, Status: in.Status,
-			Priority: in.Priority, Labels: in.Labels,
-			Links: in.Links, Sections: sections, Patch: in.Patch,
-		})
-		if err != nil {
-			return nil, nil, err
-		}
-		return text(fmt.Sprintf("promoted stash to %s: %s [%s|%s]", art.ID, art.Title, art.Kind, art.Status)), nil, nil
 	case "diff":
 		if in.ID == "" || in.Against == "" {
 			return nil, nil, fmt.Errorf("id and against required for diff") //nolint:err113 // agent-facing input validation
@@ -314,7 +278,7 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		// catalog: alias for list(family=knowledge, group_by=kind). Not advertised — use list.
 		return h.handleKnowledgeCatalog(ctx, knowledgeInput{Scope: in.Scope})
 	default:
-		return nil, nil, fmt.Errorf("unknown artifact action %q (valid: create, batch_create, clone, get, list, recall, set, update, archive, de-archive, retire, attach_section, get_section, detach_section, list_sections, search_sections, bulk_section_update, batch_update, diff, move, orient, catalog, promote_stash, inspect_stash)", in.Action) //nolint:err113 // agent-facing hint
+		return nil, nil, fmt.Errorf("unknown artifact action %q (valid: create, batch_create, clone, get, list, recall, set, update, archive, de-archive, retire, attach_section, get_section, detach_section, list_sections, search_sections, bulk_section_update, batch_update, diff, move, orient, catalog, tree, briefing, link, unlink, bulk_link, bulk_unlink, topo_sort, next, impact, replace)", in.Action) //nolint:err113 // agent-facing hint
 	}
 }
 
@@ -1034,6 +998,45 @@ func (h *handler) handleGetSummary(ctx context.Context, ids []string) (*sdkmcp.C
 	}
 	data, _ := json.Marshal(results)
 	return text(string(data)), nil, nil
+}
+
+func (h *handler) handleInspectStash(_ context.Context, stashID string) (*sdkmcp.CallToolResult, any, error) {
+	stashed, err := h.proto.Stash().Get(stashID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("stash %s: %w", stashID, err) //nolint:err113 // agent-facing input validation
+	}
+	data, _ := json.Marshal(stashed.Input)
+	ttl := 10 * time.Minute
+	age := time.Since(stashed.CreatedAt).Round(time.Second)
+	return text(fmt.Sprintf("stash %s (age: %v, expires in ~%v):\n%s",
+		stashID, age, (ttl - age).Round(time.Second), string(data))), nil, nil
+}
+
+func (h *handler) handlePromoteStash(ctx context.Context, in artifactInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: value semantics intentional
+	var sections []parchment.Section
+	for _, sec := range in.Sections {
+		name := sec["name"]
+		if name == "" {
+			name = sec["slug"]
+		}
+		if name != "" {
+			t := sec["text"]
+			if t == "" {
+				t = sec["body"]
+			}
+			sections = append(sections, parchment.Section{Name: name, Text: t})
+		}
+	}
+	art, err := h.proto.PromoteStash(ctx, in.StashID, parchment.CreateInput{
+		Kind: in.Kind, Title: in.Title, Scope: in.Scope,
+		Goal: in.Goal, Parent: in.Parent, Status: in.Status,
+		Priority: in.Priority, Labels: in.Labels,
+		Links: in.Links, Sections: sections, Patch: in.Patch,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return text(fmt.Sprintf("promoted stash to %s: %s [%s|%s]", art.ID, art.Title, art.Kind, art.Status)), nil, nil
 }
 
 // --- readLog persistence ---
