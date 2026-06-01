@@ -41,18 +41,6 @@ func MustConfig() *config.Config {
 	return cfg
 }
 
-// MustProto opens a raw Protocol — used by commands that need direct access
-// below the service layer (lint, migrate, etc.).
-func MustProto() (proto *parchment.Protocol, cleanup func()) {
-	cfg := MustConfig()
-	s, err := parchment.OpenSQLiteConfig(cfg.SQLiteConfig())
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: open store: %v\n", err)
-		os.Exit(1)
-	}
-	return parchment.New(s, nil, nil, nil, cfg.ProtocolIDConfig()), func() { _ = s.Close() }
-}
-
 // MustService is the single construction path for most CLI commands.
 // Uses service.Open so homeScopes and schema loading are identical to the MCP server.
 func MustService() (svc *service.Service, cleanup func()) {
