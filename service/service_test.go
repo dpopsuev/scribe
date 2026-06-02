@@ -225,6 +225,36 @@ func TestMotd_ReturnsCurrentGoals(t *testing.T) {
 	_ = m
 }
 
+// --- RenderDetect ---
+
+func TestRenderDetect_AllChecksRun(t *testing.T) {
+	// Given an empty store
+	// When RenderDetect(check=all) is called
+	// Then output contains results for overlaps and orphans
+	svc := newTestService(t, "test")
+	out, err := svc.RenderDetect(context.Background(), "all", "test", "", "", "", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "overlap") && !strings.Contains(out, "orphan") {
+		t.Errorf("expected overlap or orphan section in detect output, got: %s", out[:min(200, len(out))])
+	}
+}
+
+func TestRenderDetect_EvictionCheck(t *testing.T) {
+	// Given eviction check is requested
+	// When RenderDetect(check=eviction) is called
+	// Then output mentions eviction candidates
+	svc := newTestService(t, "test")
+	out, err := svc.RenderDetect(context.Background(), "eviction", "test", "", "", "", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "eviction") && !strings.Contains(out, "No eviction") {
+		t.Errorf("expected eviction content in output, got: %s", out)
+	}
+}
+
 // --- RenderMotd ---
 
 func TestRenderMotd_ContainsScopeAndVersion(t *testing.T) {

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -453,4 +454,170 @@ func (s *Service) RenderMotd(ctx context.Context, since, version string, homeSco
 		return "nothing to report", nil
 	}
 	return strings.Join(sections, "\n\n"), nil
+}
+
+const (
+	DetectCheckAll           = "all"
+	DetectCheckOverlaps      = "overlaps"
+	DetectCheckOrphans       = "orphans"
+	DetectCheckKnowledge     = "knowledge"
+	DetectCheckKnowledgeFull = "knowledge_full"
+	DetectCheckEviction      = "eviction"
+	DetectCheckSchema        = "schema"
+)
+
+func (s *Service) RenderDetect(ctx context.Context, check, scope, kind, project, status string, staleDays int) (string, error) { //nolint:cyclop,gocyclo // each check is a distinct branch
+	if check == "" {
+		check = DetectCheckAll
+	}
+	var parts []string
+
+	if check == DetectCheckOverlaps || check == DetectCheckAll {
+		report, err := s.Proto.DetectOverlaps(ctx, parchment.OverlapInput{
+			Kind: kind, Status: status, Project: project,
+		})
+		if err != nil {
+			return "", err
+		}
+		if len(report.Overlaps) == 0 {
+			parts = append(parts, fmt.Sprintf("No overlaps found across %d artifacts.", report.TotalScanned))
+		} else {
+			var b strings.Builder
+			for _, o := range report.Overlaps {
+				fmt.Fprintf(&b, "%s\n", o.Label)
+				for _, a := range o.Artifacts {
+					fmt.Fprintf(&b, "  %-16s %s\n", a.ID, a.Title)
+				}
+				b.WriteString("\n")
+			}
+			fmt.Fprintf(&b, "%d overlap(s) across %d artifacts", report.TotalOverlaps, report.TotalScanned)
+			parts = append(parts, b.String())
+		}
+	}
+
+	if check == DetectCheckOrphans || check == DetectCheckAll {
+		report, err := s.Proto.DetectOrphans(ctx, parchment.OrphanInput{
+			Scope: scope, Status: status,
+		})
+		if err != nil {
+			return "", err
+		}
+		if len(report.Orphans) == 0 {
+			parts = append(parts, fmt.Sprintf("No orphans found across %d artifacts.", report.TotalScanned))
+		} else {
+			var b strings.Builder
+			for _, o := range report.Orphans {
+				fmt.Fprintf(&b, "%-16s %-5s [%s] %s\n  → %s\n\n", o.ID, o.Kind, o.Status, o.Title, o.Reason)
+			}
+			fmt.Fprintf(&b, "%d orphan(s) across %d artifacts", report.TotalOrphans, report.TotalScanned)
+			parts = append(parts, b.String())
+		}
+	}
+
+	if check == DetectCheckKnowledge || check == DetectCheckAll {
+		kPart := s.DetectKnowledge(ctx, DetectKnowledgeInput{Scope: scope, StaleDays: staleDays})
+		if kPart != "" {
+			parts = append(parts, kPart)
+		}
+	}
+
+	if check == DetectCheckEviction {
+		ePart, err := s.renderEviction(ctx, scope)
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, ePart)
+	}
+
+	if check == DetectCheckKnowledgeFull {
+		out, err := s.RenderKnowledgeLint(ctx, scope)
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, out)
+	}
+
+	if check == DetectCheckSchema {
+		out, err := s.RenderCheck(ctx, scope)
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, out)
+	}
+
+	return strings.Join(parts, "\n\n"), nil
+}
+
+func (s *Service) renderEviction(ctx context.Context, scope string) (string, error) {
+	candidates, err := s.Proto.DetectEvictionCandidates(ctx, parchment.EvictionPolicy{
+		MinAgeDays:        30,
+		RecencyWindowDays: 90,
+		Scope:             scope,
+	})
+	if err != nil {
+		return "", err
+	}
+	if len(candidates) == 0 {
+		return "No eviction candidates found.", nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d eviction candidate(s):\n\n", len(candidates))
+	for _, c := range candidates {
+		fmt.Fprintf(&b, "%-16s %-10s [%s] %s\n  reason: %s\n  tensor: access=%.2f structural=%.2f quality=%.2f recency=%.2f\n\n",
+			c.Artifact.ID, string(c.Label), c.Artifact.Status, c.Artifact.Title,
+			c.Reason,
+			c.Tensor.AccessHeat, c.Tensor.StructuralHeat, c.Tensor.QualityScore, c.Tensor.Recency,
+		)
+	}
+	return b.String(), nil
+}
+
+func (s *Service) RenderKnowledgeLint(ctx context.Context, scope string) (string, error) {
+	var b strings.Builder
+	total := 0
+	basic := s.DetectKnowledge(ctx, DetectKnowledgeInput{Scope: scope})
+	if !strings.Contains(basic, "0 knowledge issue") {
+		fmt.Fprintf(&b, "## Health (fleeting + uncited)\n\n%s\n\n", strings.TrimSpace(basic))
+	}
+	unresolved := s.LintUnresolvedWikilinks(ctx, scope)
+	if len(unresolved) > 0 {
+		total += len(unresolved)
+		fmt.Fprintf(&b, "## Unresolved [[wikilinks]] (%d)\n\n", len(unresolved))
+		for _, entry := range unresolved {
+			fmt.Fprintln(&b, "  "+entry)
+		}
+		b.WriteString("\n")
+	}
+	orphan := s.LintOrphanedNotes(ctx, scope)
+	if len(orphan) > 0 {
+		total += len(orphan)
+		fmt.Fprintf(&b, "## Orphaned notes (%d)\n\n", len(orphan))
+		for _, entry := range orphan {
+			fmt.Fprintln(&b, "  "+entry)
+		}
+		b.WriteString("\n")
+	}
+	gaps := s.LintClusterGaps(ctx, scope)
+	if len(gaps) > 0 {
+		total += len(gaps)
+		fmt.Fprintf(&b, "## Cluster synthesis gaps (%d)\n\n", len(gaps))
+		for _, entry := range gaps {
+			fmt.Fprintln(&b, "  "+entry)
+		}
+		b.WriteString("\n")
+	}
+	if b.Len() == 0 {
+		return "Lint clean — no issues found.", nil
+	}
+	fmt.Fprintf(&b, "Total issues: %d", total)
+	return b.String(), nil
+}
+
+func (s *Service) RenderCheck(ctx context.Context, scope string) (string, error) {
+	report, err := s.Proto.Check(ctx, scope)
+	if err != nil {
+		return "", err
+	}
+	data, _ := json.Marshal(report)
+	return string(data), nil
 }

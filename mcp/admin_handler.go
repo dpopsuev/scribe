@@ -284,131 +284,19 @@ type linkInput struct {
 }
 
 func (h *handler) handleDetect(ctx context.Context, _ *sdkmcp.CallToolRequest, in detectInput) (*sdkmcp.CallToolResult, any, error) {
-	check := in.Check
-	if check == "" {
-		check = checkAll
-	}
-	var parts []string
-
-	if check == checkOverlaps || check == checkAll {
-		report, err := h.proto.DetectOverlaps(ctx, parchment.OverlapInput{
-			Kind: in.Kind, Status: in.Status, Project: in.Project,
-		})
-		if err != nil {
-			return nil, nil, err
-		}
-		if len(report.Overlaps) == 0 {
-			parts = append(parts, fmt.Sprintf("No overlaps found across %d artifacts.", report.TotalScanned))
-		} else {
-			var b strings.Builder
-			for _, o := range report.Overlaps {
-				fmt.Fprintf(&b, "%s\n", o.Label)
-				for _, a := range o.Artifacts {
-					fmt.Fprintf(&b, "  %-16s %s\n", a.ID, a.Title)
-				}
-				b.WriteString("\n")
-			}
-			fmt.Fprintf(&b, "%d overlap(s) across %d artifacts", report.TotalOverlaps, report.TotalScanned)
-			parts = append(parts, b.String())
-		}
-	}
-
-	if check == checkOrphans || check == checkAll {
-		report, err := h.proto.DetectOrphans(ctx, parchment.OrphanInput{
-			Scope: in.Scope, Status: in.Status,
-		})
-		if err != nil {
-			return nil, nil, err
-		}
-		if len(report.Orphans) == 0 {
-			parts = append(parts, fmt.Sprintf("No orphans found across %d artifacts.", report.TotalScanned))
-		} else {
-			var b strings.Builder
-			for _, o := range report.Orphans {
-				fmt.Fprintf(&b, "%-16s %-5s [%s] %s\n  → %s\n\n", o.ID, o.Kind, o.Status, o.Title, o.Reason)
-			}
-			fmt.Fprintf(&b, "%d orphan(s) across %d artifacts", report.TotalOrphans, report.TotalScanned)
-			parts = append(parts, b.String())
-		}
-	}
-
-	if check == checkKnowledge || check == checkAll {
-		kPart := h.detectKnowledge(ctx, in)
-		if kPart != "" {
-			parts = append(parts, kPart)
-		}
-	}
-
-	if check == checkEviction {
-		ePart, err := h.detectEviction(ctx, in.Scope)
-		if err != nil {
-			return nil, nil, err
-		}
-		parts = append(parts, ePart)
-	}
-
-	if check == checkKnowledgeFull {
-		result, _, err := h.handleKnowledgeLint(ctx, knowledgeInput{Scope: in.Scope})
-		if err != nil {
-			return nil, nil, err
-		}
-		if result != nil {
-			for _, c := range result.Content {
-				if tc, ok := c.(*sdkmcp.TextContent); ok {
-					parts = append(parts, tc.Text)
-				}
-			}
-		}
-	}
-
-	if check == checkSchema {
-		result, _, err := h.handleCheck(ctx, in.Scope)
-		if err != nil {
-			return nil, nil, err
-		}
-		if result != nil {
-			for _, c := range result.Content {
-				if tc, ok := c.(*sdkmcp.TextContent); ok {
-					parts = append(parts, tc.Text)
-				}
-			}
-		}
-	}
-
-	return text(strings.Join(parts, "\n\n")), nil, nil
-}
-
-func (h *handler) detectEviction(ctx context.Context, scope string) (string, error) {
-	candidates, err := h.proto.DetectEvictionCandidates(ctx, parchment.EvictionPolicy{
-		MinAgeDays:        30,
-		RecencyWindowDays: 90,
-		Scope:             scope,
-	})
-	if err != nil {
-		return "", err
-	}
-	if len(candidates) == 0 {
-		return "No eviction candidates found.", nil
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "%d eviction candidate(s):\n\n", len(candidates))
-	for _, c := range candidates {
-		fmt.Fprintf(&b, "%-16s %-10s [%s] %s\n  reason: %s\n  tensor: access=%.2f structural=%.2f quality=%.2f recency=%.2f\n\n",
-			c.Artifact.ID, string(c.Label), c.Artifact.Status, c.Artifact.Title,
-			c.Reason,
-			c.Tensor.AccessHeat, c.Tensor.StructuralHeat, c.Tensor.QualityScore, c.Tensor.Recency,
-		)
-	}
-	return b.String(), nil
-}
-
-func (h *handler) handleCheck(ctx context.Context, scope string) (*sdkmcp.CallToolResult, any, error) {
-	report, err := h.proto.Check(ctx, scope)
+	out, err := h.svc.RenderDetect(ctx, in.Check, in.Scope, in.Kind, in.Project, in.Status, in.StaleDays)
 	if err != nil {
 		return nil, nil, err
 	}
-	data, _ := json.Marshal(report)
-	return text(string(data)), nil, nil
+	return text(out), nil, nil
+}
+
+func (h *handler) handleCheck(ctx context.Context, scope string) (*sdkmcp.CallToolResult, any, error) {
+	out, err := h.svc.RenderCheck(ctx, scope)
+	if err != nil {
+		return nil, nil, err
+	}
+	return text(out), nil, nil
 }
 
 // --- vocab handlers ---
