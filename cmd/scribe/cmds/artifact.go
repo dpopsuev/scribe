@@ -19,11 +19,9 @@ func CreateCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, cleanup := MustService()
 			defer cleanup()
-
 			if explicitID != "" {
 				in.ExplicitID = explicitID
 			}
-
 			art, err := svc.Proto.CreateArtifact(context.Background(), in)
 			if err != nil {
 				return err
@@ -153,21 +151,9 @@ func SetCmd() *cobra.Command {
 		Short: "Set a field on an artifact",
 		Args:  cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, cleanup := MustService()
-			defer cleanup()
-			results, err := svc.Proto.SetField(context.Background(), []string{args[0]}, args[1], args[2])
-			if err != nil {
-				return err
-			}
-			r := results[0]
-			if !r.OK {
-				return fmt.Errorf("%s", r.Error) //nolint:err113 // user-facing protocol error
-			}
-			fmt.Printf("%s.%s = %s\n", r.ID, args[1], args[2])
-			if r.Error != "" {
-				fmt.Println(r.Error)
-			}
-			return nil
+			return RunOp("set", map[string]any{
+				"id": args[0], "field": args[1], "value": args[2],
+			})
 		},
 	}
 }

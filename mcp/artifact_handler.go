@@ -15,6 +15,15 @@ import (
 )
 
 func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolRequest, in artifactInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocyclo,cyclop,funlen,gocritic // dispatch switch; hugeParam: value semantics intentional
+	if op := service.Find(in.Action); op != nil {
+		raw, _ := json.Marshal(in)
+		out, err := op.Run(ctx, h.svc, raw)
+		if err != nil {
+			return nil, nil, err
+		}
+		return text(out), nil, nil
+	}
+
 	switch in.Action {
 	case "tree", "link", "briefing", "topo_sort", "unlink", "replace": //nolint:goconst // "briefing" is an action name, not a magic string
 		return h.handleGraph(ctx, req, graphInput{

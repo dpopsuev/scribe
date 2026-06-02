@@ -7,6 +7,8 @@
 package cmds
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -51,6 +53,28 @@ func MustService() (svc *service.Service, cleanup func()) {
 		os.Exit(1)
 	}
 	return s, cl
+}
+
+// RunOp executes a registered Op by name, marshaling input to JSON first.
+// Returns the text output or an error. Commands migrated to the registry
+// call this instead of calling svc.Proto directly.
+func RunOp(name string, input any) error {
+	op := service.Find(name)
+	if op == nil {
+		return fmt.Errorf("op %q not found in registry", name) //nolint:err113 // internal routing error
+	}
+	svc, cleanup := MustService()
+	defer cleanup()
+	raw, err := json.Marshal(input)
+	if err != nil {
+		return err
+	}
+	out, err := op.Run(context.Background(), svc, raw)
+	if err != nil {
+		return err
+	}
+	fmt.Println(out)
+	return nil
 }
 
 // MustStore opens a raw SQLiteStore — used by commands that need direct store
