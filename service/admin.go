@@ -767,3 +767,67 @@ func (s *Service) SessionMerge(ctx context.Context, key, scope string) (string, 
 	}
 	return strings.Join(lines, "\n"), nil
 }
+
+func (s *Service) SnapshotAction(ctx context.Context, action, name string) (string, error) {
+	if s.Snapshotter == nil {
+		return "", fmt.Errorf("snapshot system not configured") //nolint:err113 // user-facing hint
+	}
+	switch action {
+	case "create":
+		meta, err := s.Snapshotter.Create(ctx, name)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("snapshot created: %s (%d artifacts, %d bytes)", meta.Key, meta.Artifacts, meta.SizeBytes), nil
+	case "list":
+		snapshots, err := s.Snapshotter.List(ctx)
+		if err != nil {
+			return "", err
+		}
+		if len(snapshots) == 0 {
+			return "no snapshots found", nil
+		}
+		var lines []string
+		for _, snap := range snapshots {
+			n := snap.Name
+			if n == "" {
+				n = "(auto)"
+			}
+			lines = append(lines, fmt.Sprintf("  %-20s %s  %d bytes",
+				n, snap.Timestamp.Format("2006-01-02 15:04:05"), snap.SizeBytes))
+		}
+		return fmt.Sprintf("Snapshots (%d):\n%s", len(snapshots), strings.Join(lines, "\n")), nil
+	case "diff":
+		if name == "" {
+			return "", fmt.Errorf("snapshot_name required for diff") //nolint:err113 // user-facing hint
+		}
+		diff, err := s.Snapshotter.Diff(ctx, name)
+		if err != nil {
+			return "", err
+		}
+		var parts []string
+		if len(diff.Added) > 0 {
+			parts = append(parts, fmt.Sprintf("Added (%d): %s", len(diff.Added), strings.Join(diff.Added, ", ")))
+		}
+		if len(diff.Removed) > 0 {
+			parts = append(parts, fmt.Sprintf("Removed (%d): %s", len(diff.Removed), strings.Join(diff.Removed, ", ")))
+		}
+		if len(diff.Modified) > 0 {
+			parts = append(parts, fmt.Sprintf("Modified (%d): %s", len(diff.Modified), strings.Join(diff.Modified, ", ")))
+		}
+		if len(parts) == 0 {
+			return "no differences", nil
+		}
+		return strings.Join(parts, "\n"), nil
+	case "restore":
+		if name == "" {
+			return "", fmt.Errorf("snapshot_name required for restore (use list to find keys)") //nolint:err113 // user-facing hint
+		}
+		if err := s.Snapshotter.Restore(ctx, name); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("database restored from snapshot: %s (pre-restore backup created)", name), nil
+	default:
+		return "", fmt.Errorf("unknown snapshot action %q (valid: create, list, diff, restore)", action) //nolint:err113 // user-facing hint
+	}
+}

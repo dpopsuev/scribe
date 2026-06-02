@@ -134,74 +134,12 @@ func (h *handler) handleChangelog(ctx context.Context, since, scope string) (*sd
 	return text(out), nil, nil
 }
 
-func (h *handler) handleSnapshot(ctx context.Context, in adminInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: adminInput passed by value intentionally
-	if h.snapshotter == nil {
-		return nil, nil, fmt.Errorf("snapshot system not configured") //nolint:err113 // agent-facing input validation
+func (h *handler) handleSnapshot(ctx context.Context, in adminInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: value semantics intentional
+	out, err := h.svc.SnapshotAction(ctx, in.SnapshotAction, in.SnapshotName)
+	if err != nil {
+		return nil, nil, err
 	}
-
-	switch in.SnapshotAction {
-	case "create":
-		meta, err := h.snapshotter.Create(ctx, in.SnapshotName)
-		if err != nil {
-			return nil, nil, err
-		}
-		return text(fmt.Sprintf("snapshot created: %s (%d artifacts, %d bytes)",
-			meta.Key, meta.Artifacts, meta.SizeBytes)), nil, nil
-
-	case "list":
-		snapshots, err := h.snapshotter.List(ctx)
-		if err != nil {
-			return nil, nil, err
-		}
-		if len(snapshots) == 0 {
-			return text("no snapshots found"), nil, nil
-		}
-		var lines []string
-		for _, s := range snapshots {
-			name := s.Name
-			if name == "" {
-				name = "(auto)"
-			}
-			lines = append(lines, fmt.Sprintf("  %-20s %s  %d bytes",
-				name, s.Timestamp.Format("2006-01-02 15:04:05"), s.SizeBytes))
-		}
-		return text(fmt.Sprintf("Snapshots (%d):\n%s", len(snapshots), strings.Join(lines, "\n"))), nil, nil
-
-	case "diff":
-		if in.SnapshotName == "" {
-			return nil, nil, fmt.Errorf("snapshot_name required for diff") //nolint:err113 // agent-facing input validation
-		}
-		diff, err := h.snapshotter.Diff(ctx, in.SnapshotName)
-		if err != nil {
-			return nil, nil, err
-		}
-		var parts []string
-		if len(diff.Added) > 0 {
-			parts = append(parts, fmt.Sprintf("Added (%d): %s", len(diff.Added), strings.Join(diff.Added, ", ")))
-		}
-		if len(diff.Removed) > 0 {
-			parts = append(parts, fmt.Sprintf("Removed (%d): %s", len(diff.Removed), strings.Join(diff.Removed, ", ")))
-		}
-		if len(diff.Modified) > 0 {
-			parts = append(parts, fmt.Sprintf("Modified (%d): %s", len(diff.Modified), strings.Join(diff.Modified, ", ")))
-		}
-		if len(parts) == 0 {
-			return text("no differences"), nil, nil
-		}
-		return text(strings.Join(parts, "\n")), nil, nil
-
-	case "restore":
-		if in.SnapshotName == "" {
-			return nil, nil, fmt.Errorf("snapshot_name required for restore (use list to find keys)") //nolint:err113 // agent-facing hint
-		}
-		if err := h.snapshotter.Restore(ctx, in.SnapshotName); err != nil {
-			return nil, nil, err
-		}
-		return text(fmt.Sprintf("database restored from snapshot: %s (pre-restore backup created)", in.SnapshotName)), nil, nil
-
-	default:
-		return nil, nil, fmt.Errorf("unknown snapshot action %q (valid: create, list, diff, restore)", in.SnapshotAction) //nolint:err113 // agent-facing hint
-	}
+	return text(out), nil, nil
 }
 
 type dashboardInput struct {
