@@ -216,7 +216,7 @@ func TestArtifactTree_MixedScope_ShowsLabels(t *testing.T) {
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
-	text := callTool(t, cs, "artifact", map[string]any{"action": "tree", "id": "SPR-1"})
+	text := callTool(t, cs, "artifact", map[string]any{"action": "get", "format": "tree", "id": "SPR-1"})
 
 	if !strings.Contains(text, "[origami]") {
 		t.Errorf("mixed-scope tree should show [origami] label, got:\n%s", text)
@@ -237,7 +237,7 @@ func TestArtifactTree_SingleScope_OmitsLabels(t *testing.T) {
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
-	text := callTool(t, cs, "artifact", map[string]any{"action": "tree", "id": "SPR-1"})
+	text := callTool(t, cs, "artifact", map[string]any{"action": "get", "format": "tree", "id": "SPR-1"})
 
 	if strings.Contains(text, "[origami]") {
 		t.Errorf("single-scope tree should omit scope labels, got:\n%s", text)
@@ -311,7 +311,7 @@ func TestTree_EdgeLabelsShownWhenPresent(t *testing.T) {
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
-		"action":    "tree",
+		"action": "get", "format": "tree",
 		"id":        "TSK-1",
 		"relation":  "implements",
 		"direction": "outgoing",

@@ -37,11 +37,11 @@ func TestArtifactMove_ReparentsAtomically(t *testing.T) {
 	}
 
 	// Verify tree: parentA no longer has child, parentB does.
-	treeA := gcall(map[string]any{"action": "tree", "id": parentA})
+	treeA := gcall(map[string]any{"action": "get", "format": "tree", "id": parentA})
 	if strings.Contains(treeA, "Child task") {
 		t.Errorf("parentA tree should not contain child after move, got: %s", treeA)
 	}
-	treeB := gcall(map[string]any{"action": "tree", "id": parentB})
+	treeB := gcall(map[string]any{"action": "get", "format": "tree", "id": parentB})
 	if !strings.Contains(treeB, "Child task") {
 		t.Errorf("parentB tree should contain child after move, got: %s", treeB)
 	}

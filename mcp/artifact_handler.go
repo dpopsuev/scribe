@@ -25,7 +25,7 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 	}
 
 	switch in.Action {
-	case "tree", "link", "briefing", "topo_sort", "unlink", "replace": //nolint:goconst // "briefing" is an action name, not a magic string
+	case "link", "briefing", "topo_sort", "unlink", "replace": //nolint:goconst // "briefing" is an action name, not a magic string
 		return h.handleGraph(ctx, req, graphInput{
 			Action:    in.Action,
 			ID:        in.ID,
@@ -100,6 +100,10 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 			return h.handleBriefing(ctx, in.ID, in.Depth)
 		case "impact":
 			return h.handleImpact(ctx, in.ID)
+		case "tree":
+			return h.handleTree(ctx, req, parchment.TreeInput{
+				ID: in.ID, Relation: in.Relation, Direction: in.Direction, Depth: in.Depth,
+			})
 		}
 		if len(ids) == 1 {
 			return h.handleGet(ctx, req, getInput{ID: ids[0], IncludeEdges: in.IncludeEdges, SectionFilter: in.SectionFilter})
