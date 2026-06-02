@@ -80,6 +80,9 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		if in.StashID != "" {
 			return h.handleInspectStash(ctx, in.StashID)
 		}
+		if in.Against != "" {
+			return h.handleDiff(ctx, in.ID, in.Against)
+		}
 		if in.Name != "" {
 			return h.handleGetSection(ctx, req, getSectionInput{ID: in.ID, Name: in.Name})
 		}
@@ -170,11 +173,6 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		}
 		return text(renderResults(results, "restored to draft", "")), nil, nil
 
-	case "diff":
-		if in.ID == "" || in.Against == "" {
-			return nil, nil, fmt.Errorf("id and against required for diff") //nolint:err113 // agent-facing input validation
-		}
-		return h.handleDiff(ctx, in.ID, in.Against)
 	case "orient":
 		return h.handleKnowledgeOrient(ctx, knowledgeInput{Scope: in.Scope})
 	default:

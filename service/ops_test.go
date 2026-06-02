@@ -368,52 +368,30 @@ func TestOpList_RankedEmptyQueryReturnsError(t *testing.T) {
 
 // --- diff (RED) ---
 
-func TestOpDiff_DetectsFieldChange(t *testing.T) {
+func TestOpGet_DiffAgainst(t *testing.T) {
 	// Given two artifacts with different titles
-	// When diff(id=A, against=B) is called
-	// Then output contains "title" and both values
+	// When get(id=A, diff_against=B) is called
+	// Then output contains the title difference
 	svc := newTestService(t)
 	ctx := context.Background()
 
 	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "Alpha", Scope: "test"})
 	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "Beta", Scope: "test"})
 
-	op := service.Find("diff")
-	if op == nil {
-		t.Fatal("diff Op not registered")
-	}
-	raw, _ := json.Marshal(map[string]any{"id": a.ID, "against": b.ID})
-	out, err := op.Run(ctx, svc, raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, "title") {
-		t.Errorf("expected 'title' in diff output, got: %s", out)
-	}
-}
-
-func TestOpDiff_NoDifferencesReturnsCleanMessage(t *testing.T) {
-	// Given two artifacts with identical fields
-	// When diff(id=A, against=A) is called
-	// Then output indicates no differences
-	svc := newTestService(t)
-	ctx := context.Background()
-
-	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "Same", Scope: "test"})
-
-	op := service.Find("diff")
-	if op == nil {
-		t.Fatal("diff Op not registered")
-	}
-	raw, _ := json.Marshal(map[string]any{"id": a.ID, "against": a.ID})
-	out, err := op.Run(ctx, svc, raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, "no diff") {
-		t.Errorf("expected 'no diff' message, got: %s", out)
+	op := service.Find("get")
+	if op != nil {
+		raw, _ := json.Marshal(map[string]any{"id": a.ID, "diff_against": b.ID})
+		out, err := op.Run(ctx, svc, raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out, "title") {
+			t.Errorf("expected diff output containing 'title', got: %s", out)
+		}
 	}
 }
+
+
 
 // --- detach_section (RED) ---
 

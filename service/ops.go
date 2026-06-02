@@ -11,7 +11,7 @@ import (
 )
 
 func init() {
-	Registry = append(Registry, opSet, opList, opDiff, opRetire, opDeArchive, opArchive)
+	Registry = append(Registry, opSet, opList, opRetire, opDeArchive, opArchive)
 }
 
 
@@ -209,69 +209,6 @@ var opRetire = Op{
 }
 
 
-
-type diffInput struct {
-	ID      string `json:"id"`
-	Against string `json:"against"`
-}
-
-var opDiff = Op{
-	Name: "diff",
-	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
-		var in diffInput
-		if err := json.Unmarshal(raw, &in); err != nil {
-			return "", err
-		}
-		if in.ID == "" || in.Against == "" {
-			return "", fmt.Errorf("id and against required") //nolint:err113 // user-facing hint
-		}
-		a, err := svc.Proto.GetArtifact(ctx, in.ID)
-		if err != nil {
-			return "", err
-		}
-		b, err := svc.Proto.GetArtifact(ctx, in.Against)
-		if err != nil {
-			return "", err
-		}
-		var lines []string
-		for _, f := range []struct{ name, va, vb string }{
-			{"kind", a.Kind, b.Kind},
-			{"scope", a.Scope, b.Scope},
-			{"status", a.Status, b.Status},
-			{"title", a.Title, b.Title},
-			{"parent", a.Parent, b.Parent},
-			{"priority", a.Priority, b.Priority},
-		} {
-			if f.va != f.vb {
-				lines = append(lines, fmt.Sprintf("  %s: %q → %q", f.name, f.va, f.vb))
-			}
-		}
-		secA := make(map[string]string, len(a.Sections))
-		for _, s := range a.Sections {
-			secA[s.Name] = s.Text
-		}
-		secB := make(map[string]string, len(b.Sections))
-		for _, s := range b.Sections {
-			secB[s.Name] = s.Text
-		}
-		for name, textA := range secA {
-			if textB, ok := secB[name]; !ok {
-				lines = append(lines, fmt.Sprintf("  section %q: removed", name))
-			} else if textA != textB {
-				lines = append(lines, fmt.Sprintf("  section %q: modified (%d → %d bytes)", name, len(textA), len(textB)))
-			}
-		}
-		for name := range secB {
-			if _, ok := secA[name]; !ok {
-				lines = append(lines, fmt.Sprintf("  section %q: added", name))
-			}
-		}
-		if len(lines) == 0 {
-			return fmt.Sprintf("no diff between %s and %s", in.ID, in.Against), nil
-		}
-		return fmt.Sprintf("diff %s vs %s:\n%s", in.ID, in.Against, strings.Join(lines, "\n")), nil
-	},
-}
 
 
 
