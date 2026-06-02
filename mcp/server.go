@@ -173,7 +173,8 @@ type artifactInput struct {
 	Name          string   `json:"name,omitempty"`
 	Text          string   `json:"text,omitempty"`
 	Body          string   `json:"body,omitempty"`
-	SectionFilter []string `json:"section_filter,omitempty"`
+	SectionFilter  []string `json:"section_filter,omitempty"`
+	SectionsDelete []string `json:"sections_delete,omitempty" jsonschema:"section names to remove"`
 	Against       string   `json:"against,omitempty"`
 
 	IDs     []string `json:"ids,omitempty"`

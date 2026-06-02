@@ -11,7 +11,7 @@ import (
 )
 
 func init() {
-	Registry = append(Registry, opSet, opList, opDetachSection, opDiff, opRecall, opRetire, opDeArchive, opArchive)
+	Registry = append(Registry, opSet, opList, opDiff, opRecall, opRetire, opDeArchive, opArchive)
 }
 
 
@@ -301,31 +301,7 @@ var opDiff = Op{
 }
 
 
-type detachSectionInput struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-}
 
-var opDetachSection = Op{
-	Name: "detach_section",
-	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
-		var in detachSectionInput
-		if err := json.Unmarshal(raw, &in); err != nil {
-			return "", err
-		}
-		if in.ID == "" || in.Name == "" {
-			return "", fmt.Errorf("id and name required") //nolint:err113 // user-facing hint
-		}
-		removed, err := svc.Proto.DetachSection(ctx, in.ID, in.Name)
-		if err != nil {
-			return "", err
-		}
-		if !removed {
-			return fmt.Sprintf("%s: section %q not found", in.ID, in.Name), nil
-		}
-		return fmt.Sprintf("%s: section %q removed", in.ID, in.Name), nil
-	},
-}
 
 
 var listValidFields = map[string]func(*parchment.Artifact) string{

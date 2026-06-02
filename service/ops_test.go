@@ -423,58 +423,7 @@ func TestOpDiff_NoDifferencesReturnsCleanMessage(t *testing.T) {
 
 // --- detach_section (RED) ---
 
-func TestOpDetachSection_RemovesSection(t *testing.T) {
-	// Given an artifact has a section named "summary"
-	// When detach_section(id=X, name=summary) is called
-	// Then get(X).Sections no longer contains "summary"
-	svc := newTestService(t)
-	ctx := context.Background()
 
-	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "note", Title: "N", Scope: "test"})
-	_, _ = svc.Proto.AttachSection(ctx, art.ID, "summary", "text here")
-
-	op := service.Find("detach_section")
-	if op == nil {
-		t.Fatal("detach_section Op not registered")
-	}
-	raw, _ := json.Marshal(map[string]any{"id": art.ID, "name": "summary"})
-	out, err := op.Run(ctx, svc, raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, "removed") {
-		t.Errorf("expected 'removed' in output, got: %s", out)
-	}
-	updated, _ := svc.Proto.GetArtifact(ctx, art.ID)
-	for _, sec := range updated.Sections {
-		if sec.Name == "summary" {
-			t.Error("section 'summary' still present after detach")
-		}
-	}
-}
-
-func TestOpDetachSection_NotFoundReturnsMessage(t *testing.T) {
-	// Given an artifact has no section named "missing"
-	// When detach_section(id=X, name=missing) is called
-	// Then output indicates not found (no error)
-	svc := newTestService(t)
-	ctx := context.Background()
-
-	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "note", Title: "N", Scope: "test"})
-
-	op := service.Find("detach_section")
-	if op == nil {
-		t.Fatal("detach_section Op not registered")
-	}
-	raw, _ := json.Marshal(map[string]any{"id": art.ID, "name": "missing"})
-	out, err := op.Run(ctx, svc, raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, "not found") {
-		t.Errorf("expected 'not found' in output, got: %s", out)
-	}
-}
 
 // --- SCR-TSK-388: opList.Run ---
 

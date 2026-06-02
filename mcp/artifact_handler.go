@@ -169,8 +169,7 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 			return nil, nil, err
 		}
 		return text(renderResults(results, "restored to draft", "")), nil, nil
-	case "detach_section":
-		return h.handleDetachSection(ctx, req, getSectionInput{ID: in.ID, Name: in.Name})
+
 	case "diff":
 		if in.ID == "" || in.Against == "" {
 			return nil, nil, fmt.Errorf("id and against required for diff") //nolint:err113 // agent-facing input validation
@@ -624,8 +623,8 @@ func (h *handler) handleBatchUpdate(ctx context.Context, in artifactInput, ids [
 	}
 
 	hasSectionReplace := in.Query != "" && (in.Text != "" || in.Body != "")
-	if len(fieldMap) == 0 && len(in.Sections) == 0 && !hasSectionReplace {
-		return nil, nil, fmt.Errorf("update requires at least one field, section, or query+text for find-replace") //nolint:err113 // agent-facing input validation
+	if len(fieldMap) == 0 && len(in.Sections) == 0 && !hasSectionReplace && len(in.SectionsDelete) == 0 {
+		return nil, nil, fmt.Errorf("update requires at least one field, section, sections_delete, or query+text for find-replace") //nolint:err113 // agent-facing input validation
 	}
 
 	var lines []string
@@ -687,6 +686,19 @@ func (h *handler) handleBatchUpdate(ctx context.Context, in artifactInput, ids [
 				}
 			}
 			lines = append(lines, fmt.Sprintf("%s: %d section(s) updated", id, updated))
+		}
+
+		for _, name := range in.SectionsDelete {
+			removed, err := h.proto.DetachSection(ctx, id, name)
+			if err != nil {
+				lines = append(lines, fmt.Sprintf("%s -> error: detach %q: %v", id, name, err))
+				continue
+			}
+			if removed {
+				lines = append(lines, fmt.Sprintf("%s: section %q removed", id, name))
+			} else {
+				lines = append(lines, fmt.Sprintf("%s: section %q not found", id, name))
+			}
 		}
 	}
 
