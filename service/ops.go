@@ -11,7 +11,7 @@ import (
 )
 
 func init() {
-	Registry = append(Registry, opSet, opList, opDetachSection, opDiff, opRecall, opRetire)
+	Registry = append(Registry, opSet, opList, opDetachSection, opDiff, opRecall, opRetire, opDeArchive)
 }
 
 // --- set ---
@@ -86,6 +86,17 @@ type listInput struct {
 	InsertedBefore string   `json:"inserted_before,omitempty"`
 }
 
+// resolveIDs returns in.IDs if set, otherwise wraps in.ID as a single-element slice.
+func resolveIDs(ids []string, id string) []string {
+	if len(ids) > 0 {
+		return ids
+	}
+	if id != "" {
+		return []string{id}
+	}
+	return nil
+}
+
 // RenderResults formats a []parchment.Result slice as human-readable text.
 // okLabel is used for successful results; errLabel is unused (kept for compat).
 func RenderResults(results []parchment.Result, okLabel string) string {
@@ -98,6 +109,33 @@ func RenderResults(results []parchment.Result, okLabel string) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// --- de-archive ---
+
+type deArchiveInput struct {
+	ID      string   `json:"id"`
+	IDs     []string `json:"ids,omitempty"`
+	Cascade bool     `json:"cascade,omitempty"`
+}
+
+var opDeArchive = Op{ //nolint:dupl // same structure as opRetire by design — both are id-cascade-results mutations
+	Name: "de-archive",
+	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
+		var in deArchiveInput
+		if err := json.Unmarshal(raw, &in); err != nil {
+			return "", err
+		}
+		ids := resolveIDs(in.IDs, in.ID)
+		if len(ids) == 0 {
+			return "", fmt.Errorf("id or ids required") //nolint:err113 // user-facing hint
+		}
+		results, err := svc.Proto.DeArchive(ctx, ids, in.Cascade)
+		if err != nil {
+			return "", err
+		}
+		return RenderResults(results, "restored to draft"), nil
+	},
 }
 
 // --- retire ---
@@ -115,10 +153,7 @@ var opRetire = Op{
 		if err := json.Unmarshal(raw, &in); err != nil {
 			return "", err
 		}
-		ids := in.IDs
-		if len(ids) == 0 && in.ID != "" {
-			ids = []string{in.ID}
-		}
+		ids := resolveIDs(in.IDs, in.ID)
 		if len(ids) == 0 {
 			return "", fmt.Errorf("id or ids required") //nolint:err113 // user-facing hint
 		}

@@ -143,6 +143,52 @@ func TestOpSet_FieldErrorPropagated(t *testing.T) {
 	}
 }
 
+// --- de-archive (RED) ---
+
+func TestOpDeArchive_RestoresToDraft(t *testing.T) {
+	// Given an archived artifact
+	// When de-archive(id=X) is called
+	// Then status returns to draft
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "T", Scope: "test"})
+	svc.Proto.ArchiveArtifact(ctx, []string{art.ID}, false) //nolint:errcheck // test setup, error irrelevant to subject under test
+
+	op := service.Find("de-archive")
+	if op == nil {
+		t.Fatal("de-archive Op not registered")
+	}
+	raw, _ := json.Marshal(map[string]any{"id": art.ID})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "restored") {
+		t.Errorf("expected 'restored' in output, got: %s", out)
+	}
+	updated, _ := svc.Proto.GetArtifact(ctx, art.ID)
+	if updated.Status != "draft" {
+		t.Errorf("status = %q, want draft", updated.Status)
+	}
+}
+
+func TestOpDeArchive_MissingIDReturnsError(t *testing.T) {
+	// Given no id provided
+	// When de-archive() is called
+	// Then an error is returned
+	svc := newTestService(t)
+	op := service.Find("de-archive")
+	if op == nil {
+		t.Fatal("de-archive Op not registered")
+	}
+	raw, _ := json.Marshal(map[string]any{})
+	_, err := op.Run(context.Background(), svc, raw)
+	if err == nil {
+		t.Fatal("expected error for missing id, got nil")
+	}
+}
+
 // --- retire (RED) ---
 
 func TestOpRetire_TransitionsToRetired(t *testing.T) {
