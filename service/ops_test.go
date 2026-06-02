@@ -54,6 +54,61 @@ func TestFind_ListOpRegistered(t *testing.T) {
 
 // --- SCR-TSK-387: opSet.Run ---
 
+func TestOpSet_ActivationBlockedUntilSpecRead(t *testing.T) {
+	// Given a task with required sections implements a spec that has not been read
+	// When set(field=status, value=active) is called
+	// Then the output contains "must read" blocking the activation
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	spec, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "spec", Title: "S", Scope: "test"})
+	task, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Kind: "task", Title: "T", Scope: "test",
+		Sections: []parchment.Section{
+			{Name: "context", Text: "ctx"}, {Name: "checklist", Text: "ok"}, {Name: "acceptance", Text: "ok"},
+		},
+	})
+	svc.Proto.LinkArtifacts(ctx, task.ID, "implements", []string{spec.ID}) //nolint:errcheck // test setup, error irrelevant to subject under test
+
+	op := service.Find("set")
+	raw, _ := json.Marshal(map[string]any{"id": task.ID, "field": "status", "value": "active"})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "must read") {
+		t.Errorf("expected 'must read' in output, got: %s", out)
+	}
+}
+
+func TestOpSet_ActivationAllowedAfterSpecRead(t *testing.T) {
+	// Given a task implements a spec and the spec is in ReadLog
+	// When set(field=status, value=active) is called
+	// Then the transition succeeds
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	spec, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "spec", Title: "S", Scope: "test"})
+	task, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Kind: "task", Title: "T", Scope: "test", Priority: "medium",
+		Sections: []parchment.Section{
+			{Name: "context", Text: "ctx"}, {Name: "checklist", Text: "ok"}, {Name: "acceptance", Text: "ok"},
+		},
+	})
+	svc.Proto.LinkArtifacts(ctx, task.ID, "implements", []string{spec.ID}) //nolint:errcheck // test setup, error irrelevant to subject under test
+	svc.ReadLog[spec.ID] = true
+
+	op := service.Find("set")
+	raw, _ := json.Marshal(map[string]any{"id": task.ID, "field": "status", "value": "active"})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "error") || strings.Contains(out, "must read") {
+		t.Errorf("expected activation to succeed after reading spec, got: %s", out)
+	}
+}
+
 func TestOpSet_SetsSingleField(t *testing.T) {
 	// Given an artifact exists with title "old"
 	// When set(id=X, field=title, value=new) is called

@@ -726,6 +726,23 @@ var opSet = Op{
 		if len(ids) == 0 {
 			return "", fmt.Errorf("id or ids required") //nolint:err113 // user-facing hint
 		}
+		if in.Field == parchment.FieldStatus && in.Value == parchment.StatusActive && !in.Force {
+			for _, id := range ids {
+				art, err := svc.Proto.GetArtifact(ctx, id)
+				if err != nil || art.Kind != parchment.KindTask {
+					continue
+				}
+				if targets, ok := art.Links[parchment.RelImplements]; ok {
+					for _, specID := range targets {
+						if !svc.ReadLog[specID] {
+							lines := make([]string, 0, 1)
+							lines = append(lines, fmt.Sprintf("%s -> error: must read %s first (call get on implementing spec before activating)", id, specID))
+							return strings.Join(lines, "\n"), nil
+						}
+					}
+				}
+			}
+		}
 		results, err := svc.Proto.SetField(ctx, ids, in.Field, in.Value, parchment.SetFieldOptions{Force: in.Force})
 		if err != nil {
 			return "", err
