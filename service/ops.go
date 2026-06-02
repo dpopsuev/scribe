@@ -11,7 +11,7 @@ import (
 )
 
 func init() {
-	Registry = append(Registry, opSet, opList, opDetachSection, opDiff)
+	Registry = append(Registry, opSet, opList, opDetachSection, opDiff, opRecall)
 }
 
 // --- set ---
@@ -84,6 +84,36 @@ type listInput struct {
 	UpdatedBefore  string   `json:"updated_before,omitempty"`
 	InsertedAfter  string   `json:"inserted_after,omitempty"`
 	InsertedBefore string   `json:"inserted_before,omitempty"`
+}
+
+// --- recall ---
+
+type recallInput struct {
+	Query string `json:"query"`
+	Scope string `json:"scope,omitempty"`
+	Top   int    `json:"top,omitempty"`
+}
+
+var opRecall = Op{
+	Name: "recall",
+	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
+		var in recallInput
+		if err := json.Unmarshal(raw, &in); err != nil {
+			return "", err
+		}
+		results, err := svc.Recall(ctx, in.Query, in.Scope, in.Top)
+		if err != nil {
+			return "", err
+		}
+		if len(results) == 0 {
+			return fmt.Sprintf("no results for %q", in.Query), nil
+		}
+		arts := make([]*parchment.Artifact, len(results))
+		for i, r := range results {
+			arts[i] = r.Art
+		}
+		return parchment.RenderTable(arts), nil
+	},
 }
 
 // --- diff ---

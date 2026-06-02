@@ -143,6 +143,49 @@ func TestOpSet_FieldErrorPropagated(t *testing.T) {
 	}
 }
 
+// --- recall (RED) ---
+
+func TestOpRecall_ReturnsMatchingArtifacts(t *testing.T) {
+	// Given a note about "authentication" exists
+	// When recall(query=authentication) is called
+	// Then the note appears in results
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{ //nolint:errcheck // test setup, error irrelevant to subject under test
+		Kind: "note", Title: "authentication flow", Scope: "test",
+	})
+
+	op := service.Find("recall")
+	if op == nil {
+		t.Fatal("recall Op not registered")
+	}
+	raw, _ := json.Marshal(map[string]any{"query": "authentication", "scope": "test"})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "authentication") {
+		t.Errorf("expected 'authentication' in recall output, got: %s", out)
+	}
+}
+
+func TestOpRecall_EmptyQueryReturnsError(t *testing.T) {
+	// Given no query is provided
+	// When recall() is called
+	// Then an error is returned
+	svc := newTestService(t)
+	op := service.Find("recall")
+	if op == nil {
+		t.Fatal("recall Op not registered")
+	}
+	raw, _ := json.Marshal(map[string]any{"scope": "test"})
+	_, err := op.Run(context.Background(), svc, raw)
+	if err == nil {
+		t.Fatal("expected error for empty query, got nil")
+	}
+}
+
 // --- diff (RED) ---
 
 func TestOpDiff_DetectsFieldChange(t *testing.T) {
