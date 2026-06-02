@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -131,44 +130,11 @@ func (h *handler) handleMotd(ctx context.Context, _ *sdkmcp.CallToolRequest, in 
 }
 
 func (h *handler) handleChangelog(ctx context.Context, since, scope string) (*sdkmcp.CallToolResult, any, error) {
-	if since == "" {
-		return nil, nil, fmt.Errorf("since parameter is required for changelog (RFC 3339 timestamp)") //nolint:err113 // agent-facing hint
-	}
-	li := parchment.ListInput{
-		UpdatedAfter:  since,
-		ExcludeStatus: parchment.StatusArchived,
-		Scope:         scope,
-	}
-	arts, err := h.proto.ListArtifacts(ctx, li)
+	out, err := h.svc.RenderChangelog(ctx, since, scope)
 	if err != nil {
 		return nil, nil, err
 	}
-	if len(arts) == 0 {
-		return text(fmt.Sprintf("no changes since %s", since[:10])), nil, nil
-	}
-
-	// Group by scope
-	byScope := make(map[string][]*parchment.Artifact)
-	for _, a := range arts {
-		s := a.Scope
-		if s == "" {
-			s = labelNone
-		}
-		byScope[s] = append(byScope[s], a)
-	}
-
-	var sections []string
-	for s, scopeArts := range byScope {
-		var lines []string
-		for _, a := range scopeArts {
-			lines = append(lines, fmt.Sprintf("  %-16s %-8s %-8s %s", a.ID, a.Kind, a.Status, a.Title))
-		}
-		sections = append(sections, fmt.Sprintf("[%s] (%d):\n%s", s, len(scopeArts), strings.Join(lines, "\n")))
-	}
-	sort.Strings(sections)
-
-	header := fmt.Sprintf("Changes since %s (%d artifacts):\n", since[:10], len(arts))
-	return text(header + strings.Join(sections, "\n\n")), nil, nil
+	return text(out), nil, nil
 }
 
 func (h *handler) handleSnapshot(ctx context.Context, in adminInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: adminInput passed by value intentionally

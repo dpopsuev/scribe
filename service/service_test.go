@@ -225,6 +225,38 @@ func TestMotd_ReturnsCurrentGoals(t *testing.T) {
 	_ = m
 }
 
+// --- RenderChangelog ---
+
+func TestRenderChangelog_RequiresSince(t *testing.T) {
+	// Given no since timestamp
+	// When RenderChangelog("", "") is called
+	// Then an error is returned
+	svc := newTestService(t, "test")
+	_, err := svc.RenderChangelog(context.Background(), "", "")
+	if err == nil {
+		t.Fatal("expected error for empty since, got nil")
+	}
+}
+
+func TestRenderChangelog_ShowsChangedArtifacts(t *testing.T) {
+	// Given an artifact was updated after a timestamp
+	// When RenderChangelog(since, scope) is called
+	// Then the artifact appears in output
+	svc := newTestService(t, "test")
+	ctx := context.Background()
+
+	past := "2020-01-01T00:00:00Z"
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "recent", Scope: "test"})
+
+	out, err := svc.RenderChangelog(ctx, past, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, art.ID) {
+		t.Errorf("expected artifact in changelog, got: %s", out[:min(200, len(out))])
+	}
+}
+
 // --- RenderDetect ---
 
 func TestRenderDetect_AllChecksRun(t *testing.T) {

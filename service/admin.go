@@ -621,3 +621,38 @@ func (s *Service) RenderCheck(ctx context.Context, scope string) (string, error)
 	data, _ := json.Marshal(report)
 	return string(data), nil
 }
+
+func (s *Service) RenderChangelog(ctx context.Context, since, scope string) (string, error) {
+	if since == "" {
+		return "", fmt.Errorf("since parameter is required for changelog (RFC 3339 timestamp)") //nolint:err113 // user-facing hint
+	}
+	arts, err := s.Proto.ListArtifacts(ctx, parchment.ListInput{
+		UpdatedAfter:  since,
+		ExcludeStatus: parchment.StatusArchived,
+		Scope:         scope,
+	})
+	if err != nil {
+		return "", err
+	}
+	if len(arts) == 0 {
+		return fmt.Sprintf("no changes since %s", since[:10]), nil
+	}
+	byScope := make(map[string][]*parchment.Artifact)
+	for _, a := range arts {
+		s := a.Scope
+		if s == "" {
+			s = "(none)"
+		}
+		byScope[s] = append(byScope[s], a)
+	}
+	var sections []string
+	for s, scopeArts := range byScope {
+		var lines []string
+		for _, a := range scopeArts {
+			lines = append(lines, fmt.Sprintf("  %-16s %-8s %-8s %s", a.ID, a.Kind, a.Status, a.Title))
+		}
+		sections = append(sections, fmt.Sprintf("[%s] (%d):\n%s", s, len(scopeArts), strings.Join(lines, "\n")))
+	}
+	sort.Strings(sections)
+	return fmt.Sprintf("Changes since %s (%d artifacts):\n", since[:10], len(arts)) + strings.Join(sections, "\n\n"), nil
+}
