@@ -170,7 +170,8 @@ type artifactInput struct {
 
 	Field string `json:"field,omitempty" jsonschema:"title, goal, scope, status, parent, priority, kind, depends_on, labels"`
 	Value string `json:"value,omitempty" jsonschema:"new value (comma-separated for list fields)"`
-	Force bool   `json:"force,omitempty" jsonschema:"bypass transition validation"`
+	Force        bool `json:"force,omitempty" jsonschema:"bypass transition validation"`
+	BypassGuards bool `json:"bypass_guards,omitempty" jsonschema:"skip lifecycle guards (archive semantics)"`
 
 	Name          string   `json:"name,omitempty"`
 	Text          string   `json:"text,omitempty"`

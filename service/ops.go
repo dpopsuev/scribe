@@ -705,11 +705,14 @@ var opUpdate = Op{
 }
 
 type setInput struct {
-	ID    string   `json:"id"`
-	IDs   []string `json:"ids,omitempty"`
-	Field string   `json:"field"`
-	Value string   `json:"value"`
-	Force bool     `json:"force,omitempty"`
+	ID           string   `json:"id"`
+	IDs          []string `json:"ids,omitempty"`
+	Field        string   `json:"field"`
+	Value        string   `json:"value"`
+	Force        bool     `json:"force,omitempty"`
+	BypassGuards bool     `json:"bypass_guards,omitempty"`
+	Cascade      bool     `json:"cascade,omitempty"`
+	DryRun       bool     `json:"dry_run,omitempty"`
 }
 
 var opSet = Op{
@@ -743,7 +746,9 @@ var opSet = Op{
 				}
 			}
 		}
-		results, err := svc.Proto.SetField(ctx, ids, in.Field, in.Value, parchment.SetFieldOptions{Force: in.Force})
+		results, err := svc.Proto.SetField(ctx, ids, in.Field, in.Value, parchment.SetFieldOptions{
+			Force: in.Force, BypassGuards: in.BypassGuards, Cascade: in.Cascade, DryRun: in.DryRun,
+		})
 		if err != nil {
 			return "", err
 		}

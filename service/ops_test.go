@@ -54,6 +54,32 @@ func TestFind_ListOpRegistered(t *testing.T) {
 
 // --- SCR-TSK-387: opSet.Run ---
 
+func TestOpSet_ArchiveViaStatusField(t *testing.T) {
+	// Given a task exists
+	// When set(field=status, value=archived, bypass_guards=true) is called
+	// Then the artifact is archived without guard enforcement
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "T", Scope: "test"})
+
+	op := service.Find("set")
+	raw, _ := json.Marshal(map[string]any{
+		"id": art.ID, "field": "status", "value": "archived", "bypass_guards": true,
+	})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "error") {
+		t.Errorf("expected archive to succeed with bypass_guards, got: %s", out)
+	}
+	updated, _ := svc.Proto.GetArtifact(ctx, art.ID)
+	if updated.Status != "archived" {
+		t.Errorf("status = %q, want archived", updated.Status)
+	}
+}
+
 func TestOpSet_ActivationBlockedUntilSpecRead(t *testing.T) {
 	// Given a task with required sections implements a spec that has not been read
 	// When set(field=status, value=active) is called
