@@ -331,9 +331,9 @@ func TestOpRetire_MultipleIDs(t *testing.T) {
 
 // --- recall (RED) ---
 
-func TestOpRecall_ReturnsMatchingArtifacts(t *testing.T) {
+func TestOpList_RankedReturnsMatchingArtifacts(t *testing.T) {
 	// Given a note about "authentication" exists
-	// When recall(query=authentication) is called
+	// When list(ranked=true, query=authentication) is called
 	// Then the note appears in results
 	svc := newTestService(t)
 	ctx := context.Background()
@@ -342,33 +342,27 @@ func TestOpRecall_ReturnsMatchingArtifacts(t *testing.T) {
 		Kind: "note", Title: "authentication flow", Scope: "test",
 	})
 
-	op := service.Find("recall")
-	if op == nil {
-		t.Fatal("recall Op not registered")
-	}
-	raw, _ := json.Marshal(map[string]any{"query": "authentication", "scope": "test"})
+	op := service.Find("list")
+	raw, _ := json.Marshal(map[string]any{"ranked": true, "query": "authentication", "scope": "test"})
 	out, err := op.Run(ctx, svc, raw)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out, "authentication") {
-		t.Errorf("expected 'authentication' in recall output, got: %s", out)
+		t.Errorf("expected 'authentication' in ranked list output, got: %s", out)
 	}
 }
 
-func TestOpRecall_EmptyQueryReturnsError(t *testing.T) {
-	// Given no query is provided
-	// When recall() is called
+func TestOpList_RankedEmptyQueryReturnsError(t *testing.T) {
+	// Given ranked=true but no query
+	// When list(ranked=true) is called
 	// Then an error is returned
 	svc := newTestService(t)
-	op := service.Find("recall")
-	if op == nil {
-		t.Fatal("recall Op not registered")
-	}
-	raw, _ := json.Marshal(map[string]any{"scope": "test"})
+	op := service.Find("list")
+	raw, _ := json.Marshal(map[string]any{"ranked": true, "scope": "test"})
 	_, err := op.Run(context.Background(), svc, raw)
 	if err == nil {
-		t.Fatal("expected error for empty query, got nil")
+		t.Fatal("expected error for ranked list with empty query, got nil")
 	}
 }
 

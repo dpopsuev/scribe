@@ -27,7 +27,7 @@ func newLintServer(t *testing.T) func(map[string]any) string {
 				"action": "orient",
 				"scope":  args["scope"],
 			})
-		case "capture", "promote", "daily", "recall", "backlinks", "ingest", "synthesize":
+		case "capture", "promote", "daily", "recall_unused", "backlinks", "ingest", "synthesize":
 			return callTool(t, cs, "artifact", translateKnowledgeToArtifact(args))
 		default:
 			return callTool(t, cs, "artifact", args)

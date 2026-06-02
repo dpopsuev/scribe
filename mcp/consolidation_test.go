@@ -57,7 +57,7 @@ func TestConsolidation_ArtifactRecall(t *testing.T) {
 	})
 
 	out := callArtifact(map[string]any{
-		"action": "recall",
+		"action": "list", "ranked": true,
 		"query":  "template conformance",
 		"scope":  "test",
 	})

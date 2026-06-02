@@ -175,8 +175,6 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 			return nil, nil, fmt.Errorf("id and against required for diff") //nolint:err113 // agent-facing input validation
 		}
 		return h.handleDiff(ctx, in.ID, in.Against)
-	case "recall":
-		return h.handleRecall(ctx, knowledgeInput{Query: in.Query, Scope: in.Scope})
 	case "orient":
 		return h.handleKnowledgeOrient(ctx, knowledgeInput{Scope: in.Scope})
 	default:

@@ -148,6 +148,7 @@ type artifactInput struct {
 	Limit   int      `json:"limit,omitempty"`
 	Offset  int      `json:"offset,omitempty"`
 	Count   bool     `json:"count,omitempty"`
+	Ranked  bool     `json:"ranked,omitempty" jsonschema:"scored FTS with kind and recency weighting"`
 	Top     int      `json:"top,omitempty" jsonschema:"N most relevant by status+priority+recency"`
 	Fields  []string `json:"fields,omitempty" jsonschema:"id, kind, scope, status, title, parent, priority"`
 	Query   string   `json:"query,omitempty" jsonschema:"substring search across title, goal, sections"`

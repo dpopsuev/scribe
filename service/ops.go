@@ -11,7 +11,7 @@ import (
 )
 
 func init() {
-	Registry = append(Registry, opSet, opList, opDiff, opRecall, opRetire, opDeArchive, opArchive)
+	Registry = append(Registry, opSet, opList, opDiff, opRetire, opDeArchive, opArchive)
 }
 
 
@@ -76,6 +76,7 @@ type listInput struct {
 	Count          bool     `json:"count,omitempty"`
 	Fields         []string `json:"fields,omitempty"`
 	Format         string   `json:"format,omitempty"`
+	Ranked         bool     `json:"ranked,omitempty"`
 	CreatedAfter   string   `json:"created_after,omitempty"`
 	CreatedBefore  string   `json:"created_before,omitempty"`
 	UpdatedAfter   string   `json:"updated_after,omitempty"`
@@ -208,34 +209,6 @@ var opRetire = Op{
 }
 
 
-type recallInput struct {
-	Query string `json:"query"`
-	Scope string `json:"scope,omitempty"`
-	Top   int    `json:"top,omitempty"`
-}
-
-var opRecall = Op{
-	Name: "recall",
-	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
-		var in recallInput
-		if err := json.Unmarshal(raw, &in); err != nil {
-			return "", err
-		}
-		results, err := svc.Recall(ctx, in.Query, in.Scope, in.Top)
-		if err != nil {
-			return "", err
-		}
-		if len(results) == 0 {
-			return fmt.Sprintf("no results for %q", in.Query), nil
-		}
-		arts := make([]*parchment.Artifact, len(results))
-		for i, r := range results {
-			arts[i] = r.Art
-		}
-		return parchment.RenderTable(arts), nil
-	},
-}
-
 
 type diffInput struct {
 	ID      string `json:"id"`
@@ -365,6 +338,24 @@ var opList = Op{
 		if err := json.Unmarshal(raw, &in); err != nil {
 			return "", err
 		}
+		if in.Ranked {
+			if in.Query == "" {
+				return "", fmt.Errorf("query required for ranked list") //nolint:err113 // user-facing hint
+			}
+			results, err := svc.Recall(ctx, in.Query, in.Scope, in.Top)
+			if err != nil {
+				return "", err
+			}
+			if len(results) == 0 {
+				return fmt.Sprintf("no results for %q", in.Query), nil
+			}
+			arts := make([]*parchment.Artifact, len(results))
+			for i, r := range results {
+				arts[i] = r.Art
+			}
+			return parchment.RenderTable(arts), nil
+		}
+
 		li := parchment.ListInput{
 			Kind: in.Kind, Scope: in.Scope, Status: in.Status,
 			Parent: in.Parent, Sprint: in.Sprint, IDPrefix: in.IDPrefix,

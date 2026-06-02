@@ -49,7 +49,7 @@ func TestRecall_FindsRelevantNote(t *testing.T) {
 	}
 
 	out := call(map[string]any{
-		"action": "recall",
+		"action": "list", "ranked": true,
 		"query":  "SetField unknown field error",
 		"scope":  "test",
 	})
@@ -79,7 +79,7 @@ func TestRecall_ActiveWorkExcluded(t *testing.T) {
 		Sections: []parchment.Section{{Name: "body", Text: "exponential backoff with jitter, cap at 5 retries"}},
 	})
 
-	out := call(map[string]any{"action": "recall", "query": "retry logic", "scope": "test"})
+	out := call(map[string]any{"action": "list", "ranked": true, "query": "retry logic", "scope": "test"})
 
 	if strings.Contains(out, activeTask.ID) {
 		t.Errorf("recall must not return active task %s\nGot: %s", activeTask.ID, out)
@@ -109,7 +109,7 @@ func TestRecall_CompletedTaskIsMemory(t *testing.T) {
 	_, _ = proto.SetField(ctx, []string{task.ID}, parchment.FieldStatus, parchment.StatusComplete, parchment.SetFieldOptions{Force: true})
 
 	out := call(map[string]any{
-		"action": "recall",
+		"action": "list", "ranked": true,
 		"query":  "SetField Extra fallback unknown fields",
 		"scope":  "test",
 	})
@@ -134,7 +134,7 @@ func TestRecall_CompletedDecisionIsMemory(t *testing.T) {
 	_, _ = proto.SetField(ctx, []string{decision.ID}, parchment.FieldStatus, "accepted", parchment.SetFieldOptions{Force: true})
 
 	out := call(map[string]any{
-		"action": "recall",
+		"action": "list", "ranked": true,
 		"query":  "template conformance promote create",
 		"scope":  "test",
 	})
@@ -162,7 +162,7 @@ func TestRecall_EvergreenRanksHigher(t *testing.T) {
 	})
 
 	out := call(map[string]any{
-		"action": "recall",
+		"action": "list", "ranked": true,
 		"query":  "template conformance",
 		"scope":  "test",
 	})
@@ -202,7 +202,7 @@ func TestRecall_RecentRanksHigher(t *testing.T) {
 	})
 
 	out := call(map[string]any{
-		"action": "recall",
+		"action": "list", "ranked": true,
 		"query":  "wikilink resolution",
 		"scope":  "test",
 	})
@@ -225,7 +225,7 @@ func TestRecall_EmptyQueryErrors(t *testing.T) {
 	_, call := newRecallServer(t)
 
 	out := call(map[string]any{
-		"action": "recall",
+		"action": "list", "ranked": true,
 		"scope":  "test",
 	})
 
@@ -261,7 +261,7 @@ func TestRecall_LimitTopN(t *testing.T) {
 	}
 
 	out := call(map[string]any{
-		"action": "recall",
+		"action": "list", "ranked": true,
 		"query":  "parchment protocol",
 		"scope":  "test",
 	})

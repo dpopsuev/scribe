@@ -25,7 +25,7 @@ func newKnowledgeServer(t *testing.T) func(map[string]any) string {
 
 	// Route to canonical tool based on action.
 	artifactActions := map[string]bool{
-		"capture": true, "promote": true, "recall": true, "orient": true,
+		"capture": true, "promote": true, "recall": false, "orient": true,
 		"catalog": true, "daily": true, "backlinks": true,
 		"ingest": true, "synthesize": true,
 	}

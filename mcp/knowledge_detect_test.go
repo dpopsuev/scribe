@@ -26,7 +26,7 @@ func newKnowledgeDetectServer(t *testing.T) (
 		case "orient", "catalog":
 			// orient/catalog are now direct artifact actions
 			return callTool(t, cs, "artifact", args)
-		case "capture", "promote", "daily", "recall", "backlinks":
+		case "capture", "promote", "daily", "recall_unused", "backlinks":
 			return callTool(t, cs, "artifact", translateKnowledgeToArtifact(args))
 		case "ingest":
 			args["action"] = "create"
