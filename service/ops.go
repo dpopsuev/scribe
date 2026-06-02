@@ -13,7 +13,7 @@ import (
 )
 
 func init() {
-	Registry = append(Registry, opSet, opList, opUpdate, opOrient, opCatalog, opCreate, opGet, opTopoSort, opLink)
+	Registry = append(Registry, opSet, opList, opUpdate, opOrient, opCreate, opGet, opTopoSort, opLink)
 }
 
 
@@ -709,27 +709,7 @@ func createBatch(ctx context.Context, svc *Service, in *createInput) (string, er
 	return b.String(), nil
 }
 
-type catalogInput struct {
-	Scope string `json:"scope,omitempty"`
-}
 
-var opCatalog = Op{
-	Name: "catalog",
-	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
-		var in catalogInput
-		if err := json.Unmarshal(raw, &in); err != nil {
-			return "", err
-		}
-		result, err := svc.KnowledgeCatalog(ctx, in.Scope)
-		if err != nil {
-			return "", err
-		}
-		if result.Total == 0 {
-			return "Vault is empty. Start with knowledge(action=capture) or knowledge(action=ingest).", nil
-		}
-		return result.Text + fmt.Sprintf("Total: %d artifact(s)", result.Total), nil
-	},
-}
 
 type orientInput struct {
 	Scope string `json:"scope,omitempty"`
@@ -980,6 +960,7 @@ type listInput struct {
 	Fields         []string `json:"fields,omitempty"`
 	Format         string   `json:"format,omitempty"`
 	Ranked         bool     `json:"ranked,omitempty"`
+	Family         string   `json:"family,omitempty"`
 	CreatedAfter   string   `json:"created_after,omitempty"`
 	CreatedBefore  string   `json:"created_before,omitempty"`
 	UpdatedAfter   string   `json:"updated_after,omitempty"`
@@ -1084,7 +1065,7 @@ var opList = Op{
 			ExcludeKind: in.ExcludeKind, ExcludeStatus: in.ExcludeStatus,
 			Labels: in.Labels, LabelsOr: in.LabelsOr, ExcludeLabels: in.ExcludeLabels,
 			GroupBy: in.GroupBy, Sort: in.Sort, Limit: in.Limit, Query: in.Query,
-			TitleContains: in.TitleContains,
+			TitleContains: in.TitleContains, Family: in.Family,
 			CreatedAfter:  in.CreatedAfter, CreatedBefore: in.CreatedBefore,
 			UpdatedAfter: in.UpdatedAfter, UpdatedBefore: in.UpdatedBefore,
 			InsertedAfter: in.InsertedAfter, InsertedBefore: in.InsertedBefore,

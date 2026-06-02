@@ -732,6 +732,31 @@ func TestOpCreate_MissingTitleErrors(t *testing.T) {
 	}
 }
 
+func TestOpList_FamilyKnowledgeGrouped(t *testing.T) {
+	// Given notes and concepts exist alongside a task
+	// When list(family=knowledge, group_by=kind) is called
+	// Then knowledge artifacts appear but the task does not
+	svc := newTestService(t, "test")
+	ctx := context.Background()
+
+	note, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "note", Title: "design note", Scope: "test"})
+	concept, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "concept", Title: "key concept", Scope: "test"})
+	task, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "a task", Scope: "test"})
+
+	op := service.Find("list")
+	raw, _ := json.Marshal(map[string]any{"family": "knowledge", "group_by": "kind", "scope": "test"})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, note.ID) || !strings.Contains(out, concept.ID) {
+		t.Errorf("expected knowledge artifacts in output, got: %s", out[:min(300, len(out))])
+	}
+	if strings.Contains(out, task.ID) {
+		t.Errorf("task should not appear in knowledge family list, got: %s", out[:min(300, len(out))])
+	}
+}
+
 func TestOpOrient_ReturnsVaultReport(t *testing.T) {
 	// Given notes exist in a scope
 	// When orient(scope=test) is called

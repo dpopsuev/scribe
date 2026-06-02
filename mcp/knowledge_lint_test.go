@@ -23,8 +23,10 @@ func newLintServer(t *testing.T) func(map[string]any) string {
 			})
 		case "catalog":
 			return callTool(t, cs, "artifact", map[string]any{
-				"action": "catalog",
-				"scope":  args["scope"],
+				"action":   "list",
+				"family":   "knowledge",
+				"group_by": "kind",
+				"scope":    args["scope"],
 			})
 		case "capture", "promote", "daily", "recall_unused", "backlinks", "ingest", "synthesize":
 			return callTool(t, cs, "artifact", translateKnowledgeToArtifact(args))
