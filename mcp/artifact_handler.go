@@ -171,32 +171,6 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		return text(renderResults(results, "restored to draft", "")), nil, nil
 	case "detach_section":
 		return h.handleDetachSection(ctx, req, getSectionInput{ID: in.ID, Name: in.Name})
-	case "bulk_section_update":
-		if in.ID == "" {
-			return nil, nil, fmt.Errorf("id is required for bulk_section_update") //nolint:err113 // agent-facing input validation
-		}
-		if in.Query == "" {
-			return nil, nil, fmt.Errorf("query (find text) is required for bulk_section_update") //nolint:err113 // agent-facing input validation
-		}
-		art, err := h.proto.GetArtifact(ctx, in.ID)
-		if err != nil {
-			return nil, nil, err
-		}
-		replacement := in.Text
-		if replacement == "" {
-			replacement = in.Body
-		}
-		updated := 0
-		for _, sec := range art.Sections {
-			if strings.Contains(sec.Text, in.Query) {
-				newText := strings.ReplaceAll(sec.Text, in.Query, replacement)
-				if _, err := h.proto.AttachSection(ctx, in.ID, sec.Name, newText); err != nil {
-					return nil, nil, fmt.Errorf("update section %q: %w", sec.Name, err) //nolint:err113 // agent-facing input validation
-				}
-				updated++
-			}
-		}
-		return text(fmt.Sprintf("bulk_section_update: %d section(s) updated in %s", updated, in.ID)), nil, nil
 	case "diff":
 		if in.ID == "" || in.Against == "" {
 			return nil, nil, fmt.Errorf("id and against required for diff") //nolint:err113 // agent-facing input validation

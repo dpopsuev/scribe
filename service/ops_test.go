@@ -145,54 +145,7 @@ func TestOpSet_FieldErrorPropagated(t *testing.T) {
 
 // --- bulk_section_update (RED) ---
 
-func TestOpBulkSectionUpdate_ReplacesTextInSections(t *testing.T) {
-	// Given an artifact has a section containing "old text"
-	// When bulk_section_update(id=X, query=old text, text=new text) is called
-	// Then the section body contains "new text" instead
-	svc := newTestService(t)
-	ctx := context.Background()
 
-	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "note", Title: "N", Scope: "test"})
-	svc.Proto.AttachSection(ctx, art.ID, "body", "old text in here") //nolint:errcheck // test setup, error irrelevant to subject under test
-
-	op := service.Find("bulk_section_update")
-	if op == nil {
-		t.Fatal("bulk_section_update Op not registered")
-	}
-	raw, _ := json.Marshal(map[string]any{"id": art.ID, "query": "old text", "text": "new text"})
-	out, err := op.Run(ctx, svc, raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, "1") {
-		t.Errorf("expected updated count in output, got: %s", out)
-	}
-	updated, _ := svc.Proto.GetArtifact(ctx, art.ID)
-	if len(updated.Sections) == 0 || !strings.Contains(updated.Sections[0].Text, "new text") {
-		t.Errorf("section text not updated, got: %v", updated.Sections)
-	}
-}
-
-func TestOpBulkSectionUpdate_NoMatchIsNoop(t *testing.T) {
-	// Given an artifact has a section with no matching text
-	// When bulk_section_update(id=X, query=nonexistent, text=x) is called
-	// Then output reports 0 updates
-	svc := newTestService(t)
-	ctx := context.Background()
-
-	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "note", Title: "N", Scope: "test"})
-	svc.Proto.AttachSection(ctx, art.ID, "body", "something else entirely") //nolint:errcheck // test setup, error irrelevant to subject under test
-
-	op := service.Find("bulk_section_update")
-	raw, _ := json.Marshal(map[string]any{"id": art.ID, "query": "nonexistent", "text": "x"})
-	out, err := op.Run(ctx, svc, raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, "0") {
-		t.Errorf("expected 0 updates in output, got: %s", out)
-	}
-}
 
 // --- archive (RED) ---
 

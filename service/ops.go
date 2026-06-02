@@ -11,7 +11,7 @@ import (
 )
 
 func init() {
-	Registry = append(Registry, opSet, opList, opDetachSection, opDiff, opRecall, opRetire, opDeArchive, opArchive, opBulkSectionUpdate)
+	Registry = append(Registry, opSet, opList, opDetachSection, opDiff, opRecall, opRetire, opDeArchive, opArchive)
 }
 
 
@@ -327,44 +327,6 @@ var opDetachSection = Op{
 	},
 }
 
-type bulkSectionUpdateInput struct {
-	ID    string `json:"id"`
-	Query string `json:"query"`
-	Text  string `json:"text"`
-	Body  string `json:"body,omitempty"`
-}
-
-var opBulkSectionUpdate = Op{
-	Name: "bulk_section_update",
-	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
-		var in bulkSectionUpdateInput
-		if err := json.Unmarshal(raw, &in); err != nil {
-			return "", err
-		}
-		if in.ID == "" || in.Query == "" {
-			return "", fmt.Errorf("id and query required") //nolint:err113 // user-facing hint
-		}
-		replacement := in.Text
-		if replacement == "" {
-			replacement = in.Body
-		}
-		art, err := svc.Proto.GetArtifact(ctx, in.ID)
-		if err != nil {
-			return "", err
-		}
-		updated := 0
-		for _, sec := range art.Sections {
-			if strings.Contains(sec.Text, in.Query) {
-				newText := strings.ReplaceAll(sec.Text, in.Query, replacement)
-				if _, err := svc.Proto.AttachSection(ctx, in.ID, sec.Name, newText); err != nil {
-					return "", fmt.Errorf("update section %q: %w", sec.Name, err)
-				}
-				updated++
-			}
-		}
-		return fmt.Sprintf("bulk_section_update: %d section(s) updated in %s", updated, in.ID), nil
-	},
-}
 
 var listValidFields = map[string]func(*parchment.Artifact) string{
 	"id":         func(a *parchment.Artifact) string { return a.ID },

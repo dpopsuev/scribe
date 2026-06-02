@@ -24,7 +24,7 @@ func TestBulkSectionUpdate_ReplacesInAllSections(t *testing.T) {
 	}))
 
 	out := call(map[string]any{
-		"action": "bulk_section_update",
+		"action": "update",
 		"id":     id,
 		"query":  "old value",
 		"text":   "new value",
@@ -58,7 +58,7 @@ func TestBulkSectionUpdate_NoMatchIsNoop(t *testing.T) {
 	}))
 
 	out := call(map[string]any{
-		"action": "bulk_section_update",
+		"action": "update",
 		"id":     id,
 		"query":  "nonexistent phrase",
 		"text":   "replacement",
