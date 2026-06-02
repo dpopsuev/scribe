@@ -421,6 +421,184 @@ func TestOpList_RankedEmptyQueryReturnsError(t *testing.T) {
 
 // --- diff (RED) ---
 
+func TestOpGet_Summary(t *testing.T) {
+	// Given an artifact exists
+	// When get(id=X, format=summary) is called
+	// Then output is compact JSON with id, title, kind, status
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "note", Title: "N", Scope: "test"})
+
+	op := service.Find("get")
+	raw, _ := json.Marshal(map[string]any{"id": art.ID, "format": "summary"})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, art.ID) || !strings.Contains(out, "N") {
+		t.Errorf("expected summary JSON with id and title, got: %s", out)
+	}
+}
+
+func TestOpGet_Briefing(t *testing.T) {
+	// Given an artifact with children exists
+	// When get(id=X, format=briefing) is called
+	// Then output contains the tree with edge labels
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	parent, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "goal", Title: "G", Scope: "test"})
+	child, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "T", Scope: "test", Parent: parent.ID})
+
+	op := service.Find("get")
+	raw, _ := json.Marshal(map[string]any{"id": parent.ID, "format": "briefing"})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, child.ID) {
+		t.Errorf("expected child in briefing, got: %s", out)
+	}
+}
+
+func TestOpGet_Impact(t *testing.T) {
+	// Given an artifact exists
+	// When get(id=X, format=impact) is called
+	// Then output describes impact analysis
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "T", Scope: "test"})
+
+	op := service.Find("get")
+	raw, _ := json.Marshal(map[string]any{"id": art.ID, "format": "impact"})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "Impact analysis") {
+		t.Errorf("expected impact analysis in output, got: %s", out)
+	}
+}
+
+func TestOpGet_Tree(t *testing.T) {
+	// Given an artifact with a child exists
+	// When get(id=X, format=tree) is called
+	// Then output contains the tree structure
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	parent, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "goal", Title: "G", Scope: "test"})
+	child, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "T", Scope: "test", Parent: parent.ID})
+
+	op := service.Find("get")
+	raw, _ := json.Marshal(map[string]any{"id": parent.ID, "format": "tree"})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, child.ID) {
+		t.Errorf("expected child in tree, got: %s", out)
+	}
+}
+
+func TestOpGet_BulkIDs(t *testing.T) {
+	// Given two artifacts exist
+	// When get(ids=[A, B]) is called
+	// Then output is a JSON array containing both
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "note", Title: "A", Scope: "test"})
+	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "note", Title: "B", Scope: "test"})
+
+	op := service.Find("get")
+	raw, _ := json.Marshal(map[string]any{"ids": []string{a.ID, b.ID}})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, a.ID) || !strings.Contains(out, b.ID) {
+		t.Errorf("expected both IDs in bulk get output, got: %s", out)
+	}
+}
+
+func TestOpCreate_BatchCreate(t *testing.T) {
+	// Given a batch of artifacts to create
+	// When create(artifacts=[...]) is called
+	// Then all artifacts are created and appear in output
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	op := service.Find("create")
+	raw, _ := json.Marshal(map[string]any{
+		"artifacts": []map[string]any{
+			{"kind": "task", "title": "First", "scope": "test"},
+			{"kind": "task", "title": "Second", "scope": "test"},
+		},
+	})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "First") || !strings.Contains(out, "Second") {
+		t.Errorf("expected both artifacts in batch output, got: %s", out)
+	}
+}
+
+func TestOpCreate_Clone(t *testing.T) {
+	// Given an artifact exists
+	// When create(clone_from=X, title=clone, scope=other) is called
+	// Then a clone is created with the new title
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	source, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "note", Title: "original", Scope: "test"})
+
+	op := service.Find("create")
+	raw, _ := json.Marshal(map[string]any{"clone_from": source.ID, "title": "clone", "scope": "test"})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, source.ID) || !strings.Contains(out, "clone") {
+		t.Errorf("expected clone reference in output, got: %s", out)
+	}
+}
+
+func TestRenderTree_ProducesAsciiTree(t *testing.T) {
+	// Given a tree node with children
+	// When RenderTree is called
+	// Then output contains tree connectors
+	node := &parchment.TreeNode{
+		ID: "ROOT", Status: "draft", Title: "Root",
+		Children: []*parchment.TreeNode{
+			{ID: "CHILD", Status: "active", Title: "Child"},
+		},
+	}
+	out := service.RenderTree(node)
+	if !strings.Contains(out, "ROOT") || !strings.Contains(out, "CHILD") {
+		t.Errorf("expected ROOT and CHILD in tree output, got: %s", out)
+	}
+}
+
+func TestRenderBriefing_ShowsEdgeLabels(t *testing.T) {
+	// Given a tree node with an edge label
+	// When RenderBriefing is called
+	// Then output contains the edge direction
+	node := &parchment.TreeNode{
+		ID: "TSK", Status: "draft", Title: "Task", Kind: "task",
+		Children: []*parchment.TreeNode{
+			{ID: "SPC", Status: "draft", Title: "Spec", Kind: "spec", Edge: "implements", Direction: "outbound"},
+		},
+	}
+	out := service.RenderBriefing(node)
+	if !strings.Contains(out, "TSK") || !strings.Contains(out, "implements") {
+		t.Errorf("expected TSK and implements in briefing output, got: %s", out)
+	}
+}
+
 func TestOpGet_ReturnsMarkdown(t *testing.T) {
 	// Given an artifact exists
 	// When get(id=X) is called
