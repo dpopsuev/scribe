@@ -1,7 +1,10 @@
 package service
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
+	"os"
 
 	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/config"
@@ -23,7 +26,21 @@ func Open(cfg *config.Config, homeScopes ...[]string) (*Service, func(), error) 
 	if len(homeScopes) > 0 && len(homeScopes[0]) > 0 {
 		scopes = homeScopes[0]
 	}
-	proto := parchment.New(s, nil, scopes, nil, cfg.ProtocolIDConfig())
+	idc := cfg.ProtocolIDConfig()
+	if url := os.Getenv("SCRIBE_EMBED_URL"); url != "" {
+		model := os.Getenv("SCRIBE_EMBED_MODEL")
+		if model == "" {
+			model = "nomic-embed-text"
+		}
+		fn, err := NewOllamaEmbeddingFunc(model, url)
+		if err != nil {
+			slog.WarnContext(context.Background(), "semantic search unavailable — Ollama not reachable", slog.String("url", url), slog.Any("error", err)) //nolint:gosec,sloglint // operator env var; string keys match project convention
+		} else {
+			idc.EmbedFunc = fn
+			slog.InfoContext(context.Background(), "semantic search enabled", slog.String("model", model), slog.String("url", url)) //nolint:gosec,sloglint // operator env var; string keys match project convention
+		}
+	}
+	proto := parchment.New(s, nil, scopes, nil, idc)
 	svc := New(proto, nil, scopes)
 	return svc, func() { _ = s.Close() }, nil
 }
