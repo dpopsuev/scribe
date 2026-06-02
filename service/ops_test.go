@@ -143,6 +143,56 @@ func TestOpSet_FieldErrorPropagated(t *testing.T) {
 	}
 }
 
+// --- retire (RED) ---
+
+func TestOpRetire_TransitionsToRetired(t *testing.T) {
+	// Given a task in draft status
+	// When retire(id=X) is called
+	// Then the artifact status is retired
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "T", Scope: "test"})
+
+	op := service.Find("retire")
+	if op == nil {
+		t.Fatal("retire Op not registered")
+	}
+	raw, _ := json.Marshal(map[string]any{"id": art.ID})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "retired") {
+		t.Errorf("expected 'retired' in output, got: %s", out)
+	}
+	updated, _ := svc.Proto.GetArtifact(ctx, art.ID)
+	if updated.Status != "retired" {
+		t.Errorf("status = %q, want retired", updated.Status)
+	}
+}
+
+func TestOpRetire_MultipleIDs(t *testing.T) {
+	// Given two tasks exist
+	// When retire(ids=[A,B]) is called
+	// Then both appear in the output
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "A", Scope: "test"})
+	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "B", Scope: "test"})
+
+	op := service.Find("retire")
+	raw, _ := json.Marshal(map[string]any{"ids": []string{a.ID, b.ID}})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, a.ID) || !strings.Contains(out, b.ID) {
+		t.Errorf("expected both IDs in output, got: %s", out)
+	}
+}
+
 // --- recall (RED) ---
 
 func TestOpRecall_ReturnsMatchingArtifacts(t *testing.T) {

@@ -11,7 +11,7 @@ import (
 )
 
 func init() {
-	Registry = append(Registry, opSet, opList, opDetachSection, opDiff, opRecall)
+	Registry = append(Registry, opSet, opList, opDetachSection, opDiff, opRecall, opRetire)
 }
 
 // --- set ---
@@ -84,6 +84,50 @@ type listInput struct {
 	UpdatedBefore  string   `json:"updated_before,omitempty"`
 	InsertedAfter  string   `json:"inserted_after,omitempty"`
 	InsertedBefore string   `json:"inserted_before,omitempty"`
+}
+
+// RenderResults formats a []parchment.Result slice as human-readable text.
+// okLabel is used for successful results; errLabel is unused (kept for compat).
+func RenderResults(results []parchment.Result, okLabel string) string {
+	lines := make([]string, 0, len(results))
+	for _, r := range results {
+		if r.OK {
+			lines = append(lines, r.ID+" -> "+okLabel)
+		} else {
+			lines = append(lines, r.ID+" -> error: "+r.Error)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// --- retire ---
+
+type retireInput struct {
+	ID      string   `json:"id"`
+	IDs     []string `json:"ids,omitempty"`
+	Cascade bool     `json:"cascade,omitempty"`
+}
+
+var opRetire = Op{
+	Name: "retire",
+	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
+		var in retireInput
+		if err := json.Unmarshal(raw, &in); err != nil {
+			return "", err
+		}
+		ids := in.IDs
+		if len(ids) == 0 && in.ID != "" {
+			ids = []string{in.ID}
+		}
+		if len(ids) == 0 {
+			return "", fmt.Errorf("id or ids required") //nolint:err113 // user-facing hint
+		}
+		results, err := svc.Proto.RetireArtifact(ctx, ids, in.Cascade)
+		if err != nil {
+			return "", err
+		}
+		return RenderResults(results, "retired"), nil
+	},
 }
 
 // --- recall ---

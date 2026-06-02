@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	battmcp "github.com/dpopsuev/battery/mcp"
 	"github.com/dpopsuev/battery/tool"
@@ -345,15 +344,7 @@ func resolveIDs(ids []string, id string) []string {
 // renderResults formats []parchment.Result as human-readable lines.
 // okLabel is used for successful results; errLabel is unused (errors always show the error text).
 func renderResults(results []parchment.Result, okLabel, _ string) string {
-	lines := make([]string, 0, len(results))
-	for _, r := range results {
-		if r.OK {
-			lines = append(lines, r.ID+" -> "+okLabel)
-		} else {
-			lines = append(lines, r.ID+" -> error: "+r.Error)
-		}
-	}
-	return strings.Join(lines, "\n")
+	return service.RenderResults(results, okLabel)
 }
 
 func text(s string) *sdkmcp.CallToolResult {
