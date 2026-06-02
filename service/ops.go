@@ -13,7 +13,162 @@ import (
 )
 
 func init() {
-	Registry = append(Registry, opSet, opList, opRetire, opDeArchive, opArchive, opUpdate, opOrient, opCatalog, opCreate, opGet)
+	Registry = append(Registry, opSet, opList, opRetire, opDeArchive, opArchive, opUpdate, opOrient, opCatalog, opCreate, opGet, opTopoSort, opLink, opUnlink)
+}
+
+type edgeInput struct {
+	From     string `json:"from"`
+	Relation string `json:"relation"`
+	To       string `json:"to"`
+}
+
+type topoSortInput struct {
+	ID        string `json:"id"`
+	Unblocked bool   `json:"unblocked,omitempty"`
+	Depth     int    `json:"depth,omitempty"`
+	Format    string `json:"format,omitempty"`
+}
+
+var opTopoSort = Op{
+	Name: "topo_sort",
+	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
+		var in topoSortInput
+		if err := json.Unmarshal(raw, &in); err != nil {
+			return "", err
+		}
+		if in.ID == "" {
+			return "", fmt.Errorf("id required for topo_sort") //nolint:err113 // user-facing hint
+		}
+		entries, err := svc.Proto.TopoSort(ctx, in.ID)
+		if err != nil && len(entries) == 0 {
+			return "", err
+		}
+		if in.Unblocked {
+			limit := in.Depth
+			if limit <= 0 {
+				limit = 5
+			}
+			schema := svc.Proto.Schema()
+			var ready []parchment.TopoEntry
+			for _, e := range entries {
+				if schema.IsTerminal(e.Status) {
+					continue
+				}
+				art, _ := svc.Proto.GetArtifact(ctx, e.ID)
+				if art == nil {
+					continue
+				}
+				blocked := false
+				for _, depID := range art.DependsOn {
+					dep, _ := svc.Proto.GetArtifact(ctx, depID)
+					if dep != nil && !schema.IsTerminal(dep.Status) {
+						blocked = true
+						break
+					}
+				}
+				if !blocked {
+					ready = append(ready, e)
+					if len(ready) >= limit {
+						break
+					}
+				}
+			}
+			if len(ready) == 0 {
+				return "no unblocked tasks found", nil
+			}
+			entries = ready
+		}
+		if in.Format == "json" {
+			data, _ := json.Marshal(entries)
+			return string(data), nil
+		}
+		var b strings.Builder
+		for i, e := range entries {
+			fmt.Fprintf(&b, "%d. %s [%s] %s", i+1, e.ID, e.Status, e.Title)
+			if e.Priority != "" && e.Priority != "none" {
+				fmt.Fprintf(&b, " (%s)", e.Priority)
+			}
+			b.WriteString("\n")
+		}
+		if err != nil {
+			fmt.Fprintf(&b, "\n%s\n", err)
+		}
+		return b.String(), nil
+	},
+}
+
+type linkInput struct {
+	ID       string      `json:"id"`
+	Relation string      `json:"relation"`
+	Targets  []string    `json:"targets,omitempty"`
+	Edges    []edgeInput `json:"edges,omitempty"`
+}
+
+func execEdgeOp(ctx context.Context, svc *Service, in linkInput, unlink bool) (string, error) {
+	verb := "linked"
+	if unlink {
+		verb = "unlinked"
+	}
+	linkFn := svc.Proto.LinkArtifacts
+	if unlink {
+		linkFn = svc.Proto.UnlinkArtifacts
+	}
+	if len(in.Edges) > 0 {
+		var lines []string
+		for _, e := range in.Edges {
+			results, err := linkFn(ctx, e.From, e.Relation, []string{e.To})
+			if err != nil {
+				lines = append(lines, fmt.Sprintf("%s -[%s]-> %s: error: %s", e.From, e.Relation, e.To, err))
+				continue
+			}
+			for _, r := range results {
+				if r.OK {
+					lines = append(lines, fmt.Sprintf("%s %s -[%s]-> %s", verb, e.From, e.Relation, e.To))
+				} else {
+					lines = append(lines, fmt.Sprintf("%s -[%s]-> %s: error: %s", e.From, e.Relation, e.To, r.Error))
+				}
+			}
+		}
+		return strings.Join(lines, "\n"), nil
+	}
+	if in.ID == "" || len(in.Targets) == 0 || in.Relation == "" {
+		return "", fmt.Errorf("id, relation, and targets required") //nolint:err113 // user-facing hint
+	}
+	results, err := linkFn(ctx, in.ID, in.Relation, in.Targets)
+	if err != nil {
+		return "", err
+	}
+	var lines []string
+	for _, r := range results {
+		if r.OK {
+			lines = append(lines, fmt.Sprintf("%s %s -[%s]-> %s", verb, in.ID, in.Relation, r.ID))
+		} else {
+			lines = append(lines, fmt.Sprintf("%s -> error: %s", r.ID, r.Error))
+		}
+	}
+	return strings.Join(lines, "\n"), nil
+}
+
+var opLink = Op{
+	Name: "link",
+	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
+		var in linkInput
+		if err := json.Unmarshal(raw, &in); err != nil {
+			return "", err
+		}
+		return execEdgeOp(ctx, svc, in, false)
+	},
+}
+
+var opUnlink = Op{
+	Name: "unlink",
+	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
+		var in linkInput
+		if err := json.Unmarshal(raw, &in); err != nil {
+			return "", err
+		}
+		return execEdgeOp(ctx, svc, in, true)
+	},
 }
 
 type getInput struct {

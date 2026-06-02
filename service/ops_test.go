@@ -447,6 +447,85 @@ func TestOpList_RankedEmptyQueryReturnsError(t *testing.T) {
 
 // --- diff (RED) ---
 
+func TestOpTopoSort_ReturnsOrderedList(t *testing.T) {
+	// Given a goal with two tasks where one depends on the other
+	// When topo_sort(id=goal) is called
+	// Then output lists tasks in dependency order
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	goal, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "goal", Title: "G", Scope: "test"})
+	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "First", Scope: "test", Parent: goal.ID})
+	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "Second", Scope: "test", Parent: goal.ID, DependsOn: []string{a.ID}})
+
+	op := service.Find("topo_sort")
+	if op == nil {
+		t.Fatal("topo_sort Op not registered")
+	}
+	raw, _ := json.Marshal(map[string]any{"id": goal.ID})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, a.ID) || !strings.Contains(out, b.ID) {
+		t.Errorf("expected both tasks in topo_sort output, got: %s", out)
+	}
+	posA := strings.Index(out, a.ID)
+	posB := strings.Index(out, b.ID)
+	if posA >= posB {
+		t.Errorf("First (%s) should appear before Second (%s) in topo order", a.ID, b.ID)
+	}
+}
+
+func TestOpLink_CreatesEdge(t *testing.T) {
+	// Given two artifacts exist
+	// When link(id=A, relation=implements, targets=[B]) is called
+	// Then the edge exists
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "A", Scope: "test"})
+	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "spec", Title: "B", Scope: "test"})
+
+	op := service.Find("link")
+	if op == nil {
+		t.Fatal("link Op not registered")
+	}
+	raw, _ := json.Marshal(map[string]any{"id": a.ID, "relation": "implements", "targets": []string{b.ID}})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "linked") || !strings.Contains(out, a.ID) || !strings.Contains(out, b.ID) {
+		t.Errorf("expected 'linked' with IDs in output, got: %s", out)
+	}
+}
+
+func TestOpUnlink_RemovesEdge(t *testing.T) {
+	// Given a link exists between two artifacts
+	// When unlink(id=A, relation=implements, targets=[B]) is called
+	// Then the edge is removed
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "A", Scope: "test"})
+	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "spec", Title: "B", Scope: "test"})
+	svc.Proto.LinkArtifacts(ctx, a.ID, "implements", []string{b.ID}) //nolint:errcheck // test setup, error irrelevant to subject under test
+
+	op := service.Find("unlink")
+	if op == nil {
+		t.Fatal("unlink Op not registered")
+	}
+	raw, _ := json.Marshal(map[string]any{"id": a.ID, "relation": "implements", "targets": []string{b.ID}})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "unlinked") || !strings.Contains(out, a.ID) || !strings.Contains(out, b.ID) {
+		t.Errorf("expected 'unlinked' with IDs in output, got: %s", out)
+	}
+}
+
 func TestOpGet_Summary(t *testing.T) {
 	// Given an artifact exists
 	// When get(id=X, format=summary) is called
