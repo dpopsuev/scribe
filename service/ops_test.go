@@ -366,6 +366,63 @@ func TestOpList_RankedEmptyQueryReturnsError(t *testing.T) {
 
 // --- diff (RED) ---
 
+func TestOpCreate_ReturnsID(t *testing.T) {
+	// Given a valid create input
+	// When create(kind=task, title=T, scope=test) is called
+	// Then output contains the artifact ID
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	op := service.Find("create")
+	if op == nil {
+		t.Fatal("create Op not registered")
+	}
+	raw, _ := json.Marshal(map[string]any{"kind": "task", "title": "my task", "scope": "test"})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "TASK") && !strings.Contains(out, "TSK") {
+		t.Errorf("expected task ID in output, got: %s", out)
+	}
+	if !strings.Contains(out, "my task") {
+		t.Errorf("expected title in output, got: %s", out)
+	}
+}
+
+func TestOpCreate_WithParentShowsParent(t *testing.T) {
+	// Given a goal exists
+	// When create(kind=task, parent=goal-id) is called
+	// Then output includes "(parent: goal-id)"
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	goal, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "goal", Title: "G", Scope: "test"})
+
+	op := service.Find("create")
+	raw, _ := json.Marshal(map[string]any{"kind": "task", "title": "child", "scope": "test", "parent": goal.ID})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "parent") {
+		t.Errorf("expected parent hint in output, got: %s", out)
+	}
+}
+
+func TestOpCreate_MissingTitleErrors(t *testing.T) {
+	// Given no title is provided
+	// When create(kind=task, scope=test) is called
+	// Then an error is returned
+	svc := newTestService(t)
+	op := service.Find("create")
+	raw, _ := json.Marshal(map[string]any{"kind": "task", "scope": "test"})
+	_, err := op.Run(context.Background(), svc, raw)
+	if err == nil {
+		t.Fatal("expected error for missing title, got nil")
+	}
+}
+
 func TestOpOrient_ReturnsVaultReport(t *testing.T) {
 	// Given notes exist in a scope
 	// When orient(scope=test) is called

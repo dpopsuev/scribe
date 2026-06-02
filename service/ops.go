@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -11,7 +12,199 @@ import (
 )
 
 func init() {
-	Registry = append(Registry, opSet, opList, opRetire, opDeArchive, opArchive, opUpdate, opOrient, opCatalog)
+	Registry = append(Registry, opSet, opList, opRetire, opDeArchive, opArchive, opUpdate, opOrient, opCatalog, opCreate)
+}
+
+type createInput struct {
+	Kind      string              `json:"kind,omitempty"`
+	Title     string              `json:"title,omitempty"`
+	Scope     string              `json:"scope,omitempty"`
+	Goal      string              `json:"goal,omitempty"`
+	Parent    string              `json:"parent,omitempty"`
+	Prefix    string              `json:"prefix,omitempty"`
+	ID        string              `json:"id,omitempty"`
+	Status    string              `json:"status,omitempty"`
+	Priority  string              `json:"priority,omitempty"`
+	Labels    []string            `json:"labels,omitempty"`
+	DependsOn []string            `json:"depends_on,omitempty"`
+	Sections  []map[string]string `json:"sections,omitempty"`
+	Links     map[string][]string `json:"links,omitempty"`
+	Extra     map[string]any      `json:"extra,omitempty"`
+	Patch     map[string]string   `json:"patch,omitempty"`
+	SkipHooks bool                `json:"skip_hooks,omitempty"`
+	CreatedAt string              `json:"created_at,omitempty"`
+	StashID   string              `json:"stash_id,omitempty"`
+	CloneFrom string              `json:"clone_from,omitempty"`
+	Artifacts []map[string]any    `json:"artifacts,omitempty"`
+}
+
+var opCreate = Op{
+	Name: "create",
+	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) { //nolint:cyclop // routing: stash|clone|batch|single — each path is simple
+		var in createInput
+		if err := json.Unmarshal(raw, &in); err != nil {
+			return "", err
+		}
+		if in.StashID != "" {
+			return createFromStash(ctx, svc, &in)
+		}
+		if in.CloneFrom != "" {
+			return createClone(ctx, svc, &in)
+		}
+		if len(in.Artifacts) > 0 {
+			return createBatch(ctx, svc, &in)
+		}
+		return createSingle(ctx, svc, &in)
+	},
+}
+
+func parseSections(raw []map[string]string) []parchment.Section {
+	var out []parchment.Section
+	for _, sec := range raw {
+		name := sec["name"]
+		if name == "" {
+			name = sec["slug"]
+		}
+		if name != "" {
+			t := sec["text"]
+			if t == "" {
+				t = sec["body"]
+			}
+			out = append(out, parchment.Section{Name: name, Text: t})
+		}
+	}
+	return out
+}
+
+func createSingle(ctx context.Context, svc *Service, in *createInput) (string, error) {
+	if in.Title == "" {
+		return "", fmt.Errorf("title is required") //nolint:err113 // user-facing hint
+	}
+	art, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Kind: in.Kind, Title: in.Title, Scope: in.Scope,
+		Goal: in.Goal, Parent: in.Parent, Prefix: in.Prefix,
+		ExplicitID: in.ID, Status: in.Status, Priority: in.Priority,
+		Labels: in.Labels, DependsOn: in.DependsOn, Sections: parseSections(in.Sections),
+		Links: in.Links, Extra: in.Extra, Patch: in.Patch, SkipHooks: in.SkipHooks,
+		CreatedAt: in.CreatedAt,
+	})
+	if err != nil {
+		var ce *parchment.ConformanceError
+		if errors.As(err, &ce) {
+			return "", fmt.Errorf("%s [stash_id=%s]", ce.Error(), ce.StashID) //nolint:err113 // structured stash ID
+		}
+		return "", err
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "created %s [%s|%s] %s", art.ID, art.Kind, art.Status, art.Title)
+	if art.Parent != "" {
+		fmt.Fprintf(&b, " (parent: %s)", art.Parent)
+	}
+	schema := svc.Proto.Schema()
+	if expected := schema.GetExpectedSections(art.Kind); len(expected) > 0 {
+		must := schema.GetMustSections(art.Kind)
+		should := schema.GetShouldSections(art.Kind)
+		var hints []string
+		for _, s := range must {
+			hints = append(hints, s+" (must)")
+		}
+		for _, s := range should {
+			hints = append(hints, s+" (should)")
+		}
+		if len(hints) > 0 {
+			fmt.Fprintf(&b, "\nSections: %s", strings.Join(hints, ", "))
+		}
+	}
+	return b.String(), nil
+}
+
+func createFromStash(ctx context.Context, svc *Service, in *createInput) (string, error) {
+	art, err := svc.Proto.PromoteStash(ctx, in.StashID, parchment.CreateInput{
+		Kind: in.Kind, Title: in.Title, Scope: in.Scope,
+		Goal: in.Goal, Parent: in.Parent, Status: in.Status,
+		Priority: in.Priority, Labels: in.Labels,
+		Links: in.Links, Sections: parseSections(in.Sections), Patch: in.Patch,
+	})
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("promoted stash to %s: %s [%s|%s]", art.ID, art.Title, art.Kind, art.Status), nil
+}
+
+func createClone(ctx context.Context, svc *Service, in *createInput) (string, error) {
+	source, err := svc.Proto.GetArtifact(ctx, in.CloneFrom)
+	if err != nil {
+		return "", fmt.Errorf("source %s: %w", in.CloneFrom, err)
+	}
+	kind := source.Kind
+	if in.Kind != "" {
+		kind = in.Kind
+	}
+	scope := source.Scope
+	if in.Scope != "" {
+		scope = in.Scope
+	}
+	title := source.Title
+	if in.Title != "" {
+		title = in.Title
+	}
+	labels := source.Labels
+	if len(in.Labels) > 0 {
+		labels = in.Labels
+	}
+	sections := make([]parchment.Section, 0, len(source.Sections))
+	for _, s := range source.Sections {
+		sections = append(sections, parchment.Section{Name: s.Name, Text: s.Text})
+	}
+	art, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Kind: kind, Title: title, Scope: scope, Goal: source.Goal,
+		Parent: in.Parent, Status: in.Status, Priority: in.Priority,
+		Labels: labels, Sections: sections,
+	})
+	if err != nil {
+		return "", fmt.Errorf("clone: %w", err)
+	}
+	data, _ := json.Marshal(art)
+	return fmt.Sprintf("cloned %s → %s\n%s", in.CloneFrom, art.ID, string(data)), nil
+}
+
+func createBatch(ctx context.Context, svc *Service, in *createInput) (string, error) {
+	if len(in.Artifacts) == 0 {
+		return "", fmt.Errorf("artifacts array is required for batch create") //nolint:err113 // user-facing hint
+	}
+	idRefs := make(map[string]string)
+	var b strings.Builder
+	fmt.Fprintf(&b, "created %d artifacts:\n", len(in.Artifacts))
+	for i, rawArt := range in.Artifacts {
+		data, _ := json.Marshal(rawArt)
+		var ci createInput
+		if err := json.Unmarshal(data, &ci); err != nil {
+			return "", fmt.Errorf("artifact[%d]: %w", i, err)
+		}
+		if parent := ci.Parent; parent != "" && parent[0] == '$' {
+			if resolved, ok := idRefs[parent]; ok {
+				ci.Parent = resolved
+			} else {
+				return "", fmt.Errorf("artifact[%d]: unresolved parent reference %q", i, parent) //nolint:err113 // batch parent resolution error contains dynamic context
+			}
+		}
+		art, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+			Kind: ci.Kind, Title: ci.Title, Scope: ci.Scope,
+			Goal: ci.Goal, Parent: ci.Parent, Status: ci.Status,
+			Priority: ci.Priority, Labels: ci.Labels, Prefix: ci.Prefix,
+			Links: ci.Links, Extra: ci.Extra, Sections: parseSections(ci.Sections),
+		})
+		if err != nil {
+			return "", fmt.Errorf("artifact[%d] %q: %w", i, ci.Title, err)
+		}
+		idRefs[fmt.Sprintf("$%d", i)] = art.ID
+		fmt.Fprintf(&b, "%s [%s] %s", art.ID, art.Kind, art.Title)
+		if art.Parent != "" {
+			fmt.Fprintf(&b, " (parent: %s)", art.Parent)
+		}
+		b.WriteString("\n")
+	}
+	return b.String(), nil
 }
 
 type catalogInput struct {
