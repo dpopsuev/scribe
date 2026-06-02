@@ -22,9 +22,8 @@ func newLintServer(t *testing.T) func(map[string]any) string {
 				"action": "detect", "check": "knowledge_full", "scope": args["scope"],
 			})
 		case "catalog":
-			// catalog → orient (lists all knowledge artifacts grouped by kind)
 			return callTool(t, cs, "artifact", map[string]any{
-				"action": "orient",
+				"action": "catalog",
 				"scope":  args["scope"],
 			})
 		case "capture", "promote", "daily", "recall_unused", "backlinks", "ingest", "synthesize":

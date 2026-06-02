@@ -229,3 +229,98 @@ func (s *Service) KnowledgeCatalog(ctx context.Context, scope string) (*Knowledg
 	}
 	return &KnowledgeCatalogResult{Text: b.String(), Total: total}, nil
 }
+
+func (s *Service) KnowledgeOrient(ctx context.Context, scope string) (string, error) { //nolint:gocyclo,cyclop,funlen // orient report is inherently multi-section
+	var b strings.Builder
+	kinds := []struct{ kind, status, meaning string }{
+		{parchment.KindNote, parchment.StatusFleeting + "→evergreen", "core knowledge unit"},
+		{parchment.KindJournal, parchment.StatusActive, "daily dated entry"},
+		{parchment.KindSource, parchment.StatusActive, "external material — ingest it, cite it"},
+		{parchment.KindConcept, parchment.StatusActive, "atomic idea — elaborate on it"},
+		{parchment.KindContext, parchment.StatusActive, "agent memory — remembers edges"},
+	}
+	fmt.Fprintf(&b, "## Schema Legend\n\n")
+	for _, k := range kinds {
+		fmt.Fprintf(&b, "  %-12s %-24s %s\n", k.kind, k.status, k.meaning)
+	}
+	b.WriteString("\nRelations:\n")
+	for _, r := range []struct{ rel, from, meaning string }{
+		{parchment.RelCites, "note→source", "this note draws from this source"},
+		{parchment.RelElaborates, "note→concept", "expands on an atomic idea"},
+		{parchment.RelSynthesises, "note→[note…]", "synthesis of multiple notes"},
+		{parchment.RelContradicts, "note↔note", "documents disagreement"},
+		{parchment.RelRemembers, "context→note", "agent bookmarked this"},
+	} {
+		fmt.Fprintf(&b, "  %-14s %-18s %s\n", r.rel, r.from, r.meaning)
+	}
+	fmt.Fprintf(&b, "\n## Vault State\n\n")
+	knowledgeKinds := []string{
+		parchment.KindNote, parchment.KindJournal,
+		parchment.KindSource, parchment.KindConcept, parchment.KindContext,
+	}
+	totalByKind := make(map[string]int)
+	fleeting, evergreen := 0, 0
+	var all []*parchment.Artifact
+	for _, kind := range knowledgeKinds {
+		arts, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Kind: kind, Scope: scope})
+		totalByKind[kind] = len(arts)
+		all = append(all, arts...)
+		for _, a := range arts {
+			switch a.Status {
+			case parchment.StatusFleeting:
+				fleeting++
+			case parchment.StatusEvergreen:
+				evergreen++
+			}
+		}
+	}
+	for _, kind := range knowledgeKinds {
+		if n := totalByKind[kind]; n > 0 {
+			fmt.Fprintf(&b, "  %-12s %d\n", kind, n)
+		}
+	}
+	if fleeting > 0 || evergreen > 0 {
+		fmt.Fprintf(&b, "  fleeting: %d   evergreen: %d\n", fleeting, evergreen)
+	}
+	if len(all) == 0 {
+		b.WriteString("  (empty vault)\n")
+	}
+	type hub struct {
+		art   *parchment.Artifact
+		edges int
+	}
+	var hubs []hub
+	for _, art := range all {
+		edges, _ := s.Proto.GetArtifactEdges(ctx, art.ID)
+		if len(edges) > 0 {
+			hubs = append(hubs, hub{art, len(edges)})
+		}
+	}
+	for i := 1; i < len(hubs); i++ {
+		for j := i; j > 0 && hubs[j].edges > hubs[j-1].edges; j-- {
+			hubs[j], hubs[j-1] = hubs[j-1], hubs[j]
+		}
+	}
+	if len(hubs) > 0 {
+		fmt.Fprintf(&b, "\n## Hub Nodes\n\n")
+		for _, h := range hubs[:min(5, len(hubs))] {
+			fmt.Fprintf(&b, "  %-20s %2d edges  %s\n", h.art.ID, h.edges, h.art.Title)
+		}
+	}
+	healthPart := s.DetectKnowledge(ctx, DetectKnowledgeInput{Scope: scope})
+	fmt.Fprintf(&b, "\n## Health\n\n  %s\n", strings.TrimSpace(healthPart))
+	if sessionLines := s.OrientSessionLines(ctx, scope, 3); len(sessionLines) > 0 {
+		b.WriteString("\n## Recent Sessions\n\n")
+		for _, l := range sessionLines {
+			b.WriteString(l + "\n")
+		}
+	}
+	b.WriteString("\n## You are the compiler\n\n")
+	b.WriteString("  ingest(source) → read it, extract concepts, create notes, link via cites/elaborates\n")
+	b.WriteString("  synthesize(query) → compile related notes into a new synthesis note\n")
+	b.WriteString("  promote(id) → elevate a fleeting note to evergreen when it has landed\n")
+	b.WriteString("  lint (detect check=knowledge) → periodically health-check the wiki\n")
+	b.WriteString("  File synthesis answers back as notes — don't let them disappear into chat\n")
+	b.WriteString("\n→ artifact(action=search, query=) for keyword lookup; artifact(action=recall, query=, top=10) for semantic; artifact(action=get, id=) to read a specific artifact\n")
+	return b.String(), nil
+}

@@ -11,7 +11,44 @@ import (
 )
 
 func init() {
-	Registry = append(Registry, opSet, opList, opRetire, opDeArchive, opArchive, opUpdate)
+	Registry = append(Registry, opSet, opList, opRetire, opDeArchive, opArchive, opUpdate, opOrient, opCatalog)
+}
+
+type catalogInput struct {
+	Scope string `json:"scope,omitempty"`
+}
+
+var opCatalog = Op{
+	Name: "catalog",
+	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
+		var in catalogInput
+		if err := json.Unmarshal(raw, &in); err != nil {
+			return "", err
+		}
+		result, err := svc.KnowledgeCatalog(ctx, in.Scope)
+		if err != nil {
+			return "", err
+		}
+		if result.Total == 0 {
+			return "Vault is empty. Start with knowledge(action=capture) or knowledge(action=ingest).", nil
+		}
+		return result.Text + fmt.Sprintf("Total: %d artifact(s)", result.Total), nil
+	},
+}
+
+type orientInput struct {
+	Scope string `json:"scope,omitempty"`
+}
+
+var opOrient = Op{
+	Name: "orient",
+	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
+		var in orientInput
+		if err := json.Unmarshal(raw, &in); err != nil {
+			return "", err
+		}
+		return svc.KnowledgeOrient(ctx, in.Scope)
+	},
 }
 
 type updateInput struct {
