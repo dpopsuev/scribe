@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	parchment "github.com/dpopsuev/parchment"
+	"github.com/dpopsuev/scribe/service"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -141,10 +142,7 @@ func (h *handler) handleTree(ctx context.Context, _ *sdkmcp.CallToolRequest, in 
 	if err != nil {
 		return nil, nil, err
 	}
-	showScope := countDistinctScopes(tree) > 1
-	var b strings.Builder
-	renderTree(tree, "", true, showScope, &b)
-	return text(b.String()), nil, nil
+	return text(service.RenderTree(tree)), nil, nil
 }
 
 func (h *handler) handleBriefing(ctx context.Context, id string, depth int) (*sdkmcp.CallToolResult, any, error) {
@@ -157,10 +155,7 @@ func (h *handler) handleBriefing(ctx context.Context, id string, depth int) (*sd
 	if err != nil {
 		return nil, nil, err
 	}
-	showScope := countDistinctScopes(tree) > 1
-	var b strings.Builder
-	renderBriefing(tree, "", true, showScope, &b)
-	return text(b.String()), nil, nil
+	return text(service.RenderBriefing(tree)), nil, nil
 }
 
 func (h *handler) handleLink(ctx context.Context, _ *sdkmcp.CallToolRequest, in linkInput) (*sdkmcp.CallToolResult, any, error) {
@@ -337,94 +332,3 @@ type detectInput struct {
 	StaleDays int    `json:"stale_days,omitempty" jsonschema:"days before a fleeting note is considered stuck (default: 7)"`
 }
 
-func countDistinctScopes(node *parchment.TreeNode) int {
-	scopes := map[string]struct{}{}
-	var walk func(n *parchment.TreeNode)
-	walk = func(n *parchment.TreeNode) {
-		if n.Scope != "" {
-			scopes[n.Scope] = struct{}{}
-		}
-		for _, ch := range n.Children {
-			walk(ch)
-		}
-	}
-	walk(node)
-	return len(scopes)
-}
-
-func renderTree(node *parchment.TreeNode, prefix string, last, showScope bool, b *strings.Builder) {
-	connector := "├── "
-	if last {
-		connector = "└── "
-	}
-	if prefix == "" {
-		connector = ""
-	}
-	edgeLabel := ""
-	if node.Edge != "" {
-		arrow := " -> "
-		if node.Direction == directionIncoming {
-			arrow = " <- "
-		}
-		edgeLabel = node.Edge + arrow
-	}
-	scopeLabel := ""
-	if showScope && node.Scope != "" {
-		scopeLabel = fmt.Sprintf(" [%s]", node.Scope)
-	}
-	fmt.Fprintf(b, "%s%s%s%s%s [%s] %s\n", prefix, connector, edgeLabel, node.ID, scopeLabel, node.Status, node.Title)
-	cp := prefix
-	if prefix != "" {
-		if last {
-			cp += "    "
-		} else {
-			cp += "│   "
-		}
-	}
-	for i, ch := range node.Children {
-		renderTree(ch, cp, i == len(node.Children)-1, showScope, b)
-	}
-}
-
-func renderBriefing(node *parchment.TreeNode, prefix string, last, showScope bool, b *strings.Builder) {
-	connector := "├── "
-	if last {
-		connector = "└── "
-	}
-	if prefix == "" {
-		connector = ""
-	}
-
-	edgeLabel := ""
-	if node.Edge != "" {
-		arrow := " -> "
-		if node.Direction == directionIncoming {
-			arrow = " <- "
-		}
-		edgeLabel = node.Edge + arrow
-	}
-
-	scopeLabel := ""
-	if showScope && node.Scope != "" {
-		scopeLabel = fmt.Sprintf(" [%s]", node.Scope)
-	}
-
-	kindStatus := node.Status
-	if node.Kind != "" {
-		kindStatus = node.Kind + "|" + node.Status
-	}
-
-	fmt.Fprintf(b, "%s%s%s%s%s [%s] %s\n", prefix, connector, edgeLabel, node.ID, scopeLabel, kindStatus, node.Title)
-
-	cp := prefix
-	if prefix != "" {
-		if last {
-			cp += "    "
-		} else {
-			cp += "│   "
-		}
-	}
-	for i, ch := range node.Children {
-		renderBriefing(ch, cp, i == len(node.Children)-1, showScope, b)
-	}
-}

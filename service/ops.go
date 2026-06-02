@@ -68,7 +68,7 @@ var opGet = Op{
 			if err != nil {
 				return "", err
 			}
-			return renderTree(tree), nil
+			return RenderTree(tree), nil
 		}
 		if len(ids) == 1 {
 			art, err := svc.Proto.GetArtifact(ctx, ids[0])
@@ -196,7 +196,7 @@ func getBriefing(ctx context.Context, svc *Service, id string, depth int) (strin
 	if err != nil {
 		return "", err
 	}
-	return renderBriefing(tree), nil
+	return RenderBriefing(tree), nil
 }
 
 func getImpact(ctx context.Context, svc *Service, id string) (string, error) {
@@ -253,9 +253,9 @@ func getBulk(ctx context.Context, svc *Service, ids, sectionFilter []string) (st
 	return string(data), nil
 }
 
-func renderTree(node *parchment.TreeNode) string {
+func RenderTree(node *parchment.TreeNode) string {
 	var b strings.Builder
-	renderTreeNode(node, "", true, countDistinctScopes(node) > 1, &b)
+	renderTreeNode(node, "", true, CountDistinctScopes(node) > 1, &b)
 	return b.String()
 }
 
@@ -293,9 +293,9 @@ func renderTreeNode(node *parchment.TreeNode, prefix string, last, showScope boo
 	}
 }
 
-func renderBriefing(node *parchment.TreeNode) string {
+func RenderBriefing(node *parchment.TreeNode) string {
 	var b strings.Builder
-	renderBriefingNode(node, "", true, countDistinctScopes(node) > 1, &b)
+	renderBriefingNode(node, "", true, CountDistinctScopes(node) > 1, &b)
 	return b.String()
 }
 
@@ -337,7 +337,7 @@ func renderBriefingNode(node *parchment.TreeNode, prefix string, last, showScope
 	}
 }
 
-func countDistinctScopes(node *parchment.TreeNode) int {
+func CountDistinctScopes(node *parchment.TreeNode) int {
 	scopes := map[string]struct{}{}
 	var walk func(n *parchment.TreeNode)
 	walk = func(n *parchment.TreeNode) {
