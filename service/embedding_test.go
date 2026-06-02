@@ -1,4 +1,4 @@
-package mcp_test
+package service_test
 
 // embedding_ollama_test.go — Ollama integration tests.
 //
@@ -18,7 +18,7 @@ import (
 	"testing"
 
 	parchment "github.com/dpopsuev/parchment"
-	scribemcp "github.com/dpopsuev/scribe/mcp"
+	"github.com/dpopsuev/scribe/service"
 )
 
 func testCtx(t *testing.T) context.Context {
@@ -61,7 +61,7 @@ func embeddingFuncContractPublic(t *testing.T, fn parchment.EmbeddingFunc) {
 }
 
 func TestOllama_Contract(t *testing.T) {
-	fn, err := scribemcp.NewOllamaEmbeddingFunc("nomic-embed-text", "")
+	fn, err := service.NewOllamaEmbeddingFunc("nomic-embed-text", "")
 	if err != nil {
 		t.Skipf("Ollama not available: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestOllama_Contract(t *testing.T) {
 }
 
 func TestOllama_SemanticallySimilarTextsCloser(t *testing.T) {
-	fn, err := scribemcp.NewOllamaEmbeddingFunc("nomic-embed-text", "")
+	fn, err := service.NewOllamaEmbeddingFunc("nomic-embed-text", "")
 	if err != nil {
 		t.Skipf("Ollama not available: %v", err)
 	}
