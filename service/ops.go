@@ -11,10 +11,9 @@ import (
 )
 
 func init() {
-	Registry = append(Registry, opSet, opList, opDetachSection, opDiff, opRecall, opRetire, opDeArchive, opArchive)
+	Registry = append(Registry, opSet, opList, opDetachSection, opDiff, opRecall, opRetire, opDeArchive, opArchive, opBulkSectionUpdate)
 }
 
-// --- set ---
 
 type setInput struct {
 	ID    string   `json:"id"`
@@ -54,7 +53,6 @@ var opSet = Op{
 	},
 }
 
-// --- list ---
 
 type listInput struct {
 	Kind           string   `json:"kind,omitempty"`
@@ -86,7 +84,6 @@ type listInput struct {
 	InsertedBefore string   `json:"inserted_before,omitempty"`
 }
 
-// resolveIDs returns in.IDs if set, otherwise wraps in.ID as a single-element slice.
 func resolveIDs(ids []string, id string) []string {
 	if len(ids) > 0 {
 		return ids
@@ -97,8 +94,6 @@ func resolveIDs(ids []string, id string) []string {
 	return nil
 }
 
-// RenderResults formats a []parchment.Result slice as human-readable text.
-// okLabel is used for successful results; errLabel is unused (kept for compat).
 func RenderResults(results []parchment.Result, okLabel string) string {
 	lines := make([]string, 0, len(results))
 	for _, r := range results {
@@ -111,7 +106,6 @@ func RenderResults(results []parchment.Result, okLabel string) string {
 	return strings.Join(lines, "\n")
 }
 
-// --- archive ---
 
 type archiveInput struct {
 	ID          string   `json:"id"`
@@ -161,7 +155,6 @@ var opArchive = Op{
 	},
 }
 
-// --- de-archive ---
 
 type deArchiveInput struct {
 	ID      string   `json:"id"`
@@ -188,7 +181,6 @@ var opDeArchive = Op{ //nolint:dupl // same structure as opRetire by design — 
 	},
 }
 
-// --- retire ---
 
 type retireInput struct {
 	ID      string   `json:"id"`
@@ -215,7 +207,6 @@ var opRetire = Op{
 	},
 }
 
-// --- recall ---
 
 type recallInput struct {
 	Query string `json:"query"`
@@ -245,7 +236,6 @@ var opRecall = Op{
 	},
 }
 
-// --- diff ---
 
 type diffInput struct {
 	ID      string `json:"id"`
@@ -310,7 +300,6 @@ var opDiff = Op{
 	},
 }
 
-// --- detach_section ---
 
 type detachSectionInput struct {
 	ID   string `json:"id"`
@@ -335,6 +324,45 @@ var opDetachSection = Op{
 			return fmt.Sprintf("%s: section %q not found", in.ID, in.Name), nil
 		}
 		return fmt.Sprintf("%s: section %q removed", in.ID, in.Name), nil
+	},
+}
+
+type bulkSectionUpdateInput struct {
+	ID    string `json:"id"`
+	Query string `json:"query"`
+	Text  string `json:"text"`
+	Body  string `json:"body,omitempty"`
+}
+
+var opBulkSectionUpdate = Op{
+	Name: "bulk_section_update",
+	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
+		var in bulkSectionUpdateInput
+		if err := json.Unmarshal(raw, &in); err != nil {
+			return "", err
+		}
+		if in.ID == "" || in.Query == "" {
+			return "", fmt.Errorf("id and query required") //nolint:err113 // user-facing hint
+		}
+		replacement := in.Text
+		if replacement == "" {
+			replacement = in.Body
+		}
+		art, err := svc.Proto.GetArtifact(ctx, in.ID)
+		if err != nil {
+			return "", err
+		}
+		updated := 0
+		for _, sec := range art.Sections {
+			if strings.Contains(sec.Text, in.Query) {
+				newText := strings.ReplaceAll(sec.Text, in.Query, replacement)
+				if _, err := svc.Proto.AttachSection(ctx, in.ID, sec.Name, newText); err != nil {
+					return "", fmt.Errorf("update section %q: %w", sec.Name, err)
+				}
+				updated++
+			}
+		}
+		return fmt.Sprintf("bulk_section_update: %d section(s) updated in %s", updated, in.ID), nil
 	},
 }
 
