@@ -72,56 +72,42 @@ func ShowCmd() *cobra.Command {
 }
 
 func ListCmd() *cobra.Command {
-	var in parchment.ListInput
-	var format string
+	var kind, scope, status, parent, sprint, idPrefix, excludeKind, excludeStatus string
+	var labels, labelsOr, excludeLabels []string
+	var format, sortField, groupBy, query string
 	var count bool
+	var limit int
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List artifacts with optional filters",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, cleanup := MustService()
-			defer cleanup()
-			arts, err := svc.Proto.ListArtifacts(context.Background(), in)
-			if err != nil {
-				return err
-			}
-			if in.Sort != "" {
-				SortArts(arts, in.Sort)
-			}
-			if count {
-				fmt.Println(len(arts))
-				return nil
-			}
-			if in.Limit > 0 && in.Limit < len(arts) {
-				arts = arts[:in.Limit]
-			}
-			switch format {
-			case "json":
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				return enc.Encode(arts)
-			default:
-				renderList(context.Background(), svc.Proto, arts, in.GroupBy)
-				return nil
-			}
+			return RunOp("list", map[string]any{
+				"kind": kind, "scope": scope, "status": status,
+				"parent": parent, "sprint": sprint, "id_prefix": idPrefix,
+				"exclude_kind": excludeKind, "exclude_status": excludeStatus,
+				"labels": labels, "labels_or": labelsOr, "exclude_labels": excludeLabels,
+				"query": query, "sort": sortField, "group_by": groupBy,
+				"format": format, "count": count, "limit": limit,
+			})
 		},
 	}
-	cmd.Flags().StringVar(&in.Kind, "kind", "", "filter by kind")
-	cmd.Flags().StringVar(&in.Scope, "scope", "", "filter by scope")
-	cmd.Flags().StringVar(&in.Status, "status", "", "filter by status")
-	cmd.Flags().StringVar(&in.Parent, "parent", "", "filter by parent ID")
-	cmd.Flags().StringVar(&in.Sprint, "sprint", "", "filter by sprint ID")
-	cmd.Flags().StringVar(&in.IDPrefix, "id-prefix", "", "filter by ID prefix")
-	cmd.Flags().StringVar(&in.ExcludeKind, "exclude-kind", "", "exclude artifacts of this kind")
-	cmd.Flags().StringVar(&in.ExcludeStatus, "exclude-status", "", "exclude artifacts with this status")
-	cmd.Flags().StringSliceVar(&in.Labels, "label", nil, "filter by label (AND, repeatable)")
-	cmd.Flags().StringSliceVar(&in.LabelsOr, "label-or", nil, "filter by label (OR, repeatable)")
-	cmd.Flags().StringSliceVar(&in.ExcludeLabels, "exclude-label", nil, "exclude by label (NOT, repeatable)")
+	cmd.Flags().StringVar(&kind, "kind", "", "filter by kind")
+	cmd.Flags().StringVar(&scope, "scope", "", "filter by scope")
+	cmd.Flags().StringVar(&status, "status", "", "filter by status")
+	cmd.Flags().StringVar(&parent, "parent", "", "filter by parent ID")
+	cmd.Flags().StringVar(&sprint, "sprint", "", "filter by sprint ID")
+	cmd.Flags().StringVar(&idPrefix, "id-prefix", "", "filter by ID prefix")
+	cmd.Flags().StringVar(&excludeKind, "exclude-kind", "", "exclude artifacts of this kind")
+	cmd.Flags().StringVar(&excludeStatus, "exclude-status", "", "exclude artifacts with this status")
+	cmd.Flags().StringSliceVar(&labels, "label", nil, "filter by label (AND, repeatable)")
+	cmd.Flags().StringSliceVar(&labelsOr, "label-or", nil, "filter by label (OR, repeatable)")
+	cmd.Flags().StringSliceVar(&excludeLabels, "exclude-label", nil, "exclude by label (NOT, repeatable)")
 	cmd.Flags().StringVar(&format, "format", "table", "output format (table, json)")
-	cmd.Flags().StringVar(&in.Sort, "sort", "id", "sort field")
-	cmd.Flags().StringVar(&in.GroupBy, "group-by", "", "group output by field (status, scope, kind, sprint, scope_label)")
+	cmd.Flags().StringVar(&sortField, "sort", "id", "sort field")
+	cmd.Flags().StringVar(&groupBy, "group-by", "", "group output by field")
+	cmd.Flags().StringVar(&query, "query", "", "full-text search query")
 	cmd.Flags().BoolVar(&count, "count", false, "print count only")
-	cmd.Flags().IntVar(&in.Limit, "limit", 0, "max rows to show (0 = all)")
+	cmd.Flags().IntVar(&limit, "limit", 0, "max rows to show (0 = all)")
 	return cmd
 }
 
