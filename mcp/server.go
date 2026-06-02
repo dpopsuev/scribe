@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	battmcp "github.com/dpopsuev/battery/mcp"
 	"github.com/dpopsuev/battery/tool"
@@ -118,7 +119,7 @@ type handler struct {
 	svc         *service.Service
 	snapshotter *parchment.Snapshotter
 	version     string
-	homeScopes  []string        // default scopes for operations that need a scope
+	homeScopes  []string // default scopes for operations that need a scope
 
 }
 
@@ -168,17 +169,17 @@ type artifactInput struct {
 	LabelsOr       []string `json:"labels_or,omitempty"`
 	ExcludeLabels  []string `json:"exclude_labels,omitempty"`
 
-	Field string `json:"field,omitempty" jsonschema:"title, goal, scope, status, parent, priority, kind, depends_on, labels"`
-	Value string `json:"value,omitempty" jsonschema:"new value (comma-separated for list fields)"`
-	Force        bool `json:"force,omitempty" jsonschema:"bypass transition validation"`
-	BypassGuards bool `json:"bypass_guards,omitempty" jsonschema:"skip lifecycle guards (archive semantics)"`
+	Field        string `json:"field,omitempty" jsonschema:"title, goal, scope, status, parent, priority, kind, depends_on, labels"`
+	Value        string `json:"value,omitempty" jsonschema:"new value (comma-separated for list fields)"`
+	Force        bool   `json:"force,omitempty" jsonschema:"bypass transition validation"`
+	BypassGuards bool   `json:"bypass_guards,omitempty" jsonschema:"skip lifecycle guards (archive semantics)"`
 
-	Name          string   `json:"name,omitempty"`
-	Text          string   `json:"text,omitempty"`
-	Body          string   `json:"body,omitempty"`
+	Name           string   `json:"name,omitempty"`
+	Text           string   `json:"text,omitempty"`
+	Body           string   `json:"body,omitempty"`
 	SectionFilter  []string `json:"section_filter,omitempty"`
 	SectionsDelete []string `json:"sections_delete,omitempty" jsonschema:"section names to remove"`
-	Against       string   `json:"against,omitempty"`
+	Against        string   `json:"against,omitempty"`
 
 	IDs     []string `json:"ids,omitempty"`
 	Cascade bool     `json:"cascade,omitempty"`
@@ -348,7 +349,15 @@ func resolveIDs(ids []string, id string) []string {
 // renderResults formats []parchment.Result as human-readable lines.
 // okLabel is used for successful results; errLabel is unused (errors always show the error text).
 func renderResults(results []parchment.Result, okLabel, _ string) string {
-	return service.RenderResults(results, okLabel)
+	lines := make([]string, 0, len(results))
+	for _, r := range results {
+		if r.OK {
+			lines = append(lines, r.ID+" -> "+okLabel)
+		} else {
+			lines = append(lines, r.ID+" -> error: "+r.Error)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func text(s string) *sdkmcp.CallToolResult {

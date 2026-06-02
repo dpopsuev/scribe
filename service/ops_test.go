@@ -583,37 +583,7 @@ func TestOpCreate_Clone(t *testing.T) {
 	}
 }
 
-func TestRenderTree_ProducesAsciiTree(t *testing.T) {
-	// Given a tree node with children
-	// When RenderTree is called
-	// Then output contains tree connectors
-	node := &parchment.TreeNode{
-		ID: "ROOT", Status: "draft", Title: "Root",
-		Children: []*parchment.TreeNode{
-			{ID: "CHILD", Status: "active", Title: "Child"},
-		},
-	}
-	out := service.RenderTree(node)
-	if !strings.Contains(out, "ROOT") || !strings.Contains(out, "CHILD") {
-		t.Errorf("expected ROOT and CHILD in tree output, got: %s", out)
-	}
-}
 
-func TestRenderBriefing_ShowsEdgeLabels(t *testing.T) {
-	// Given a tree node with an edge label
-	// When RenderBriefing is called
-	// Then output contains the edge direction
-	node := &parchment.TreeNode{
-		ID: "TSK", Status: "draft", Title: "Task", Kind: "task",
-		Children: []*parchment.TreeNode{
-			{ID: "SPC", Status: "draft", Title: "Spec", Kind: "spec", Edge: "implements", Direction: "outbound"},
-		},
-	}
-	out := service.RenderBriefing(node)
-	if !strings.Contains(out, "TSK") || !strings.Contains(out, "implements") {
-		t.Errorf("expected TSK and implements in briefing output, got: %s", out)
-	}
-}
 
 func TestOpGet_ReturnsMarkdown(t *testing.T) {
 	// Given an artifact exists

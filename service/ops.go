@@ -250,7 +250,7 @@ var opGet = Op{
 			if err != nil {
 				return "", err
 			}
-			return RenderTree(tree), nil
+			return renderTree(tree), nil
 		}
 		if len(ids) == 1 {
 			art, err := svc.Proto.GetArtifact(ctx, ids[0])
@@ -378,7 +378,7 @@ func getBriefing(ctx context.Context, svc *Service, id string, depth int) (strin
 	if err != nil {
 		return "", err
 	}
-	return RenderBriefing(tree), nil
+	return renderBriefing(tree), nil
 }
 
 func getImpact(ctx context.Context, svc *Service, id string) (string, error) {
@@ -435,9 +435,9 @@ func getBulk(ctx context.Context, svc *Service, ids, sectionFilter []string) (st
 	return string(data), nil
 }
 
-func RenderTree(node *parchment.TreeNode) string {
+func renderTree(node *parchment.TreeNode) string {
 	var b strings.Builder
-	renderTreeNode(node, "", true, CountDistinctScopes(node) > 1, &b)
+	renderTreeNode(node, "", true, countDistinctScopes(node) > 1, &b)
 	return b.String()
 }
 
@@ -475,9 +475,9 @@ func renderTreeNode(node *parchment.TreeNode, prefix string, last, showScope boo
 	}
 }
 
-func RenderBriefing(node *parchment.TreeNode) string {
+func renderBriefing(node *parchment.TreeNode) string {
 	var b strings.Builder
-	renderBriefingNode(node, "", true, CountDistinctScopes(node) > 1, &b)
+	renderBriefingNode(node, "", true, countDistinctScopes(node) > 1, &b)
 	return b.String()
 }
 
@@ -519,7 +519,7 @@ func renderBriefingNode(node *parchment.TreeNode, prefix string, last, showScope
 	}
 }
 
-func CountDistinctScopes(node *parchment.TreeNode) int {
+func countDistinctScopes(node *parchment.TreeNode) int {
 	scopes := map[string]struct{}{}
 	var walk func(n *parchment.TreeNode)
 	walk = func(n *parchment.TreeNode) {
@@ -1014,19 +1014,6 @@ func resolveIDs(ids []string, id string) []string {
 	}
 	return nil
 }
-
-func RenderResults(results []parchment.Result, okLabel string) string {
-	lines := make([]string, 0, len(results))
-	for _, r := range results {
-		if r.OK {
-			lines = append(lines, r.ID+" -> "+okLabel)
-		} else {
-			lines = append(lines, r.ID+" -> error: "+r.Error)
-		}
-	}
-	return strings.Join(lines, "\n")
-}
-
 
 
 var listValidFields = map[string]func(*parchment.Artifact) string{
