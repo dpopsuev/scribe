@@ -79,6 +79,9 @@ func translateKnowledgeToArtifact(args map[string]any) map[string]any {
 		if out["title"] == nil {
 			out["title"] = time.Now().Format("2006-01-02")
 		}
+	case "backlinks":
+		out["action"] = "get"
+		out["include_edges"] = true
 	case "ingest":
 		out["action"] = "create"
 		out["kind"] = "source"
