@@ -20,7 +20,7 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		return text(out), nil, nil
 	}
 	switch in.Action {
-	case "briefing", "replace": //nolint:goconst // action name strings
+	case "replace":
 		return h.handleGraph(ctx, req, graphInput{
 			Action:    in.Action,
 			ID:        in.ID,

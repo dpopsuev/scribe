@@ -259,7 +259,7 @@ func TestBriefing_EdgeAwareOutput(t *testing.T) {
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
-	text := callTool(t, cs, "artifact", map[string]any{"action": "briefing", "id": "CAM-1"})
+	text := callTool(t, cs, "artifact", map[string]any{"action": "get", "format": "briefing", "id": "CAM-1"})
 
 	if !strings.Contains(text, "[campaign|active]") {
 		t.Errorf("briefing should show [kind|status] for root, got:\n%s", text)
@@ -289,7 +289,7 @@ func TestBriefing_IncomingEdgeArrow(t *testing.T) {
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
-	text := callTool(t, cs, "artifact", map[string]any{"action": "briefing", "id": "SPC-1"})
+	text := callTool(t, cs, "artifact", map[string]any{"action": "get", "format": "briefing", "id": "SPC-1"})
 
 	if !strings.Contains(text, "implements <-") {
 		t.Errorf("briefing should show incoming arrow for implements edge on spec root, got:\n%s", text)

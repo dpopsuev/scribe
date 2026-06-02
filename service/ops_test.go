@@ -447,6 +447,35 @@ func TestOpList_RankedEmptyQueryReturnsError(t *testing.T) {
 
 // --- diff (RED) ---
 
+func TestOpReplace_SwapsEdgeTarget(t *testing.T) {
+	// Given A implements B, and C exists
+	// When replace(id=A, relation=implements, old_target=B, target=C) is called
+	// Then A implements C instead of B
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "A", Scope: "test"})
+	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "spec", Title: "B", Scope: "test"})
+	c, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "spec", Title: "C", Scope: "test"})
+	svc.Proto.LinkArtifacts(ctx, a.ID, "implements", []string{b.ID}) //nolint:errcheck // test setup, error irrelevant to subject under test
+
+	op := service.Find("replace")
+	if op == nil {
+		t.Fatal("replace Op not registered")
+	}
+	raw, _ := json.Marshal(map[string]any{
+		"id": a.ID, "relation": "implements",
+		"old_target": b.ID, "target": c.ID,
+	})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "replaced") {
+		t.Errorf("expected 'replaced' in output, got: %s", out)
+	}
+}
+
 func TestOpTopoSort_ReturnsOrderedList(t *testing.T) {
 	// Given a goal with two tasks where one depends on the other
 	// When topo_sort(id=goal) is called

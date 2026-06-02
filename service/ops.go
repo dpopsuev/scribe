@@ -13,7 +13,34 @@ import (
 )
 
 func init() {
-	Registry = append(Registry, opSet, opList, opRetire, opDeArchive, opArchive, opUpdate, opOrient, opCatalog, opCreate, opGet, opTopoSort, opLink, opUnlink)
+	Registry = append(Registry, opSet, opList, opRetire, opDeArchive, opArchive, opUpdate, opOrient, opCatalog, opCreate, opGet, opTopoSort, opLink, opUnlink, opReplace)
+}
+
+type replaceInput struct {
+	ID        string `json:"id"`
+	Relation  string `json:"relation"`
+	OldTarget string `json:"old_target"`
+	Target    string `json:"target"`
+}
+
+var opReplace = Op{
+	Name: "replace",
+	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
+		var in replaceInput
+		if err := json.Unmarshal(raw, &in); err != nil {
+			return "", err
+		}
+		if in.ID == "" || in.Relation == "" || in.OldTarget == "" || in.Target == "" {
+			return "", fmt.Errorf("id, relation, old_target, and target required") //nolint:err113 // user-facing hint
+		}
+		if _, err := svc.Proto.UnlinkArtifacts(ctx, in.ID, in.Relation, []string{in.OldTarget}); err != nil {
+			return "", fmt.Errorf("unlink old: %w", err)
+		}
+		if _, err := svc.Proto.LinkArtifacts(ctx, in.ID, in.Relation, []string{in.Target}); err != nil {
+			return "", fmt.Errorf("link new: %w", err)
+		}
+		return fmt.Sprintf("replaced %s -[%s]-> %s with %s", in.ID, in.Relation, in.OldTarget, in.Target), nil
+	},
 }
 
 type edgeInput struct {

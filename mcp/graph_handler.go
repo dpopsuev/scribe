@@ -2,11 +2,8 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
-	parchment "github.com/dpopsuev/parchment"
-	"github.com/dpopsuev/scribe/service"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -16,64 +13,11 @@ const (
 	directionIncoming = "incoming"
 )
 
-func (h *handler) handleGraph(ctx context.Context, req *sdkmcp.CallToolRequest, in graphInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocyclo,cyclop,funlen,nestif // dispatch switch
-	switch in.Action {
-	case "tree":
-		tree, err := h.proto.ArtifactTree(ctx, parchment.TreeInput{
-			ID: in.ID, Relation: in.Relation, Direction: in.Direction, Depth: in.Depth,
-		})
-		if err != nil {
-			return nil, nil, err
-		}
-		if in.Format == formatJSON {
-			data, _ := json.Marshal(tree)
-			return text(string(data)), nil, nil
-		}
-		return h.handleTree(ctx, req, parchment.TreeInput{
-			ID: in.ID, Relation: in.Relation, Direction: in.Direction, Depth: in.Depth,
-		})
-	case "briefing":
-		if in.Format == formatJSON {
-			tree, err := h.proto.ArtifactTree(ctx, parchment.TreeInput{
-				ID: in.ID, Relation: "*", Direction: "both",
-			})
-			if err != nil {
-				return nil, nil, err
-			}
-			data, _ := json.Marshal(tree)
-			return text(string(data)), nil, nil
-		}
-		return h.handleBriefing(ctx, in.ID, in.Depth)
-
-	case "replace":
-		if in.ID == "" || in.Relation == "" || in.OldTarget == "" || in.Target == "" {
-			return nil, nil, fmt.Errorf("id, relation, old_target, and target required for replace") //nolint:err113 // agent-facing input validation
-		}
+func (h *handler) handleGraph(ctx context.Context, _ *sdkmcp.CallToolRequest, in graphInput) (*sdkmcp.CallToolResult, any, error) {
+	if in.Action == "replace" {
 		return h.handleReplace(ctx, in.ID, in.Relation, in.OldTarget, in.Target)
-	default:
-		return nil, nil, fmt.Errorf("unknown graph action %q — pass via artifact tool: tree, link, unlink, topo_sort, replace", in.Action) //nolint:err113 // agent-facing hint
 	}
-}
-
-func (h *handler) handleTree(ctx context.Context, _ *sdkmcp.CallToolRequest, in parchment.TreeInput) (*sdkmcp.CallToolResult, any, error) {
-	tree, err := h.proto.ArtifactTree(ctx, in)
-	if err != nil {
-		return nil, nil, err
-	}
-	return text(service.RenderTree(tree)), nil, nil
-}
-
-func (h *handler) handleBriefing(ctx context.Context, id string, depth int) (*sdkmcp.CallToolResult, any, error) {
-	tree, err := h.proto.ArtifactTree(ctx, parchment.TreeInput{
-		ID:        id,
-		Relation:  "*",
-		Direction: "both",
-		Depth:     depth,
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-	return text(service.RenderBriefing(tree)), nil, nil
+	return nil, nil, fmt.Errorf("unknown graph action %q", in.Action) //nolint:err113 // agent-facing hint
 }
 
 func (h *handler) handleReplace(ctx context.Context, id, relation, oldTarget, newTarget string) (*sdkmcp.CallToolResult, any, error) {
