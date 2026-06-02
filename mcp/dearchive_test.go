@@ -43,7 +43,7 @@ func TestDeArchive_RoundTrip(t *testing.T) {
 
 	// Archive it.
 	archOut := call("artifact", map[string]any{
-		"action": "archive",
+		"action": "set", "field": "status", "value": "archived", "bypass_guards": true,
 		"id":     art.ID,
 	})
 	if strings.Contains(strings.ToLower(archOut), "error") {
@@ -61,7 +61,7 @@ func TestDeArchive_RoundTrip(t *testing.T) {
 
 	// Restore via de-archive.
 	out := call("artifact", map[string]any{
-		"action": "de-archive",
+		"action": "set", "field": "status", "value": "draft", "bypass_guards": true, "force": true,
 		"id":     art.ID,
 	})
 	if strings.Contains(strings.ToLower(out), "error") {
@@ -88,8 +88,8 @@ func TestDeArchive_RestoredArtifactIsWritable(t *testing.T) {
 		Kind: parchment.KindTask, Title: "writable after restore", Scope: "test",
 	})
 
-	call("artifact", map[string]any{"action": "archive", "id": art.ID})
-	call("artifact", map[string]any{"action": "de-archive", "id": art.ID})
+	call("artifact", map[string]any{"action": "set", "field": "status", "value": "archived", "bypass_guards": true, "id": art.ID})
+	call("artifact", map[string]any{"action": "set", "field": "status", "value": "draft", "bypass_guards": true, "force": true, "id": art.ID})
 
 	// Should be able to set title now.
 	out := call("artifact", map[string]any{
@@ -126,14 +126,14 @@ func TestDeArchive_Cascade(t *testing.T) {
 	_, _ = proto.RetireArtifact(ctx, []string{child.ID}, false)
 
 	// Now archive the parent.
-	out := call("artifact", map[string]any{"action": "archive", "id": parent.ID})
+	out := call("artifact", map[string]any{"action": "set", "field": "status", "value": "archived", "bypass_guards": true, "id": parent.ID})
 	if strings.Contains(strings.ToLower(out), "error") {
 		t.Fatalf("archive parent failed: %s", out)
 	}
 
 	// De-archive parent with cascade.
 	out = call("artifact", map[string]any{
-		"action":  "de-archive",
+		"action": "set", "field": "status", "value": "draft", "bypass_guards": true, "force": true,
 		"id":      parent.ID,
 		"cascade": true,
 	})
@@ -158,7 +158,7 @@ func TestDeArchive_NonArchivedReturnsError(t *testing.T) {
 	})
 
 	out := call("artifact", map[string]any{
-		"action": "de-archive",
+		"action": "set", "field": "status", "value": "draft", "bypass_guards": true, "force": true,
 		"id":     art.ID,
 	})
 

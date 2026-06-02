@@ -1728,7 +1728,7 @@ func TestArchive_SingularIDWithScopeDoesNotBulk(t *testing.T) {
 
 	// Archive with singular "id" (not "ids") + scope — should only archive GOL-1
 	text := callTool(t, cs, "artifact", map[string]any{
-		"action": "archive",
+		"action": "set", "field": "status", "value": "archived", "bypass_guards": true,
 		"id":     "GOL-1",
 		"scope":  "test",
 	})
@@ -1771,7 +1771,7 @@ func TestArchive_SingleIDDryRun(t *testing.T) {
 
 	// Archive with dry_run — should preview, not commit
 	text := callTool(t, cs, "artifact", map[string]any{
-		"action":  "archive",
+		"action": "set", "field": "status", "value": "archived", "bypass_guards": true,
 		"id":      "TASK-1",
 		"dry_run": true,
 	})
@@ -1816,7 +1816,7 @@ func TestArchive_CascadeDryRun(t *testing.T) {
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
-		"action":  "archive",
+		"action": "set", "field": "status", "value": "archived", "bypass_guards": true,
 		"id":      "GOL-1",
 		"cascade": true,
 		"dry_run": true,

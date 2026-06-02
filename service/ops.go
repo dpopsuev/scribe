@@ -13,7 +13,7 @@ import (
 )
 
 func init() {
-	Registry = append(Registry, opSet, opList, opRetire, opDeArchive, opArchive, opUpdate, opOrient, opCatalog, opCreate, opGet, opTopoSort, opLink, opUnlink, opReplace)
+	Registry = append(Registry, opSet, opList, opUpdate, opOrient, opCatalog, opCreate, opGet, opTopoSort, opLink, opUnlink, opReplace)
 }
 
 type replaceInput struct {
@@ -895,6 +895,11 @@ type setInput struct {
 	BypassGuards bool     `json:"bypass_guards,omitempty"`
 	Cascade      bool     `json:"cascade,omitempty"`
 	DryRun       bool     `json:"dry_run,omitempty"`
+	Scope        string   `json:"scope,omitempty"`
+	Kind         string   `json:"kind,omitempty"`
+	Status       string   `json:"status,omitempty"`
+	IDPrefix     string   `json:"id_prefix,omitempty"`
+	ExcludeKind  string   `json:"exclude_kind,omitempty"`
 }
 
 var opSet = Op{
@@ -904,12 +909,32 @@ var opSet = Op{
 		if err := json.Unmarshal(raw, &in); err != nil {
 			return "", err
 		}
-		ids := in.IDs
-		if len(ids) == 0 && in.ID != "" {
-			ids = []string{in.ID}
+		ids := resolveIDs(in.IDs, in.ID)
+		hasBulkFilter := in.Scope != "" || in.Kind != "" || in.Status != "" || in.IDPrefix != "" || in.ExcludeKind != ""
+		if hasBulkFilter && len(ids) == 0 {
+			arts, err := svc.Proto.ListArtifacts(ctx, parchment.ListInput{
+				Scope: in.Scope, Kind: in.Kind, Status: in.Status,
+				IDPrefix: in.IDPrefix, ExcludeKind: in.ExcludeKind,
+			})
+			if err != nil {
+				return "", err
+			}
+			if in.DryRun {
+				affectedIDs := make([]string, len(arts))
+				for i, a := range arts {
+					affectedIDs[i] = a.ID
+				}
+				return fmt.Sprintf("dry run: would set %s=%s on %d artifact(s): %v", in.Field, in.Value, len(arts), affectedIDs), nil
+			}
+			for _, a := range arts {
+				ids = append(ids, a.ID)
+			}
+			if len(ids) == 0 {
+				return "0 artifacts matched filter", nil
+			}
 		}
 		if len(ids) == 0 {
-			return "", fmt.Errorf("id or ids required") //nolint:err113 // user-facing hint
+			return "", fmt.Errorf("provide id, ids, or filter params (scope, kind, status)") //nolint:err113 // user-facing hint
 		}
 		if in.Field == parchment.FieldStatus && in.Value == parchment.StatusActive && !in.Force {
 			for _, id := range ids {
@@ -928,8 +953,11 @@ var opSet = Op{
 				}
 			}
 		}
+		if in.DryRun {
+			return fmt.Sprintf("dry run: would set %s=%s on %d artifact(s): %v", in.Field, in.Value, len(ids), ids), nil
+		}
 		results, err := svc.Proto.SetField(ctx, ids, in.Field, in.Value, parchment.SetFieldOptions{
-			Force: in.Force, BypassGuards: in.BypassGuards, Cascade: in.Cascade, DryRun: in.DryRun,
+			Force: in.Force, BypassGuards: in.BypassGuards, Cascade: in.Cascade,
 		})
 		if err != nil {
 			return "", err
@@ -999,103 +1027,7 @@ func RenderResults(results []parchment.Result, okLabel string) string {
 	return strings.Join(lines, "\n")
 }
 
-type archiveInput struct {
-	ID          string   `json:"id"`
-	IDs         []string `json:"ids,omitempty"`
-	Scope       string   `json:"scope,omitempty"`
-	Kind        string   `json:"kind,omitempty"`
-	Status      string   `json:"status,omitempty"`
-	IDPrefix    string   `json:"id_prefix,omitempty"`
-	ExcludeKind string   `json:"exclude_kind,omitempty"`
-	DryRun      bool     `json:"dry_run,omitempty"`
-}
 
-var opArchive = Op{
-	Name: "archive",
-	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
-		var in archiveInput
-		if err := json.Unmarshal(raw, &in); err != nil {
-			return "", err
-		}
-		ids := resolveIDs(in.IDs, in.ID)
-		hasBulkFilter := in.Scope != "" || in.Kind != "" || in.Status != "" || in.IDPrefix != "" || in.ExcludeKind != ""
-
-		if hasBulkFilter && len(ids) == 0 {
-			res, err := svc.Proto.BulkArchive(ctx, parchment.BulkMutationInput{
-				Scope: in.Scope, Kind: in.Kind, Status: in.Status,
-				IDPrefix: in.IDPrefix, ExcludeKind: in.ExcludeKind, DryRun: in.DryRun,
-			})
-			if err != nil {
-				return "", err
-			}
-			if in.DryRun {
-				return fmt.Sprintf("dry run: would archive %d artifact(s): %v", res.Count, res.AffectedIDs), nil
-			}
-			return fmt.Sprintf("archived %d artifact(s)", res.Count), nil
-		}
-		if len(ids) == 0 {
-			return "", fmt.Errorf("provide id, ids, or filter flags (scope, kind, status)") //nolint:err113 // user-facing hint
-		}
-		if in.DryRun {
-			return fmt.Sprintf("dry run: would archive %d artifact(s): %v", len(ids), ids), nil
-		}
-		results, err := svc.Proto.ArchiveArtifact(ctx, ids, false)
-		if err != nil {
-			return "", err
-		}
-		return RenderResults(results, "archived"), nil
-	},
-}
-
-type deArchiveInput struct {
-	ID      string   `json:"id"`
-	IDs     []string `json:"ids,omitempty"`
-	Cascade bool     `json:"cascade,omitempty"`
-}
-
-var opDeArchive = Op{ //nolint:dupl // same structure as opRetire by design — both are id-cascade-results mutations
-	Name: "de-archive",
-	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
-		var in deArchiveInput
-		if err := json.Unmarshal(raw, &in); err != nil {
-			return "", err
-		}
-		ids := resolveIDs(in.IDs, in.ID)
-		if len(ids) == 0 {
-			return "", fmt.Errorf("id or ids required") //nolint:err113 // user-facing hint
-		}
-		results, err := svc.Proto.DeArchive(ctx, ids, in.Cascade)
-		if err != nil {
-			return "", err
-		}
-		return RenderResults(results, "restored to draft"), nil
-	},
-}
-
-type retireInput struct {
-	ID      string   `json:"id"`
-	IDs     []string `json:"ids,omitempty"`
-	Cascade bool     `json:"cascade,omitempty"`
-}
-
-var opRetire = Op{
-	Name: "retire",
-	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
-		var in retireInput
-		if err := json.Unmarshal(raw, &in); err != nil {
-			return "", err
-		}
-		ids := resolveIDs(in.IDs, in.ID)
-		if len(ids) == 0 {
-			return "", fmt.Errorf("id or ids required") //nolint:err113 // user-facing hint
-		}
-		results, err := svc.Proto.RetireArtifact(ctx, ids, in.Cascade)
-		if err != nil {
-			return "", err
-		}
-		return RenderResults(results, "retired"), nil
-	},
-}
 
 var listValidFields = map[string]func(*parchment.Artifact) string{
 	"id":         func(a *parchment.Artifact) string { return a.ID },
