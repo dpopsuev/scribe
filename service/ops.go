@@ -13,35 +13,10 @@ import (
 )
 
 func init() {
-	Registry = append(Registry, opSet, opList, opUpdate, opOrient, opCatalog, opCreate, opGet, opTopoSort, opLink, opUnlink, opReplace)
+	Registry = append(Registry, opSet, opList, opUpdate, opOrient, opCatalog, opCreate, opGet, opTopoSort, opLink)
 }
 
-type replaceInput struct {
-	ID        string `json:"id"`
-	Relation  string `json:"relation"`
-	OldTarget string `json:"old_target"`
-	Target    string `json:"target"`
-}
 
-var opReplace = Op{
-	Name: "replace",
-	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
-		var in replaceInput
-		if err := json.Unmarshal(raw, &in); err != nil {
-			return "", err
-		}
-		if in.ID == "" || in.Relation == "" || in.OldTarget == "" || in.Target == "" {
-			return "", fmt.Errorf("id, relation, old_target, and target required") //nolint:err113 // user-facing hint
-		}
-		if _, err := svc.Proto.UnlinkArtifacts(ctx, in.ID, in.Relation, []string{in.OldTarget}); err != nil {
-			return "", fmt.Errorf("unlink old: %w", err)
-		}
-		if _, err := svc.Proto.LinkArtifacts(ctx, in.ID, in.Relation, []string{in.Target}); err != nil {
-			return "", fmt.Errorf("link new: %w", err)
-		}
-		return fmt.Sprintf("replaced %s -[%s]-> %s with %s", in.ID, in.Relation, in.OldTarget, in.Target), nil
-	},
-}
 
 type edgeInput struct {
 	From     string `json:"from"`
@@ -125,10 +100,13 @@ var opTopoSort = Op{
 }
 
 type linkInput struct {
-	ID       string      `json:"id"`
-	Relation string      `json:"relation"`
-	Targets  []string    `json:"targets,omitempty"`
-	Edges    []edgeInput `json:"edges,omitempty"`
+	ID          string      `json:"id"`
+	Relation    string      `json:"relation"`
+	Targets     []string    `json:"targets,omitempty"`
+	Target      string      `json:"target,omitempty"`
+	ReplaceFrom string      `json:"replace_from,omitempty"`
+	Mode        string      `json:"mode,omitempty"`
+	Edges       []edgeInput `json:"edges,omitempty"`
 }
 
 func execEdgeOp(ctx context.Context, svc *Service, in linkInput, unlink bool) (string, error) {
@@ -183,20 +161,25 @@ var opLink = Op{
 		if err := json.Unmarshal(raw, &in); err != nil {
 			return "", err
 		}
+		if in.Mode == "remove" || in.Mode == "unlink" {
+			return execEdgeOp(ctx, svc, in, true)
+		}
+		if in.ReplaceFrom != "" {
+			if in.ID == "" || in.Relation == "" || in.Target == "" {
+				return "", fmt.Errorf("id, relation, replace_from, and target required") //nolint:err113 // user-facing hint
+			}
+			if _, err := svc.Proto.UnlinkArtifacts(ctx, in.ID, in.Relation, []string{in.ReplaceFrom}); err != nil {
+				return "", fmt.Errorf("unlink old: %w", err)
+			}
+			if _, err := svc.Proto.LinkArtifacts(ctx, in.ID, in.Relation, []string{in.Target}); err != nil {
+				return "", fmt.Errorf("link new: %w", err)
+			}
+			return fmt.Sprintf("replaced %s -[%s]-> %s with %s", in.ID, in.Relation, in.ReplaceFrom, in.Target), nil
+		}
 		return execEdgeOp(ctx, svc, in, false)
 	},
 }
 
-var opUnlink = Op{
-	Name: "unlink",
-	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
-		var in linkInput
-		if err := json.Unmarshal(raw, &in); err != nil {
-			return "", err
-		}
-		return execEdgeOp(ctx, svc, in, true)
-	},
-}
 
 type getInput struct {
 	ID            string   `json:"id"`

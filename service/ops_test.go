@@ -330,8 +330,8 @@ func TestOpList_RankedEmptyQueryReturnsError(t *testing.T) {
 // --- diff (RED) ---
 
 func TestOpReplace_SwapsEdgeTarget(t *testing.T) {
-	// Given A implements B, and C exists
-	// When replace(id=A, relation=implements, old_target=B, target=C) is called
+	// Given A implements B
+	// When link(id=A, relation=implements, replace_from=B, target=C) is called
 	// Then A implements C instead of B
 	svc := newTestService(t)
 	ctx := context.Background()
@@ -341,13 +341,10 @@ func TestOpReplace_SwapsEdgeTarget(t *testing.T) {
 	c, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "spec", Title: "C", Scope: "test"})
 	svc.Proto.LinkArtifacts(ctx, a.ID, "implements", []string{b.ID}) //nolint:errcheck // test setup, error irrelevant to subject under test
 
-	op := service.Find("replace")
-	if op == nil {
-		t.Fatal("replace Op not registered")
-	}
+	op := service.Find("link")
 	raw, _ := json.Marshal(map[string]any{
 		"id": a.ID, "relation": "implements",
-		"old_target": b.ID, "target": c.ID,
+		"replace_from": b.ID, "target": c.ID,
 	})
 	out, err := op.Run(ctx, svc, raw)
 	if err != nil {
@@ -388,6 +385,57 @@ func TestOpTopoSort_ReturnsOrderedList(t *testing.T) {
 	}
 }
 
+func TestOpLink_ModeRemoveUnlinks(t *testing.T) {
+	// Given a link exists between A and B
+	// When link(id=A, relation=implements, targets=[B], mode=remove) is called
+	// Then the edge is removed
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "A", Scope: "test"})
+	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "spec", Title: "B", Scope: "test"})
+	svc.Proto.LinkArtifacts(ctx, a.ID, "implements", []string{b.ID}) //nolint:errcheck // test setup, error irrelevant to subject under test
+
+	op := service.Find("link")
+	raw, _ := json.Marshal(map[string]any{"id": a.ID, "relation": "implements", "targets": []string{b.ID}, "mode": "remove"})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "unlinked") {
+		t.Errorf("expected 'unlinked' in output, got: %s", out)
+	}
+}
+
+func TestOpLink_ModeReplaceSwapsTarget(t *testing.T) {
+	// Given A implements B
+	// When link(id=A, relation=implements, target=C, replace_from=B) is called
+	// Then A implements C
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "A", Scope: "test"})
+	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "spec", Title: "B", Scope: "test"})
+	c, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "spec", Title: "C", Scope: "test"})
+	svc.Proto.LinkArtifacts(ctx, a.ID, "implements", []string{b.ID}) //nolint:errcheck // test setup, error irrelevant to subject under test
+
+	op := service.Find("link")
+	if op == nil {
+		t.Fatal("link Op not registered")
+	}
+	raw, _ := json.Marshal(map[string]any{
+		"id": a.ID, "relation": "implements",
+		"target": c.ID, "replace_from": b.ID,
+	})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "replaced") {
+		t.Errorf("expected 'replaced' in output, got: %s", out)
+	}
+}
+
 func TestOpLink_CreatesEdge(t *testing.T) {
 	// Given two artifacts exist
 	// When link(id=A, relation=implements, targets=[B]) is called
@@ -414,7 +462,7 @@ func TestOpLink_CreatesEdge(t *testing.T) {
 
 func TestOpUnlink_RemovesEdge(t *testing.T) {
 	// Given a link exists between two artifacts
-	// When unlink(id=A, relation=implements, targets=[B]) is called
+	// When link(id=A, relation=implements, targets=[B], mode=remove) is called
 	// Then the edge is removed
 	svc := newTestService(t)
 	ctx := context.Background()
@@ -423,11 +471,8 @@ func TestOpUnlink_RemovesEdge(t *testing.T) {
 	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "spec", Title: "B", Scope: "test"})
 	svc.Proto.LinkArtifacts(ctx, a.ID, "implements", []string{b.ID}) //nolint:errcheck // test setup, error irrelevant to subject under test
 
-	op := service.Find("unlink")
-	if op == nil {
-		t.Fatal("unlink Op not registered")
-	}
-	raw, _ := json.Marshal(map[string]any{"id": a.ID, "relation": "implements", "targets": []string{b.ID}})
+	op := service.Find("link")
+	raw, _ := json.Marshal(map[string]any{"id": a.ID, "relation": "implements", "targets": []string{b.ID}, "mode": "remove"})
 	out, err := op.Run(ctx, svc, raw)
 	if err != nil {
 		t.Fatal(err)
