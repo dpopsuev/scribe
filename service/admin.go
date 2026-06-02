@@ -656,3 +656,39 @@ func (s *Service) RenderChangelog(ctx context.Context, since, scope string) (str
 	sort.Strings(sections)
 	return fmt.Sprintf("Changes since %s (%d artifacts):\n", since[:10], len(arts)) + strings.Join(sections, "\n\n"), nil
 }
+
+func (s *Service) RenderMotdCompact(ctx context.Context, version string) (string, error) {
+	active, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Status: parchment.StatusActive})
+	draft, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Status: parchment.StatusDraft})
+	bugs, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Kind: parchment.KindBug, Status: parchment.StatusOpen})
+	return fmt.Sprintf("Scribe %s | %d active, %d draft, %d open bugs",
+		version, len(active), len(draft), len(bugs)), nil
+}
+
+func (s *Service) RenderDashboard(ctx context.Context, staleDays int) (string, error) {
+	if staleDays <= 0 {
+		staleDays = 30
+	}
+	report, err := s.Dashboard(ctx, staleDays)
+	if err != nil {
+		return "", err
+	}
+	type scopeLabelEntry struct {
+		Scope  string   `json:"scope"`
+		Key    string   `json:"key"`
+		Labels []string `json:"labels,omitempty"`
+	}
+	type dashboardOutput struct {
+		*DashboardResult
+		ScopeLabels []scopeLabelEntry `json:"scope_labels,omitempty"`
+	}
+	infos, _ := s.Proto.ListScopeInfo(ctx)
+	out := dashboardOutput{DashboardResult: report}
+	for _, info := range infos {
+		out.ScopeLabels = append(out.ScopeLabels, scopeLabelEntry{
+			Scope: info.Scope, Key: info.Key, Labels: info.Labels,
+		})
+	}
+	data, _ := json.Marshal(out)
+	return string(data), nil
+}

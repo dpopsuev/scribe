@@ -108,13 +108,11 @@ type archiveInput struct {
 }
 
 func (h *handler) handleMotdCompact(ctx context.Context) (*sdkmcp.CallToolResult, any, error) {
-	active, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{Status: parchment.StatusActive})
-	draft, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{Status: parchment.StatusDraft})
-	bugs, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{Kind: parchment.KindBug, Status: parchment.StatusOpen})
-
-	msg := fmt.Sprintf("Scribe %s | %d active, %d draft, %d open bugs",
-		h.version, len(active), len(draft), len(bugs))
-	return text(msg), nil, nil
+	out, err := h.svc.RenderMotdCompact(ctx, h.version)
+	if err != nil {
+		return nil, nil, err
+	}
+	return text(out), nil, nil
 }
 
 type motdInput struct {
@@ -212,34 +210,11 @@ type dashboardInput struct {
 }
 
 func (h *handler) handleDashboard(ctx context.Context, _ *sdkmcp.CallToolRequest, in dashboardInput) (*sdkmcp.CallToolResult, any, error) {
-	staleDays := in.StaleDays
-	if staleDays <= 0 {
-		staleDays = 30
-	}
-	report, err := h.svc.Dashboard(ctx, staleDays)
+	out, err := h.svc.RenderDashboard(ctx, in.StaleDays)
 	if err != nil {
 		return nil, nil, err
 	}
-
-	type scopeLabelEntry struct {
-		Scope  string   `json:"scope"`
-		Key    string   `json:"key"`
-		Labels []string `json:"labels,omitempty"`
-	}
-	type dashboardOutput struct {
-		*service.DashboardResult
-		ScopeLabels []scopeLabelEntry `json:"scope_labels,omitempty"`
-	}
-
-	infos, _ := h.proto.ListScopeInfo(ctx)
-	out := dashboardOutput{DashboardResult: report}
-	for _, info := range infos {
-		out.ScopeLabels = append(out.ScopeLabels, scopeLabelEntry{
-			Scope: info.Scope, Key: info.Key, Labels: info.Labels,
-		})
-	}
-	data, _ := json.Marshal(out)
-	return text(string(data)), nil, nil
+	return text(out), nil, nil
 }
 
 type linkInput struct {
