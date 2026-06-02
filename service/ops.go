@@ -11,9 +11,131 @@ import (
 )
 
 func init() {
-	Registry = append(Registry, opSet, opList, opRetire, opDeArchive, opArchive)
+	Registry = append(Registry, opSet, opList, opRetire, opDeArchive, opArchive, opUpdate)
 }
 
+type updateInput struct {
+	ID             string              `json:"id"`
+	IDs            []string            `json:"ids,omitempty"`
+	Patch          map[string]string   `json:"patch,omitempty"`
+	Status         string              `json:"status,omitempty"`
+	Title          string              `json:"title,omitempty"`
+	Goal           string              `json:"goal,omitempty"`
+	Scope          string              `json:"scope,omitempty"`
+	Parent         string              `json:"parent,omitempty"`
+	Priority       string              `json:"priority,omitempty"`
+	Sprint         string              `json:"sprint,omitempty"`
+	Kind           string              `json:"kind,omitempty"`
+	Sections       []map[string]string `json:"sections,omitempty"`
+	SectionsDelete []string            `json:"sections_delete,omitempty"`
+	Query          string              `json:"query,omitempty"`
+	Text           string              `json:"text,omitempty"`
+	Body           string              `json:"body,omitempty"`
+	Force          bool                `json:"force,omitempty"`
+}
+
+var opUpdate = Op{
+	Name: "update",
+	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) { //nolint:cyclop // multi-path: fields+sections+find-replace+sections_delete
+		var in updateInput
+		if err := json.Unmarshal(raw, &in); err != nil {
+			return "", err
+		}
+		ids := resolveIDs(in.IDs, in.ID)
+		if len(ids) == 0 {
+			return "", fmt.Errorf("id or ids required") //nolint:err113 // user-facing hint
+		}
+		fieldMap := map[string]string{}
+		for k, v := range in.Patch {
+			fieldMap[k] = v
+		}
+		for field, value := range map[string]string{
+			"status": in.Status, "title": in.Title, "goal": in.Goal,
+			"scope": in.Scope, "parent": in.Parent, "priority": in.Priority,
+			"sprint": in.Sprint, "kind": in.Kind,
+		} {
+			if value != "" {
+				fieldMap[field] = value
+			}
+		}
+		hasSectionReplace := in.Query != "" && (in.Text != "" || in.Body != "")
+		if len(fieldMap) == 0 && len(in.Sections) == 0 && !hasSectionReplace && len(in.SectionsDelete) == 0 {
+			return "", fmt.Errorf("update requires at least one field, section, sections_delete, or query+text for find-replace") //nolint:err113 // user-facing hint
+		}
+		var lines []string
+		for _, id := range ids {
+			for field, value := range fieldMap {
+				results, err := svc.Proto.SetField(ctx, []string{id}, field, value, parchment.SetFieldOptions{Force: in.Force})
+				if err != nil {
+					lines = append(lines, fmt.Sprintf("%s -> error: set %s: %v", id, field, err))
+					continue
+				}
+				r := results[0]
+				if !r.OK {
+					lines = append(lines, fmt.Sprintf("%s -> error: set %s: %s", id, field, r.Error))
+					continue
+				}
+				lines = append(lines, fmt.Sprintf("%s.%s = %s", id, field, value))
+			}
+			for _, sec := range in.Sections {
+				name, ok := sec["name"]
+				if !ok || name == "" {
+					continue
+				}
+				t := sec["text"]
+				replaced, err := svc.Proto.AttachSection(ctx, id, name, t)
+				if err != nil {
+					lines = append(lines, fmt.Sprintf("%s -> error: section %q: %v", id, name, err))
+					continue
+				}
+				if t != "" {
+					_, _ = svc.Proto.SyncWikilinks(ctx, id)
+				}
+				action := "added"
+				if replaced {
+					action = "replaced"
+				}
+				lines = append(lines, fmt.Sprintf("%s: section %q %s", id, name, action))
+			}
+			if hasSectionReplace { //nolint:nestif // find-replace path is inherently branchy
+				replacement := in.Text
+				if replacement == "" {
+					replacement = in.Body
+				}
+				art, err := svc.Proto.GetArtifact(ctx, id)
+				if err != nil {
+					lines = append(lines, fmt.Sprintf("%s -> error: %v", id, err))
+					continue
+				}
+				updated := 0
+				for _, sec := range art.Sections {
+					if strings.Contains(sec.Text, in.Query) {
+						newText := strings.ReplaceAll(sec.Text, in.Query, replacement)
+						if _, err := svc.Proto.AttachSection(ctx, id, sec.Name, newText); err != nil {
+							lines = append(lines, fmt.Sprintf("%s -> error: section %q: %v", id, sec.Name, err))
+							continue
+						}
+						updated++
+					}
+				}
+				lines = append(lines, fmt.Sprintf("%s: %d section(s) updated", id, updated))
+			}
+			for _, name := range in.SectionsDelete {
+				removed, err := svc.Proto.DetachSection(ctx, id, name)
+				if err != nil {
+					lines = append(lines, fmt.Sprintf("%s -> error: detach %q: %v", id, name, err))
+					continue
+				}
+				if removed {
+					lines = append(lines, fmt.Sprintf("%s: section %q removed", id, name))
+				} else {
+					lines = append(lines, fmt.Sprintf("%s: section %q not found", id, name))
+				}
+			}
+		}
+		return strings.Join(lines, "\n"), nil
+	},
+}
 
 type setInput struct {
 	ID    string   `json:"id"`
@@ -52,7 +174,6 @@ var opSet = Op{
 		return strings.Join(lines, "\n"), nil
 	},
 }
-
 
 type listInput struct {
 	Kind           string   `json:"kind,omitempty"`
@@ -107,7 +228,6 @@ func RenderResults(results []parchment.Result, okLabel string) string {
 	return strings.Join(lines, "\n")
 }
 
-
 type archiveInput struct {
 	ID          string   `json:"id"`
 	IDs         []string `json:"ids,omitempty"`
@@ -156,7 +276,6 @@ var opArchive = Op{
 	},
 }
 
-
 type deArchiveInput struct {
 	ID      string   `json:"id"`
 	IDs     []string `json:"ids,omitempty"`
@@ -182,7 +301,6 @@ var opDeArchive = Op{ //nolint:dupl // same structure as opRetire by design — 
 	},
 }
 
-
 type retireInput struct {
 	ID      string   `json:"id"`
 	IDs     []string `json:"ids,omitempty"`
@@ -207,12 +325,6 @@ var opRetire = Op{
 		return RenderResults(results, "retired"), nil
 	},
 }
-
-
-
-
-
-
 
 var listValidFields = map[string]func(*parchment.Artifact) string{
 	"id":         func(a *parchment.Artifact) string { return a.ID },

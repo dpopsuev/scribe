@@ -145,8 +145,6 @@ func TestOpSet_FieldErrorPropagated(t *testing.T) {
 
 // --- bulk_section_update (RED) ---
 
-
-
 // --- archive (RED) ---
 
 func TestOpArchive_SingleID(t *testing.T) {
@@ -368,6 +366,107 @@ func TestOpList_RankedEmptyQueryReturnsError(t *testing.T) {
 
 // --- diff (RED) ---
 
+func TestOpUpdate_SetsMultipleFields(t *testing.T) {
+	// Given a task exists
+	// When update(id=X, title=new, priority=high) is called
+	// Then both fields change
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "old", Scope: "test"})
+
+	op := service.Find("update")
+	if op == nil {
+		t.Fatal("update Op not registered")
+	}
+	raw, _ := json.Marshal(map[string]any{"id": art.ID, "title": "new", "priority": "high"})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "title") || !strings.Contains(out, "priority") {
+		t.Errorf("expected both field updates in output, got: %s", out)
+	}
+	updated, _ := svc.Proto.GetArtifact(ctx, art.ID)
+	if updated.Title != "new" {
+		t.Errorf("title = %q, want new", updated.Title)
+	}
+	if updated.Priority != "high" {
+		t.Errorf("priority = %q, want high", updated.Priority)
+	}
+}
+
+func TestOpUpdate_AttachesSection(t *testing.T) {
+	// Given a task exists
+	// When update(id=X, sections=[{name:summary, text:body}]) is called
+	// Then the section is attached
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "T", Scope: "test"})
+
+	op := service.Find("update")
+	raw, _ := json.Marshal(map[string]any{
+		"id":       art.ID,
+		"sections": []map[string]string{{"name": "summary", "text": "the summary"}},
+	})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "summary") {
+		t.Errorf("expected section name in output, got: %s", out)
+	}
+	updated, _ := svc.Proto.GetArtifact(ctx, art.ID)
+	if len(updated.Sections) == 0 {
+		t.Error("expected section to be attached")
+	}
+}
+
+func TestOpUpdate_DeletesSection(t *testing.T) {
+	// Given a task has a section "notes"
+	// When update(id=X, sections_delete=["notes"]) is called
+	// Then the section is removed
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "T", Scope: "test"})
+	svc.Proto.AttachSection(ctx, art.ID, "notes", "content") //nolint:errcheck // test setup, error irrelevant to subject under test
+
+	op := service.Find("update")
+	raw, _ := json.Marshal(map[string]any{"id": art.ID, "sections_delete": []string{"notes"}})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "removed") {
+		t.Errorf("expected 'removed' in output, got: %s", out)
+	}
+	updated, _ := svc.Proto.GetArtifact(ctx, art.ID)
+	for _, sec := range updated.Sections {
+		if sec.Name == "notes" {
+			t.Error("section 'notes' still present after sections_delete")
+		}
+	}
+}
+
+func TestOpUpdate_MissingBothFieldsAndSectionsErrors(t *testing.T) {
+	// Given no fields or sections are provided
+	// When update(id=X) is called
+	// Then an error is returned
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "T", Scope: "test"})
+
+	op := service.Find("update")
+	raw, _ := json.Marshal(map[string]any{"id": art.ID})
+	_, err := op.Run(ctx, svc, raw)
+	if err == nil {
+		t.Fatal("expected error for update with no changes, got nil")
+	}
+}
+
 func TestOpGet_DiffAgainst(t *testing.T) {
 	// Given two artifacts with different titles
 	// When get(id=A, diff_against=B) is called
@@ -391,11 +490,7 @@ func TestOpGet_DiffAgainst(t *testing.T) {
 	}
 }
 
-
-
 // --- detach_section (RED) ---
-
-
 
 // --- SCR-TSK-388: opList.Run ---
 
