@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/service"
@@ -256,36 +255,18 @@ func sortArtifacts(arts []*parchment.Artifact, field string) {
 // The snapshot key is used in subsequent session_diff and session_merge calls.
 // Target field carries the session name.
 func (h *handler) handleSessionStart(ctx context.Context, in adminInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: value semantics intentional
-	if h.snapshotter == nil {
-		return nil, nil, fmt.Errorf("snapshot system not configured — cannot start session") //nolint:err113 // agent-facing
-	}
-	name := in.Target
-	if name == "" {
-		name = fmt.Sprintf("session-%d", time.Now().UnixMilli())
-	}
-	meta, err := h.snapshotter.Create(ctx, name)
+	out, err := h.svc.SessionStart(ctx, in.Target)
 	if err != nil {
-		return nil, nil, fmt.Errorf("session_start: %w", err)
+		return nil, nil, err
 	}
-	return text(fmt.Sprintf("session started: key=%s ts=%s artifacts=%d",
-		meta.Key, meta.Timestamp.Format(time.RFC3339), meta.Artifacts)), nil, nil
+	return text(out), nil, nil
 }
 
-// handleSessionCommit is a no-op — SQLite WAL writes are already durable.
-// Returns the current snapshot key for reference.
 func (h *handler) handleSessionCommit(_ context.Context, in adminInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: value semantics intentional
-	return text(fmt.Sprintf(
-		"session committed (SQLite WAL is always durable; no explicit commit required). "+
-			"Use session_diff(target=%s) to inspect changes.", in.Target)), nil, nil
+	return text(h.svc.SessionCommit(in.Target)), nil, nil
 }
 
-// handleSessionDiff reports artifacts modified since the named session snapshot.
-// Uses EventLog events since the snapshot timestamp when available, falling back
-// to Filter{UpdatedAfter: baseline} scan.
 func (h *handler) handleSessionDiff(ctx context.Context, in adminInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: value semantics intentional
-	if h.snapshotter == nil {
-		return nil, nil, fmt.Errorf("snapshot system not configured — cannot diff session") //nolint:err113 // agent-facing
-	}
 	if in.Target == "" && in.SnapshotName == "" {
 		return nil, nil, fmt.Errorf("session_diff requires target= (session name/key)") //nolint:err113 // agent-facing
 	}
@@ -293,73 +274,25 @@ func (h *handler) handleSessionDiff(ctx context.Context, in adminInput) (*sdkmcp
 	if key == "" {
 		key = in.SnapshotName
 	}
-
-	diff, err := h.snapshotter.Diff(ctx, key)
+	out, err := h.svc.SessionDiff(ctx, key)
 	if err != nil {
-		return nil, nil, fmt.Errorf("session_diff: %w", err)
+		return nil, nil, err
 	}
-
-	var lines []string
-	if len(diff.Added) > 0 {
-		lines = append(lines, fmt.Sprintf("added (%d): %s", len(diff.Added), strings.Join(diff.Added, ", ")))
-	}
-	if len(diff.Modified) > 0 {
-		lines = append(lines, fmt.Sprintf("modified (%d): %s", len(diff.Modified), strings.Join(diff.Modified, ", ")))
-	}
-	if len(diff.Removed) > 0 {
-		lines = append(lines, fmt.Sprintf("removed (%d): %s", len(diff.Removed), strings.Join(diff.Removed, ", ")))
-	}
-	if len(lines) == 0 {
-		return text("no changes since session baseline"), nil, nil
-	}
-	return text(strings.Join(lines, "\n")), nil, nil
+	return text(out), nil, nil
 }
 
-// handleSessionMerge identifies artifacts added or modified since the session
-// snapshot and re-scopes them from the session scope into the target scope.
-// Target field carries the session key; Scope carries the destination scope.
 func (h *handler) handleSessionMerge(ctx context.Context, in adminInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: value semantics intentional
-	if h.snapshotter == nil {
-		return nil, nil, fmt.Errorf("snapshot system not configured — cannot merge session") //nolint:err113 // agent-facing
-	}
 	if in.Target == "" {
 		return nil, nil, fmt.Errorf("session_merge requires target= (session snapshot key)") //nolint:err113 // agent-facing
 	}
 	if in.Scope == "" {
 		return nil, nil, fmt.Errorf("session_merge requires scope= (destination scope)") //nolint:err113 // agent-facing
 	}
-
-	diff, err := h.snapshotter.Diff(ctx, in.Target)
+	out, err := h.svc.SessionMerge(ctx, in.Target, in.Scope)
 	if err != nil {
-		return nil, nil, fmt.Errorf("session_merge diff: %w", err)
+		return nil, nil, err
 	}
-
-	toMerge := make([]string, 0, len(diff.Added)+len(diff.Modified))
-	toMerge = append(toMerge, diff.Added...)
-	toMerge = append(toMerge, diff.Modified...)
-
-	if len(toMerge) == 0 {
-		return text("nothing to merge — no changes since session baseline"), nil, nil
-	}
-
-	var merged, failed []string
-	for _, id := range toMerge {
-		_, err := h.proto.SetField(ctx, []string{id}, parchment.FieldScope, in.Scope, parchment.SetFieldOptions{Force: true})
-		if err != nil {
-			failed = append(failed, fmt.Sprintf("%s: %v", id, err))
-			continue
-		}
-		merged = append(merged, id)
-	}
-
-	var lines []string
-	if len(merged) > 0 {
-		lines = append(lines, fmt.Sprintf("merged %d artifact(s) to scope %q: %s", len(merged), in.Scope, strings.Join(merged, ", ")))
-	}
-	if len(failed) > 0 {
-		lines = append(lines, fmt.Sprintf("failed: %s", strings.Join(failed, "; ")))
-	}
-	return text(strings.Join(lines, "\n")), nil, nil
+	return text(out), nil, nil
 }
 
 func (h *handler) handleContextRead(ctx context.Context, in adminInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: consistent with all other admin handlers

@@ -692,3 +692,78 @@ func (s *Service) RenderDashboard(ctx context.Context, staleDays int) (string, e
 	data, _ := json.Marshal(out)
 	return string(data), nil
 }
+
+func (s *Service) SessionStart(ctx context.Context, name string) (string, error) {
+	if s.Snapshotter == nil {
+		return "", fmt.Errorf("snapshot system not configured — cannot start session") //nolint:err113 // user-facing hint
+	}
+	if name == "" {
+		name = fmt.Sprintf("session-%d", time.Now().UnixMilli())
+	}
+	meta, err := s.Snapshotter.Create(ctx, name)
+	if err != nil {
+		return "", fmt.Errorf("session_start: %w", err)
+	}
+	return fmt.Sprintf("session started: key=%s ts=%s artifacts=%d",
+		meta.Key, meta.Timestamp.Format(time.RFC3339), meta.Artifacts), nil
+}
+
+func (s *Service) SessionCommit(target string) string {
+	return fmt.Sprintf("session committed (SQLite WAL is always durable; no explicit commit required). Use session_diff(target=%s) to inspect changes.", target)
+}
+
+func (s *Service) SessionDiff(ctx context.Context, key string) (string, error) {
+	if s.Snapshotter == nil {
+		return "", fmt.Errorf("snapshot system not configured — cannot diff session") //nolint:err113 // user-facing hint
+	}
+	diff, err := s.Snapshotter.Diff(ctx, key)
+	if err != nil {
+		return "", fmt.Errorf("session_diff: %w", err)
+	}
+	var lines []string
+	if len(diff.Added) > 0 {
+		lines = append(lines, fmt.Sprintf("added (%d): %s", len(diff.Added), strings.Join(diff.Added, ", ")))
+	}
+	if len(diff.Modified) > 0 {
+		lines = append(lines, fmt.Sprintf("modified (%d): %s", len(diff.Modified), strings.Join(diff.Modified, ", ")))
+	}
+	if len(diff.Removed) > 0 {
+		lines = append(lines, fmt.Sprintf("removed (%d): %s", len(diff.Removed), strings.Join(diff.Removed, ", ")))
+	}
+	if len(lines) == 0 {
+		return "no changes since session baseline", nil
+	}
+	return strings.Join(lines, "\n"), nil
+}
+
+func (s *Service) SessionMerge(ctx context.Context, key, scope string) (string, error) {
+	if s.Snapshotter == nil {
+		return "", fmt.Errorf("snapshot system not configured — cannot merge session") //nolint:err113 // user-facing hint
+	}
+	diff, err := s.Snapshotter.Diff(ctx, key)
+	if err != nil {
+		return "", fmt.Errorf("session_merge diff: %w", err)
+	}
+	toMerge := make([]string, 0, len(diff.Added)+len(diff.Modified))
+	toMerge = append(toMerge, diff.Added...)
+	toMerge = append(toMerge, diff.Modified...)
+	if len(toMerge) == 0 {
+		return "nothing to merge — no changes since session baseline", nil
+	}
+	var merged, failed []string
+	for _, id := range toMerge {
+		if _, err := s.Proto.SetField(ctx, []string{id}, parchment.FieldScope, scope, parchment.SetFieldOptions{Force: true}); err != nil {
+			failed = append(failed, fmt.Sprintf("%s: %v", id, err))
+			continue
+		}
+		merged = append(merged, id)
+	}
+	var lines []string
+	if len(merged) > 0 {
+		lines = append(lines, fmt.Sprintf("merged %d artifact(s) to scope %q: %s", len(merged), scope, strings.Join(merged, ", ")))
+	}
+	if len(failed) > 0 {
+		lines = append(lines, fmt.Sprintf("failed: %s", strings.Join(failed, "; ")))
+	}
+	return strings.Join(lines, "\n"), nil
+}
