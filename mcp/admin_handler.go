@@ -122,126 +122,12 @@ type motdInput struct {
 	Since string `json:"since,omitempty"`
 }
 
-func (h *handler) handleMotd(ctx context.Context, _ *sdkmcp.CallToolRequest, in motdInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocyclo,funlen,nestif // motd report is inherently multi-check
-	m, err := h.svc.Motd(ctx)
+func (h *handler) handleMotd(ctx context.Context, _ *sdkmcp.CallToolRequest, in motdInput) (*sdkmcp.CallToolResult, any, error) {
+	out, err := h.svc.RenderMotd(ctx, in.Since, h.version, h.homeScopes)
 	if err != nil {
 		return nil, nil, err
 	}
-	var sections []string
-	scopeStr := "all"
-	if len(h.homeScopes) > 0 {
-		scopeStr = strings.Join(h.homeScopes, ", ")
-	}
-	sections = append(sections, fmt.Sprintf("Scribe %s | Scope: %s", h.version, scopeStr))
-
-	// Open bugs — fires first
-	bugs, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{Kind: parchment.KindBug, Status: parchment.StatusOpen})
-	if len(bugs) > 0 {
-		var lines []string
-		for _, b := range bugs {
-			prio := ""
-			if b.Priority != "" {
-				prio = " [" + b.Priority + "]"
-			}
-			lines = append(lines, fmt.Sprintf("  %s%s %s", b.ID, prio, b.Title))
-		}
-		sections = append(sections, "Open Bugs:\n"+strings.Join(lines, "\n"))
-	}
-
-	if len(m.Campaigns) > 0 {
-		var lines []string
-		for _, c := range m.Campaigns {
-			prefix := ""
-			if c.Scope != "" {
-				prefix = "[" + c.Scope + "] "
-			}
-			lines = append(lines, fmt.Sprintf("  %s %s%s", c.ID, prefix, c.Title))
-		}
-		sections = append(sections, "Campaigns:\n"+strings.Join(lines, "\n"))
-	}
-	if len(m.Goals) > 0 {
-		var lines []string
-		for _, g := range m.Goals {
-			prefix := ""
-			if g.Scope != "" {
-				prefix = "[" + g.Scope + "] "
-			}
-			lines = append(lines, fmt.Sprintf("  %s %s%s", g.ID, prefix, g.Title))
-		}
-		sections = append(sections, "Goal:\n"+strings.Join(lines, "\n"))
-	}
-
-	// Active work summary
-	active, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{Status: parchment.StatusActive})
-	draft, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{Status: parchment.StatusDraft})
-	if len(active) > 0 || len(draft) > 0 {
-		sections = append(sections, fmt.Sprintf("Active Work: %d active, %d draft", len(active), len(draft)))
-	}
-
-	// Stale drafts — count only, no itemized list (use dashboard for details).
-	staleThreshold := time.Now().UTC().Add(-7 * 24 * time.Hour).Format(time.RFC3339)
-	stale, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{Status: parchment.StatusDraft, UpdatedBefore: staleThreshold})
-	if len(stale) > 0 {
-		m.Warnings = append(m.Warnings, fmt.Sprintf("%d draft(s) stale >7 days — run dashboard for details", len(stale)))
-	}
-
-	// Changed since (session delta).
-	if in.Since != "" { //nolint:nestif // session delta block is inherently nested
-		changed, _ := h.proto.ListArtifacts(ctx, parchment.ListInput{UpdatedAfter: in.Since, ExcludeStatus: parchment.StatusArchived})
-		if len(changed) > 0 {
-			var lines []string
-			limit := len(changed)
-			if limit > 15 {
-				limit = 15
-			}
-			for _, c := range changed[:limit] {
-				lines = append(lines, fmt.Sprintf("  %s %-8s [%s] %s", c.ID, c.Status, c.Kind, c.Title))
-			}
-			header := fmt.Sprintf("Changed Since %s (%d):", in.Since[:10], len(changed))
-			if len(changed) > 15 {
-				header = fmt.Sprintf("Changed Since %s (%d, showing 15):", in.Since[:10], len(changed))
-			}
-			sections = append(sections, header+"\n"+strings.Join(lines, "\n"))
-		}
-	}
-
-	if len(m.Context) > 0 {
-		var lines []string
-		for _, c := range m.Context {
-			lines = append(lines, "  "+c)
-		}
-		sections = append(sections, "Domain Context:\n"+strings.Join(lines, "\n"))
-	}
-
-	if len(m.Warnings) > 0 {
-		var lines []string
-		for _, w := range m.Warnings {
-			lines = append(lines, "  ⚠ "+w)
-		}
-		sections = append(sections, "Warnings:\n"+strings.Join(lines, "\n"))
-	}
-
-	// Memory: top-3 evergreen knowledge artifacts for this scope.
-	// Surfaces without requiring the agent to call a separate recall action.
-	scope := ""
-	if len(h.homeScopes) > 0 {
-		scope = h.homeScopes[0]
-	}
-	if in.Since == "" { // skip on delta calls — memory is session-start context
-		if memLines := h.motdMemoryLines(ctx, scope, 3); len(memLines) > 0 {
-			sections = append(sections, "Memory:\n"+strings.Join(memLines, "\n"))
-		}
-	}
-
-	// Tier 1→2 navigation hint — only on full session-start motd, not delta calls.
-	if in.Since == "" {
-		sections = append(sections, "→ artifact(action=orient) for vault structure and schema map")
-	}
-
-	if len(sections) == 0 {
-		return text("nothing to report"), nil, nil
-	}
-	return text(strings.Join(sections, "\n\n")), nil, nil
+	return text(out), nil, nil
 }
 
 func (h *handler) handleChangelog(ctx context.Context, since, scope string) (*sdkmcp.CallToolResult, any, error) {

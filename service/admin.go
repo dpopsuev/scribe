@@ -348,3 +348,109 @@ func SortArtifacts(arts []*parchment.Artifact, field string) {
 }
 
 var componentLabelRe = regexp.MustCompile(`^[a-z][a-z0-9_-]*:.+/.+$`)
+
+func (s *Service) RenderMotd(ctx context.Context, since, version string, homeScopes []string) (string, error) { //nolint:gocyclo,cyclop,funlen // motd report is inherently multi-check
+	m, err := s.Motd(ctx)
+	if err != nil {
+		return "", err
+	}
+	var sections []string
+	scopeStr := "all"
+	if len(homeScopes) > 0 {
+		scopeStr = strings.Join(homeScopes, ", ")
+	}
+	sections = append(sections, fmt.Sprintf("Scribe %s | Scope: %s", version, scopeStr))
+
+	bugs, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Kind: parchment.KindBug, Status: parchment.StatusOpen})
+	if len(bugs) > 0 {
+		var lines []string
+		for _, b := range bugs {
+			prio := ""
+			if b.Priority != "" {
+				prio = " [" + b.Priority + "]"
+			}
+			lines = append(lines, fmt.Sprintf("  %s%s %s", b.ID, prio, b.Title))
+		}
+		sections = append(sections, "Open Bugs:\n"+strings.Join(lines, "\n"))
+	}
+	if len(m.Campaigns) > 0 {
+		var lines []string
+		for _, c := range m.Campaigns {
+			prefix := ""
+			if c.Scope != "" {
+				prefix = "[" + c.Scope + "] "
+			}
+			lines = append(lines, fmt.Sprintf("  %s %s%s", c.ID, prefix, c.Title))
+		}
+		sections = append(sections, "Campaigns:\n"+strings.Join(lines, "\n"))
+	}
+	if len(m.Goals) > 0 {
+		var lines []string
+		for _, g := range m.Goals {
+			prefix := ""
+			if g.Scope != "" {
+				prefix = "[" + g.Scope + "] "
+			}
+			lines = append(lines, fmt.Sprintf("  %s %s%s", g.ID, prefix, g.Title))
+		}
+		sections = append(sections, "Goal:\n"+strings.Join(lines, "\n"))
+	}
+	active, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Status: parchment.StatusActive})
+	draft, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Status: parchment.StatusDraft})
+	if len(active) > 0 || len(draft) > 0 {
+		sections = append(sections, fmt.Sprintf("Active Work: %d active, %d draft", len(active), len(draft)))
+	}
+	staleThreshold := time.Now().UTC().Add(-7 * 24 * time.Hour).Format(time.RFC3339)
+	stale, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Status: parchment.StatusDraft, UpdatedBefore: staleThreshold})
+	if len(stale) > 0 {
+		m.Warnings = append(m.Warnings, fmt.Sprintf("%d draft(s) stale >7 days — run dashboard for details", len(stale)))
+	}
+	if since != "" { //nolint:nestif // session delta block is inherently nested
+		changed, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{UpdatedAfter: since, ExcludeStatus: parchment.StatusArchived})
+		if len(changed) > 0 {
+			limit := len(changed)
+			if limit > 15 {
+				limit = 15
+			}
+			var lines []string
+			for _, c := range changed[:limit] {
+				lines = append(lines, fmt.Sprintf("  %s %-8s [%s] %s", c.ID, c.Status, c.Kind, c.Title))
+			}
+			header := fmt.Sprintf("Changed Since %s (%d):", since[:10], len(changed))
+			if len(changed) > 15 {
+				header = fmt.Sprintf("Changed Since %s (%d, showing 15):", since[:10], len(changed))
+			}
+			sections = append(sections, header+"\n"+strings.Join(lines, "\n"))
+		}
+	}
+	if len(m.Context) > 0 {
+		var lines []string
+		for _, c := range m.Context {
+			lines = append(lines, "  "+c)
+		}
+		sections = append(sections, "Domain Context:\n"+strings.Join(lines, "\n"))
+	}
+	if len(m.Warnings) > 0 {
+		var lines []string
+		for _, w := range m.Warnings {
+			lines = append(lines, "  ⚠ "+w)
+		}
+		sections = append(sections, "Warnings:\n"+strings.Join(lines, "\n"))
+	}
+	scope := ""
+	if len(homeScopes) > 0 {
+		scope = homeScopes[0]
+	}
+	if since == "" {
+		if memLines := s.MotdMemoryLines(ctx, scope, 3); len(memLines) > 0 {
+			sections = append(sections, "Memory:\n"+strings.Join(memLines, "\n"))
+		}
+	}
+	if since == "" {
+		sections = append(sections, "→ artifact(action=orient) for vault structure and schema map")
+	}
+	if len(sections) == 0 {
+		return "nothing to report", nil
+	}
+	return strings.Join(sections, "\n\n"), nil
+}

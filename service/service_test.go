@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	parchment "github.com/dpopsuev/parchment"
@@ -222,6 +223,46 @@ func TestMotd_ReturnsCurrentGoals(t *testing.T) {
 	// just verify motd does not error and returns a packet
 	// no current goals yet — just verify Motd does not error
 	_ = m
+}
+
+// --- RenderMotd ---
+
+func TestRenderMotd_ContainsScopeAndVersion(t *testing.T) {
+	// Given an empty store
+	// When RenderMotd is called with version and scopes
+	// Then output contains version and scope info
+	svc := newTestService(t, "test")
+
+	out, err := svc.RenderMotd(context.Background(), "", "v1.0", []string{"test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "v1.0") {
+		t.Errorf("expected version in motd output, got: %s", out[:min(200, len(out))])
+	}
+	if !strings.Contains(out, "test") {
+		t.Errorf("expected scope in motd output, got: %s", out[:min(200, len(out))])
+	}
+}
+
+func TestRenderMotd_ShowsOpenBugs(t *testing.T) {
+	// Given an open bug exists
+	// When RenderMotd is called
+	// Then output contains the bug ID
+	svc := newTestService(t, "test")
+	ctx := context.Background()
+
+	bug, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Kind: "bug", Title: "bad crash", Scope: "test", Status: "open",
+	})
+
+	out, err := svc.RenderMotd(ctx, "", "v1", []string{"test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, bug.ID) {
+		t.Errorf("expected bug ID in motd, got: %s", out[:min(400, len(out))])
+	}
 }
 
 // --- ExpandLabels integration ---
