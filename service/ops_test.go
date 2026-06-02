@@ -143,6 +143,92 @@ func TestOpSet_FieldErrorPropagated(t *testing.T) {
 	}
 }
 
+// --- archive (RED) ---
+
+func TestOpArchive_SingleID(t *testing.T) {
+	// Given a task in draft status
+	// When archive(id=X) is called
+	// Then the artifact status is archived
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "T", Scope: "test"})
+
+	op := service.Find("archive")
+	if op == nil {
+		t.Fatal("archive Op not registered")
+	}
+	raw, _ := json.Marshal(map[string]any{"id": art.ID})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "archived") {
+		t.Errorf("expected 'archived' in output, got: %s", out)
+	}
+	updated, _ := svc.Proto.GetArtifact(ctx, art.ID)
+	if updated.Status != "archived" {
+		t.Errorf("status = %q, want archived", updated.Status)
+	}
+}
+
+func TestOpArchive_BulkFilterByScope(t *testing.T) {
+	// Given two tasks in scope "alpha", one in "beta"
+	// When archive(scope=alpha) is called with no explicit IDs
+	// Then both alpha tasks are archived, beta is untouched
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "A", Scope: "alpha"})
+	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "B", Scope: "alpha"})
+	c, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "C", Scope: "beta"})
+
+	op := service.Find("archive")
+	raw, _ := json.Marshal(map[string]any{"scope": "alpha"})
+	_, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	artA, _ := svc.Proto.GetArtifact(ctx, a.ID)
+	artB, _ := svc.Proto.GetArtifact(ctx, b.ID)
+	artC, _ := svc.Proto.GetArtifact(ctx, c.ID)
+
+	if artA.Status != "archived" {
+		t.Errorf("A.status = %q, want archived", artA.Status)
+	}
+	if artB.Status != "archived" {
+		t.Errorf("B.status = %q, want archived", artB.Status)
+	}
+	if artC.Status == "archived" {
+		t.Error("C should not be archived (different scope)")
+	}
+}
+
+func TestOpArchive_DryRunNoMutation(t *testing.T) {
+	// Given tasks exist in scope "test"
+	// When archive(scope=test, dry_run=true) is called
+	// Then output mentions count but no artifacts are archived
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "T", Scope: "test"})
+
+	op := service.Find("archive")
+	raw, _ := json.Marshal(map[string]any{"scope": "test", "dry_run": true})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "dry") && !strings.Contains(out, "1") {
+		t.Errorf("expected dry-run indication in output, got: %s", out)
+	}
+	unchanged, _ := svc.Proto.GetArtifact(ctx, art.ID)
+	if unchanged.Status == "archived" {
+		t.Error("artifact should not be archived in dry-run mode")
+	}
+}
+
 // --- de-archive (RED) ---
 
 func TestOpDeArchive_RestoresToDraft(t *testing.T) {

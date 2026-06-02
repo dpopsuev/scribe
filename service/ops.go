@@ -11,7 +11,7 @@ import (
 )
 
 func init() {
-	Registry = append(Registry, opSet, opList, opDetachSection, opDiff, opRecall, opRetire, opDeArchive)
+	Registry = append(Registry, opSet, opList, opDetachSection, opDiff, opRecall, opRetire, opDeArchive, opArchive)
 }
 
 // --- set ---
@@ -109,6 +109,56 @@ func RenderResults(results []parchment.Result, okLabel string) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// --- archive ---
+
+type archiveInput struct {
+	ID          string   `json:"id"`
+	IDs         []string `json:"ids,omitempty"`
+	Scope       string   `json:"scope,omitempty"`
+	Kind        string   `json:"kind,omitempty"`
+	Status      string   `json:"status,omitempty"`
+	IDPrefix    string   `json:"id_prefix,omitempty"`
+	ExcludeKind string   `json:"exclude_kind,omitempty"`
+	DryRun      bool     `json:"dry_run,omitempty"`
+}
+
+var opArchive = Op{
+	Name: "archive",
+	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
+		var in archiveInput
+		if err := json.Unmarshal(raw, &in); err != nil {
+			return "", err
+		}
+		ids := resolveIDs(in.IDs, in.ID)
+		hasBulkFilter := in.Scope != "" || in.Kind != "" || in.Status != "" || in.IDPrefix != "" || in.ExcludeKind != ""
+
+		if hasBulkFilter && len(ids) == 0 {
+			res, err := svc.Proto.BulkArchive(ctx, parchment.BulkMutationInput{
+				Scope: in.Scope, Kind: in.Kind, Status: in.Status,
+				IDPrefix: in.IDPrefix, ExcludeKind: in.ExcludeKind, DryRun: in.DryRun,
+			})
+			if err != nil {
+				return "", err
+			}
+			if in.DryRun {
+				return fmt.Sprintf("dry run: would archive %d artifact(s): %v", res.Count, res.AffectedIDs), nil
+			}
+			return fmt.Sprintf("archived %d artifact(s)", res.Count), nil
+		}
+		if len(ids) == 0 {
+			return "", fmt.Errorf("provide id, ids, or filter flags (scope, kind, status)") //nolint:err113 // user-facing hint
+		}
+		if in.DryRun {
+			return fmt.Sprintf("dry run: would archive %d artifact(s): %v", len(ids), ids), nil
+		}
+		results, err := svc.Proto.ArchiveArtifact(ctx, ids, false)
+		if err != nil {
+			return "", err
+		}
+		return RenderResults(results, "archived"), nil
+	},
 }
 
 // --- de-archive ---
