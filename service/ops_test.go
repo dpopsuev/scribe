@@ -366,6 +366,51 @@ func TestOpList_RankedEmptyQueryReturnsError(t *testing.T) {
 
 // --- diff (RED) ---
 
+func TestOpGet_ReturnsMarkdown(t *testing.T) {
+	// Given an artifact exists
+	// When get(id=X) is called
+	// Then output contains the artifact title in markdown format
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "note", Title: "design doc", Scope: "test"})
+
+	op := service.Find("get")
+	if op == nil {
+		t.Fatal("get Op not registered")
+	}
+	raw, _ := json.Marshal(map[string]any{"id": art.ID})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "design doc") {
+		t.Errorf("expected title in output, got: %s", out)
+	}
+}
+
+func TestOpGet_RecordsRead(t *testing.T) {
+	// Given an artifact exists
+	// When get(id=X) is called
+	// Then svc.ReadLog records the ID
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "note", Title: "N", Scope: "test"})
+
+	op := service.Find("get")
+	if op == nil {
+		t.Fatal("get Op not registered")
+	}
+	raw, _ := json.Marshal(map[string]any{"id": art.ID})
+	if _, err := op.Run(ctx, svc, raw); err != nil {
+		t.Fatal(err)
+	}
+	if !svc.ReadLog[art.ID] {
+		t.Error("expected ReadLog to record the artifact ID after get")
+	}
+}
+
 func TestOpCreate_ReturnsID(t *testing.T) {
 	// Given a valid create input
 	// When create(kind=task, title=T, scope=test) is called
@@ -561,7 +606,7 @@ func TestOpGet_DiffAgainst(t *testing.T) {
 
 	op := service.Find("get")
 	if op != nil {
-		raw, _ := json.Marshal(map[string]any{"id": a.ID, "diff_against": b.ID})
+		raw, _ := json.Marshal(map[string]any{"id": a.ID, "against": b.ID})
 		out, err := op.Run(ctx, svc, raw)
 		if err != nil {
 			t.Fatal(err)

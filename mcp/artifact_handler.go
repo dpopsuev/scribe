@@ -233,7 +233,7 @@ func (h *handler) handleGet(ctx context.Context, _ *sdkmcp.CallToolRequest, in g
 	if err != nil {
 		return nil, nil, err
 	}
-	h.readLog[in.ID] = true
+	h.svc.ReadLog[in.ID] = true
 	go h.persistReadLog(context.Background()) //nolint:contextcheck,gosec // background intentional: persist must not be canceled with request
 	filterSections(art, in.SectionFilter)
 
@@ -539,7 +539,7 @@ func (h *handler) handleBulkSetField(ctx context.Context, ids []string, field, v
 			}
 			if targets, ok := art.Links[parchment.RelImplements]; ok {
 				for _, specID := range targets {
-					if !h.readLog[specID] {
+					if !h.svc.ReadLog[specID] {
 						return nil, nil, fmt.Errorf("cannot activate %s: must read %s first (call get on implementing spec before activating)", id, specID) //nolint:err113 // agent-facing hint
 					}
 				}
@@ -994,7 +994,7 @@ func newSessionID() string { return service.NewSessionID() }
 
 // persistReadLog delegates to service.PersistReadLog.
 func (h *handler) persistReadLog(ctx context.Context) {
-	h.svc.PersistReadLog(ctx, h.sessionID, h.readLog)
+	h.svc.PersistReadLog(ctx, h.svc.SessionID, h.svc.ReadLog)
 }
 
 // loadReadLog delegates to service.LoadReadLog.

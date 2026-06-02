@@ -7,12 +7,349 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	parchment "github.com/dpopsuev/parchment"
 )
 
 func init() {
-	Registry = append(Registry, opSet, opList, opRetire, opDeArchive, opArchive, opUpdate, opOrient, opCatalog, opCreate)
+	Registry = append(Registry, opSet, opList, opRetire, opDeArchive, opArchive, opUpdate, opOrient, opCatalog, opCreate, opGet)
+}
+
+type getInput struct {
+	ID            string   `json:"id"`
+	IDs           []string `json:"ids,omitempty"`
+	Name          string   `json:"name,omitempty"`
+	Against       string   `json:"against,omitempty"`
+	Format        string   `json:"format,omitempty"`
+	Depth         int      `json:"depth,omitempty"`
+	Relation      string   `json:"relation,omitempty"`
+	Direction     string   `json:"direction,omitempty"`
+	StashID       string   `json:"stash_id,omitempty"`
+	IncludeEdges  bool     `json:"include_edges,omitempty"`
+	SectionFilter []string `json:"section_filter,omitempty"`
+}
+
+var opGet = Op{
+	Name: "get",
+	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
+		var in getInput
+		if err := json.Unmarshal(raw, &in); err != nil {
+			return "", err
+		}
+		if in.StashID != "" {
+			return getStash(ctx, svc, in.StashID)
+		}
+		if in.Against != "" {
+			return getDiff(ctx, svc, in.ID, in.Against)
+		}
+		if in.Name != "" {
+			t, err := svc.Proto.GetSection(ctx, in.ID, in.Name)
+			if err != nil {
+				return "", err
+			}
+			return t, nil
+		}
+		ids := resolveIDs(in.IDs, in.ID)
+		if len(ids) == 0 {
+			return "", fmt.Errorf("id or ids required") //nolint:err113 // user-facing hint
+		}
+		switch in.Format {
+		case "summary":
+			return getSummary(ctx, svc, ids)
+		case "briefing":
+			return getBriefing(ctx, svc, in.ID, in.Depth)
+		case "impact":
+			return getImpact(ctx, svc, in.ID)
+		case "tree":
+			tree, err := svc.Proto.ArtifactTree(ctx, parchment.TreeInput{
+				ID: in.ID, Relation: in.Relation, Direction: in.Direction, Depth: in.Depth,
+			})
+			if err != nil {
+				return "", err
+			}
+			return renderTree(tree), nil
+		}
+		if len(ids) == 1 {
+			art, err := svc.Proto.GetArtifact(ctx, ids[0])
+			if err != nil {
+				return "", err
+			}
+			FilterSections(art, in.SectionFilter)
+			svc.RecordRead(ctx, ids[0])
+			if in.IncludeEdges {
+				edges, err := svc.Proto.GetArtifactEdges(ctx, ids[0])
+				if err != nil {
+					return "", err
+				}
+				score := svc.Proto.CompletionScore(ctx, art)
+				type artWithEdges struct {
+					*parchment.Artifact
+					Edges           []parchment.EdgeSummary `json:"edges"`
+					CompletionScore float64                 `json:"completion_score"`
+				}
+				data, _ := json.Marshal(artWithEdges{Artifact: art, Edges: edges, CompletionScore: score})
+				return string(data), nil
+			}
+			score := svc.Proto.CompletionScore(ctx, art)
+			out := parchment.RenderMarkdown(art)
+			if score > 0 {
+				out += fmt.Sprintf("\n\n**Completion Score:** %.0f%%", score*100)
+			}
+			return out, nil
+		}
+		return getBulk(ctx, svc, ids, in.SectionFilter)
+	},
+}
+
+func getStash(_ context.Context, svc *Service, stashID string) (string, error) {
+	stashed, err := svc.Proto.Stash().Get(stashID)
+	if err != nil {
+		return "", fmt.Errorf("stash %s: %w", stashID, err)
+	}
+	data, _ := json.Marshal(stashed.Input)
+	ttl := 10 * time.Minute
+	age := time.Since(stashed.CreatedAt).Round(time.Second)
+	return fmt.Sprintf("stash %s (age: %v, expires in ~%v):\n%s",
+		stashID, age, (ttl - age).Round(time.Second), string(data)), nil
+}
+
+func getDiff(ctx context.Context, svc *Service, idA, idB string) (string, error) {
+	a, err := svc.Proto.GetArtifact(ctx, idA)
+	if err != nil {
+		return "", err
+	}
+	b, err := svc.Proto.GetArtifact(ctx, idB)
+	if err != nil {
+		return "", err
+	}
+	var lines []string
+	for _, f := range []struct{ name, va, vb string }{
+		{"kind", a.Kind, b.Kind}, {"scope", a.Scope, b.Scope},
+		{"status", a.Status, b.Status}, {"title", a.Title, b.Title},
+		{"parent", a.Parent, b.Parent}, {"priority", a.Priority, b.Priority},
+	} {
+		if f.va != f.vb {
+			lines = append(lines, fmt.Sprintf("  %s: %q → %q", f.name, f.va, f.vb))
+		}
+	}
+	secA := make(map[string]string, len(a.Sections))
+	for _, s := range a.Sections {
+		secA[s.Name] = s.Text
+	}
+	secB := make(map[string]string, len(b.Sections))
+	for _, s := range b.Sections {
+		secB[s.Name] = s.Text
+	}
+	for name, textA := range secA {
+		if textB, ok := secB[name]; !ok {
+			lines = append(lines, fmt.Sprintf("  section %q: removed", name))
+		} else if textA != textB {
+			lines = append(lines, fmt.Sprintf("  section %q: modified (%d → %d bytes)", name, len(textA), len(textB)))
+		}
+	}
+	for name := range secB {
+		if _, ok := secA[name]; !ok {
+			lines = append(lines, fmt.Sprintf("  section %q: added", name))
+		}
+	}
+	if len(lines) == 0 {
+		return fmt.Sprintf("no differences between %s and %s", idA, idB), nil
+	}
+	return fmt.Sprintf("diff %s vs %s:\n%s", idA, idB, strings.Join(lines, "\n")), nil
+}
+
+func getSummary(ctx context.Context, svc *Service, ids []string) (string, error) {
+	type summary struct {
+		ID       string `json:"id"`
+		Title    string `json:"title"`
+		Kind     string `json:"kind"`
+		Scope    string `json:"scope"`
+		Status   string `json:"status"`
+		Priority string `json:"priority,omitempty"`
+		Parent   string `json:"parent,omitempty"`
+		Sprint   string `json:"sprint,omitempty"`
+	}
+	results := make([]summary, 0, len(ids))
+	for _, id := range ids {
+		art, err := svc.Proto.GetArtifact(ctx, id)
+		if err != nil {
+			return "", fmt.Errorf("get %s: %w", id, err)
+		}
+		results = append(results, summary{
+			ID: art.ID, Title: art.Title, Kind: art.Kind, Scope: art.Scope,
+			Status: art.Status, Priority: art.Priority, Parent: art.Parent, Sprint: art.Sprint,
+		})
+	}
+	if len(results) == 1 {
+		data, _ := json.Marshal(results[0])
+		return string(data), nil
+	}
+	data, _ := json.Marshal(results)
+	return string(data), nil
+}
+
+func getBriefing(ctx context.Context, svc *Service, id string, depth int) (string, error) {
+	tree, err := svc.Proto.ArtifactTree(ctx, parchment.TreeInput{
+		ID: id, Relation: "*", Direction: "both", Depth: depth,
+	})
+	if err != nil {
+		return "", err
+	}
+	return renderBriefing(tree), nil
+}
+
+func getImpact(ctx context.Context, svc *Service, id string) (string, error) {
+	art, err := svc.Proto.GetArtifact(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	var lines []string
+	lines = append(lines, fmt.Sprintf("Impact analysis for %s [%s] %s:", id, art.Status, art.Title))
+	children, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{Parent: id})
+	if len(children) > 0 {
+		lines = append(lines, fmt.Sprintf("\nChildren (%d):", len(children)))
+		for _, ch := range children {
+			lines = append(lines, fmt.Sprintf("  %s [%s] %s", ch.ID, ch.Status, ch.Title))
+		}
+	}
+	depEdges, _ := svc.Proto.GetArtifactEdges(ctx, id)
+	var dependents, implementors []string
+	for _, e := range depEdges {
+		if e.Direction == "incoming" { //nolint:goconst // "incoming" is a domain constant defined in parchment
+			switch e.Relation {
+			case "depends_on":
+				dependents = append(dependents, fmt.Sprintf("  %s [%s] %s", e.Target.ID, e.Target.Status, e.Target.Title))
+			case "implements":
+				implementors = append(implementors, fmt.Sprintf("  %s [%s] %s", e.Target.ID, e.Target.Status, e.Target.Title))
+			}
+		}
+	}
+	if len(dependents) > 0 {
+		lines = append(lines, fmt.Sprintf("\nDepends on this (%d):", len(dependents)))
+		lines = append(lines, dependents...)
+	}
+	if len(implementors) > 0 {
+		lines = append(lines, fmt.Sprintf("\nImplements this (%d):", len(implementors)))
+		lines = append(lines, implementors...)
+	}
+	if len(children) == 0 && len(dependents) == 0 && len(implementors) == 0 {
+		lines = append(lines, "\nNo downstream impact — safe to archive.")
+	}
+	return strings.Join(lines, "\n"), nil
+}
+
+func getBulk(ctx context.Context, svc *Service, ids, sectionFilter []string) (string, error) {
+	arts := make([]*parchment.Artifact, 0, len(ids))
+	for _, id := range ids {
+		art, err := svc.Proto.GetArtifact(ctx, id)
+		if err != nil {
+			return "", fmt.Errorf("get %s: %w", id, err)
+		}
+		FilterSections(art, sectionFilter)
+		arts = append(arts, art)
+	}
+	data, _ := json.Marshal(arts)
+	return string(data), nil
+}
+
+func renderTree(node *parchment.TreeNode) string {
+	var b strings.Builder
+	renderTreeNode(node, "", true, countDistinctScopes(node) > 1, &b)
+	return b.String()
+}
+
+func renderTreeNode(node *parchment.TreeNode, prefix string, last, showScope bool, b *strings.Builder) {
+	connector := "├── "
+	if last {
+		connector = "└── "
+	}
+	if prefix == "" {
+		connector = ""
+	}
+	edgeLabel := ""
+	if node.Edge != "" {
+		arrow := " -> "
+		if node.Direction == "incoming" {
+			arrow = " <- "
+		}
+		edgeLabel = node.Edge + arrow
+	}
+	scopeLabel := ""
+	if showScope && node.Scope != "" {
+		scopeLabel = fmt.Sprintf(" [%s]", node.Scope)
+	}
+	fmt.Fprintf(b, "%s%s%s%s%s [%s] %s\n", prefix, connector, edgeLabel, node.ID, scopeLabel, node.Status, node.Title)
+	cp := prefix
+	if prefix != "" {
+		if last {
+			cp += "    "
+		} else {
+			cp += "│   "
+		}
+	}
+	for i, ch := range node.Children {
+		renderTreeNode(ch, cp, i == len(node.Children)-1, showScope, b)
+	}
+}
+
+func renderBriefing(node *parchment.TreeNode) string {
+	var b strings.Builder
+	renderBriefingNode(node, "", true, countDistinctScopes(node) > 1, &b)
+	return b.String()
+}
+
+func renderBriefingNode(node *parchment.TreeNode, prefix string, last, showScope bool, b *strings.Builder) {
+	connector := "├── "
+	if last {
+		connector = "└── "
+	}
+	if prefix == "" {
+		connector = ""
+	}
+	edgeLabel := ""
+	if node.Edge != "" {
+		arrow := " -> "
+		if node.Direction == "incoming" {
+			arrow = " <- "
+		}
+		edgeLabel = node.Edge + arrow
+	}
+	scopeLabel := ""
+	if showScope && node.Scope != "" {
+		scopeLabel = fmt.Sprintf(" [%s]", node.Scope)
+	}
+	kindStatus := node.Status
+	if node.Kind != "" {
+		kindStatus = node.Kind + "|" + node.Status
+	}
+	fmt.Fprintf(b, "%s%s%s%s%s [%s] %s\n", prefix, connector, edgeLabel, node.ID, scopeLabel, kindStatus, node.Title)
+	cp := prefix
+	if prefix != "" {
+		if last {
+			cp += "    "
+		} else {
+			cp += "│   "
+		}
+	}
+	for i, ch := range node.Children {
+		renderBriefingNode(ch, cp, i == len(node.Children)-1, showScope, b)
+	}
+}
+
+func countDistinctScopes(node *parchment.TreeNode) int {
+	scopes := map[string]struct{}{}
+	var walk func(n *parchment.TreeNode)
+	walk = func(n *parchment.TreeNode) {
+		if n.Scope != "" {
+			scopes[n.Scope] = struct{}{}
+		}
+		for _, ch := range n.Children {
+			walk(ch)
+		}
+	}
+	walk(node)
+	return len(scopes)
 }
 
 type createInput struct {

@@ -35,14 +35,16 @@ func NewServer(svc *service.Service, vocab []string, version string) (*sdkmcp.Se
 	if svc.Proto != nil {
 		store = svc.Proto.Store()
 	}
+	if svc.ReadLog == nil {
+		svc.ReadLog = loadReadLog(context.Background(), store, svc.Proto, sid)
+		svc.SessionID = sid
+	}
 	h := &handler{
 		proto:       svc.Proto,
 		svc:         svc,
 		snapshotter: svc.Snapshotter,
 		version:     version,
 		homeScopes:  svc.HomeScopes,
-		readLog:     loadReadLog(context.Background(), store, svc.Proto, sid),
-		sessionID:   sid,
 	}
 
 	// Build SDK directly for full MCP 2025 spec support (Title, Annotations).
@@ -117,8 +119,7 @@ type handler struct {
 	snapshotter *parchment.Snapshotter
 	version     string
 	homeScopes  []string        // default scopes for operations that need a scope
-	readLog     map[string]bool // tracks which artifact IDs have been read this session
-	sessionID   string          // stable per-process ID used to persist readLog as a config artifact
+
 }
 
 // --- consolidated input types ---

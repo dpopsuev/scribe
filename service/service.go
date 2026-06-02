@@ -7,6 +7,8 @@
 package service
 
 import (
+	"context"
+
 	parchment "github.com/dpopsuev/parchment"
 )
 
@@ -16,6 +18,8 @@ type Service struct {
 	Proto       *parchment.Protocol
 	Snapshotter *parchment.Snapshotter
 	HomeScopes  []string
+	ReadLog     map[string]bool
+	SessionID   string
 }
 
 // New constructs a Service.
@@ -24,5 +28,13 @@ func New(proto *parchment.Protocol, snapshotter *parchment.Snapshotter, homeScop
 		Proto:       proto,
 		Snapshotter: snapshotter,
 		HomeScopes:  homeScopes,
+		ReadLog:     make(map[string]bool),
+		SessionID:   NewSessionID(),
 	}
+}
+
+// RecordRead marks an artifact as read and asynchronously persists the log.
+func (s *Service) RecordRead(ctx context.Context, id string) {
+	s.ReadLog[id] = true
+	go s.PersistReadLog(context.Background(), s.SessionID, s.ReadLog) //nolint:contextcheck,gosec // background intentional
 }
