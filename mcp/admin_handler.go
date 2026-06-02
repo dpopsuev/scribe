@@ -244,3 +244,12 @@ func (h *handler) handleContextRead(ctx context.Context, in adminInput) (*sdkmcp
 	data, _ := json.Marshal(packet)
 	return text(string(data)), nil, nil
 }
+
+type detectInput struct {
+	Check     string `json:"check,omitempty" jsonschema:"orphans, overlaps, knowledge, or all (default: all)"`
+	Scope     string `json:"scope,omitempty"`
+	Status    string `json:"status,omitempty"`
+	Kind      string `json:"kind,omitempty"`
+	Project   string `json:"project,omitempty"`
+	StaleDays int    `json:"stale_days,omitempty" jsonschema:"days before a fleeting note is considered stuck (default: 7)"`
+}
