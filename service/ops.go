@@ -950,7 +950,6 @@ type listInput struct {
 	Sort           string   `json:"sort,omitempty"`
 	Limit          int      `json:"limit,omitempty"`
 	Cursor         string   `json:"cursor,omitempty"` // pagination cursor from previous list response
-	Offset         int      `json:"offset,omitempty"`
 	Top            int      `json:"top,omitempty"`
 	Count          bool     `json:"count,omitempty"`
 	Fields         []string `json:"fields,omitempty"`
@@ -989,7 +988,7 @@ var listValidFields = map[string]func(*parchment.Artifact) string{
 	"labels":     func(a *parchment.Artifact) string { return strings.Join(a.Labels, ",") },
 }
 
-func listCompact(arts []*parchment.Artifact, fields []string, offset int, li *parchment.ListInput) (string, error) {
+func listCompact(arts []*parchment.Artifact, fields []string, li *parchment.ListInput) (string, error) {
 	getters := make([]func(*parchment.Artifact) string, 0, len(fields))
 	for _, f := range fields {
 		g, ok := listValidFields[f]
@@ -999,9 +998,6 @@ func listCompact(arts []*parchment.Artifact, fields []string, offset int, li *pa
 		getters = append(getters, g)
 	}
 	total := len(arts)
-	if offset > 0 && offset < len(arts) {
-		arts = arts[offset:]
-	}
 	if li.Limit > 0 && li.Limit < len(arts) {
 		arts = arts[:li.Limit]
 	}
@@ -1022,7 +1018,7 @@ func listCompact(arts []*parchment.Artifact, fields []string, offset int, li *pa
 		}
 		b.WriteString("\n")
 	}
-	if offset > 0 || (li.Limit > 0 && li.Limit < total) {
+	if li.Limit > 0 && li.Limit < total {
 		fmt.Fprintf(&b, "\n(%d of %d artifacts)\n", len(arts), total)
 	} else {
 		fmt.Fprintf(&b, "\n(%d artifacts)\n", len(arts))
@@ -1145,7 +1141,7 @@ var opList = Op{
 		}
 
 		if len(in.Fields) > 0 {
-			return listCompact(arts, in.Fields, in.Offset, &li)
+			return listCompact(arts, in.Fields, &li)
 		}
 
 		if in.Top > 0 {
@@ -1163,10 +1159,6 @@ var opList = Op{
 			SortArtifacts(arts, in.Sort)
 		}
 		total := len(arts)
-		off := in.Offset
-		if off > 0 && off < len(arts) {
-			arts = arts[off:]
-		}
 		if li.Limit > 0 && li.Limit < len(arts) {
 			arts = arts[:li.Limit]
 		}
@@ -1181,7 +1173,7 @@ var opList = Op{
 		}
 
 		out := parchment.RenderTable(arts)
-		if off > 0 || (li.Limit > 0 && li.Limit < total) {
+		if li.Limit > 0 && li.Limit < total {
 			out += fmt.Sprintf("\n(showing %d of %d total)", len(arts), total)
 		}
 		isUnfiltered := li.Kind == "" && li.Scope == "" && li.Status == "" &&
