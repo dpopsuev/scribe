@@ -217,7 +217,7 @@ type knowledgeInput struct {
 }
 
 type adminInput struct {
-	Action  string `json:"action" jsonschema:"required,motd | changelog | dashboard | snapshot | set_goal | detect | correlate | ingest_session | set_scope | set_scope_labels | context_read | session"`
+	Action  string `json:"action" jsonschema:"required,motd | changelog | dashboard | snapshot | set_goal | detect | correlate | ingest_session | decision | set_scope | set_scope_labels | context_read | session"`
 	Compact bool   `json:"compact,omitempty" jsonschema:"minimal output for repeat calls (motd)"`
 
 	SnapshotAction string `json:"snapshot_action,omitempty" jsonschema:"create, list, diff, or restore"`

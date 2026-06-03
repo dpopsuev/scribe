@@ -34,6 +34,8 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 			Kind: in.Kind, Project: in.Project,
 		})
 
+	case "decision":
+		return h.handleDecision(ctx, in)
 	case "set_scope":
 		return h.handleSetScope(in.Labels) // Labels reused as []string scopes
 
@@ -67,7 +69,47 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 			return nil, nil, fmt.Errorf("session requires snapshot_action=start|commit|diff|merge") //nolint:err113 // agent-facing hint
 		}
 	default:
-		return nil, nil, fmt.Errorf("unknown admin action %q (valid: motd, changelog, dashboard, snapshot, set_goal, detect, correlate, ingest_session, context_read, session, set_scope, set_scope_labels)", in.Action) //nolint:err113 // agent-facing hint
+		return nil, nil, fmt.Errorf("unknown admin action %q (valid: motd, changelog, dashboard, snapshot, set_goal, detect, correlate, ingest_session, decision, context_read, session, set_scope, set_scope_labels)", in.Action) //nolint:err113 // agent-facing hint
+	}
+}
+
+// handleDecision dispatches decision cache sub-actions: check | record | list.
+// Uses adminInput.Check=key, adminInput.Value=answer, adminInput.Scope.
+func (h *handler) handleDecision(ctx context.Context, in adminInput) (*sdkmcp.CallToolResult, any, error) {
+	switch in.SnapshotAction {
+	case "record":
+		if in.Check == "" || in.Evidence == "" {
+			return nil, nil, fmt.Errorf("decision record requires check=<key> and evidence=<answer>") //nolint:err113 // user-facing hint
+		}
+		if err := h.svc.RecordDecision(ctx, in.Check, in.Evidence, in.Scope); err != nil {
+			return nil, nil, err
+		}
+		return text(fmt.Sprintf("decision recorded: %q → %q", in.Check, in.Evidence)), nil, nil
+	case "list":
+		arts, err := h.svc.ListDecisions(ctx, in.Scope)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(arts) == 0 {
+			return text("no decisions recorded"), nil, nil
+		}
+		var lines []string
+		for _, a := range arts {
+			lines = append(lines, fmt.Sprintf("  %-30s %s", a.Title, a.Goal))
+		}
+		return text(strings.Join(lines, "\n")), nil, nil
+	default: // "check" or empty
+		if in.Check == "" {
+			return nil, nil, fmt.Errorf("decision check requires check=<key>") //nolint:err113 // user-facing hint
+		}
+		answer, err := h.svc.CheckDecision(ctx, in.Check, in.Scope)
+		if err != nil {
+			return nil, nil, err
+		}
+		if answer == "" {
+			return text(fmt.Sprintf("%q: not decided", in.Check)), nil, nil
+		}
+		return text(fmt.Sprintf("%q: %s", in.Check, answer)), nil, nil
 	}
 }
 
