@@ -2764,3 +2764,52 @@ func TestToolDescriptions_ProgressiveDisclosure(t *testing.T) {
 		_ = tool // instructions are not exposed via ListTools; tested via server_instructions_test if needed
 	}
 }
+
+func TestAdmin_MotdCompact(t *testing.T) {
+	s := openStore(t)
+	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+	text := callTool(t, cs, "admin", map[string]any{"action": "motd", "compact": true})
+	if text == "" {
+		t.Error("compact motd returned empty string")
+	}
+}
+
+func TestAdmin_Dashboard(t *testing.T) {
+	s := openStore(t)
+	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+	text := callTool(t, cs, "admin", map[string]any{"action": "dashboard"})
+	if text == "" {
+		t.Error("dashboard returned empty string")
+	}
+}
+
+func TestAdmin_SetGoal_CreatesArtifacts(t *testing.T) {
+	s := openStore(t)
+	// KnowledgeSchema needed for goal kind — seed via Protocol then reuse store.
+	parchment.New(s, parchment.KnowledgeSchema(), []string{"test"}, nil, parchment.ProtocolConfig{})
+	srv, _ := scribemcp.NewServerFromStore(s, []string{"test"}, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+	text := callTool(t, cs, "admin", map[string]any{
+		"action": "set_goal",
+		"title":  "improve recall quality",
+		"scope":  "test",
+	})
+	if !strings.Contains(text, "improve recall quality") {
+		t.Errorf("set_goal output missing title: %s", text)
+	}
+}
+
+func TestAdmin_SetScope(t *testing.T) {
+	s := openStore(t)
+	srv, _ := scribemcp.NewServerFromStore(s, []string{"test", "other"}, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+	text := callTool(t, cs, "admin", map[string]any{
+		"action": "set_scope",
+		"labels": []string{"test"},
+	})
+	if !strings.Contains(text, "test") {
+		t.Errorf("set_scope output missing scope: %s", text)
+	}
+}
