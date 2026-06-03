@@ -2813,3 +2813,11 @@ func TestAdmin_SetScope(t *testing.T) {
 		t.Errorf("set_scope output missing scope: %s", text)
 	}
 }
+
+func TestToolRegistry_ReturnsNonEmpty(t *testing.T) {
+	reg := scribemcp.ToolRegistry()
+	tools := reg.List()
+	if len(tools) == 0 {
+		t.Fatal("ToolRegistry should return at least one tool")
+	}
+}
