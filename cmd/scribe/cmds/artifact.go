@@ -112,16 +112,21 @@ func ListCmd() *cobra.Command {
 }
 
 func SetCmd() *cobra.Command {
-	return &cobra.Command{
+	var bypassGuards bool
+	cmd := &cobra.Command{
 		Use:   "set <ID> <field> <value>",
 		Short: "Set a field on an artifact",
 		Args:  cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return RunOp("set", map[string]any{
-				"id": args[0], "field": args[1], "value": args[2],
-			})
+			params := map[string]any{"id": args[0], "field": args[1], "value": args[2]}
+			if bypassGuards {
+				params["bypass_guards"] = true
+			}
+			return RunOp("set", params)
 		},
 	}
+	cmd.Flags().BoolVar(&bypassGuards, "bypass-guards", false, "skip lifecycle guards (use for force status transitions)")
+	return cmd
 }
 
 func DeleteCmd() *cobra.Command {
