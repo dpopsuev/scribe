@@ -104,6 +104,7 @@ type linkInput struct {
 	Target      string      `json:"target,omitempty"`
 	ReplaceFrom string      `json:"replace_from,omitempty"`
 	Mode        string      `json:"mode,omitempty"`
+	Weight      float64     `json:"weight,omitempty"`
 	Edges       []edgeInput `json:"edges,omitempty"`
 }
 
@@ -112,14 +113,16 @@ func execEdgeOp(ctx context.Context, svc *Service, in linkInput, unlink bool) (s
 	if unlink {
 		verb = "unlinked"
 	}
-	linkFn := svc.Proto.LinkArtifacts
-	if unlink {
-		linkFn = svc.Proto.UnlinkArtifacts
+	callLink := func(ctx context.Context, from, rel string, targets []string) ([]parchment.Result, error) {
+		if unlink {
+			return svc.Proto.UnlinkArtifacts(ctx, from, rel, targets)
+		}
+		return svc.Proto.LinkArtifacts(ctx, from, rel, targets, in.Weight)
 	}
 	if len(in.Edges) > 0 {
 		var lines []string
 		for _, e := range in.Edges {
-			results, err := linkFn(ctx, e.From, e.Relation, []string{e.To})
+			results, err := callLink(ctx, e.From, e.Relation, []string{e.To})
 			if err != nil {
 				lines = append(lines, fmt.Sprintf("%s -[%s]-> %s: error: %s", e.From, e.Relation, e.To, err))
 				continue
@@ -137,7 +140,7 @@ func execEdgeOp(ctx context.Context, svc *Service, in linkInput, unlink bool) (s
 	if in.ID == "" || len(in.Targets) == 0 || in.Relation == "" {
 		return "", fmt.Errorf("id, relation, and targets required") //nolint:err113 // user-facing hint
 	}
-	results, err := linkFn(ctx, in.ID, in.Relation, in.Targets)
+	results, err := callLink(ctx, in.ID, in.Relation, in.Targets)
 	if err != nil {
 		return "", err
 	}
@@ -169,7 +172,7 @@ var opLink = Op{
 			if _, err := svc.Proto.UnlinkArtifacts(ctx, in.ID, in.Relation, []string{in.ReplaceFrom}); err != nil {
 				return "", fmt.Errorf("unlink old: %w", err)
 			}
-			if _, err := svc.Proto.LinkArtifacts(ctx, in.ID, in.Relation, []string{in.Target}); err != nil {
+			if _, err := svc.Proto.LinkArtifacts(ctx, in.ID, in.Relation, []string{in.Target}, in.Weight); err != nil {
 				return "", fmt.Errorf("link new: %w", err)
 			}
 			return fmt.Sprintf("replaced %s -[%s]-> %s with %s", in.ID, in.Relation, in.ReplaceFrom, in.Target), nil

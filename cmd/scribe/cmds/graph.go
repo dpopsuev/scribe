@@ -136,7 +136,7 @@ func LinkCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, cleanup := MustService()
 			defer cleanup()
-			results, err := svc.Proto.LinkArtifacts(context.Background(), args[0], args[1], args[2:])
+			results, err := svc.Proto.LinkArtifacts(context.Background(), args[0], args[1], args[2:], 0)
 			if err != nil {
 				return err
 			}

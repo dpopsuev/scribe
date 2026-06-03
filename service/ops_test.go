@@ -159,7 +159,7 @@ func TestOpSet_ActivationBlockedUntilSpecRead(t *testing.T) {
 			{Name: "context", Text: "ctx"}, {Name: "checklist", Text: "ok"}, {Name: "acceptance", Text: "ok"},
 		},
 	})
-	svc.Proto.LinkArtifacts(ctx, task.ID, "implements", []string{spec.ID}) //nolint:errcheck // test setup, error irrelevant to subject under test
+	svc.Proto.LinkArtifacts(ctx, task.ID, "implements", []string{spec.ID}, 0) //nolint:errcheck // test setup, error irrelevant to subject under test
 
 	op := service.Find("set")
 	raw, _ := json.Marshal(map[string]any{"id": task.ID, "field": "status", "value": "active"})
@@ -186,7 +186,7 @@ func TestOpSet_ActivationAllowedAfterSpecRead(t *testing.T) {
 			{Name: "context", Text: "ctx"}, {Name: "checklist", Text: "ok"}, {Name: "acceptance", Text: "ok"},
 		},
 	})
-	svc.Proto.LinkArtifacts(ctx, task.ID, "implements", []string{spec.ID}) //nolint:errcheck // test setup, error irrelevant to subject under test
+	svc.Proto.LinkArtifacts(ctx, task.ID, "implements", []string{spec.ID}, 0) //nolint:errcheck // test setup, error irrelevant to subject under test
 	svc.ReadLog[spec.ID] = true
 
 	op := service.Find("set")
@@ -407,7 +407,7 @@ func TestOpReplace_SwapsEdgeTarget(t *testing.T) {
 	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "A", Scope: "test"})
 	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "spec", Title: "B", Scope: "test"})
 	c, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "spec", Title: "C", Scope: "test"})
-	svc.Proto.LinkArtifacts(ctx, a.ID, "implements", []string{b.ID}) //nolint:errcheck // test setup, error irrelevant to subject under test
+	svc.Proto.LinkArtifacts(ctx, a.ID, "implements", []string{b.ID}, 0) //nolint:errcheck // test setup, error irrelevant to subject under test
 
 	op := service.Find("link")
 	raw, _ := json.Marshal(map[string]any{
@@ -462,7 +462,7 @@ func TestOpLink_ModeRemoveUnlinks(t *testing.T) {
 
 	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "A", Scope: "test"})
 	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "spec", Title: "B", Scope: "test"})
-	svc.Proto.LinkArtifacts(ctx, a.ID, "implements", []string{b.ID}) //nolint:errcheck // test setup, error irrelevant to subject under test
+	svc.Proto.LinkArtifacts(ctx, a.ID, "implements", []string{b.ID}, 0) //nolint:errcheck // test setup, error irrelevant to subject under test
 
 	op := service.Find("link")
 	raw, _ := json.Marshal(map[string]any{"id": a.ID, "relation": "implements", "targets": []string{b.ID}, "mode": "remove"})
@@ -485,7 +485,7 @@ func TestOpLink_ModeReplaceSwapsTarget(t *testing.T) {
 	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "A", Scope: "test"})
 	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "spec", Title: "B", Scope: "test"})
 	c, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "spec", Title: "C", Scope: "test"})
-	svc.Proto.LinkArtifacts(ctx, a.ID, "implements", []string{b.ID}) //nolint:errcheck // test setup, error irrelevant to subject under test
+	svc.Proto.LinkArtifacts(ctx, a.ID, "implements", []string{b.ID}, 0) //nolint:errcheck // test setup, error irrelevant to subject under test
 
 	op := service.Find("link")
 	if op == nil {
@@ -537,7 +537,7 @@ func TestOpUnlink_RemovesEdge(t *testing.T) {
 
 	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "A", Scope: "test"})
 	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "spec", Title: "B", Scope: "test"})
-	svc.Proto.LinkArtifacts(ctx, a.ID, "implements", []string{b.ID}) //nolint:errcheck // test setup, error irrelevant to subject under test
+	svc.Proto.LinkArtifacts(ctx, a.ID, "implements", []string{b.ID}, 0) //nolint:errcheck // test setup, error irrelevant to subject under test
 
 	op := service.Find("link")
 	raw, _ := json.Marshal(map[string]any{"id": a.ID, "relation": "implements", "targets": []string{b.ID}, "mode": "remove"})

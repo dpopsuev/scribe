@@ -105,7 +105,7 @@ func (s *Service) ingestSessionFile(ctx context.Context, path, scope string) (cr
 		if err != nil {
 			continue
 		}
-		_, _ = s.Proto.LinkArtifacts(ctx, art.ID, parchment.RelCites, []string{source.ID})
+		_, _ = s.Proto.LinkArtifacts(ctx, art.ID, parchment.RelCites, []string{source.ID}, 0)
 		created++
 	}
 	return created, 0, nil

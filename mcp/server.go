@@ -193,6 +193,7 @@ type artifactInput struct {
 	Prefix       string            `json:"prefix,omitempty"`
 
 	Relation  string      `json:"relation,omitempty" jsonschema:"parent_of, depends_on, follows, justifies, implements, documents"`
+	Weight    float64     `json:"weight,omitempty" jsonschema:"edge coupling strength (0.0 = boolean, 1.0 = max; default 0)"`
 	Direction string      `json:"direction,omitempty" jsonschema:"outbound (default) or inbound"`
 	Depth     int         `json:"depth,omitempty" jsonschema:"tree/briefing: max depth; topo_sort: max results when unblocked=true"`
 	Unblocked bool        `json:"unblocked,omitempty" jsonschema:"topo_sort: return only unblocked ready tasks"`
