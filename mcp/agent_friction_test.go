@@ -270,12 +270,13 @@ func TestArtifact_Promote_TemplateConformanceEnforced(t *testing.T) {
 		t.Skip("could not determine need artifact ID")
 	}
 
-	// Attempt to promote to active — should fail: missing acceptance section.
+	// Attempt to promote to proposed — should fail: missing acceptance section.
+	// (need kind uses intent lifecycle: draft→proposed, not draft→active)
 	out := callTool(t, cs, "artifact", map[string]any{
 		"action": "set",
 		"id":     artID,
 		"field":  "status",
-		"value":  parchment.StatusActive,
+		"value":  "proposed",
 	})
 
 	// Conformance check should fire here, not at create time.
