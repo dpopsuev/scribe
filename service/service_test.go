@@ -350,3 +350,183 @@ func TestExpandLabels_DotHierarchy(t *testing.T) {
 		}
 	}
 }
+
+// --- SortArtifacts ---
+
+func TestSortArtifacts_ByTitle(t *testing.T) {
+	arts := []*parchment.Artifact{
+		{ID: "B", Title: "beta"},
+		{ID: "A", Title: "alpha"},
+		{ID: "C", Title: "gamma"},
+	}
+	service.SortArtifacts(arts, "title")
+	if arts[0].Title != "alpha" || arts[1].Title != "beta" || arts[2].Title != "gamma" {
+		t.Errorf("SortArtifacts(title) wrong order: %v", []string{arts[0].Title, arts[1].Title, arts[2].Title})
+	}
+}
+
+func TestSortArtifacts_DefaultsToID(t *testing.T) {
+	arts := []*parchment.Artifact{
+		{ID: "C"}, {ID: "A"}, {ID: "B"},
+	}
+	service.SortArtifacts(arts, "unknown_field")
+	if arts[0].ID != "A" || arts[2].ID != "C" {
+		t.Errorf("SortArtifacts(unknown) should fall back to ID sort, got: %v", []string{arts[0].ID, arts[1].ID, arts[2].ID})
+	}
+}
+
+// --- IsComponentLabel ---
+
+func TestIsComponentLabel(t *testing.T) {
+	cases := []struct {
+		input string
+		want  bool
+	}{
+		{"file:pkg/foo.go", true},
+		{"pkg:github.com/org/repo/pkg", true},
+		{"fqn:pkg/Func", true},
+		{"label", false},
+		{"file:", false},
+		{"", false},
+		{"file:foo", false}, // no slash
+	}
+	for _, tc := range cases {
+		got := service.IsComponentLabel(tc.input)
+		if got != tc.want {
+			t.Errorf("IsComponentLabel(%q) = %v, want %v", tc.input, got, tc.want)
+		}
+	}
+}
+
+// --- RenderMotdCompact ---
+
+func TestRenderMotdCompact_ContainsVersionAndCounts(t *testing.T) {
+	t.Parallel()
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{ //nolint:errcheck // test setup
+		Kind: "task", Title: "active task", Scope: "test", Status: "active",
+	})
+
+	out, err := svc.RenderMotdCompact(ctx, "v2.19.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "v2.19.0") {
+		t.Errorf("compact motd should contain version, got: %s", out)
+	}
+	if !strings.Contains(out, "active") {
+		t.Errorf("compact motd should mention active count, got: %s", out)
+	}
+}
+
+// --- RenderDashboard ---
+
+func TestRenderDashboard_ReturnsJSON(t *testing.T) {
+	t.Parallel()
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	out, err := svc.RenderDashboard(ctx, 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out == "" {
+		t.Error("RenderDashboard returned empty string")
+	}
+	// Output should be JSON
+	if out[0] != '{' {
+		t.Errorf("RenderDashboard output should be JSON object, got: %.20s", out)
+	}
+}
+
+// --- RenderKnowledgeLint ---
+
+func TestRenderKnowledgeLint_ReturnsString(t *testing.T) {
+	t.Parallel()
+	svc := newTestService(t)
+	out, err := svc.RenderKnowledgeLint(context.Background(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// With no artifacts, should return some output (even if just a header)
+	_ = out // just verify it doesn't panic or error
+}
+
+// --- SetGoal ---
+
+func TestSetGoal_CreatesGoalAndRoot(t *testing.T) {
+	// Given: a service with KnowledgeSchema (has goal kind)
+	// When: SetGoal is called with a title
+	// Then: a goal artifact and a root spec (justifies goal) are created
+	t.Parallel()
+	store := parchment.NewMemoryStore()
+	proto := parchment.New(store, parchment.KnowledgeSchema(), []string{"test"}, nil, parchment.ProtocolConfig{})
+	svc := service.New(proto, nil, []string{"test"})
+	ctx := context.Background()
+
+	result, err := svc.SetGoal(ctx, service.SetGoalInput{Title: "improve semantic search", Scope: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Goal == nil {
+		t.Fatal("SetGoal should return a goal artifact")
+	}
+	if result.Root == nil {
+		t.Fatal("SetGoal should return a root artifact")
+	}
+	if result.Goal.Kind != "goal" {
+		t.Errorf("goal kind = %q, want %q", result.Goal.Kind, "goal")
+	}
+	// Root should justify the goal
+	found := false
+	for _, id := range result.Root.Links[parchment.RelJustifies] {
+		if id == result.Goal.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("root should justify goal %s via %s edge", result.Goal.ID, parchment.RelJustifies)
+	}
+}
+
+func TestSetGoal_ArchivesExistingGoal(t *testing.T) {
+	// Given: an existing current goal
+	// When: SetGoal is called again
+	// Then: the old goal is archived, new goal is created
+	t.Parallel()
+	store := parchment.NewMemoryStore()
+	proto := parchment.New(store, parchment.KnowledgeSchema(), []string{"test"}, nil, parchment.ProtocolConfig{})
+	svc := service.New(proto, nil, []string{"test"})
+	ctx := context.Background()
+
+	first, err := svc.SetGoal(ctx, service.SetGoalInput{Title: "first goal", Scope: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := svc.SetGoal(ctx, service.SetGoalInput{Title: "second goal", Scope: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Archived) == 0 {
+		t.Error("expected first goal to be archived when setting a new goal")
+	}
+	found := false
+	for _, a := range second.Archived {
+		if a.ID == first.Goal.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("first goal %s should be in archived list", first.Goal.ID)
+	}
+}
+
+func TestSetGoal_RequiresTitle(t *testing.T) {
+	svc := newTestService(t)
+	_, err := svc.SetGoal(context.Background(), service.SetGoalInput{})
+	if err == nil {
+		t.Fatal("SetGoal without title should return error")
+	}
+}
