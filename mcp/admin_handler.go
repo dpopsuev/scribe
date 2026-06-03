@@ -34,6 +34,9 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 			Kind: in.Kind, Project: in.Project,
 		})
 
+	case "set_scope":
+		return h.handleSetScope(in.Labels) // Labels reused as []string scopes
+
 	case "set_scope_labels":
 		if in.Scope == "" {
 			return nil, nil, fmt.Errorf("scope is required for set_scope_labels") //nolint:err113 // agent-facing input validation
@@ -64,8 +67,20 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 			return nil, nil, fmt.Errorf("session requires snapshot_action=start|commit|diff|merge") //nolint:err113 // agent-facing hint
 		}
 	default:
-		return nil, nil, fmt.Errorf("unknown admin action %q (valid: motd, changelog, dashboard, snapshot, set_goal, detect, correlate, ingest_session, context_read, session, set_scope_labels)", in.Action) //nolint:err113 // agent-facing hint
+		return nil, nil, fmt.Errorf("unknown admin action %q (valid: motd, changelog, dashboard, snapshot, set_goal, detect, correlate, ingest_session, context_read, session, set_scope, set_scope_labels)", in.Action) //nolint:err113 // agent-facing hint
 	}
+}
+
+// handleSetScope narrows the session's home scopes to a subset of the current scopes.
+// Takes scopes via the Labels field (reused as []string). Allows an agent that
+// connected to a wide workspace to self-narrow once it knows its project.
+func (h *handler) handleSetScope(scopes []string) (*sdkmcp.CallToolResult, any, error) {
+	if len(scopes) == 0 {
+		return text(fmt.Sprintf("current scopes: %s", strings.Join(h.homeScopes, ", "))), nil, nil
+	}
+	h.homeScopes = scopes
+	h.svc.HomeScopes = scopes
+	return text(fmt.Sprintf("scope narrowed to: %s", strings.Join(scopes, ", "))), nil, nil
 }
 
 func (h *handler) handleSetGoal(ctx context.Context, _ *sdkmcp.CallToolRequest, in service.SetGoalInput) (*sdkmcp.CallToolResult, any, error) {

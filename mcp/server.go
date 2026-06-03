@@ -117,8 +117,7 @@ type handler struct {
 	svc         *service.Service
 	snapshotter *parchment.Snapshotter
 	version     string
-	homeScopes  []string // default scopes for operations that need a scope
-
+	homeScopes  []string // default scopes; narrowable at runtime via admin(set_scope)
 }
 
 // --- consolidated input types ---

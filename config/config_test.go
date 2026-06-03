@@ -137,3 +137,34 @@ func TestExpandHome(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkspaceScopesFor(t *testing.T) {
+	cfg := &Config{
+		ScopeConfigs: map[string]ScopeConfig{
+			"scribe": {Path: "/Workspace/scribe"},
+			"foni":   {Path: "/Workspace/foni"},
+		},
+	}
+
+	cases := []struct {
+		workspace string
+		want      []string
+	}{
+		{"scribe", []string{"scribe"}},              // named scope — single element
+		{"foni,scribe", []string{"foni", "scribe"}}, // comma-separated literal list
+		{"unknown", []string{"unknown"}},            // unknown — treated as literal
+		{"a,b,c", []string{"a", "b", "c"}},          // multi-element literal
+	}
+	for _, tc := range cases {
+		got := cfg.WorkspaceScopesFor(tc.workspace)
+		if len(got) != len(tc.want) {
+			t.Errorf("WorkspaceScopesFor(%q) = %v, want %v", tc.workspace, got, tc.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Errorf("WorkspaceScopesFor(%q)[%d] = %q, want %q", tc.workspace, i, got[i], tc.want[i])
+			}
+		}
+	}
+}

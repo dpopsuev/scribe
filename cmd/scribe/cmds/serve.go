@@ -147,6 +147,19 @@ func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, ppro
 
 	srv, _ := mcp.NewServer(svc, nil, Version)
 
+	// Per-request factory for HTTP transport: resolves ?workspace= to a scoped server.
+	// The store is shared; Protocol and Service are created per session.
+	store := svc.Proto.Store()
+	idc := cfg.ProtocolIDConfig()
+	srvFactory := func(r *http.Request) *sdkmcp.Server {
+		scopes := homeScopes
+		if ws := r.URL.Query().Get("workspace"); ws != "" {
+			scopes = cfg.WorkspaceScopesFor(ws)
+		}
+		perConnSrv, _ := mcp.NewServerFromStore(store, scopes, idc, Version)
+		return perConnSrv
+	}
+
 	slog.InfoContext(ctx, "server configured",
 		slog.String(logKeyTransport, t),
 		slog.Any(logKeyScopes, homeScopes),
@@ -170,15 +183,15 @@ func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, ppro
 	defer stop()
 
 	if t == "http" {
-		return runHTTP(sigCtx, ctx, cmd, srv, a, pprofAddr, enablePprof)
+		return runHTTP(sigCtx, ctx, cmd, srvFactory, a, pprofAddr, enablePprof)
 	}
 	slog.InfoContext(ctx, "serving via stdio")
 	return srv.Run(sigCtx, &sdkmcp.StdioTransport{})
 }
 
-func runHTTP(sigCtx, logCtx context.Context, cmd *cobra.Command, srv *sdkmcp.Server, addr, pprofAddr string, enablePprof bool) error {
+func runHTTP(sigCtx, logCtx context.Context, cmd *cobra.Command, srvFactory func(*http.Request) *sdkmcp.Server, addr, pprofAddr string, enablePprof bool) error {
 	handler := sdkmcp.NewStreamableHTTPHandler(
-		func(r *http.Request) *sdkmcp.Server { return srv },
+		srvFactory,
 		&sdkmcp.StreamableHTTPOptions{
 			SessionTimeout: SessionTimeout(),
 		},

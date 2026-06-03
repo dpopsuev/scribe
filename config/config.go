@@ -303,6 +303,34 @@ func (c *Config) ResolvedScopes() []string {
 	return scopes
 }
 
+// WorkspaceScopesFor resolves a ?workspace= query parameter to a scope list.
+// Resolution order:
+//  1. If the value is a single known scope name, return [name].
+//  2. Otherwise, split on comma and return the resulting list.
+//
+// Named workspaces (single scope lookups) are intentionally kept simple — a
+// workspace is just a scope name or a comma-separated list of scope names.
+// No pre-declaration required: unknown names pass through as literal scopes.
+func (c *Config) WorkspaceScopesFor(workspace string) []string {
+	if workspace == "" {
+		return nil
+	}
+	// Single token that names a known scope — pass through as-is (common case).
+	if !strings.Contains(workspace, ",") {
+		return []string{workspace}
+	}
+	// Comma-separated list of scope names.
+	parts := strings.Split(workspace, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // ScopeForDir returns the scope whose configured path is the longest prefix of dir.
 // Returns "" when no scope has a path configured or none match.
 func (c *Config) ScopeForDir(dir string) string {
