@@ -949,6 +949,7 @@ type listInput struct {
 	GroupBy        string   `json:"group_by,omitempty"`
 	Sort           string   `json:"sort,omitempty"`
 	Limit          int      `json:"limit,omitempty"`
+	Cursor         string   `json:"cursor,omitempty"` // pagination cursor from previous list response
 	Offset         int      `json:"offset,omitempty"`
 	Top            int      `json:"top,omitempty"`
 	Count          bool     `json:"count,omitempty"`
@@ -1084,11 +1085,24 @@ var opList = Op{
 			Parent: in.Parent, Sprint: in.Sprint, IDPrefix: in.IDPrefix,
 			ExcludeKind: in.ExcludeKind, ExcludeStatus: in.ExcludeStatus,
 			Labels: in.Labels, LabelsOr: in.LabelsOr, ExcludeLabels: in.ExcludeLabels,
-			GroupBy: in.GroupBy, Sort: in.Sort, Limit: in.Limit, Query: in.Query,
+			GroupBy: in.GroupBy, Sort: in.Sort, Limit: in.Limit, Cursor: in.Cursor, Query: in.Query,
 			TitleContains: in.TitleContains, Family: in.Family,
 			CreatedAfter: in.CreatedAfter, CreatedBefore: in.CreatedBefore,
 			UpdatedAfter: in.UpdatedAfter, UpdatedBefore: in.UpdatedBefore,
 			InsertedAfter: in.InsertedAfter, InsertedBefore: in.InsertedBefore,
+		}
+
+		// Use paginated path when cursor or limit is requested.
+		if in.Cursor != "" || (in.Limit > 0 && in.Query == "") {
+			page, err := svc.Proto.ListPage(ctx, li)
+			if err != nil {
+				return "", err
+			}
+			out := parchment.RenderTable(page.Artifacts)
+			if page.NextCursor != "" {
+				out += fmt.Sprintf("\nnext_cursor: %s  (pass as cursor= to continue)", page.NextCursor)
+			}
+			return out, nil
 		}
 
 		var arts []*parchment.Artifact
