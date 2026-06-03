@@ -699,3 +699,74 @@ func TestBulkSetField_UpdatesMatchingArtifacts(t *testing.T) {
 		t.Errorf("BulkSetField count = %d, want >= 2", result.Count)
 	}
 }
+
+// --- ExtractExcerpt ---
+
+func TestExtractExcerpt_FindsTermInSection(t *testing.T) {
+	art := &parchment.Artifact{
+		Sections: []parchment.Section{
+			{Name: "context", Text: "The authentication flow uses JWT tokens for session management."},
+		},
+	}
+	excerpt := service.ExtractExcerpt(art, []string{"jwt"})
+	if !strings.Contains(strings.ToLower(excerpt), "jwt") {
+		t.Errorf("excerpt should contain 'jwt', got: %q", excerpt)
+	}
+}
+
+func TestExtractExcerpt_FallsBackToGoal(t *testing.T) {
+	art := &parchment.Artifact{
+		Goal: "improve authentication",
+	}
+	excerpt := service.ExtractExcerpt(art, []string{"notfound"})
+	if excerpt != "improve authentication" {
+		t.Errorf("should fall back to goal, got: %q", excerpt)
+	}
+}
+
+func TestExtractExcerpt_EmptyWhenNoMatch(t *testing.T) {
+	art := &parchment.Artifact{Title: "unrelated"}
+	excerpt := service.ExtractExcerpt(art, []string{"xyz"})
+	if excerpt != "" {
+		t.Errorf("expected empty excerpt, got: %q", excerpt)
+	}
+}
+
+// --- RenderCheck ---
+
+func TestRenderCheck_ReturnsJSON(t *testing.T) {
+	t.Parallel()
+	svc := newTestService(t)
+	out, err := svc.RenderCheck(context.Background(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out == "" {
+		t.Error("RenderCheck returned empty string")
+	}
+}
+
+// --- SortArtifacts other fields ---
+
+func TestSortArtifacts_ByStatus(t *testing.T) {
+	arts := []*parchment.Artifact{
+		{ID: "C", Status: "complete"},
+		{ID: "A", Status: "active"},
+		{ID: "D", Status: "draft"},
+	}
+	service.SortArtifacts(arts, "status")
+	if arts[0].Status != "active" {
+		t.Errorf("SortArtifacts(status)[0] = %q, want active", arts[0].Status)
+	}
+}
+
+func TestSortArtifacts_ByScope(t *testing.T) {
+	arts := []*parchment.Artifact{
+		{ID: "1", Scope: "z-scope"},
+		{ID: "2", Scope: "a-scope"},
+	}
+	service.SortArtifacts(arts, "scope")
+	if arts[0].Scope != "a-scope" {
+		t.Errorf("SortArtifacts(scope)[0] = %q, want a-scope", arts[0].Scope)
+	}
+}
