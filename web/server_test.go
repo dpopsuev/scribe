@@ -162,6 +162,56 @@ func TestSearchEmpty(t *testing.T) {
 	}
 }
 
+func TestEventFeed_EmitsSSE(t *testing.T) {
+	// Given: an artifact created via Protocol (emits EventCreated into EventLog)
+	// When: GET /events?since=<before creation>
+	// Then: response is text/event-stream containing the artifact's created event
+	dir := t.TempDir()
+	s, err := parchment.OpenSQLite(dir + "/events_test.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	proto := parchment.New(s, nil, []string{"test"}, nil, parchment.ProtocolConfig{})
+	before := "1970-01-01T00:00:00Z"
+
+	art, err := proto.CreateArtifact(context.Background(), parchment.CreateInput{
+		Kind: parchment.KindTask, Title: "SSE test artifact", Scope: "test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	srv := web.NewServer(proto)
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, httptest.NewRequest("GET", "/events?since="+before, http.NoBody))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /events = %d, want 200", rr.Code)
+	}
+	ct := rr.Header().Get("Content-Type")
+	if !strings.Contains(ct, "text/event-stream") {
+		t.Errorf("Content-Type = %q, want text/event-stream", ct)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, art.ID) {
+		t.Errorf("SSE body does not contain artifact ID %q\nbody: %s", art.ID, body)
+	}
+	if !strings.Contains(body, "created") {
+		t.Errorf("SSE body does not contain event type 'created'\nbody: %s", body)
+	}
+}
+
+func TestEventFeed_MissingSince(t *testing.T) {
+	srv := setup(t)
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, httptest.NewRequest("GET", "/events", http.NoBody))
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("GET /events (no since) = %d, want 400", rr.Code)
+	}
+}
+
 func TestMethodNotAllowed(t *testing.T) {
 	srv := setup(t)
 	methods := []string{"POST", "PUT", "DELETE", "PATCH"}

@@ -3,9 +3,12 @@ package web
 import (
 	"bytes"
 	"embed"
+	"encoding/json"
+	"fmt"
 	"html/template"
 	"net/http"
 	"strings"
+	"time"
 
 	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/service"
@@ -55,6 +58,7 @@ func NewServer(proto *parchment.Protocol) *Server {
 	s.mux.HandleFunc("GET /artifacts/{id}", s.handleDetail)
 	s.mux.HandleFunc("GET /tree/{id}", s.handleTree)
 	s.mux.HandleFunc("GET /search", s.handleSearch)
+	s.mux.HandleFunc("GET /events", s.handleEvents)
 
 	return s
 }
@@ -192,4 +196,46 @@ func convertMermaidBlocks(s string) string {
 	}
 
 	return result
+}
+
+// handleEvents serves the EventLog change feed as SSE.
+// GET /events?since=<RFC3339>[&scope=<scope>][&artifact_id=<id>]
+// Each event is written as: data: <JSON>\n\n
+// The feed is a batch dump: events since the cursor, then close.
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	sinceStr := r.URL.Query().Get("since")
+	if sinceStr == "" {
+		http.Error(w, "since parameter is required (RFC3339 timestamp)", http.StatusBadRequest)
+		return
+	}
+	since, err := time.Parse(time.RFC3339, sinceStr)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("invalid since: %v", err), http.StatusBadRequest)
+		return
+	}
+	filter := parchment.EventFilter{
+		Scope:      r.URL.Query().Get("scope"),
+		ArtifactID: r.URL.Query().Get("artifact_id"),
+	}
+	if et := r.URL.Query().Get("event_type"); et != "" {
+		filter.EventTypes = []string{et}
+	}
+
+	events, err := s.proto.GetEvents(r.Context(), since, filter)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	for _, event := range events {
+		data, jsonErr := json.Marshal(event)
+		if jsonErr != nil {
+			continue
+		}
+		fmt.Fprintf(w, "data: %s\n\n", data)
+	}
 }
