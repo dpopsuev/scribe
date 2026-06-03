@@ -530,3 +530,69 @@ func TestSetGoal_RequiresTitle(t *testing.T) {
 		t.Fatal("SetGoal without title should return error")
 	}
 }
+
+// --- FilterSections ---
+
+func TestFilterSections_KeepsRequestedSections(t *testing.T) {
+	art := &parchment.Artifact{
+		Sections: []parchment.Section{
+			{Name: "summary", Text: "a"},
+			{Name: "context", Text: "b"},
+			{Name: "decision", Text: "c"},
+		},
+	}
+	service.FilterSections(art, []string{"summary", "decision"})
+	if len(art.Sections) != 2 {
+		t.Fatalf("expected 2 sections, got %d", len(art.Sections))
+	}
+	if art.Sections[0].Name != "summary" || art.Sections[1].Name != "decision" {
+		t.Errorf("wrong sections: %v", art.Sections)
+	}
+}
+
+func TestFilterSections_EmptyFilterKeepsAll(t *testing.T) {
+	art := &parchment.Artifact{
+		Sections: []parchment.Section{{Name: "a"}, {Name: "b"}},
+	}
+	service.FilterSections(art, nil)
+	if len(art.Sections) != 2 {
+		t.Errorf("empty filter should keep all sections, got %d", len(art.Sections))
+	}
+}
+
+// --- RelevanceScore ---
+
+func TestRelevanceScore_ActiveHigherThanDraft(t *testing.T) {
+	active := &parchment.Artifact{Status: "active", Priority: "high"}
+	draft := &parchment.Artifact{Status: "draft", Priority: "high"}
+	if service.RelevanceScore(active) <= service.RelevanceScore(draft) {
+		t.Error("active artifact should score higher than draft")
+	}
+}
+
+func TestRelevanceScore_CriticalHigherThanLow(t *testing.T) {
+	crit := &parchment.Artifact{Status: "active", Priority: "critical"}
+	low := &parchment.Artifact{Status: "active", Priority: "low"}
+	if service.RelevanceScore(crit) <= service.RelevanceScore(low) {
+		t.Error("critical priority should score higher than low")
+	}
+}
+
+// --- ExtractIDs ---
+
+func TestExtractIDs_FindsArtifactIDs(t *testing.T) {
+	text := "Working on SCR-TSK-383 and PRC-GOL-12, also see ALE-SPC-5"
+	ids := service.ExtractIDs(text)
+	for _, want := range []string{"SCR-TSK-383", "PRC-GOL-12", "ALE-SPC-5"} {
+		if !ids[want] {
+			t.Errorf("expected %q in extracted IDs, got: %v", want, ids)
+		}
+	}
+}
+
+func TestExtractIDs_EmptyOnNoMatch(t *testing.T) {
+	ids := service.ExtractIDs("no artifact ids here")
+	if len(ids) != 0 {
+		t.Errorf("expected empty map, got %v", ids)
+	}
+}
