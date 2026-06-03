@@ -337,12 +337,9 @@ func schemaFor[T any]() json.RawMessage {
 }
 
 // The typed handler takes a concrete input struct and returns
-// (*CallToolResult, Out, error). This adapter unmarshals the raw JSON input,
-// calls the handler, and marshals the Out value when CallToolResult is nil
-// (same pattern as Origami's rawHandler).
 // arrayTypeHints maps struct field names to their expected JSON wire format.
-// Used to produce actionable error messages when the caller passes the wrong type
-// (e.g. a comma-separated string where a JSON array is required).
+// Used by unmarshalInput to produce actionable error messages when the caller
+// passes the wrong type (e.g. a comma-separated string where a JSON array is required).
 var arrayTypeHints = map[string]string{
 	"depends_on":     `JSON array of strings — e.g. ["TASK-1", "TASK-2"]`,
 	"ids":            `JSON array of strings — e.g. ["TASK-1", "TASK-2"]`,
