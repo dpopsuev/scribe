@@ -1198,8 +1198,10 @@ func TestChangelog(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 	since := time.Now().UTC().Add(-1 * time.Hour).Format(time.RFC3339)
-	s.Put(ctx, &parchment.Artifact{ID: "T-001", Kind: "task", Scope: "test", Status: "active", Title: "Changed"})
-	s.Put(ctx, &parchment.Artifact{ID: "T-002", Kind: "task", Scope: "test", Status: "draft", Title: "Also changed"})
+	// Use Protocol to emit EventLog events — direct store.Put does not.
+	proto := parchment.New(s, nil, []string{"test"}, nil, parchment.ProtocolConfig{})
+	proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Scope: "test", Status: "active", Title: "Changed"})     //nolint:errcheck // test setup
+	proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Scope: "test", Status: "draft", Title: "Also changed"}) //nolint:errcheck // test setup
 
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
@@ -1211,8 +1213,8 @@ func TestChangelog(t *testing.T) {
 	if !strings.Contains(text, "2 artifacts") {
 		t.Errorf("expected 2 artifacts in changelog, got: %s", text)
 	}
-	if !strings.Contains(text, "T-001") || !strings.Contains(text, "T-002") {
-		t.Errorf("expected both artifact IDs in changelog: %s", text)
+	if !strings.Contains(text, "Changed") || !strings.Contains(text, "Also changed") {
+		t.Errorf("expected both artifact titles in changelog: %s", text)
 	}
 }
 
@@ -1220,8 +1222,9 @@ func TestChangelog_ScopeFilter(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 	since := time.Now().UTC().Add(-1 * time.Hour).Format(time.RFC3339)
-	s.Put(ctx, &parchment.Artifact{ID: "T-001", Kind: "task", Scope: "alpha", Status: "active", Title: "Alpha"})
-	s.Put(ctx, &parchment.Artifact{ID: "T-002", Kind: "task", Scope: "beta", Status: "draft", Title: "Beta"})
+	proto := parchment.New(s, nil, []string{"alpha", "beta"}, nil, parchment.ProtocolConfig{})
+	proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Scope: "alpha", Status: "active", Title: "Alpha"}) //nolint:errcheck // test setup
+	proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Scope: "beta", Status: "draft", Title: "Beta"})    //nolint:errcheck // test setup
 
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
@@ -1231,10 +1234,10 @@ func TestChangelog_ScopeFilter(t *testing.T) {
 		"since":  since,
 		"scope":  "alpha",
 	})
-	if !strings.Contains(text, "T-001") {
-		t.Errorf("expected alpha artifact: %s", text)
+	if !strings.Contains(text, "Alpha") {
+		t.Errorf("expected alpha artifact in changelog: %s", text)
 	}
-	if strings.Contains(text, "T-002") {
+	if strings.Contains(text, "Beta") {
 		t.Errorf("beta artifact should be filtered out: %s", text)
 	}
 }

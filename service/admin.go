@@ -627,35 +627,52 @@ func (s *Service) RenderChangelog(ctx context.Context, since, scope string) (str
 	if since == "" {
 		return "", fmt.Errorf("since parameter is required for changelog (RFC 3339 timestamp)") //nolint:err113 // user-facing hint
 	}
-	arts, err := s.Proto.ListArtifacts(ctx, parchment.ListInput{
-		UpdatedAfter:  since,
-		ExcludeStatus: parchment.StatusArchived,
-		Scope:         scope,
-	})
+	sinceTime, err := time.Parse(time.RFC3339, since)
+	if err != nil {
+		return "", fmt.Errorf("invalid since timestamp %q: %w", since, err)
+	}
+	events, err := s.Proto.GetEvents(ctx, sinceTime, parchment.EventFilter{Scope: scope})
 	if err != nil {
 		return "", err
 	}
-	if len(arts) == 0 {
+	if len(events) == 0 {
 		return fmt.Sprintf("no changes since %s", since[:10]), nil
 	}
-	byScope := make(map[string][]*parchment.Artifact)
-	for _, a := range arts {
-		s := a.Scope
-		if s == "" {
-			s = scopeNone
+
+	// Collect distinct artifact IDs from events, preserving first-seen order.
+	seen := make(map[string]bool)
+	var ids []string
+	for _, e := range events {
+		if e.ArtifactID != "" && !seen[e.ArtifactID] {
+			seen[e.ArtifactID] = true
+			ids = append(ids, e.ArtifactID)
 		}
-		byScope[s] = append(byScope[s], a)
 	}
+
+	byScope := make(map[string][]string) // scope → lines
+	for _, id := range ids {
+		art, aerr := s.Proto.GetArtifact(ctx, id)
+		if aerr != nil {
+			continue
+		}
+		sc := art.Scope
+		if sc == "" {
+			sc = scopeNone
+		}
+		byScope[sc] = append(byScope[sc], fmt.Sprintf("  %-16s %-8s %-8s %s", art.ID, art.Kind, art.Status, art.Title))
+	}
+
+	scopes := make([]string, 0, len(byScope))
+	for sc := range byScope {
+		scopes = append(scopes, sc)
+	}
+	sort.Strings(scopes)
+
 	var sections []string
-	for s, scopeArts := range byScope {
-		var lines []string
-		for _, a := range scopeArts {
-			lines = append(lines, fmt.Sprintf("  %-16s %-8s %-8s %s", a.ID, a.Kind, a.Status, a.Title))
-		}
-		sections = append(sections, fmt.Sprintf("[%s] (%d):\n%s", s, len(scopeArts), strings.Join(lines, "\n")))
+	for _, sc := range scopes {
+		sections = append(sections, fmt.Sprintf("[%s] (%d):\n%s", sc, len(byScope[sc]), strings.Join(byScope[sc], "\n")))
 	}
-	sort.Strings(sections)
-	return fmt.Sprintf("Changes since %s (%d artifacts):\n", since[:10], len(arts)) + strings.Join(sections, "\n\n"), nil
+	return fmt.Sprintf("Changes since %s (%d artifacts):\n", since[:10], len(ids)) + strings.Join(sections, "\n\n"), nil
 }
 
 func (s *Service) RenderMotdCompact(ctx context.Context, version string) (string, error) {
