@@ -228,11 +228,7 @@ type adminInput struct {
 	Scope string `json:"scope,omitempty"`
 	Kind  string `json:"kind,omitempty" jsonschema:"artifact kind filter or root kind for set_goal"`
 
-	Days  int  `json:"days,omitempty"`
-	Force bool `json:"force,omitempty"`
-
 	Target string `json:"target,omitempty"`
-	DryRun bool   `json:"dry_run,omitempty"`
 
 	Check   string `json:"check,omitempty" jsonschema:"orphans (default), overlaps, knowledge, eviction, or all"`
 	Status  string `json:"status,omitempty"`
