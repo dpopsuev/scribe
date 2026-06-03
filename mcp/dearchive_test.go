@@ -44,7 +44,7 @@ func TestDeArchive_RoundTrip(t *testing.T) {
 	// Archive it.
 	archOut := call("artifact", map[string]any{
 		"action": "set", "field": "status", "value": "archived", "bypass_guards": true,
-		"id":     art.ID,
+		"id": art.ID,
 	})
 	if strings.Contains(strings.ToLower(archOut), "error") {
 		t.Fatalf("archive failed: %s", archOut)
@@ -52,17 +52,14 @@ func TestDeArchive_RoundTrip(t *testing.T) {
 
 	// Verify it's archived.
 	got, _ := proto.GetArtifact(ctx, art.ID)
-	if !parchment.New(nil, nil, nil, nil, parchment.ProtocolConfig{}).Schema().IsReadonly(got.Status) {
-		schema := parchment.DefaultSchema()
-		if !schema.IsReadonly(got.Status) {
-			t.Fatalf("expected archived status after archive, got: %s", got.Status)
-		}
+	if !proto.Schema().IsReadonly(got.Status) {
+		t.Fatalf("expected archived status after archive, got: %s", got.Status)
 	}
 
 	// Restore via de-archive.
 	out := call("artifact", map[string]any{
 		"action": "set", "field": "status", "value": "draft", "bypass_guards": true, "force": true,
-		"id":     art.ID,
+		"id": art.ID,
 	})
 	if strings.Contains(strings.ToLower(out), "error") {
 		t.Fatalf("de-archive failed: %s", out)
@@ -159,7 +156,7 @@ func TestDeArchive_NonArchivedReturnsError(t *testing.T) {
 
 	out := call("artifact", map[string]any{
 		"action": "set", "field": "status", "value": "draft", "bypass_guards": true, "force": true,
-		"id":     art.ID,
+		"id": art.ID,
 	})
 
 	// Should indicate the artifact is not archived.

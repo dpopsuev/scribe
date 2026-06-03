@@ -77,7 +77,7 @@ func DfCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if format == "json" {
+			if format == formatJSON {
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
 				return enc.Encode(report)
@@ -157,7 +157,7 @@ func DrainCmd() *cobra.Command {
 				return nil
 			}
 			format, _ := cmd.Flags().GetString("format")
-			if format == "json" {
+			if format == formatJSON {
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
 				return enc.Encode(entries)
@@ -202,7 +202,7 @@ func InventoryCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if format == "json" {
+			if format == formatJSON {
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
 				return enc.Encode(inv)
@@ -245,7 +245,7 @@ func LintCmd() *cobra.Command {
 			svc, cleanup := MustService()
 			defer cleanup()
 			results := svc.Proto.Lint()
-			if format == "json" {
+			if format == formatJSON {
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
 				return enc.Encode(results)
@@ -292,7 +292,7 @@ func CheckCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if format == "json" {
+				if format == formatJSON {
 					enc := json.NewEncoder(os.Stdout)
 					enc.SetIndent("", "  ")
 					return enc.Encode(map[string]any{
@@ -321,7 +321,7 @@ func CheckCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if format == "json" {
+			if format == formatJSON {
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
 				return enc.Encode(report)
@@ -355,7 +355,7 @@ func MigrateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if format == "json" {
+			if format == formatJSON {
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
 				return enc.Encode(result)

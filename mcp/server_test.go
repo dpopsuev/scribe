@@ -1729,8 +1729,8 @@ func TestArchive_SingularIDWithScopeDoesNotBulk(t *testing.T) {
 	// Archive with singular "id" (not "ids") + scope — should only archive GOL-1
 	text := callTool(t, cs, "artifact", map[string]any{
 		"action": "set", "field": "status", "value": "archived", "bypass_guards": true,
-		"id":     "GOL-1",
-		"scope":  "test",
+		"id":    "GOL-1",
+		"scope": "test",
 	})
 
 	// BUG: without fix, this takes the bulk path and archives ALL 3 artifacts in scope

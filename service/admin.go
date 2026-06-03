@@ -77,6 +77,7 @@ type DrainEntry struct {
 
 const defaultDashboardStaleDays = 30
 const defaultDashboardStaleCap = 10
+const scopeNone = "(none)"
 
 // Motd returns the message of the day: active campaigns, goals, and schema warnings.
 func (s *Service) Motd(ctx context.Context) (*MotdResult, error) { //nolint:cyclop,funlen,gocyclo // motd report is inherently multi-check
@@ -169,7 +170,7 @@ func (s *Service) Dashboard(ctx context.Context, staleDays int) (*DashboardResul
 	for _, art := range all {
 		sc := art.Scope
 		if sc == "" {
-			sc = "(none)"
+			sc = scopeNone
 		}
 		ds, ok := scopeMap[sc]
 		if !ok {
@@ -641,7 +642,7 @@ func (s *Service) RenderChangelog(ctx context.Context, since, scope string) (str
 	for _, a := range arts {
 		s := a.Scope
 		if s == "" {
-			s = "(none)"
+			s = scopeNone
 		}
 		byScope[s] = append(byScope[s], a)
 	}

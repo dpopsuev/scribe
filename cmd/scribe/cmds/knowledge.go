@@ -36,7 +36,7 @@ func SearchCmd() *cobra.Command {
 				return nil
 			}
 			switch format {
-			case "json":
+			case formatJSON:
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
 				return enc.Encode(matched)

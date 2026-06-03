@@ -289,7 +289,6 @@ func TestOpSet_FieldErrorPropagated(t *testing.T) {
 	}
 }
 
-
 // --- recall (RED) ---
 
 func TestOpList_RankedReturnsMatchingArtifacts(t *testing.T) {
@@ -627,8 +626,6 @@ func TestOpCreate_Clone(t *testing.T) {
 		t.Errorf("expected clone reference in output, got: %s", out)
 	}
 }
-
-
 
 func TestOpGet_ReturnsMarkdown(t *testing.T) {
 	// Given an artifact exists

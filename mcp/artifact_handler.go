@@ -24,11 +24,6 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 
 func newSessionID() string { return service.NewSessionID() }
 
-func (h *handler) persistReadLog(ctx context.Context) {
-	h.svc.PersistReadLog(ctx, h.svc.SessionID, h.svc.ReadLog)
-}
-
 func loadReadLog(ctx context.Context, store parchment.Store, proto *parchment.Protocol, sessionID string) map[string]bool {
 	return service.LoadReadLog(ctx, store, proto, sessionID)
 }
-

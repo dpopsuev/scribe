@@ -49,7 +49,7 @@ func setup(t *testing.T) *web.Server {
 func TestDashboard(t *testing.T) {
 	srv := setup(t)
 	rr := httptest.NewRecorder()
-	srv.ServeHTTP(rr, httptest.NewRequest("GET", "/", nil))
+	srv.ServeHTTP(rr, httptest.NewRequest("GET", "/", http.NoBody))
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET / = %d, want 200", rr.Code)
@@ -69,7 +69,7 @@ func TestDashboard(t *testing.T) {
 func TestArtifactList(t *testing.T) {
 	srv := setup(t)
 	rr := httptest.NewRecorder()
-	srv.ServeHTTP(rr, httptest.NewRequest("GET", "/artifacts", nil))
+	srv.ServeHTTP(rr, httptest.NewRequest("GET", "/artifacts", http.NoBody))
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET /artifacts = %d, want 200", rr.Code)
@@ -83,7 +83,7 @@ func TestArtifactList(t *testing.T) {
 func TestArtifactListFiltered(t *testing.T) {
 	srv := setup(t)
 	rr := httptest.NewRecorder()
-	srv.ServeHTTP(rr, httptest.NewRequest("GET", "/artifacts?kind=campaign", nil))
+	srv.ServeHTTP(rr, httptest.NewRequest("GET", "/artifacts?kind=campaign", http.NoBody))
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET /artifacts?kind=campaign = %d, want 200", rr.Code)
@@ -100,7 +100,7 @@ func TestArtifactListFiltered(t *testing.T) {
 func TestArtifactDetail(t *testing.T) {
 	srv := setup(t)
 	rr := httptest.NewRecorder()
-	srv.ServeHTTP(rr, httptest.NewRequest("GET", "/artifacts/TASK-2026-001", nil))
+	srv.ServeHTTP(rr, httptest.NewRequest("GET", "/artifacts/TASK-2026-001", http.NoBody))
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET /artifacts/TASK-2026-001 = %d, want 200", rr.Code)
@@ -117,7 +117,7 @@ func TestArtifactDetail(t *testing.T) {
 func TestArtifactDetail_NotFound(t *testing.T) {
 	srv := setup(t)
 	rr := httptest.NewRecorder()
-	srv.ServeHTTP(rr, httptest.NewRequest("GET", "/artifacts/NOPE-000", nil))
+	srv.ServeHTTP(rr, httptest.NewRequest("GET", "/artifacts/NOPE-000", http.NoBody))
 
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("GET /artifacts/NOPE-000 = %d, want 404", rr.Code)
@@ -127,7 +127,7 @@ func TestArtifactDetail_NotFound(t *testing.T) {
 func TestTree(t *testing.T) {
 	srv := setup(t)
 	rr := httptest.NewRecorder()
-	srv.ServeHTTP(rr, httptest.NewRequest("GET", "/tree/GOL-2026-001", nil))
+	srv.ServeHTTP(rr, httptest.NewRequest("GET", "/tree/GOL-2026-001", http.NoBody))
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET /tree/GOL-2026-001 = %d, want 200", rr.Code)
@@ -141,7 +141,7 @@ func TestTree(t *testing.T) {
 func TestSearch(t *testing.T) {
 	srv := setup(t)
 	rr := httptest.NewRecorder()
-	srv.ServeHTTP(rr, httptest.NewRequest("GET", "/search?q=Test", nil))
+	srv.ServeHTTP(rr, httptest.NewRequest("GET", "/search?q=Test", http.NoBody))
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET /search?q=Test = %d, want 200", rr.Code)
@@ -155,7 +155,7 @@ func TestSearch(t *testing.T) {
 func TestSearchEmpty(t *testing.T) {
 	srv := setup(t)
 	rr := httptest.NewRecorder()
-	srv.ServeHTTP(rr, httptest.NewRequest("GET", "/search", nil))
+	srv.ServeHTTP(rr, httptest.NewRequest("GET", "/search", http.NoBody))
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET /search = %d, want 200", rr.Code)
@@ -220,7 +220,7 @@ func TestMethodNotAllowed(t *testing.T) {
 	for _, method := range methods {
 		for _, path := range paths {
 			rr := httptest.NewRecorder()
-			srv.ServeHTTP(rr, httptest.NewRequest(method, path, nil))
+			srv.ServeHTTP(rr, httptest.NewRequest(method, path, http.NoBody))
 			if rr.Code != http.StatusMethodNotAllowed {
 				t.Errorf("%s %s = %d, want 405", method, path, rr.Code)
 			}

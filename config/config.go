@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -89,7 +90,7 @@ func (c *Config) SQLiteConfig() parchment.SQLiteConfig {
 // Load reads a config file from path and returns a merged Config.
 // Environment variables override file values for db/transport/addr.
 func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path is operator-supplied via flag or env var
 	if err != nil {
 		return nil, fmt.Errorf("read config %s: %w", path, err)
 	}
@@ -126,7 +127,7 @@ func Resolve(explicit string) (*Config, error) {
 		if path == "" {
 			continue
 		}
-		if _, err := os.Stat(path); err == nil {
+		if _, err := os.Stat(path); err == nil { //nolint:gosec // path is operator-supplied via flag or env var
 			resolvedPath = path
 			return Load(path)
 		}
@@ -139,7 +140,7 @@ func Resolve(explicit string) (*Config, error) {
 	cfg.applyEnvOverrides()
 
 	if err := generateFirstRun(&cfg); err != nil {
-		slog.Warn("failed to generate scribe.yaml on first run", "error", err)
+		slog.WarnContext(context.Background(), "failed to generate scribe.yaml on first run", slog.Any("error", err)) //nolint:sloglint // non-request context; no ctx available at config resolution time
 	}
 
 	return &cfg, nil
@@ -155,14 +156,14 @@ func generateFirstRun(cfg *Config) error {
 	if _, err := os.Stat(path); err == nil {
 		return nil
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // config dir; 0755 is intentional for user readability
 		return err
 	}
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return os.WriteFile(path, data, 0o644) //nolint:gosec // config file; 0644 is intentional for user readability
 }
 
 func defaults() Config {
@@ -242,10 +243,10 @@ func validateUniqueKeys(m map[string]string, label string, pattern *regexp.Regex
 	seen := make(map[string]string, len(m))
 	for name, code := range m {
 		if !pattern.MatchString(code) {
-			return fmt.Errorf("%s: %q has invalid code %q (must match [A-Z0-9]{2,6})", label, name, code)
+			return fmt.Errorf("%s: %q has invalid code %q (must match [A-Z0-9]{2,6})", label, name, code) //nolint:err113 // runtime values in config validation; static sentinel would lose the detail
 		}
 		if prev, dup := seen[code]; dup {
-			return fmt.Errorf("%s collision: %s=%s, %s=%s", label, prev, code, name, code)
+			return fmt.Errorf("%s collision: %s=%s, %s=%s", label, prev, code, name, code) //nolint:err113 // runtime values in config validation
 		}
 		seen[code] = name
 	}
@@ -280,7 +281,7 @@ func Save(cfg *Config) error {
 			return fmt.Errorf("home dir: %w", err)
 		}
 		dir := filepath.Join(home, ".scribe")
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // config dir; 0755 is intentional for user readability
 			return fmt.Errorf("mkdir %s: %w", dir, err)
 		}
 		path = filepath.Join(dir, "scribe.yaml")
@@ -289,7 +290,7 @@ func Save(cfg *Config) error {
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
-	return os.WriteFile(path, data, 0o644)
+	return os.WriteFile(path, data, 0o644) //nolint:gosec // config file; 0644 is intentional for user readability
 }
 
 // ResolvedScopes returns all scope names defined in ScopeConfigs, sorted.

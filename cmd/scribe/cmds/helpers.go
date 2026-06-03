@@ -21,6 +21,8 @@ import (
 	"github.com/dpopsuev/scribe/service"
 )
 
+const formatJSON = "json"
+
 // ConfigPath and DBPath are set by main via persistent root flags.
 // All commands read through MustConfig() which consults these vars.
 var (

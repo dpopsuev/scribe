@@ -16,8 +16,6 @@ func init() {
 	Registry = append(Registry, opSet, opList, opUpdate, opOrient, opCreate, opGet, opTopoSort, opLink)
 }
 
-
-
 type edgeInput struct {
 	From     string `json:"from"`
 	Relation string `json:"relation"`
@@ -179,7 +177,6 @@ var opLink = Op{
 		return execEdgeOp(ctx, svc, in, false)
 	},
 }
-
 
 type getInput struct {
 	ID            string   `json:"id"`
@@ -709,8 +706,6 @@ func createBatch(ctx context.Context, svc *Service, in *createInput) (string, er
 	return b.String(), nil
 }
 
-
-
 type orientInput struct {
 	Scope string `json:"scope,omitempty"`
 }
@@ -979,7 +974,6 @@ func resolveIDs(ids []string, id string) []string {
 	return nil
 }
 
-
 var listValidFields = map[string]func(*parchment.Artifact) string{
 	"id":         func(a *parchment.Artifact) string { return a.ID },
 	"kind":       func(a *parchment.Artifact) string { return a.Kind },
@@ -1066,7 +1060,7 @@ var opList = Op{
 			Labels: in.Labels, LabelsOr: in.LabelsOr, ExcludeLabels: in.ExcludeLabels,
 			GroupBy: in.GroupBy, Sort: in.Sort, Limit: in.Limit, Query: in.Query,
 			TitleContains: in.TitleContains, Family: in.Family,
-			CreatedAfter:  in.CreatedAfter, CreatedBefore: in.CreatedBefore,
+			CreatedAfter: in.CreatedAfter, CreatedBefore: in.CreatedBefore,
 			UpdatedAfter: in.UpdatedAfter, UpdatedBefore: in.UpdatedBefore,
 			InsertedAfter: in.InsertedAfter, InsertedBefore: in.InsertedBefore,
 		}

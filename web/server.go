@@ -161,11 +161,11 @@ func (s *Server) render(w http.ResponseWriter, name string, data any) {
 func renderMarkdown(text string) template.HTML {
 	var buf bytes.Buffer
 	if err := md.Convert([]byte(text), &buf); err != nil {
-		return template.HTML("<pre>" + template.HTMLEscapeString(text) + "</pre>")
+		return template.HTML("<pre>" + template.HTMLEscapeString(text) + "</pre>") //nolint:gosec // G203: content is HTMLEscapeString-escaped; not raw user input
 	}
 	out := buf.String()
 	out = convertMermaidBlocks(out)
-	return template.HTML(out) //nolint:gosec
+	return template.HTML(out) //nolint:gosec // G203: output is goldmark-rendered markdown, not user-controlled raw HTML
 }
 
 func convertMermaidBlocks(s string) string {

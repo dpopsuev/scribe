@@ -5,10 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	battmcp "github.com/dpopsuev/battery/mcp"
-	"github.com/dpopsuev/battery/tool"
 	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/directive"
 	"github.com/dpopsuev/scribe/service"
@@ -203,20 +201,6 @@ type artifactInput struct {
 	Edges     []edgeInput `json:"edges,omitempty" jsonschema:"link/unlink bulk mode: [{from, relation, to}]"`
 }
 
-type graphInput struct {
-	Action    string      `json:"action" jsonschema:"required,tree | briefing | topo_sort | link | unlink | replace"`
-	ID        string      `json:"id,omitempty"`
-	Relation  string      `json:"relation,omitempty" jsonschema:"parent_of, depends_on, follows, justifies, implements, documents"`
-	Direction string      `json:"direction,omitempty" jsonschema:"outbound (default) or inbound"`
-	Depth     int         `json:"depth,omitempty" jsonschema:"max traversal depth (0 = unlimited); topo_sort: max results when unblocked=true"`
-	Unblocked bool        `json:"unblocked,omitempty" jsonschema:"topo_sort: return only unblocked ready tasks"`
-	Targets   []string    `json:"targets,omitempty"`
-	Target    string      `json:"target,omitempty" jsonschema:"new target ID (replace)"`
-	OldTarget string      `json:"old_target,omitempty"`
-	Edges     []edgeInput `json:"edges,omitempty" jsonschema:"bulk edges for link/unlink — [{from, relation, to}]"`
-	Format    string      `json:"format,omitempty" jsonschema:"text (default) or json"`
-}
-
 type edgeInput struct {
 	From     string `json:"from" jsonschema:"source artifact ID"`
 	Relation string `json:"relation" jsonschema:"edge type"`
@@ -333,33 +317,6 @@ func bindHandler[In any](h func(context.Context, *sdkmcp.CallToolRequest, In) (*
 	}
 }
 
-// text creates a CallToolResult with a single TextContent block.
-// Uses a direct SDK result because Battery v0.11 exposes transport-neutral results.
-// resolveIDs merges explicit ids slice with a single id fallback.
-func resolveIDs(ids []string, id string) []string {
-	if len(ids) > 0 {
-		return ids
-	}
-	if id != "" {
-		return []string{id}
-	}
-	return nil
-}
-
-// renderResults formats []parchment.Result as human-readable lines.
-// okLabel is used for successful results; errLabel is unused (errors always show the error text).
-func renderResults(results []parchment.Result, okLabel, _ string) string {
-	lines := make([]string, 0, len(results))
-	for _, r := range results {
-		if r.OK {
-			lines = append(lines, r.ID+" -> "+okLabel)
-		} else {
-			lines = append(lines, r.ID+" -> error: "+r.Error)
-		}
-	}
-	return strings.Join(lines, "\n")
-}
-
 func text(s string) *sdkmcp.CallToolResult {
 	return &sdkmcp.CallToolResult{
 		Content: []sdkmcp.Content{
@@ -368,43 +325,6 @@ func text(s string) *sdkmcp.CallToolResult {
 	}
 }
 
-func sdkResultToBattery(res *sdkmcp.CallToolResult) tool.Result {
-	out := tool.Result{
-		StructuredContent: res.StructuredContent,
-		IsError:           res.IsError,
-	}
-	for _, c := range res.Content {
-		switch v := c.(type) {
-		case *sdkmcp.TextContent:
-			out.Content = append(out.Content, tool.TextContent{Text: v.Text})
-		case *sdkmcp.ImageContent:
-			out.Content = append(out.Content, tool.ImageContent{MIMEType: v.MIMEType, Data: v.Data})
-		case *sdkmcp.AudioContent:
-			out.Content = append(out.Content, tool.AudioContent{MIMEType: v.MIMEType, Data: v.Data})
-		case *sdkmcp.ResourceLink:
-			out.Content = append(out.Content, tool.ResourceLink{
-				URI:         v.URI,
-				Name:        v.Name,
-				Description: v.Description,
-				MIMEType:    v.MIMEType,
-			})
-		case *sdkmcp.EmbeddedResource:
-			if v.Resource == nil {
-				continue
-			}
-			out.Content = append(out.Content, tool.ResourceContent{
-				URI:      v.Resource.URI,
-				MIMEType: v.Resource.MIMEType,
-				Text:     v.Resource.Text,
-				Blob:     v.Resource.Blob,
-			})
-		}
-	}
-	return out
-}
-
-// adaptTypedHandler bridges a typed Scribe handler into Battery's MCP handler shape.
-// schemaFor derives a JSON Schema from Go struct type T using jsonschema tags.
 func schemaFor[T any]() json.RawMessage {
 	s, err := jsonschema.For[T](nil)
 	if err != nil {
@@ -438,44 +358,4 @@ var arrayTypeHints = map[string]string{
 	"edges":          `JSON array of {"from":"X","relation":"r","to":"Y"} objects`,
 	"extra":          `JSON object — e.g. {"key": "value"}`,
 	"patch":          `JSON object mapping field→value — e.g. {"status": "active"}`,
-}
-
-func adaptTypedHandler[In any](h func(context.Context, *sdkmcp.CallToolRequest, In) (*sdkmcp.CallToolResult, any, error)) func(context.Context, json.RawMessage) (tool.Result, error) {
-	return func(ctx context.Context, input json.RawMessage) (tool.Result, error) {
-		var in In
-		if len(input) > 0 {
-			if err := json.Unmarshal(input, &in); err != nil {
-				var typeErr *json.UnmarshalTypeError
-				if errors.As(err, &typeErr) {
-					if hint, ok := arrayTypeHints[typeErr.Field]; ok {
-						return tool.Result{}, fmt.Errorf("field %q must be %s (got JSON %s)", typeErr.Field, hint, typeErr.Value) //nolint:err113 // agent-facing hint
-					}
-					return tool.Result{}, fmt.Errorf("field %q: expected %s, got JSON %s", typeErr.Field, typeErr.Type, typeErr.Value) //nolint:err113 // agent-facing hint
-				}
-				return tool.Result{}, fmt.Errorf("invalid arguments: %w", err)
-			}
-		}
-
-		// Build a minimal CallToolRequest for backward compat with handlers
-		// that read req.Params or req.Session.
-		req := &sdkmcp.CallToolRequest{}
-		req.Params = &sdkmcp.CallToolParamsRaw{Arguments: input}
-
-		res, out, err := h(ctx, req, in)
-		if err != nil {
-			return tool.Result{}, err
-		}
-		if res != nil {
-			return sdkResultToBattery(res), nil
-		}
-		// No CallToolResult — preserve JSON text fallback while upgrading to Battery result transport.
-		if out == nil {
-			return tool.Result{}, nil
-		}
-		result, err := tool.StructuredResult(out)
-		if err != nil {
-			return tool.Result{}, fmt.Errorf("marshal output: %w", err)
-		}
-		return result, nil
-	}
 }

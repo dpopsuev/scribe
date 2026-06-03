@@ -24,7 +24,7 @@ func TreeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if format == "json" {
+			if format == formatJSON {
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
 				return enc.Encode(tree)
@@ -78,7 +78,7 @@ func BriefingCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if format == "json" {
+			if format == formatJSON {
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
 				return enc.Encode(tree)
@@ -189,7 +189,7 @@ func OverlapsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if format == "json" {
+			if format == formatJSON {
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
 				return enc.Encode(report)
@@ -229,7 +229,7 @@ func OrphansCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if format == "json" {
+			if format == formatJSON {
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
 				return enc.Encode(report)

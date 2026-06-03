@@ -6,20 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/service"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-)
-
-const (
-	labelNone          = "(none)"
-	checkAll           = "all"
-	checkOverlaps      = "overlaps"
-	checkOrphans       = "orphans"
-	checkKnowledge     = "knowledge"
-	checkKnowledgeFull = "knowledge_full"
-	checkEviction      = "eviction"
-	checkSchema        = "schema"
 )
 
 func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, in adminInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocyclo,cyclop,gocritic // dispatch switch; hugeParam: value semantics intentional
@@ -96,16 +84,6 @@ func (h *handler) handleSetGoal(ctx context.Context, _ *sdkmcp.CallToolRequest, 
 	return text(strings.Join(lines, "\n")), nil, nil
 }
 
-type archiveInput struct {
-	IDs         []string `json:"ids"`
-	Scope       string   `json:"scope,omitempty"`
-	Kind        string   `json:"kind,omitempty"`
-	Status      string   `json:"status,omitempty"`
-	IDPrefix    string   `json:"id_prefix,omitempty"`
-	ExcludeKind string   `json:"exclude_kind,omitempty"`
-	DryRun      bool     `json:"dry_run,omitempty"`
-}
-
 func (h *handler) handleMotdCompact(ctx context.Context) (*sdkmcp.CallToolResult, any, error) {
 	out, err := h.svc.RenderMotdCompact(ctx, h.version)
 	if err != nil {
@@ -154,36 +132,12 @@ func (h *handler) handleDashboard(ctx context.Context, _ *sdkmcp.CallToolRequest
 	return text(out), nil, nil
 }
 
-type linkInput struct {
-	ID       string   `json:"id"`
-	Relation string   `json:"relation"`
-	Targets  []string `json:"targets"`
-	Unlink   bool     `json:"unlink,omitempty"`
-}
-
 func (h *handler) handleDetect(ctx context.Context, _ *sdkmcp.CallToolRequest, in detectInput) (*sdkmcp.CallToolResult, any, error) {
 	out, err := h.svc.RenderDetect(ctx, in.Check, in.Scope, in.Kind, in.Project, in.Status, in.StaleDays)
 	if err != nil {
 		return nil, nil, err
 	}
 	return text(out), nil, nil
-}
-
-func (h *handler) handleCheck(ctx context.Context, scope string) (*sdkmcp.CallToolResult, any, error) {
-	out, err := h.svc.RenderCheck(ctx, scope)
-	if err != nil {
-		return nil, nil, err
-	}
-	return text(out), nil, nil
-}
-
-// --- vocab handlers ---
-
-// --- rendering helpers ---
-
-// sortArtifacts delegates to service.SortArtifacts.
-func sortArtifacts(arts []*parchment.Artifact, field string) {
-	service.SortArtifacts(arts, field)
 }
 
 // handleGetSummary returns a compact summary for one or more artifacts.

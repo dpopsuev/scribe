@@ -58,8 +58,8 @@ func TestConsolidation_ArtifactRecall(t *testing.T) {
 
 	out := callArtifact(map[string]any{
 		"action": "list", "ranked": true,
-		"query":  "template conformance",
-		"scope":  "test",
+		"query": "template conformance",
+		"scope": "test",
 	})
 
 	if strings.Contains(strings.ToLower(out), "unknown artifact action") {

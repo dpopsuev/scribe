@@ -57,7 +57,7 @@ func ShowCmd() *cobra.Command {
 				return err
 			}
 			switch format {
-			case "json":
+			case formatJSON:
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
 				return enc.Encode(art)
@@ -109,26 +109,6 @@ func ListCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&count, "count", false, "print count only")
 	cmd.Flags().IntVar(&limit, "limit", 0, "max rows to show (0 = all)")
 	return cmd
-}
-
-func renderList(ctx context.Context, p *parchment.Protocol, arts []*parchment.Artifact, groupBy string) {
-	switch groupBy {
-	case "scope_label":
-		scopeLabels := make(map[string][]string)
-		infos, err := p.ListScopeInfo(ctx)
-		if err == nil {
-			for _, info := range infos {
-				if len(info.Labels) > 0 {
-					scopeLabels[info.Scope] = info.Labels
-				}
-			}
-		}
-		fmt.Print(parchment.RenderGroupedTableByScopeLabel(arts, scopeLabels))
-	case "":
-		fmt.Print(parchment.RenderTable(arts))
-	default:
-		fmt.Print(parchment.RenderGroupedTable(arts, groupBy))
-	}
 }
 
 func SetCmd() *cobra.Command {

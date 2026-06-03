@@ -50,8 +50,8 @@ func TestRecall_FindsRelevantNote(t *testing.T) {
 
 	out := call(map[string]any{
 		"action": "list", "ranked": true,
-		"query":  "SetField unknown field error",
-		"scope":  "test",
+		"query": "SetField unknown field error",
+		"scope": "test",
 	})
 
 	if strings.Contains(strings.ToLower(out), "unknown action") {
@@ -110,8 +110,8 @@ func TestRecall_CompletedTaskIsMemory(t *testing.T) {
 
 	out := call(map[string]any{
 		"action": "list", "ranked": true,
-		"query":  "SetField Extra fallback unknown fields",
-		"scope":  "test",
+		"query": "SetField Extra fallback unknown fields",
+		"scope": "test",
 	})
 
 	if !strings.Contains(out, task.ID) {
@@ -135,8 +135,8 @@ func TestRecall_CompletedDecisionIsMemory(t *testing.T) {
 
 	out := call(map[string]any{
 		"action": "list", "ranked": true,
-		"query":  "template conformance promote create",
-		"scope":  "test",
+		"query": "template conformance promote create",
+		"scope": "test",
 	})
 
 	if !strings.Contains(out, decision.ID) {
@@ -163,8 +163,8 @@ func TestRecall_EvergreenRanksHigher(t *testing.T) {
 
 	out := call(map[string]any{
 		"action": "list", "ranked": true,
-		"query":  "template conformance",
-		"scope":  "test",
+		"query": "template conformance",
+		"scope": "test",
 	})
 
 	evergreenPos := strings.Index(out, evergreen.ID)
@@ -203,8 +203,8 @@ func TestRecall_RecentRanksHigher(t *testing.T) {
 
 	out := call(map[string]any{
 		"action": "list", "ranked": true,
-		"query":  "wikilink resolution",
-		"scope":  "test",
+		"query": "wikilink resolution",
+		"scope": "test",
 	})
 
 	newerPos := strings.Index(out, newer.ID)
@@ -226,7 +226,7 @@ func TestRecall_EmptyQueryErrors(t *testing.T) {
 
 	out := call(map[string]any{
 		"action": "list", "ranked": true,
-		"scope":  "test",
+		"scope": "test",
 	})
 
 	if strings.Contains(strings.ToLower(out), "unknown action") {
@@ -262,8 +262,8 @@ func TestRecall_LimitTopN(t *testing.T) {
 
 	out := call(map[string]any{
 		"action": "list", "ranked": true,
-		"query":  "parchment protocol",
-		"scope":  "test",
+		"query": "parchment protocol",
+		"scope": "test",
 	})
 
 	// Count how many IDs appear (rough proxy for result count)
