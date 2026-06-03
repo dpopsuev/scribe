@@ -206,35 +206,16 @@ type edgeInput struct {
 	To       string `json:"to" jsonschema:"target artifact ID"`
 }
 
-// knowledgeInput defines the input schema for the knowledge tool.
+// knowledgeInput carries the two fields used by handleIngestSession.
+// This is a minimal survivor of the old knowledge tool; all other fields
+// were removed when the knowledge tool was merged into admin.
 type knowledgeInput struct {
-	Action string `json:"action" jsonschema:"required,lint | capture | promote | daily | backlinks | export_vault | import_vault | ingest | synthesize | ingest_session | recall | session_start | session_commit | session_diff | session_merge"`
-
-	// capture: create a fleeting note
-	Title  string   `json:"title,omitempty" jsonschema:"note title (required for capture)"`
-	Body   string   `json:"body,omitempty" jsonschema:"note body text (capture)"`
-	Scope  string   `json:"scope,omitempty" jsonschema:"scope/vault to write into"`
-	Labels []string `json:"labels,omitempty" jsonschema:"freeform tags"`
-
-	// promote / daily / backlinks: target artifact
-	ID       string `json:"id,omitempty" jsonschema:"artifact ID (required for promote, backlinks)"`
-	Relation string `json:"relation,omitempty" jsonschema:"edge type filter for backlinks (default: all)"`
-
-	// export_vault / import_vault: filesystem path
-	Dir string `json:"dir,omitempty" jsonschema:"directory path (required for export_vault, import_vault)"`
-
-	// ingest: external source URL
-	URL string `json:"url,omitempty" jsonschema:"source URL for ingest"`
-
-	// ingest_session: filesystem path to a .jsonl session file or directory
-	Path string `json:"path,omitempty" jsonschema:"path to .jsonl session file or directory (ingest_session)"`
-
-	// synthesize: full-text search query
-	Query string `json:"query,omitempty" jsonschema:"search query (required for synthesize)"`
+	Path  string `json:"path,omitempty"`
+	Scope string `json:"scope,omitempty"`
 }
 
 type adminInput struct {
-	Action  string `json:"action" jsonschema:"required,motd | changelog | dashboard | set_goal | detect | check | correlate | ingest_session | knowledge_lint | set_scope_labels | list_scope_labels | context_read | session_start | session_commit | session_diff | session_merge"`
+	Action  string `json:"action" jsonschema:"required,motd | changelog | dashboard | snapshot | set_goal | detect | correlate | ingest_session | set_scope | set_scope_labels | context_read | session"`
 	Compact bool   `json:"compact,omitempty" jsonschema:"minimal output for repeat calls (motd)"`
 
 	SnapshotAction string `json:"snapshot_action,omitempty" jsonschema:"create, list, diff, or restore"`
