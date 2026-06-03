@@ -144,10 +144,11 @@ type artifactInput struct {
 	Format  string   `json:"format,omitempty" jsonschema:"summary or full (default)"`
 	GroupBy string   `json:"group_by,omitempty" jsonschema:"status, scope, kind, sprint"`
 	Sort    string   `json:"sort,omitempty" jsonschema:"id, title, status, scope, kind"`
-	Limit   int      `json:"limit,omitempty"`
-	Offset  int      `json:"offset,omitempty"`
-	Count   bool     `json:"count,omitempty"`
-	Ranked  bool     `json:"ranked,omitempty" jsonschema:"scored FTS with kind and recency weighting"`
+	Limit    int    `json:"limit,omitempty"`
+	Cursor   string `json:"cursor,omitempty" jsonschema:"pagination cursor from previous list response"`
+	Count    bool   `json:"count,omitempty"`
+	Ranked   bool   `json:"ranked,omitempty" jsonschema:"scored FTS with kind and recency weighting"`
+	Semantic bool   `json:"semantic,omitempty" jsonschema:"vector similarity search (requires embeddings in store)"`
 	Top     int      `json:"top,omitempty" jsonschema:"N most relevant by status+priority+recency"`
 	Fields  []string `json:"fields,omitempty" jsonschema:"id, kind, scope, status, title, parent, priority"`
 	Query   string   `json:"query,omitempty" jsonschema:"substring search across title, goal, sections"`
