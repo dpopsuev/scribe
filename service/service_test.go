@@ -596,3 +596,106 @@ func TestExtractIDs_EmptyOnNoMatch(t *testing.T) {
 		t.Errorf("expected empty map, got %v", ids)
 	}
 }
+
+// --- EvidenceImpliesComplete ---
+
+func TestEvidenceImpliesComplete_DetectsCompletionSignal(t *testing.T) {
+	cases := []struct {
+		evidence string
+		id       string
+		want     bool
+	}{
+		{"scr-tsk-383 is done and merged", "scr-tsk-383", true},
+		{"closed scr-tsk-383 in the last commit", "scr-tsk-383", true},
+		{"working on scr-tsk-383", "scr-tsk-383", false},
+		{"scr-tsk-383 is blocked", "scr-tsk-383", false},
+		{"no artifact id here", "scr-tsk-999", false},
+	}
+	for _, tc := range cases {
+		got := service.EvidenceImpliesComplete(tc.evidence, tc.id)
+		if got != tc.want {
+			t.Errorf("EvidenceImpliesComplete(%q, %q) = %v, want %v", tc.evidence, tc.id, got, tc.want)
+		}
+	}
+}
+
+// --- ExtractTitle ---
+
+func TestExtractTitle_ReturnsFirstMeaningfulLine(t *testing.T) {
+	s := "Summary:\nThis is the real title\nMore details here"
+	got := service.ExtractTitle(s)
+	if got != "This is the real title" {
+		t.Errorf("ExtractTitle = %q, want %q", got, "This is the real title")
+	}
+}
+
+func TestExtractTitle_FallsBackToDefault(t *testing.T) {
+	got := service.ExtractTitle("")
+	if got != "Session memory" {
+		t.Errorf("ExtractTitle(\"\") = %q, want \"Session memory\"", got)
+	}
+}
+
+// --- Truncate ---
+
+func TestTruncate_ShortStringUnchanged(t *testing.T) {
+	got := service.Truncate("hello", 80)
+	if got != "hello" {
+		t.Errorf("Truncate short = %q, want %q", got, "hello")
+	}
+}
+
+func TestTruncate_LongStringTruncated(t *testing.T) {
+	long := strings.Repeat("a", 100)
+	got := service.Truncate(long, 80)
+	if len([]rune(got)) > 80 {
+		t.Errorf("Truncate long: len = %d, want <= 80", len(got))
+	}
+	if !strings.HasSuffix(got, "…") {
+		t.Errorf("Truncate long should end with ellipsis, got: %q", got)
+	}
+}
+
+// --- Inventory ---
+
+func TestInventory_CountsByKindAndStatus(t *testing.T) {
+	t.Parallel()
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "t1", Scope: "test"}) //nolint:errcheck // test setup
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "t2", Scope: "test"}) //nolint:errcheck // test setup
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "note", Title: "n1", Scope: "test"}) //nolint:errcheck // test setup
+
+	result, err := svc.Inventory(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total < 3 {
+		t.Errorf("Inventory.Total = %d, want >= 3", result.Total)
+	}
+	if result.ByKind["task"] < 2 {
+		t.Errorf("ByKind[task] = %d, want >= 2", result.ByKind["task"])
+	}
+}
+
+// --- BulkSetField in parchment ---
+
+func TestBulkSetField_UpdatesMatchingArtifacts(t *testing.T) {
+	t.Parallel()
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "alpha", Scope: "test"}) //nolint:errcheck // test setup
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "beta", Scope: "test"})  //nolint:errcheck // test setup
+
+	result, err := svc.Proto.BulkSetField(ctx, parchment.BulkMutationInput{
+		Kind: "task", Scope: "test",
+	}, "title", "bulk-updated")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Count < 2 {
+		t.Errorf("BulkSetField count = %d, want >= 2", result.Count)
+	}
+}
