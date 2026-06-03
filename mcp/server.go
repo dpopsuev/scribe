@@ -15,9 +15,13 @@ import (
 )
 
 // scribeInstructions is the MCP server instructions shown to clients.
-const scribeInstructions = "Work artifact graph + knowledge vault. " +
-	"SESSION START: call admin(action=motd) — it discloses your scope, active goal, and open bugs. " +
-	"You are the compiler: ingest reads sources and extracts notes, synthesize compiles related notes, file answers back as notes."
+// Kept deliberately minimal — the schema is self-describing.
+// Query artifact(action=list, kind=kind_definition, scope=_schema) to learn when to create each kind.
+// Query artifact(action=list, kind=edge_type_definition, scope=_schema) to learn what each relation means.
+// Query artifact(action=list, kind=label_definition, scope=_schema) to learn when to apply each label.
+const scribeInstructions = "Artifact graph + knowledge vault. " +
+	"SESSION START: admin(action=motd) — discloses scope, active goal, open bugs. " +
+	"SCHEMA: the _schema scope is self-describing — query kind_definition, edge_type_definition, label_definition artifacts to learn when and how to use each construct."
 
 // NewServer creates an MCP server exposing Scribe tools over the given store.
 // Returns both the server and a directive registry for CLI introspection.

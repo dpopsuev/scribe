@@ -28,13 +28,21 @@ type RuleEntry struct {
 	Body     string   `json:"body"`
 }
 
+// KindHint carries agent guidance from the kind_definition artifact in _schema.
+type KindHint struct {
+	Kind         string `json:"kind"`
+	WhenToCreate string `json:"when_to_create,omitempty"`
+	AgentNote    string `json:"agent_note,omitempty"`
+}
+
 // ContextPacket is the four-worlds context assembled for a single task.
 // Returned by ContextRead and consumed at agent session start.
 type ContextPacket struct {
-	Task  *parchment.Artifact   `json:"task"`
-	Know  []*parchment.Artifact `json:"know,omitempty"`
-	Code  CodePointers          `json:"code"`
-	Rules []RuleEntry           `json:"rules,omitempty"`
+	Task      *parchment.Artifact   `json:"task"`
+	Know      []*parchment.Artifact `json:"know,omitempty"`
+	Code      CodePointers          `json:"code"`
+	Rules     []RuleEntry           `json:"rules,omitempty"`
+	KindHints []KindHint            `json:"kind_hints,omitempty"` // guidance from _schema for the task's kind
 }
 
 // ContextRead assembles the four-worlds context for a task: task artifact,
@@ -67,13 +75,48 @@ func (s *Service) ContextRead(ctx context.Context, taskID string) (*ContextPacke
 	}
 
 	rules := s.resolveRules(ctx, task.Labels)
+	kindHints := s.resolveKindHints(ctx, task.Kind)
 
 	return &ContextPacket{
-		Task:  task,
-		Know:  know,
-		Code:  code,
-		Rules: rules,
+		Task:      task,
+		Know:      know,
+		Code:      code,
+		Rules:     rules,
+		KindHints: kindHints,
 	}, nil
+}
+
+// resolveKindHints fetches agent guidance from the kind_definition artifact in _schema.
+// Returns hints for the given kind and its family siblings so the agent understands
+// when to create each kind without external documentation.
+func (s *Service) resolveKindHints(ctx context.Context, kind string) []KindHint {
+	// Fetch the definition for the task's kind plus common related kinds.
+	kindsToFetch := []string{kind, "task", "goal", "spec", "bug", "need"}
+	seen := make(map[string]bool)
+	var hints []KindHint
+	for _, k := range kindsToFetch {
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		art, err := s.Proto.GetArtifact(ctx, "DEF-"+k)
+		if err != nil {
+			continue
+		}
+		hint := KindHint{Kind: k}
+		for _, sec := range art.Sections {
+			switch sec.Name {
+			case "when_to_create":
+				hint.WhenToCreate = sec.Text
+			case "agent_note":
+				hint.AgentNote = sec.Text
+			}
+		}
+		if hint.WhenToCreate != "" || hint.AgentNote != "" {
+			hints = append(hints, hint)
+		}
+	}
+	return hints
 }
 
 func (s *Service) resolveRules(ctx context.Context, signalLabels []string) []RuleEntry {
