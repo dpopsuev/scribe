@@ -955,6 +955,7 @@ type listInput struct {
 	Fields         []string `json:"fields,omitempty"`
 	Format         string   `json:"format,omitempty"`
 	Ranked         bool     `json:"ranked,omitempty"`
+	Semantic       bool     `json:"semantic,omitempty"`
 	Family         string   `json:"family,omitempty"`
 	CreatedAfter   string   `json:"created_after,omitempty"`
 	CreatedBefore  string   `json:"created_before,omitempty"`
@@ -1034,6 +1035,31 @@ var opList = Op{
 		var in listInput
 		if err := json.Unmarshal(raw, &in); err != nil {
 			return "", err
+		}
+		if in.Semantic {
+			if in.Query == "" {
+				return "", fmt.Errorf("query required for semantic list") //nolint:err113 // user-facing hint
+			}
+			li := parchment.ListInput{Scope: in.Scope, Kind: in.Kind, Limit: in.Limit}
+			arts, err := svc.Proto.SearchSemantic(ctx, in.Query, li)
+			if err != nil {
+				// No embeddings configured or store empty — fall back to FTS ranked recall.
+				results, ferr := svc.Recall(ctx, in.Query, in.Scope, in.Top)
+				if ferr != nil {
+					return "", fmt.Errorf("semantic unavailable and FTS fallback failed: %w", ferr)
+				}
+				if len(results) == 0 {
+					return fmt.Sprintf("no results for %q", in.Query), nil
+				}
+				arts = make([]*parchment.Artifact, len(results))
+				for i, r := range results {
+					arts[i] = r.Art
+				}
+			}
+			if len(arts) == 0 {
+				return fmt.Sprintf("no results for %q", in.Query), nil
+			}
+			return parchment.RenderTable(arts), nil
 		}
 		if in.Ranked {
 			if in.Query == "" {

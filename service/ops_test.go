@@ -326,6 +326,75 @@ func TestOpList_RankedEmptyQueryReturnsError(t *testing.T) {
 	}
 }
 
+func TestOpList_SemanticFallsBackToFTS_WhenNoEmbeddings(t *testing.T) {
+	// Given: no EmbedFunc configured (no embeddings in store)
+	// When: list(semantic=true, query=authentication)
+	// Then: falls back to FTS ranked recall — no error, returns results
+	t.Parallel()
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{ //nolint:errcheck // test setup
+		Kind: "note", Title: "authentication flow", Scope: "test",
+	})
+
+	op := service.Find("list")
+	raw, _ := json.Marshal(map[string]any{"semantic": true, "query": "authentication", "scope": "test"})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatalf("semantic list with no embeddings should fall back to FTS, got error: %v", err)
+	}
+	if !strings.Contains(out, "authentication") {
+		t.Errorf("expected 'authentication' in semantic list output, got: %s", out)
+	}
+}
+
+func TestOpList_SemanticEmptyQueryReturnsError(t *testing.T) {
+	// Given: semantic=true but no query
+	// When: list(semantic=true)
+	// Then: error is returned
+	svc := newTestService(t)
+	op := service.Find("list")
+	raw, _ := json.Marshal(map[string]any{"semantic": true, "scope": "test"})
+	_, err := op.Run(context.Background(), svc, raw)
+	if err == nil {
+		t.Fatal("expected error for semantic list with empty query, got nil")
+	}
+}
+
+func TestOpList_Semantic_WithEmbeddings_ReturnsResults(t *testing.T) {
+	// Given: EmbedFunc configured, embeddings in store
+	// When: list(semantic=true, query=...)
+	// Then: SearchSemantic is used (not FTS)
+	t.Parallel()
+	vocab := []string{"authentication", "security", "jwt", "token", "clock", "ptp"}
+	embedFn := parchment.SemanticEmbeddingFunc(vocab)
+	store := parchment.NewMemoryStore()
+	proto := parchment.New(store, nil, []string{"test"}, nil, parchment.ProtocolConfig{EmbedFunc: embedFn})
+	svc := service.New(proto, nil, []string{"test"})
+	ctx := context.Background()
+
+	art, _ := proto.CreateArtifact(ctx, parchment.CreateInput{
+		Kind: "note", Title: "authentication jwt token", Scope: "test",
+	})
+	_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{
+		Kind: "note", Title: "ptp clock holdover", Scope: "test",
+	})
+	// Librarian manually puts embeddings
+	authVec, _ := embedFn(ctx, "authentication jwt token")
+	_ = store.PutEmbedding(ctx, art.ID, parchment.DefaultEmbedModel, authVec)
+
+	op := service.Find("list")
+	raw, _ := json.Marshal(map[string]any{"semantic": true, "query": "security token validation", "scope": "test"})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatalf("semantic list with embeddings failed: %v", err)
+	}
+	if !strings.Contains(out, "authentication") {
+		t.Errorf("expected authentication note in semantic results, got: %s", out)
+	}
+}
+
 // --- diff (RED) ---
 
 func TestOpReplace_SwapsEdgeTarget(t *testing.T) {
