@@ -1,2 +1,3 @@
 bin/
+vendor/
 agent_e2e/node_modules/

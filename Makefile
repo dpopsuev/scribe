@@ -13,7 +13,9 @@ build:
 
 build-image:
 	@test -n "$(VERSION)" || (echo "error: VERSION is not set" && exit 1)
+	go mod vendor
 	podman build --build-arg VERSION=$(VERSION) -t $(IMAGE_REPO):$(VERSION) .
+	rm -rf vendor
 
 push-image:
 	@test -n "$(VERSION)" || (echo "error: VERSION is not set" && exit 1)
