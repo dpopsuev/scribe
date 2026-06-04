@@ -109,8 +109,10 @@ func Load(path string) (*Config, error) {
 // Resolve walks the resolution order to find and load a config file:
 //  1. explicit path (from --config flag)
 //  2. $SCRIBE_CONFIG
-//  3. ~/.scribe/scribe.yaml
-//  4. no file → built-in defaults
+//  3. $SCRIBE_ROOT/scribe.yaml
+//  4. $XDG_CONFIG_HOME/scribe/scribe.yaml  (default: ~/.config/scribe/scribe.yaml)
+//  5. ~/.scribe/scribe.yaml  (legacy)
+//  6. no file → built-in defaults
 func Resolve(explicit string) (*Config, error) {
 	candidates := []string{explicit}
 	if v := os.Getenv("SCRIBE_CONFIG"); v != "" {
@@ -120,7 +122,14 @@ func Resolve(explicit string) (*Config, error) {
 		candidates = append(candidates, filepath.Join(root, "scribe.yaml"))
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		candidates = append(candidates, filepath.Join(home, ".scribe", "scribe.yaml"))
+		xdgConfigHome := os.Getenv("XDG_CONFIG_HOME")
+		if xdgConfigHome == "" {
+			xdgConfigHome = filepath.Join(home, ".config")
+		}
+		candidates = append(candidates,
+			filepath.Join(xdgConfigHome, "scribe", "scribe.yaml"),
+			filepath.Join(home, ".scribe", "scribe.yaml"),
+		)
 	}
 
 	for _, path := range candidates {
@@ -151,7 +160,16 @@ func generateFirstRun(cfg *Config) error {
 	if err != nil {
 		return err
 	}
-	dir := filepath.Join(home, ".scribe")
+	// Skip if legacy path already exists — don't migrate automatically.
+	legacy := filepath.Join(home, ".scribe", "scribe.yaml")
+	if _, err := os.Stat(legacy); err == nil {
+		return nil
+	}
+	xdgConfigHome := os.Getenv("XDG_CONFIG_HOME")
+	if xdgConfigHome == "" {
+		xdgConfigHome = filepath.Join(home, ".config")
+	}
+	dir := filepath.Join(xdgConfigHome, "scribe")
 	path := filepath.Join(dir, "scribe.yaml")
 	if _, err := os.Stat(path); err == nil {
 		return nil
@@ -272,7 +290,8 @@ func (c *Config) applyDefaults() {
 }
 
 // Save writes the config to the resolved path. It uses the same resolution
-// order as Resolve to find the target file, falling back to ~/.scribe/scribe.yaml.
+// order as Resolve to find the target file, falling back to the XDG config
+// path ($XDG_CONFIG_HOME/scribe/scribe.yaml).
 func Save(cfg *Config) error {
 	path := resolvedPath
 	if path == "" {
@@ -280,7 +299,11 @@ func Save(cfg *Config) error {
 		if err != nil {
 			return fmt.Errorf("home dir: %w", err)
 		}
-		dir := filepath.Join(home, ".scribe")
+		xdgConfigHome := os.Getenv("XDG_CONFIG_HOME")
+		if xdgConfigHome == "" {
+			xdgConfigHome = filepath.Join(home, ".config")
+		}
+		dir := filepath.Join(xdgConfigHome, "scribe")
 		if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // config dir; 0755 is intentional for user readability
 			return fmt.Errorf("mkdir %s: %w", dir, err)
 		}
