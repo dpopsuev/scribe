@@ -53,8 +53,8 @@ func ReseedCmd() *cobra.Command {
 
 func SeedCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "seed <PREFIX> <next-seq>",
-		Short: "Force-set the sequence counter for a prefix",
+		Use:   "set-seq <PREFIX> <next-seq>",
+		Short: "Force-set the ID sequence counter for a prefix (repair tool)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s := MustStore()
@@ -74,8 +74,8 @@ func SeedCmd() *cobra.Command {
 }
 
 func SeedDirCmd() *cobra.Command {
-	return &cobra.Command{ //nolint:wsl // grouping with SeedDirCmd
-		Use:   "seed-dir <dir>",
+	return &cobra.Command{
+		Use:   "seed <dir>",
 		Short: "Seed templates and config from a directory (idempotent)",
 		Long:  "Reads templates from <dir>/templates/*.md and config from <dir>/config/*.yaml. Skips artifacts that already exist.",
 		Args:  cobra.ExactArgs(1),
