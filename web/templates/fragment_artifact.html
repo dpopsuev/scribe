@@ -1,0 +1,32 @@
+<div class="fragment-header">
+  <h3><a href="/artifacts/{{.Artifact.ID}}" target="_blank">{{.Artifact.Title}}</a></h3>
+  <div class="fragment-meta">
+    <span class="badge badge-{{.Artifact.Status}}">{{.Artifact.Status}}</span>
+    <span class="badge">{{.Artifact.Kind}}</span>
+    {{if .Artifact.Scope}}<span class="badge-scope">{{.Artifact.Scope}}</span>{{end}}
+  </div>
+</div>
+
+<table class="meta-table" style="font-size:0.85em">
+  <tr><td>ID</td><td>{{.Artifact.ID}}</td></tr>
+  {{if .Artifact.Parent}}<tr><td>Parent</td><td><a href="/artifacts/{{.Artifact.Parent}}">{{.Artifact.Parent}}</a></td></tr>{{end}}
+  {{if .Artifact.Priority}}<tr><td>Priority</td><td>{{.Artifact.Priority}}</td></tr>{{end}}
+  {{if .Artifact.Labels}}<tr><td>Labels</td><td>{{range .Artifact.Labels}}<span class="badge" style="font-size:0.75em">{{.}}</span> {{end}}</td></tr>{{end}}
+  <tr><td>Updated</td><td>{{.Artifact.UpdatedAt.Format "2006-01-02"}}</td></tr>
+</table>
+
+{{if .Artifact.Goal}}
+<p style="font-size:0.9em;margin-top:0.75rem;color:var(--pico-muted-color)">{{.Artifact.Goal}}</p>
+{{end}}
+
+{{range .Artifact.Sections}}
+<div class="section-block" style="margin-top:0.75rem">
+  <h4 style="font-size:0.85em;border-bottom:1px solid var(--pico-muted-border-color);padding-bottom:0.2rem">{{.Name}}</h4>
+  <div style="font-size:0.85em">{{renderMarkdown .Text}}</div>
+</div>
+{{end}}
+
+<div style="margin-top:1rem;display:flex;gap:0.5rem;flex-wrap:wrap">
+  <a href="/artifacts/{{.Artifact.ID}}" class="outline" role="button" style="font-size:0.8em" target="_blank">Full page</a>
+  <a href="/tree/{{.Artifact.ID}}" class="outline" role="button" style="font-size:0.8em" target="_blank">Tree</a>
+</div>

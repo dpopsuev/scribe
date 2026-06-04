@@ -47,27 +47,53 @@ func NewServer(proto *parchment.Protocol) *Server {
 		template.New("layout.html").Funcs(funcMap).ParseFS(templateFS, "templates/layout.html"),
 	)
 
-	for _, page := range []string{"dashboard.html", "list.html", "detail.html", "tree.html", "search.html"} {
+	for _, page := range []string{
+		"dashboard.html", "list.html", "detail.html",
+		"tree.html", "search.html",
+	} {
 		clone := template.Must(layoutTmpl.Clone())
 		s.pages[page] = template.Must(clone.ParseFS(templateFS, "templates/"+page))
 	}
 
+	// fragment templates render without the layout wrapper
+	fragmentTmpl := template.Must(
+		template.New("fragment_artifact.html").Funcs(funcMap).ParseFS(
+			templateFS, "templates/fragment_artifact.html"),
+	)
+	s.pages["fragment_artifact.html"] = fragmentTmpl
+
+	// graph template needs layout but also uses full viewport — register after loop
+	graphClone := template.Must(layoutTmpl.Clone())
+	s.pages["graph.html"] = template.Must(graphClone.ParseFS(templateFS, "templates/graph.html"))
+
 	s.mux = http.NewServeMux()
+
+	// Read-only pages
 	s.mux.HandleFunc("GET /", s.handleDashboard)
 	s.mux.HandleFunc("GET /artifacts", s.handleList)
 	s.mux.HandleFunc("GET /artifacts/{id}", s.handleDetail)
 	s.mux.HandleFunc("GET /tree/{id}", s.handleTree)
 	s.mux.HandleFunc("GET /search", s.handleSearch)
+	s.mux.HandleFunc("GET /graph", s.handleGraph)
 	s.mux.HandleFunc("GET /events", s.handleEvents)
+
+	// Fragment endpoints (HTMX sidebar loads)
+	s.mux.HandleFunc("GET /fragments/artifacts/{id}", s.handleFragmentArtifact)
+
+	// JSON API — read
+	s.mux.HandleFunc("GET /api/graph", s.handleAPIGraph)
+	s.mux.HandleFunc("GET /api/scopes", s.handleAPIScopes)
+
+	// JSON API — write
+	s.mux.HandleFunc("POST /api/artifacts", s.handleAPICreateArtifact)
+	s.mux.HandleFunc("PATCH /api/artifacts/{id}", s.handleAPIPatchArtifact)
+	s.mux.HandleFunc("POST /api/edges", s.handleAPICreateEdge)
+	s.mux.HandleFunc("DELETE /api/edges/{from}/{relation}/{to}", s.handleAPIDeleteEdge)
 
 	return s
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	s.mux.ServeHTTP(w, r)
 }
 
