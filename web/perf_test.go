@@ -19,6 +19,7 @@ package web_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http/httptest"
 	"testing"
@@ -44,14 +45,27 @@ var thresholds = []fpsThreshold{
 	{nodes: 500,  minFPS: 30, desc: "500 nodes — acceptable without optimisations"},
 }
 
-// startServer spins up a real httptest.Server with a parchment store.
+// startServer spins up a real httptest.Server with a seeded parchment store.
+// Creates artifacts in three scopes with different sizes so the scope graph
+// has meaningful weighted nodes for camera and FPS tests.
 func startServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	s, err := parchment.OpenSQLite(t.TempDir() + "/perf.db")
 	if err != nil {
 		t.Fatal(err)
 	}
-	proto := parchment.New(s, nil, []string{"perf"}, nil, parchment.ProtocolConfig{})
+	ctx := t.Context()
+	// Seed three scopes with differing artifact counts so scope super-nodes
+	// have different val values — exercises weighted center-of-mass logic.
+	for i := range 40 {
+		scope := []string{"alpha", "beta", "gamma"}[i%3]
+		_ = s.Put(ctx, &parchment.Artifact{
+			ID: fmt.Sprintf("%s-%03d", scope, i), Kind: "task",
+			Scope: scope, Status: "active",
+			Title: fmt.Sprintf("artifact %d", i),
+		})
+	}
+	proto := parchment.New(s, nil, []string{"alpha", "beta", "gamma"}, nil, parchment.ProtocolConfig{})
 	srv := httptest.NewServer(web.NewServer(proto))
 	t.Cleanup(func() { srv.Close(); _ = s.Close() })
 	return srv
@@ -336,4 +350,108 @@ func max(a, b float64) float64 {
 		return a
 	}
 	return b
+}
+
+// TestGraph_CameraAimsAtCenterOfMass verifies that after the graph loads,
+// the camera's OrbitControls target (the orbit pivot) matches the weighted
+// center of mass of the visible parent nodes to within a tolerance.
+//
+// This is the canonical "does the camera auto-lock to center of mass" test.
+// It fails if aimAtCenterOfMass is not called, if controls.target is not set,
+// or if the weighted centroid calculation is wrong.
+func TestGraph_CameraAimsAtCenterOfMass(t *testing.T) {
+	srv := startServer(t)
+	ctx := newBrowser(t)
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	if err := chromedp.Run(ctx,
+		chromedp.Navigate(srv.URL+"/graph"),
+		chromedp.Sleep(15*time.Second), // CDN load
+	); err != nil {
+		t.Fatalf("navigate: %v", err)
+	}
+
+	// Read camera state and node positions from the real page.
+	const measureJS = `(function() {
+		try {
+			var controls = _Graph.controls();
+			if (!controls || !controls.target) return JSON.stringify({error:'no controls'});
+
+			// Weighted center of mass: same formula as centerOfMass() in graph.html.
+			var nodes = _Graph.graphData().nodes;
+			var parents = nodes.filter(function(n){ return n.kind==='scope'||n.kind==='kind-group'; });
+			var pool = parents.length ? parents : nodes;
+
+			var cx=0, cy=0, cz=0, totalW=0;
+			pool.forEach(function(n) {
+				var w = n.val || 1;
+				cx += (n.x||0)*w; cy += (n.y||0)*w; cz += (n.z||0)*w;
+				totalW += w;
+			});
+			var com = totalW ? {x:cx/totalW, y:cy/totalW, z:cz/totalW} : {x:0,y:0,z:0};
+
+			var tgt = controls.target;
+			var dist = Math.sqrt(
+				Math.pow(tgt.x-com.x,2)+Math.pow(tgt.y-com.y,2)+Math.pow(tgt.z-com.z,2)
+			);
+
+			// Also check camera is not behind origin — it should be looking at com.
+			var cam = controls.object.position;
+			var lookDir = {x:tgt.x-cam.x, y:tgt.y-cam.y, z:tgt.z-cam.z};
+			var camDist = Math.sqrt(lookDir.x*lookDir.x+lookDir.y*lookDir.y+lookDir.z*lookDir.z);
+
+			return JSON.stringify({
+				parentCount:  pool.length,
+				com:          {x:Math.round(com.x), y:Math.round(com.y), z:Math.round(com.z)},
+				ctrlTarget:   {x:Math.round(tgt.x), y:Math.round(tgt.y), z:Math.round(tgt.z)},
+				targetComDist: Math.round(dist),
+				camDist:      Math.round(camDist),
+			});
+		} catch(e) { return JSON.stringify({error:e.message}); }
+	})()`
+
+	var raw string
+	if err := chromedp.Run(ctx, chromedp.Evaluate(measureJS, &raw)); err != nil {
+		t.Fatalf("measure: %v", err)
+	}
+
+	var m struct {
+		Error        string `json:"error"`
+		ParentCount  int    `json:"parentCount"`
+		COM          struct{ X, Y, Z int }
+		CtrlTarget   struct{ X, Y, Z int }
+		TargetComDist int `json:"targetComDist"`
+		CamDist      int `json:"camDist"`
+	}
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		t.Fatalf("parse: %v — raw: %s", err, raw)
+	}
+	if m.Error != "" {
+		t.Fatalf("JS error: %s", m.Error)
+	}
+
+	t.Logf("parent nodes: %d", m.ParentCount)
+	t.Logf("center of mass:  {%d %d %d}", m.COM.X, m.COM.Y, m.COM.Z)
+	t.Logf("controls.target: {%d %d %d}", m.CtrlTarget.X, m.CtrlTarget.Y, m.CtrlTarget.Z)
+	t.Logf("target-to-COM distance: %d units", m.TargetComDist)
+	t.Logf("camera distance from target: %d units", m.CamDist)
+
+	// controls.target must be within 100 units of the weighted center of mass.
+	// 100 units is generous — the fibonacci sphere is radius 600, so this is
+	// a ~17% tolerance that catches "completely wrong" without being flaky.
+	const tolerance = 100
+	if m.TargetComDist > tolerance {
+		t.Errorf("FAIL: camera target is %d units from center of mass (want <= %d)\n"+
+			"  center of mass:  {%d %d %d}\n"+
+			"  controls.target: {%d %d %d}",
+			m.TargetComDist, tolerance,
+			m.COM.X, m.COM.Y, m.COM.Z,
+			m.CtrlTarget.X, m.CtrlTarget.Y, m.CtrlTarget.Z)
+	}
+
+	// Camera must be at a reasonable distance — not at origin, not infinitely far.
+	if m.CamDist < 100 || m.CamDist > 5000 {
+		t.Errorf("FAIL: camera distance %d is unreasonable (want 100–5000)", m.CamDist)
+	}
 }

@@ -719,39 +719,72 @@ function centerOfMass() {
   return { x: cx / totalW, y: cy / totalW, z: cz / totalW };
 }
 
-// Point camera at center of mass and set orbit target so the camera
-// rotates around the actual data cloud, not the world origin.
-// animMs=0 for instant snap, >0 for smooth transition.
+// Point camera at the weighted center of mass and lock OrbitControls to it.
+//
+// Problem: Graph.cameraPosition() uses its own tween that conflicts with
+// OrbitControls — controls win and the camera snaps back. The fix is to
+// drive OrbitControls directly: set .target (orbit pivot) and .object.position
+// (camera), then call .update(). OrbitControls owns the camera; we tell it
+// where to look and where to stand.
+//
+// animMs=0 → instant. animMs>0 → lerp over that many ms via rAF.
 function aimAtCenterOfMass(animMs = 0) {
+  const controls = Graph.controls();
+  if (!controls?.target) return;  // controls not ready yet
+
   const center = centerOfMass();
 
-  // Compute a sensible camera distance: bounding radius of the node cloud.
-  const { nodes } = Graph.graphData();
+  // Bounding radius of the parent node cloud.
+  const pool = Graph.graphData().nodes.filter(n => n.kind === 'scope' || n.kind === 'kind-group');
   let radius = 200;
-  for (const n of nodes) {
+  for (const n of pool) {
     const d = Math.hypot((n.x||0) - center.x, (n.y||0) - center.y, (n.z||0) - center.z);
     if (d > radius) radius = d;
   }
-  const camDist = radius * 2.2; // stand back far enough to see everything
+  const camDist = radius * 2.5; // 2.5× radius → whole cloud in view
 
-  // Keep current camera direction; just rescale distance from the new center.
-  const pos = Graph.camera().position;
-  const dir = { x: pos.x - center.x, y: pos.y - center.y, z: pos.z - center.z };
-  const len = Math.hypot(dir.x, dir.y, dir.z) || 1;
+  // Direction from center to current camera — keep the viewing angle, just
+  // retarget and rescale.
+  const cam = controls.object.position;
+  const dx = cam.x - center.x, dy = cam.y - center.y, dz = cam.z - center.z;
+  const len = Math.hypot(dx, dy, dz) || 1;
   const scale = camDist / len;
+  const targetCamPos = {
+    x: center.x + dx * scale,
+    y: center.y + dy * scale,
+    z: center.z + dz * scale,
+  };
 
-  Graph.cameraPosition(
-    { x: center.x + dir.x * scale, y: center.y + dir.y * scale, z: center.z + dir.z * scale },
-    center,
-    animMs
-  );
-
-  // Set OrbitControls target so rotation pivots around center of mass.
-  const controls = Graph.controls();
-  if (controls?.target) {
+  if (animMs <= 0) {
+    controls.object.position.set(targetCamPos.x, targetCamPos.y, targetCamPos.z);
     controls.target.set(center.x, center.y, center.z);
     controls.update();
+    return;
   }
+
+  // Smooth lerp via rAF — no external tween library needed.
+  const startPos  = { x: cam.x, y: cam.y, z: cam.z };
+  const startTgt  = { x: controls.target.x, y: controls.target.y, z: controls.target.z };
+  const startTime = performance.now();
+
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function ease(t) { return t < 0.5 ? 2*t*t : -1+(4-2*t)*t; } // ease-in-out
+
+  (function tick() {
+    const t = ease(Math.min((performance.now() - startTime) / animMs, 1));
+    controls.object.position.set(
+      lerp(startPos.x, targetCamPos.x, t),
+      lerp(startPos.y, targetCamPos.y, t),
+      lerp(startPos.z, targetCamPos.z, t),
+    );
+    controls.target.set(
+      lerp(startTgt.x, center.x, t),
+      lerp(startTgt.y, center.y, t),
+      lerp(startTgt.z, center.z, t),
+    );
+    controls.update();
+    if (t < 1) requestAnimationFrame(tick);
+  })();
 }
 
 // ─── boot ─────────────────────────────────────────────────────────────────
