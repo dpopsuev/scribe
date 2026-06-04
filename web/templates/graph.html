@@ -77,7 +77,7 @@
 
 <div id="controls">
   <strong>Scribe Graph</strong>
-  <div id="mode-badge">telescope · scope view</div>
+  <div id="mode-badge">universe · scope view</div>
 
   <label>
     Status filter
@@ -113,7 +113,7 @@
     <p class="htmx-indicator">Click a node to view details</p>
   </div>
 </div>
-<div id="hint">Click scope to drill in · Double-click artifact to collapse · Drag to rotate · Scroll to zoom</div>
+<div id="hint">Click scope sphere to expand · Double-click artifact to collapse · Drag to orbit · Scroll to zoom</div>
 <div id="ctx-menu" style="display:none"></div>
 
 <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
@@ -174,9 +174,9 @@ const Graph = ForceGraph3D({ controlType: 'orbit' })(document.getElementById('gr
   .linkDirectionalParticleSpeed(0.004)
   .linkDirectionalParticleWidth(1.5)
   .linkCurvature(l => l.relation === 'depends_on' ? 0.15 : 0)
-  .d3AlphaDecay(0.006)
-  .d3VelocityDecay(0.28)
-  .warmupTicks(30)
+  .d3AlphaDecay(0.004)      // very slow decay — long float time
+  .d3VelocityDecay(0.25)    // low friction — floaty
+  .warmupTicks(0)            // no pre-bake; positions come from fibonacci
   .cooldownTime(Infinity)
   .onNodeClick(onNodeClick)
   .onNodeDblClick(onNodeDblClick)
@@ -201,14 +201,101 @@ function applyGraphData() {
   updateExpandedTags();
 }
 
+// ─── sphere math (from hegemony/client/src/globe) ─────────────────────────
+
+// Fibonacci sphere: evenly distributes N points on a unit sphere.
+// Points [0..N-1] spiral from top to bottom — sort order maps to latitude.
+// Golden angle = 2π(1 - 1/φ) ≈ 2.399 rad avoids clustering.
+function fibonacciSphere(n, radius) {
+  const pts = [];
+  const goldenAngle = Math.PI * (3 - Math.sqrt(5)); // ≈ 2.399 rad
+  for (let i = 0; i < n; i++) {
+    const y = 1 - (i / Math.max(n - 1, 1)) * 2; // y ∈ [1, -1] top → bottom
+    const r = Math.sqrt(Math.max(0, 1 - y * y));  // radius of horizontal circle
+    const theta = goldenAngle * i;
+    pts.push({
+      x: Math.cos(theta) * r * radius,
+      y: y * radius,
+      z: Math.sin(theta) * r * radius,
+    });
+  }
+  return pts;
+}
+
+// Custom d3 force: gently attract nodes back toward the sphere surface.
+// Replaces 'center' force — nodes float but stay roughly on the sphere.
+function forceRadialSphere(targetRadius, strength = 0.08) {
+  let nodes;
+  function force(alpha) {
+    for (const n of nodes) {
+      const d = Math.sqrt((n.x||0)**2 + (n.y||0)**2 + (n.z||0)**2) || 1;
+      const scale = (targetRadius - d) / d * alpha * strength;
+      n.vx = (n.vx || 0) + (n.x || 0) * scale;
+      n.vy = (n.vy || 0) + (n.y || 0) * scale;
+      n.vz = (n.vz || 0) + (n.z || 0) * scale;
+    }
+  }
+  force.initialize = ns => { nodes = ns; };
+  return force;
+}
+
+// Store sphere position per scope node id for micro-sphere anchoring.
+const scopeSpherePos = new Map(); // scopeName → {x,y,z}
+
 // ─── macro load ───────────────────────────────────────────────────────────
 async function loadMacro() {
-  document.getElementById('stats').textContent = 'Loading scopes…';
-  document.getElementById('mode-badge').textContent = 'telescope · scope view';
+  document.getElementById('stats').textContent = 'Loading universe…';
+  document.getElementById('mode-badge').textContent = 'universe · scope view';
 
   const res = await fetch('/api/graph/scopes');
   const data = await res.json();
-  macroData = data;
+
+  // Sort scopes by degree (cross-scope link count) — high degree → equator.
+  // Build degree map from links.
+  const deg = {};
+  for (const l of data.links) {
+    const s = l.source?.replace ? l.source : l.source;
+    const t = l.target?.replace ? l.target : l.target;
+    deg[s] = (deg[s] || 0) + 1;
+    deg[t] = (deg[t] || 0) + 1;
+  }
+  // Sort: highest degree first → maps to equator (middle of fibonacci range).
+  // Remap: put highest-degree near middle indices (equator), lowest at poles.
+  const sorted = [...data.nodes].sort((a, b) => (deg[b.id] || 0) - (deg[a.id] || 0));
+
+  // Equator-priority mapping: interleave from center outward.
+  // Index 0 (top degree) → middle; then alternate above/below.
+  const n = sorted.length;
+  const order = new Array(n);
+  let lo = Math.floor(n / 2), hi = lo + 1;
+  for (let i = 0; i < n; i++) {
+    if (i % 2 === 0) {
+      order[i] = lo--;
+    } else {
+      order[i] = hi++;
+    }
+  }
+
+  // Assign fibonacci sphere positions.
+  const UNIVERSE_RADIUS = 600;
+  const positions = fibonacciSphere(n, UNIVERSE_RADIUS);
+  for (let i = 0; i < n; i++) {
+    const node = sorted[i];
+    const pos = positions[order[i]];
+    node.x = pos.x; node.y = pos.y; node.z = pos.z;
+    // Pin initial position (fx/fy/fz) so warmup doesn't scatter them;
+    // release after first tick by clearing in onEngineTick.
+    node._sphere = { ...pos }; // remember sphere home
+    scopeSpherePos.set(node.scope || node.name, pos);
+  }
+
+  // Install radial force, remove center force.
+  Graph.d3Force('center', null);
+  Graph.d3Force('radial', forceRadialSphere(UNIVERSE_RADIUS, 0.06));
+  // Reduce charge repulsion so nodes don't escape the sphere.
+  Graph.d3Force('charge')?.strength?.(-120);
+
+  macroData = { nodes: sorted, links: data.links };
   expandedScopes.clear();
   clearBubbles();
   applyGraphData();
@@ -237,12 +324,31 @@ async function expandScope(scopeName) {
          l.source?.id !== scopeNodeId && l.target?.id !== scopeNodeId
   );
 
+  // Position micro artifacts in a mini-sphere around the scope's universe position.
+  const anchor = scopeSpherePos.get(scopeName) || { x: 0, y: 0, z: 0 };
+  const MICRO_RADIUS = 60;
+
+  // Sort micro nodes by degree within the scope.
+  const microDeg = {};
+  for (const l of micro.links) {
+    microDeg[l.source] = (microDeg[l.source] || 0) + 1;
+    microDeg[l.target] = (microDeg[l.target] || 0) + 1;
+  }
+  const sortedMicro = [...micro.nodes].sort((a, b) => (microDeg[b.id] || 0) - (microDeg[a.id] || 0));
+  const microPos = fibonacciSphere(sortedMicro.length, MICRO_RADIUS);
+  sortedMicro.forEach((node, i) => {
+    node.x = anchor.x + microPos[i].x;
+    node.y = anchor.y + microPos[i].y;
+    node.z = anchor.z + microPos[i].z;
+  });
+  micro.nodes = sortedMicro;
+
   expandedScopes.set(scopeName, micro);
   createBubble(scopeName);
   applyGraphData();
 
   document.getElementById('mode-badge').textContent =
-    expandedScopes.size === 0 ? 'telescope · scope view' : 'microscope · artifact view';
+    expandedScopes.size === 0 ? 'universe · scope view' : 'microscope · artifact view';
 }
 
 // ─── collapse scope → macro ───────────────────────────────────────────────
@@ -267,7 +373,7 @@ async function collapseScope(scopeName) {
   applyGraphData();
 
   document.getElementById('mode-badge').textContent =
-    expandedScopes.size === 0 ? 'telescope · scope view' : 'microscope · artifact view';
+    expandedScopes.size === 0 ? 'universe · scope view' : 'microscope · artifact view';
 }
 
 // ─── click handlers ───────────────────────────────────────────────────────
