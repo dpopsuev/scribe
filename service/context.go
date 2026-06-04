@@ -54,10 +54,11 @@ func (s *Service) ContextRead(ctx context.Context, taskID string) (*ContextPacke
 	}
 
 	var know []*parchment.Artifact
-	if task.Scope != "" && len(task.Labels) > 0 {
+	userLabels := userDefinedLabels(task.Labels)
+	if task.Scope != "" && len(userLabels) > 0 {
 		all, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{
 			Scope:  task.Scope,
-			Labels: task.Labels,
+			Labels: userLabels,
 		})
 		for _, art := range all {
 			if art.Kind == parchment.KindNote || art.Kind == parchment.KindConcept {
@@ -168,6 +169,21 @@ func (s *Service) resolveRules(ctx context.Context, signalLabels []string) []Rul
 			Priority: int(priority),
 			Body:     body,
 		})
+	}
+	return out
+}
+
+// userDefinedLabels strips system-managed label prefixes (kind:, status:, scope:)
+// so knowledge lookups only match on user-defined labels.
+func userDefinedLabels(labels []string) []string {
+	out := make([]string, 0, len(labels))
+	for _, l := range labels {
+		if strings.HasPrefix(l, "kind:") ||
+			strings.HasPrefix(l, "status:") ||
+			strings.HasPrefix(l, "scope:") {
+			continue
+		}
+		out = append(out, l)
 	}
 	return out
 }
