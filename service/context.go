@@ -173,14 +173,16 @@ func (s *Service) resolveRules(ctx context.Context, signalLabels []string) []Rul
 	return out
 }
 
-// userDefinedLabels strips system-managed label prefixes (kind:, status:, scope:)
-// so knowledge lookups only match on user-defined labels.
+// userDefinedLabels strips system-managed label prefixes so knowledge lookups
+// only match on user-defined labels, not structural metadata.
 func userDefinedLabels(labels []string) []string {
 	out := make([]string, 0, len(labels))
 	for _, l := range labels {
 		if strings.HasPrefix(l, "kind:") ||
 			strings.HasPrefix(l, "status:") ||
-			strings.HasPrefix(l, "scope:") {
+			strings.HasPrefix(l, "scope:") ||
+			strings.HasPrefix(l, "priority:") ||
+			strings.HasPrefix(l, "sprint:") {
 			continue
 		}
 		out = append(out, l)
