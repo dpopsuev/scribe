@@ -32,6 +32,79 @@ type graphData struct {
 	Links []graphLink `json:"links"`
 }
 
+// handleAPIGraphScopes returns one node per scope with cross-scope edges.
+// GET /api/graph?level=scopes
+func (s *Server) handleAPIGraphScopes(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Fetch all artifacts to find cross-scope edges and count per scope.
+	allArts, err := s.proto.ListArtifacts(ctx, parchment.ListInput{})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Build id→scope index and count per scope.
+	scopeOf := make(map[string]string, len(allArts))
+	countByScope := make(map[string]int)
+	allIDs := make([]string, 0, len(allArts))
+	for _, a := range allArts {
+		sc := a.Scope
+		if sc == "" || sc == parchment.SchemaScope {
+			continue
+		}
+		scopeOf[a.ID] = sc
+		countByScope[sc]++
+		allIDs = append(allIDs, a.ID)
+	}
+
+	// Fetch all edges, aggregate cross-scope ones.
+	edges, _ := s.proto.Store().ListEdges(ctx, allIDs, nil)
+	type edgeKey struct{ from, to, rel string }
+	crossEdgeWeight := make(map[edgeKey]float64)
+	for _, e := range edges {
+		fs, ts := scopeOf[e.From], scopeOf[e.To]
+		if fs == "" || ts == "" || fs == ts || fs == parchment.SchemaScope || ts == parchment.SchemaScope {
+			continue
+		}
+		// Normalise direction so A→B and B→A don't double-count.
+		from, to := fs, ts
+		if from > to {
+			from, to = to, from
+		}
+		crossEdgeWeight[edgeKey{from, to, e.Relation}]++
+	}
+
+	nodes := make([]graphNode, 0, len(countByScope))
+	for scope, count := range countByScope {
+		nodes = append(nodes, graphNode{
+			ID:    "scope:" + scope,
+			Name:  scope,
+			Kind:  "scope",
+			Scope: scope,
+			Val:   max(3, count/20), // size by artifact count, min 3
+		})
+	}
+
+	links := make([]graphLink, 0, len(crossEdgeWeight))
+	seen := make(map[string]bool)
+	for ek, w := range crossEdgeWeight {
+		key := ek.from + "|" + ek.to
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		links = append(links, graphLink{
+			Source:   "scope:" + ek.from,
+			Target:   "scope:" + ek.to,
+			Relation: "cross-scope",
+			Weight:   w,
+		})
+	}
+
+	writeJSON(w, graphData{Nodes: nodes, Links: links})
+}
+
 // handleAPIGraph serves the graph data for 3d-force-graph.
 // GET /api/graph?scope=&status=&relations=
 func (s *Server) handleAPIGraph(w http.ResponseWriter, r *http.Request) {

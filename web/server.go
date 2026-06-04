@@ -80,7 +80,8 @@ func NewServer(proto *parchment.Protocol) *Server {
 	// Fragment endpoints (HTMX sidebar loads)
 	s.mux.HandleFunc("GET /fragments/artifacts/{id}", s.handleFragmentArtifact)
 
-	// JSON API — read
+	// JSON API — read (more-specific routes first)
+	s.mux.HandleFunc("GET /api/graph/scopes", s.handleAPIGraphScopes)
 	s.mux.HandleFunc("GET /api/graph", s.handleAPIGraph)
 	s.mux.HandleFunc("GET /api/scopes", s.handleAPIScopes)
 
