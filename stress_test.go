@@ -427,7 +427,7 @@ func TestStress_HeapProfile(t *testing.T) {
 			id := fmt.Sprintf("STR-TSK-%d", (i%10)+1)
 			callTool(t, cs, "graph", map[string]any{"action": "tree", "id": id})
 		case 3:
-			callTool(t, cs, "admin", map[string]any{"action": "motd"})
+			callTool(t, cs, "admin", map[string]any{"action": "brief"})
 		}
 	}
 	t1 := assertHeapBelow(t, "t1_after_500_mixed", 150)
@@ -660,7 +660,7 @@ func TestStress_ConnectionPool(t *testing.T) {
 // This test reproduces production conditions:
 // - Real HTTP transport (not in-memory)
 // - Multiple concurrent sessions creating and abandoning connections
-// - Mixed workload: list, get, search, tree, briefing, create, motd
+// - Mixed workload: list, get, search, tree, briefing, create, brief
 // - Periodic session churn (new sessions every N seconds)
 // - pprof heap profiles captured at intervals for offline analysis
 //
@@ -792,9 +792,9 @@ func TestStress_HTTPLeakHunt(t *testing.T) {
 					toolErr = httpToolCallQuiet(addr, sid, "graph", map[string]any{
 						"action": "briefing", "id": id,
 					})
-				case 5: // motd
+				case 5: // brief
 					toolErr = httpToolCallQuiet(addr, sid, "admin", map[string]any{
-						"action": "motd",
+						"action": "brief",
 					})
 				case 6: // create
 					toolErr = httpToolCallQuiet(addr, sid, "artifact", map[string]any{

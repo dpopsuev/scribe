@@ -47,7 +47,7 @@ func run(t *testing.T, dbPath string, args ...string) string {
 		cmds.UnlinkCmd(),
 		cmds.SectionCmd(),
 		cmds.SearchCmd(),
-		cmds.MotdCmd(),
+		cmds.BriefCmd(),
 		cmds.VacuumCmd(),
 		cmds.OrphansCmd(),
 		cmds.OverlapsCmd(),

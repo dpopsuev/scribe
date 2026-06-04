@@ -55,8 +55,8 @@ queries:
 
   - id: Q09
     band: medium
-    text: "how motd now surfaces memory without agents calling a separate tool"
-    expected_theme: "motd memory section showing top-3 evergreen knowledge artifacts automatically"
+    text: "how brief now surfaces memory without agents calling a separate tool"
+    expected_theme: "brief memory section showing top-3 evergreen knowledge artifacts automatically"
 
   - id: Q10
     band: medium
@@ -77,7 +77,7 @@ queries:
   - id: Q13
     band: hard
     text: "agents getting smarter each session without extra ritual steps"
-    expected_theme: "recall action, motd memory section — read path for agent memory management"
+    expected_theme: "recall action, brief memory section — read path for agent memory management"
 
   - id: Q14
     band: hard

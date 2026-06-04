@@ -1,8 +1,8 @@
 package mcp_test
 
-// memory_motd_test.go — motd memory section + orient recent sessions RED tests.
+// memory_brief_test.go — brief memory section + orient recent sessions RED tests.
 //
-// motd must surface top-3 relevant knowledge artifacts for the current scope
+// brief must surface top-3 relevant knowledge artifacts for the current scope
 // so agents get memory context without calling a separate tool.
 //
 // orient must include a "Recent Sessions" section from source artifacts
@@ -32,13 +32,13 @@ func newMemoryServer(t *testing.T) (proto *parchment.Protocol, callAdmin, callKn
 	return
 }
 
-// TestMotd_IncludesMemorySection verifies that motd returns a Memory section
+// TestBrief_IncludesMemorySection verifies that brief returns a Memory section
 // when knowledge artifacts exist for the scope.
-func TestMotd_IncludesMemorySection(t *testing.T) {
+func TestBrief_IncludesMemorySection(t *testing.T) {
 	proto, callAdmin, _ := newMemoryServer(t)
 	ctx := context.Background()
 
-	// Seed an evergreen note — should surface in motd memory
+	// Seed an evergreen note — should surface in brief memory
 	_, err := proto.CreateArtifact(ctx, parchment.CreateInput{
 		Kind:   parchment.KindNote,
 		Title:  "SetField rejects unknown fields",
@@ -53,28 +53,28 @@ func TestMotd_IncludesMemorySection(t *testing.T) {
 	}
 
 	out := callAdmin(map[string]any{
-		"action": "motd",
+		"action": "brief",
 		"scope":  "test",
 	})
 
-	// motd must include a memory or knowledge section
+	// brief must include a memory or knowledge section
 	hasMemory := strings.Contains(strings.ToLower(out), "memory") ||
 		strings.Contains(strings.ToLower(out), "knowledge") ||
 		strings.Contains(strings.ToLower(out), "setfield") ||
 		strings.Contains(strings.ToLower(out), "unknown field")
 
 	if !hasMemory {
-		t.Errorf("motd must include relevant knowledge artifacts when they exist\nGot: %s", out)
+		t.Errorf("brief must include relevant knowledge artifacts when they exist\nGot: %s", out)
 	}
 }
 
-// TestMotd_NoMemorySection_WhenVaultEmpty verifies motd doesn't add a noisy
+// TestBrief_NoMemorySection_WhenVaultEmpty verifies brief doesn't add a noisy
 // empty Memory section when there are no knowledge artifacts.
-func TestMotd_NoMemorySection_WhenVaultEmpty(t *testing.T) {
+func TestBrief_NoMemorySection_WhenVaultEmpty(t *testing.T) {
 	_, callAdmin, _ := newMemoryServer(t)
 
 	out := callAdmin(map[string]any{
-		"action": "motd",
+		"action": "brief",
 		"scope":  "test",
 	})
 
@@ -82,13 +82,13 @@ func TestMotd_NoMemorySection_WhenVaultEmpty(t *testing.T) {
 	// Should not show "(none)" or empty bullets
 	if strings.Contains(out, "Memory:\n  (none)") ||
 		strings.Contains(out, "Memory:\n\n") {
-		t.Errorf("motd must not show an empty memory section\nGot: %s", out)
+		t.Errorf("brief must not show an empty memory section\nGot: %s", out)
 	}
 }
 
-// TestMotd_MemoryLimitedToThree verifies motd surfaces at most 3 memory items
+// TestBrief_MemoryLimitedToThree verifies brief surfaces at most 3 memory items
 // to keep the context tight.
-func TestMotd_MemoryLimitedToThree(t *testing.T) {
+func TestBrief_MemoryLimitedToThree(t *testing.T) {
 	proto, callAdmin, _ := newMemoryServer(t)
 	ctx := context.Background()
 
@@ -106,7 +106,7 @@ func TestMotd_MemoryLimitedToThree(t *testing.T) {
 	}
 
 	out := callAdmin(map[string]any{
-		"action": "motd",
+		"action": "brief",
 		"scope":  "test",
 	})
 
@@ -128,7 +128,7 @@ func TestMotd_MemoryLimitedToThree(t *testing.T) {
 	}
 
 	if memoryItems > 3 {
-		t.Errorf("motd memory section must show at most 3 items, got %d\nGot: %s", memoryItems, out)
+		t.Errorf("brief memory section must show at most 3 items, got %d\nGot: %s", memoryItems, out)
 	}
 }
 
@@ -182,31 +182,31 @@ func TestOrient_NoSessionsSection_WhenNoneIngested(t *testing.T) {
 	}
 }
 
-// TestMotd_SurfacesScope verifies that motd discloses the active scope filter
+// TestBrief_SurfacesScope verifies that brief discloses the active scope filter
 // so agents know what they can see without making an additional tool call.
-func TestMotd_SurfacesScope(t *testing.T) {
+func TestBrief_SurfacesScope(t *testing.T) {
 	_, callAdmin, _ := newMemoryServer(t) // homeScopes = ["test"]
 
-	out := callAdmin(map[string]any{"action": "motd"})
+	out := callAdmin(map[string]any{"action": "brief"})
 
 	if !strings.Contains(out, "Scope: test") {
-		t.Errorf("motd must include active scope; got:\n%s", out)
+		t.Errorf("brief must include active scope; got:\n%s", out)
 	}
 }
 
-// TestMotd_OrientPointer verifies that a full (non-delta) motd appends a
+// TestBrief_OrientPointer verifies that a full (non-delta) brief appends a
 // Tier 1→2 navigation hint pointing agents to artifact(action=orient).
-func TestMotd_OrientPointer(t *testing.T) {
+func TestBrief_OrientPointer(t *testing.T) {
 	_, callAdmin, _ := newMemoryServer(t)
 
-	full := callAdmin(map[string]any{"action": "motd"})
+	full := callAdmin(map[string]any{"action": "brief"})
 	if !strings.Contains(full, "artifact(action=orient)") {
-		t.Errorf("full motd must include orient navigation hint; got:\n%s", full)
+		t.Errorf("full brief must include orient navigation hint; got:\n%s", full)
 	}
 
 	// Delta call (since= set) must NOT include the pointer — it's redundant noise.
-	delta := callAdmin(map[string]any{"action": "motd", "since": "2020-01-01T00:00:00Z"})
+	delta := callAdmin(map[string]any{"action": "brief", "since": "2020-01-01T00:00:00Z"})
 	if strings.Contains(delta, "artifact(action=orient)") {
-		t.Errorf("delta motd must not include orient pointer; got:\n%s", delta)
+		t.Errorf("delta brief must not include orient pointer; got:\n%s", delta)
 	}
 }

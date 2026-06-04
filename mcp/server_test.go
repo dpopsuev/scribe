@@ -1088,9 +1088,9 @@ func TestUpdate_FieldsOnly(t *testing.T) {
 	}
 }
 
-// --- SCR-TSK-13: Enriched motd ---
+// --- SCR-TSK-13: Enriched brief ---
 
-func TestMotd_ShowsOpenBugs(t *testing.T) {
+func TestBrief_ShowsOpenBugs(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 	s.Put(ctx, &parchment.Artifact{ID: "BUG-2026-001", Kind: "bug", Scope: "test", Status: "open", Title: "Critical bug", Priority: "critical"})
@@ -1098,20 +1098,20 @@ func TestMotd_ShowsOpenBugs(t *testing.T) {
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
-	text := callTool(t, cs, "admin", map[string]any{"action": "motd"})
+	text := callTool(t, cs, "admin", map[string]any{"action": "brief"})
 
 	if !strings.Contains(text, "Open Bugs") {
 		t.Errorf("expected Open Bugs section: %s", text)
 	}
 	if !strings.Contains(text, "BUG-2026-001") {
-		t.Errorf("expected bug ID in motd: %s", text)
+		t.Errorf("expected bug ID in brief: %s", text)
 	}
 	if !strings.Contains(text, "[critical]") {
 		t.Errorf("expected priority in bug listing: %s", text)
 	}
 }
 
-func TestMotd_ShowsChangedSince(t *testing.T) {
+func TestBrief_ShowsChangedSince(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 
@@ -1121,7 +1121,7 @@ func TestMotd_ShowsChangedSince(t *testing.T) {
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
-	text := callTool(t, cs, "admin", map[string]any{"action": "motd", "since": since})
+	text := callTool(t, cs, "admin", map[string]any{"action": "brief", "since": since})
 
 	if !strings.Contains(text, "Changed Since") {
 		t.Errorf("expected Changed Since section: %s", text)
@@ -1131,7 +1131,7 @@ func TestMotd_ShowsChangedSince(t *testing.T) {
 	}
 }
 
-func TestMotd_ShowsActiveSummary(t *testing.T) {
+func TestBrief_ShowsActiveSummary(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 	s.Put(ctx, &parchment.Artifact{ID: "TASK-2026-001", Kind: "task", Scope: "test", Status: "active", Title: "Active"})
@@ -1140,7 +1140,7 @@ func TestMotd_ShowsActiveSummary(t *testing.T) {
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
-	text := callTool(t, cs, "admin", map[string]any{"action": "motd"})
+	text := callTool(t, cs, "admin", map[string]any{"action": "brief"})
 
 	if !strings.Contains(text, "Active Work:") {
 		t.Errorf("expected Active Work summary: %s", text)
@@ -2765,13 +2765,13 @@ func TestToolDescriptions_ProgressiveDisclosure(t *testing.T) {
 	}
 }
 
-func TestAdmin_MotdCompact(t *testing.T) {
+func TestAdmin_BriefCompact(t *testing.T) {
 	s := openStore(t)
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
-	text := callTool(t, cs, "admin", map[string]any{"action": "motd", "compact": true})
+	text := callTool(t, cs, "admin", map[string]any{"action": "brief", "compact": true})
 	if text == "" {
-		t.Error("compact motd returned empty string")
+		t.Error("compact brief returned empty string")
 	}
 }
 

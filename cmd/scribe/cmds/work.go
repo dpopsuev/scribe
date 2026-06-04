@@ -968,7 +968,7 @@ func GoalCmd() *cobra.Command {
 		RunE: func(_ *cobra.Command, _ []string) error {
 			svc, close := MustService()
 			defer close()
-			m, _ := svc.Motd(context.Background())
+			m, _ := svc.Brief(context.Background())
 			if len(m.Goals) == 0 {
 				fmt.Println("no current goal set")
 				return nil

@@ -350,8 +350,8 @@ artifacts:
           Agents use Scribe primarily as a task tracker, not a knowledge base.
           Knowledge tool (knowledge action=orient/capture/recall) had zero calls
           in production data despite being implemented. Session startup ritual
-          (orient → catalog → motd) does not happen in practice.
-          motd called 75 times — the only knowledge-adjacent action used.
+          (orient → catalog → brief) does not happen in practice.
+          brief called 75 times — the only knowledge-adjacent action used.
 
   - id: FIX-CON-002
     kind: concept

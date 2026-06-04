@@ -471,12 +471,12 @@ func TestE2E_Deterministic(t *testing.T) {
 		}
 	})
 
-	t.Run("admin_motd", func(t *testing.T) {
+	t.Run("admin_brief", func(t *testing.T) {
 		text := mcpCall(t, sid, next(), "admin", map[string]any{
-			"action": "motd",
+			"action": "brief",
 		})
 		if !strings.Contains(text, "Scribe") {
-			t.Fatalf("motd should show version:\n%s", truncate(text, 300))
+			t.Fatalf("brief should show version:\n%s", truncate(text, 300))
 		}
 	})
 }
@@ -756,7 +756,7 @@ func TestE2E_LLM_StaleTriage(t *testing.T) {
 	tools, _ := agentLoop(t, sid, host, model,
 		"You call tools exactly as instructed.",
 		`Do these steps:
-Step 1: Call admin with {"action":"motd"}
+Step 1: Call admin with {"action":"brief"}
 Step 2: Call artifact with {"action":"list","scope":"e2e","status":"draft","fields":["id","title","status"]}
 Step 3: Report what you found.`,
 		4,
@@ -769,7 +769,7 @@ Step 3: Report what you found.`,
 		}
 	}
 	if !hasAdmin {
-		t.Error("agent should call admin motd")
+		t.Error("agent should call admin brief")
 	}
 }
 

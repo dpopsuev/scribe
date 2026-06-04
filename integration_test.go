@@ -42,10 +42,10 @@ func TestContainerLifecycle(t *testing.T) {
 
 	sid := initialize(t)
 
-	t.Run("motd returns without error", func(t *testing.T) {
-		resp := callTool(t, sid, "admin", map[string]any{"action": "motd"}, 2)
+	t.Run("brief returns without error", func(t *testing.T) {
+		resp := callTool(t, sid, "admin", map[string]any{"action": "brief"}, 2)
 		if !strings.Contains(resp, "nothing to report") && !strings.Contains(resp, "Goal") && !strings.Contains(resp, "Scribe") {
-			t.Fatalf("unexpected motd response: %s", resp)
+			t.Fatalf("unexpected brief response: %s", resp)
 		}
 	})
 

@@ -24,7 +24,7 @@ type Defaults struct {
 	VacuumDays        int `yaml:"vacuum_days"`         // default: 90
 	DashboardStale    int `yaml:"dashboard_stale"`     // default: 30
 	DashboardStaleCap int `yaml:"dashboard_stale_cap"` // default: 10
-	MotdRecentHours   int `yaml:"motd_recent_hours"`   // default: 48
+	BriefRecentHours  int `yaml:"brief_recent_hours"`  // default: 48
 	TreeMaxDepth      int `yaml:"tree_max_depth"`      // default: 10
 }
 
@@ -39,7 +39,7 @@ func orDefault(val, fallback int) int {
 func (d Defaults) GetVacuumDays() int        { return orDefault(d.VacuumDays, 90) }
 func (d Defaults) GetDashboardStale() int    { return orDefault(d.DashboardStale, 30) }
 func (d Defaults) GetDashboardStaleCap() int { return orDefault(d.DashboardStaleCap, 10) }
-func (d Defaults) GetMotdRecentHours() int   { return orDefault(d.MotdRecentHours, 48) }
+func (d Defaults) GetBriefRecentHours() int  { return orDefault(d.BriefRecentHours, 48) }
 func (d Defaults) GetTreeMaxDepth() int      { return orDefault(d.TreeMaxDepth, 10) }
 
 // DBConfig supports both a simple path string and a structured SQLite config.

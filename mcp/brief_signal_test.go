@@ -10,7 +10,7 @@ import (
 	scribemcp "github.com/dpopsuev/scribe/mcp"
 )
 
-func newMotdSetup(t *testing.T) (store parchment.Store, call func(args map[string]any) string) {
+func newBriefSetup(t *testing.T) (store parchment.Store, call func(args map[string]any) string) {
 	t.Helper()
 	s := openStore(t)
 	srv, _ := scribemcp.NewServerFromStore(s, []string{"test"}, parchment.ProtocolConfig{}, "test")
@@ -18,7 +18,7 @@ func newMotdSetup(t *testing.T) (store parchment.Store, call func(args map[strin
 	return s, func(args map[string]any) string { return callTool(t, cs, "admin", args) }
 }
 
-func seedMotdNoise(t *testing.T, s parchment.Store) {
+func seedBriefNoise(t *testing.T, s parchment.Store) {
 	t.Helper()
 	ctx := context.Background()
 	old := time.Now().Add(-30 * 24 * time.Hour)
@@ -46,45 +46,45 @@ func seedMotdNoise(t *testing.T, s parchment.Store) {
 	}
 }
 
-// TestMotd_NoDomainContextSection verifies the Domain Context section is gone.
-func TestMotd_NoDomainContextSection(t *testing.T) {
-	s, call := newMotdSetup(t)
-	seedMotdNoise(t, s)
-	out := call(map[string]any{"action": "motd"})
+// TestBrief_NoDomainContextSection verifies the Domain Context section is gone.
+func TestBrief_NoDomainContextSection(t *testing.T) {
+	s, call := newBriefSetup(t)
+	seedBriefNoise(t, s)
+	out := call(map[string]any{"action": "brief"})
 	if strings.Contains(out, "Domain Context:") {
-		t.Errorf("motd must not contain Domain Context section, got:\n%s", out)
+		t.Errorf("brief must not contain Domain Context section, got:\n%s", out)
 	}
 }
 
-// TestMotd_NoShouldSectionWarnings verifies per-kind section gap counts
-// are not in motd — they belong in dashboard.
-func TestMotd_NoShouldSectionWarnings(t *testing.T) {
-	s, call := newMotdSetup(t)
-	seedMotdNoise(t, s)
-	out := call(map[string]any{"action": "motd"})
+// TestBrief_NoShouldSectionWarnings verifies per-kind section gap counts
+// are not in brief — they belong in dashboard.
+func TestBrief_NoShouldSectionWarnings(t *testing.T) {
+	s, call := newBriefSetup(t)
+	seedBriefNoise(t, s)
+	out := call(map[string]any{"action": "brief"})
 	if strings.Contains(out, "missing recommended sections") {
-		t.Errorf("motd must not contain should-section warnings, got:\n%s", out)
+		t.Errorf("brief must not contain should-section warnings, got:\n%s", out)
 	}
 }
 
-// TestMotd_StaleDraftsIsOneLiner verifies stale drafts is a count, not a list.
-func TestMotd_StaleDraftsIsOneLiner(t *testing.T) {
-	s, call := newMotdSetup(t)
-	seedMotdNoise(t, s)
-	out := call(map[string]any{"action": "motd"})
+// TestBrief_StaleDraftsIsOneLiner verifies stale drafts is a count, not a list.
+func TestBrief_StaleDraftsIsOneLiner(t *testing.T) {
+	s, call := newBriefSetup(t)
+	seedBriefNoise(t, s)
+	out := call(map[string]any{"action": "brief"})
 	if strings.Contains(out, "showing 10") || strings.Contains(out, "Stale Drafts (") {
-		t.Errorf("motd must not show itemized stale draft list, got:\n%s", out)
+		t.Errorf("brief must not show itemized stale draft list, got:\n%s", out)
 	}
 }
 
-// TestMotd_SingleStaleLine verifies stale artifacts appear as exactly one
+// TestBrief_SingleStaleLine verifies stale artifacts appear as exactly one
 // warning line, not two overlapping counts.
-func TestMotd_SingleStaleLine(t *testing.T) {
-	s, call := newMotdSetup(t)
-	seedMotdNoise(t, s)
-	out := call(map[string]any{"action": "motd"})
+func TestBrief_SingleStaleLine(t *testing.T) {
+	s, call := newBriefSetup(t)
+	seedBriefNoise(t, s)
+	out := call(map[string]any{"action": "brief"})
 	count := strings.Count(out, "stale")
 	if count > 1 {
-		t.Errorf("motd must have at most one 'stale' mention, got %d:\n%s", count, out)
+		t.Errorf("brief must have at most one 'stale' mention, got %d:\n%s", count, out)
 	}
 }

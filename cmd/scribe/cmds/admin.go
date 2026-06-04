@@ -14,10 +14,10 @@ import (
 
 const lintLevelError = "error"
 
-func MotdCmd() *cobra.Command {
+func BriefCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "motd",
-		Short: "Message of the day: due reminders, recent notes, and current goal",
+		Use:   "brief",
+		Short: "Session brief: active goal, open work, and recent knowledge",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg := MustConfig()
 			cwd, _ := os.Getwd()
@@ -32,7 +32,7 @@ func MotdCmd() *cobra.Command {
 				return err
 			}
 			defer closeDB()
-			m, err := svc.Motd(context.Background())
+			m, err := svc.Brief(context.Background())
 			if err != nil {
 				return err
 			}

@@ -10,9 +10,9 @@ import (
 	parchment "github.com/dpopsuev/parchment"
 )
 
-// MotdMemoryLines returns at most n formatted lines of the most relevant
+// BriefMemoryLines returns at most n formatted lines of the most relevant
 // evergreen knowledge for the given scope.
-func (s *Service) MotdMemoryLines(ctx context.Context, scope string, n int) []string {
+func (s *Service) BriefMemoryLines(ctx context.Context, scope string, n int) []string {
 	var knowledge []*parchment.Artifact
 	for _, kind := range []string{parchment.KindNote, parchment.KindConcept} {
 		arts, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{

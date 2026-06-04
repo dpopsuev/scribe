@@ -12,11 +12,11 @@ import (
 
 func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, in adminInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocyclo,cyclop,gocritic // dispatch switch; hugeParam: value semantics intentional
 	switch in.Action {
-	case "motd":
+	case "brief":
 		if in.Compact {
-			return h.handleMotdCompact(ctx)
+			return h.handleBriefCompact(ctx)
 		}
-		return h.handleMotd(ctx, req, motdInput{Since: in.Since})
+		return h.handleBrief(ctx, req, briefInput{Since: in.Since})
 	case "changelog":
 		return h.handleChangelog(ctx, in.Since, in.Scope)
 	case "snapshot":
@@ -69,7 +69,7 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 			return nil, nil, fmt.Errorf("session requires snapshot_action=start|commit|diff|merge") //nolint:err113 // agent-facing hint
 		}
 	default:
-		return nil, nil, fmt.Errorf("unknown admin action %q (valid: motd, changelog, dashboard, snapshot, set_goal, detect, correlate, ingest_session, decision, context_read, session, set_scope, set_scope_labels)", in.Action) //nolint:err113 // agent-facing hint
+		return nil, nil, fmt.Errorf("unknown admin action %q (valid: brief, changelog, dashboard, snapshot, set_goal, detect, correlate, ingest_session, decision, context_read, session, set_scope, set_scope_labels)", in.Action) //nolint:err113 // agent-facing hint
 	}
 }
 
@@ -141,20 +141,20 @@ func (h *handler) handleSetGoal(ctx context.Context, _ *sdkmcp.CallToolRequest, 
 	return text(strings.Join(lines, "\n")), nil, nil
 }
 
-func (h *handler) handleMotdCompact(ctx context.Context) (*sdkmcp.CallToolResult, any, error) {
-	out, err := h.svc.RenderMotdCompact(ctx, h.version)
+func (h *handler) handleBriefCompact(ctx context.Context) (*sdkmcp.CallToolResult, any, error) {
+	out, err := h.svc.RenderBriefCompact(ctx, h.version)
 	if err != nil {
 		return nil, nil, err
 	}
 	return text(out), nil, nil
 }
 
-type motdInput struct {
+type briefInput struct {
 	Since string `json:"since,omitempty"`
 }
 
-func (h *handler) handleMotd(ctx context.Context, _ *sdkmcp.CallToolRequest, in motdInput) (*sdkmcp.CallToolResult, any, error) {
-	out, err := h.svc.RenderMotd(ctx, in.Since, h.version, h.homeScopes)
+func (h *handler) handleBrief(ctx context.Context, _ *sdkmcp.CallToolRequest, in briefInput) (*sdkmcp.CallToolResult, any, error) {
+	out, err := h.svc.RenderBrief(ctx, in.Since, h.version, h.homeScopes)
 	if err != nil {
 		return nil, nil, err
 	}

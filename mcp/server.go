@@ -20,7 +20,7 @@ import (
 // Query artifact(action=list, kind=edge_type_definition, scope=_schema) to learn what each relation means.
 // Query artifact(action=list, kind=label_definition, scope=_schema) to learn when to apply each label.
 const scribeInstructions = "Artifact graph + knowledge vault. " +
-	"SESSION START: admin(action=motd) — discloses scope, active goal, open bugs. " +
+	"SESSION START: admin(action=brief) — discloses scope, active goal, open bugs. " +
 	"SCHEMA: the _schema scope is self-describing — query kind_definition, edge_type_definition, label_definition artifacts to learn when and how to use each construct."
 
 // NewServer creates an MCP server exposing Scribe tools over the given store.
@@ -60,7 +60,7 @@ func NewServer(svc *service.Service, vocab []string, version string) (*sdkmcp.Se
 		"LIST: always add scope/kind/status or top=N — bare list returns ALL artifacts and burns context. " +
 		"WRITE: create, set, attach_section, archive. " +
 		"GRAPH: briefing(id=) — full edge-aware context chain; tree(id=) — children; link/unlink — edges; topo_sort — dependency order; impact — blast radius. " +
-		"ORIENT: orient for vault map (call after motd); catalog for full inventory. " +
+		"ORIENT: orient for vault map (call after brief); catalog for full inventory. " +
 		"STASH: get(stash_id=) to inspect a failed-create stash; create(stash_id=) to promote it."
 	var artifactSchema any
 	_ = json.Unmarshal(schemaFor[artifactInput](), &artifactSchema)
@@ -79,9 +79,9 @@ func NewServer(svc *service.Service, vocab []string, version string) (*sdkmcp.Se
 
 	// admin tool
 	adminDesc := "Session bootstrap and housekeeping. " +
-		"CALL FIRST: motd — returns scope, open bugs, active goal, and memory surface. " +
-		"CONTINUATION: motd(since=<RFC3339>) for delta only — returns only what changed since that timestamp. " +
-		"motd(compact=true) for a one-line status summary. " +
+		"CALL FIRST: brief — returns scope, open bugs, active goal, and memory surface. " +
+		"CONTINUATION: brief(since=<RFC3339>) for delta only — returns only what changed since that timestamp. " +
+		"brief(compact=true) for a one-line status summary. " +
 		"dashboard for scope health and staleness. vacuum(dry_run=true) before pruning. detect for orphans/overlaps."
 	var adminSchema any
 	_ = json.Unmarshal(schemaFor[adminInput](), &adminSchema)
@@ -94,7 +94,7 @@ func NewServer(svc *service.Service, vocab []string, version string) (*sdkmcp.Se
 	}, bindHandler(h.handleAdmin))
 	reg.Register(directive.ToolMeta{
 		Name: "admin", Description: adminDesc,
-		Keywords:   []string{"motd", "dashboard", "goal", "vacuum", "detect", "orphan"},
+		Keywords:   []string{"brief", "dashboard", "goal", "vacuum", "detect", "orphan"},
 		Categories: []string{"lifecycle", "maintenance"},
 	})
 
@@ -221,14 +221,14 @@ type knowledgeInput struct {
 }
 
 type adminInput struct {
-	Action  string `json:"action" jsonschema:"required,motd | changelog | dashboard | snapshot | set_goal | detect | correlate | ingest_session | decision | set_scope | set_scope_labels | context_read | session"`
-	Compact bool   `json:"compact,omitempty" jsonschema:"minimal output for repeat calls (motd)"`
+	Action  string `json:"action" jsonschema:"required,brief | changelog | dashboard | snapshot | set_goal | detect | correlate | ingest_session | decision | set_scope | set_scope_labels | context_read | session"`
+	Compact bool   `json:"compact,omitempty" jsonschema:"minimal output for repeat calls (brief)"`
 
 	SnapshotAction string `json:"snapshot_action,omitempty" jsonschema:"create, list, diff, or restore"`
 	SnapshotName   string `json:"snapshot_name,omitempty" jsonschema:"snapshot label (create) or key (diff)"`
 
 	StaleDays int    `json:"stale_days,omitempty" jsonschema:"days without update to consider stale (dashboard)"`
-	Since     string `json:"since,omitempty" jsonschema:"RFC 3339 lower bound (motd, changelog)"`
+	Since     string `json:"since,omitempty" jsonschema:"RFC 3339 lower bound (brief, changelog)"`
 
 	Title string `json:"title,omitempty"`
 	Scope string `json:"scope,omitempty"`

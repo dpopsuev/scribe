@@ -171,23 +171,23 @@ func TestContextRead_KnowledgeInSameScope(t *testing.T) {
 
 
 
-// --- Motd ---
+// --- Brief ---
 
-func TestMotd_EmptyStore(t *testing.T) {
+func TestBrief_EmptyStore(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	svc := newTestService(t, "test")
 
-	m, err := svc.Motd(ctx)
+	m, err := svc.Brief(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if m == nil {
-		t.Fatal("Motd returned nil")
+		t.Fatal("Brief returned nil")
 	}
 }
 
-func TestMotd_ReturnsCurrentGoals(t *testing.T) {
+func TestBrief_ReturnsCurrentGoals(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	svc := newTestService(t, "test")
@@ -201,13 +201,13 @@ func TestMotd_ReturnsCurrentGoals(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m, err := svc.Motd(ctx)
+	m, err := svc.Brief(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// goal starts as draft; motd tracks active/current goals
-	// just verify motd does not error and returns a packet
-	// no current goals yet — just verify Motd does not error
+	// goal starts as draft; brief tracks active/current goals
+	// just verify brief does not error and returns a packet
+	// no current goals yet — just verify Brief does not error
 	_ = m
 }
 
@@ -273,29 +273,29 @@ func TestRenderDetect_EvictionCheck(t *testing.T) {
 	}
 }
 
-// --- RenderMotd ---
+// --- RenderBrief ---
 
-func TestRenderMotd_ContainsScopeAndVersion(t *testing.T) {
+func TestRenderBrief_ContainsScopeAndVersion(t *testing.T) {
 	// Given an empty store
-	// When RenderMotd is called with version and scopes
+	// When RenderBrief is called with version and scopes
 	// Then output contains version and scope info
 	svc := newTestService(t, "test")
 
-	out, err := svc.RenderMotd(context.Background(), "", "v1.0", []string{"test"})
+	out, err := svc.RenderBrief(context.Background(), "", "v1.0", []string{"test"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out, "v1.0") {
-		t.Errorf("expected version in motd output, got: %s", out[:min(200, len(out))])
+		t.Errorf("expected version in brief output, got: %s", out[:min(200, len(out))])
 	}
 	if !strings.Contains(out, "test") {
-		t.Errorf("expected scope in motd output, got: %s", out[:min(200, len(out))])
+		t.Errorf("expected scope in brief output, got: %s", out[:min(200, len(out))])
 	}
 }
 
-func TestRenderMotd_ShowsOpenBugs(t *testing.T) {
+func TestRenderBrief_ShowsOpenBugs(t *testing.T) {
 	// Given an open bug exists
-	// When RenderMotd is called
+	// When RenderBrief is called
 	// Then output contains the bug ID
 	svc := newTestService(t, "test")
 	ctx := context.Background()
@@ -304,12 +304,12 @@ func TestRenderMotd_ShowsOpenBugs(t *testing.T) {
 		Kind: "bug", Title: "bad crash", Scope: "test", Status: "open",
 	})
 
-	out, err := svc.RenderMotd(ctx, "", "v1", []string{"test"})
+	out, err := svc.RenderBrief(ctx, "", "v1", []string{"test"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out, bug.ID) {
-		t.Errorf("expected bug ID in motd, got: %s", out[:min(400, len(out))])
+		t.Errorf("expected bug ID in brief, got: %s", out[:min(400, len(out))])
 	}
 }
 
@@ -384,9 +384,9 @@ func TestIsComponentLabel(t *testing.T) {
 	}
 }
 
-// --- RenderMotdCompact ---
+// --- RenderBriefCompact ---
 
-func TestRenderMotdCompact_ContainsVersionAndCounts(t *testing.T) {
+func TestRenderBriefCompact_ContainsVersionAndCounts(t *testing.T) {
 	t.Parallel()
 	svc := newTestService(t)
 	ctx := context.Background()
@@ -395,15 +395,15 @@ func TestRenderMotdCompact_ContainsVersionAndCounts(t *testing.T) {
 		Kind: "task", Title: "active task", Scope: "test", Status: "active",
 	})
 
-	out, err := svc.RenderMotdCompact(ctx, "v2.19.0")
+	out, err := svc.RenderBriefCompact(ctx, "v2.19.0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out, "v2.19.0") {
-		t.Errorf("compact motd should contain version, got: %s", out)
+		t.Errorf("compact brief should contain version, got: %s", out)
 	}
 	if !strings.Contains(out, "active") {
-		t.Errorf("compact motd should mention active count, got: %s", out)
+		t.Errorf("compact brief should mention active count, got: %s", out)
 	}
 }
 

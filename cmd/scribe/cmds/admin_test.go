@@ -4,11 +4,11 @@ import (
 	"testing"
 )
 
-func TestMotd_RunsWithEmptyStore(t *testing.T) {
+func TestBrief_RunsWithEmptyStore(t *testing.T) {
 	db := newDB(t)
-	out := run(t, db, "motd")
+	out := run(t, db, "brief")
 	if out == "" {
-		t.Error("expected motd output, got empty string")
+		t.Error("expected brief output, got empty string")
 	}
 }
 

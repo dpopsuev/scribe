@@ -14,8 +14,8 @@ import (
 
 // --- Result types ---
 
-// MotdResult is the message-of-the-day payload for Scribe.
-type MotdResult struct {
+// BriefResult is the session brief payload for Scribe.
+type BriefResult struct {
 	SchemaHash string                `json:"schema_hash,omitempty"`
 	Campaigns  []*parchment.Artifact `json:"campaigns,omitempty"`
 	Goals      []*parchment.Artifact `json:"goals,omitempty"`
@@ -70,14 +70,14 @@ const defaultDashboardStaleDays = 30
 const defaultDashboardStaleCap = 10
 const scopeNone = "(none)"
 
-// Motd returns the message of the day: active campaigns, goals, and schema warnings.
-func (s *Service) Motd(ctx context.Context) (*MotdResult, error) { //nolint:cyclop,funlen,gocyclo // motd report is inherently multi-check
-	result := &MotdResult{
+// Brief returns the session brief: active campaigns, goals, and schema warnings.
+func (s *Service) Brief(ctx context.Context) (*BriefResult, error) { //nolint:cyclop,funlen,gocyclo // brief report is inherently multi-check
+	result := &BriefResult{
 		SchemaHash: s.Proto.Schema().Hash(),
 	}
 	schema := s.Proto.Schema()
 
-	for kind, def := range schema.MotdKinds() { //nolint:gocritic // rangeValCopy: acceptable
+	for kind, def := range schema.BriefKinds() { //nolint:gocritic // rangeValCopy: acceptable
 		arts, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{
 			Kind: kind, Status: def.ActiveStatus,
 		})
@@ -97,7 +97,7 @@ func (s *Service) Motd(ctx context.Context) (*MotdResult, error) { //nolint:cycl
 			unknownCounts[art.Kind]++
 		}
 		isEffortKind := art.Kind == parchment.KindCampaign || art.Kind == parchment.KindGoal
-		if !schema.IsTerminal(art.Status) && isEffortKind { //nolint:nestif // motd check is inherently nested
+		if !schema.IsTerminal(art.Status) && isEffortKind { //nolint:nestif // brief check is inherently nested
 			children, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Parent: art.ID})
 			if len(children) > 0 {
 				allDone := true
@@ -210,7 +210,7 @@ func (s *Service) Inventory(ctx context.Context) (*InventoryResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	motdKinds := s.Proto.Schema().MotdKinds()
+	briefKinds := s.Proto.Schema().BriefKinds()
 	r := &InventoryResult{
 		Total:    len(all),
 		ByKind:   make(map[string]int),
@@ -220,7 +220,7 @@ func (s *Service) Inventory(ctx context.Context) (*InventoryResult, error) {
 	for _, art := range all {
 		r.ByKind[art.Kind]++
 		r.ByStatus[art.Status]++
-		if def, ok := motdKinds[art.Kind]; ok && art.Status == def.ActiveStatus {
+		if def, ok := briefKinds[art.Kind]; ok && art.Status == def.ActiveStatus {
 			r.Tracked[art.Kind] = append(r.Tracked[art.Kind], art)
 		}
 	}
@@ -303,8 +303,8 @@ func SortArtifacts(arts []*parchment.Artifact, field string) {
 
 var componentLabelRe = regexp.MustCompile(`^[a-z][a-z0-9_-]*:.+/.+$`)
 
-func (s *Service) RenderMotd(ctx context.Context, since, version string, homeScopes []string) (string, error) { //nolint:gocyclo,cyclop,funlen // motd report is inherently multi-check
-	m, err := s.Motd(ctx)
+func (s *Service) RenderBrief(ctx context.Context, since, version string, homeScopes []string) (string, error) { //nolint:gocyclo,cyclop,funlen // brief report is inherently multi-check
+	m, err := s.Brief(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -396,7 +396,7 @@ func (s *Service) RenderMotd(ctx context.Context, since, version string, homeSco
 		scope = homeScopes[0]
 	}
 	if since == "" {
-		if memLines := s.MotdMemoryLines(ctx, scope, 3); len(memLines) > 0 {
+		if memLines := s.BriefMemoryLines(ctx, scope, 3); len(memLines) > 0 {
 			sections = append(sections, "Memory:\n"+strings.Join(memLines, "\n"))
 		}
 	}
@@ -627,7 +627,7 @@ func (s *Service) RenderChangelog(ctx context.Context, since, scope string) (str
 	return fmt.Sprintf("Changes since %s (%d artifacts):\n", since[:10], len(ids)) + strings.Join(sections, "\n\n"), nil
 }
 
-func (s *Service) RenderMotdCompact(ctx context.Context, version string) (string, error) {
+func (s *Service) RenderBriefCompact(ctx context.Context, version string) (string, error) {
 	active, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Status: parchment.StatusActive})
 	draft, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Status: parchment.StatusDraft})
 	bugs, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Kind: parchment.KindBug, Status: parchment.StatusOpen})
