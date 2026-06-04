@@ -150,9 +150,12 @@ const nodeColor = n => KIND_COLOR[n.kind] || '#94a3b8';
 const linkColor = l => REL_COLOR[l.relation] || 'rgba(148,163,184,0.25)';
 
 // ─── state ────────────────────────────────────────────────────────────────
-const expandedScopes = new Map(); // scope → { nodes: [], links: [] }
+// Each level is a Map of key → graphData. The graph is the union of macroData
+// plus all expanded entries at each level.
+const expandedScopes = new Map();  // scope     → graphData (kind-group nodes)
+const expandedKinds  = new Map();  // scope:kind → graphData (artifact nodes)
 let macroData = { nodes: [], links: [] };
-let scopeBubbles = new Map();     // scope → THREE.Mesh
+let scopeBubbles = new Map();      // key → THREE.Mesh (scope and kind bubbles)
 
 // ─── graph ────────────────────────────────────────────────────────────────
 const Graph = ForceGraph3D({ controlType: 'orbit' })(document.getElementById('graph-root'))
@@ -189,6 +192,10 @@ function mergedGraphData() {
   const nodes = [...macroData.nodes];
   const links = [...macroData.links];
   for (const [, d] of expandedScopes) {
+    nodes.push(...d.nodes);
+    links.push(...d.links);
+  }
+  for (const [, d] of expandedKinds) {
     nodes.push(...d.nodes);
     links.push(...d.links);
   }
@@ -301,7 +308,42 @@ async function loadMacro() {
   applyGraphData();
 }
 
-// ─── expand scope → micro ─────────────────────────────────────────────────
+// ─── N-depth helpers ──────────────────────────────────────────────────────
+
+// Place nodes in a fibonacci mini-sphere around anchor, sorted by degree.
+function placeInMiniSphere(nodes, links, anchor, radius) {
+  const deg = {};
+  for (const l of links) {
+    deg[l.source] = (deg[l.source] || 0) + 1;
+    deg[l.target] = (deg[l.target] || 0) + 1;
+  }
+  const sorted = [...nodes].sort((a, b) => (deg[b.id] || 0) - (deg[a.id] || 0));
+  const pts = fibonacciSphere(sorted.length, radius);
+  sorted.forEach((n, i) => {
+    n.x = anchor.x + pts[i].x;
+    n.y = anchor.y + pts[i].y;
+    n.z = anchor.z + pts[i].z;
+  });
+  return sorted;
+}
+
+// Remove a node id from macroData + clear its links. Used when drilling in.
+function removeMacroNode(nodeId) {
+  macroData.nodes = macroData.nodes.filter(n => n.id !== nodeId);
+  macroData.links = macroData.links.filter(
+    l => l.source !== nodeId && l.target !== nodeId &&
+         l.source?.id !== nodeId && l.target?.id !== nodeId
+  );
+}
+
+function updateModeBadge() {
+  const depth = expandedKinds.size > 0 ? 'artifact' :
+                expandedScopes.size > 0 ? 'kind' : 'scope';
+  const labels = { scope: 'universe · scope view', kind: 'depth 1 · kind view', artifact: 'depth 2 · artifact view' };
+  document.getElementById('mode-badge').textContent = labels[depth];
+}
+
+// ─── depth 0 → 1: scope → kind-groups ────────────────────────────────────
 async function expandScope(scopeName) {
   if (expandedScopes.has(scopeName)) return;
 
@@ -310,76 +352,101 @@ async function expandScope(scopeName) {
   const params = new URLSearchParams({ scope: scopeName, status });
   if (activeRels.length) params.set('relations', activeRels.join(','));
 
-  document.getElementById('stats').textContent = `Loading ${scopeName}…`;
+  document.getElementById('stats').textContent = `Loading ${scopeName} kinds…`;
 
-  const res = await fetch('/api/graph?' + params);
-  const micro = await res.json();
+  const res = await fetch('/api/graph/kinds?' + params);
+  const kindData = await res.json();
 
-  // Remove scope super-node from macro and its cross-scope links.
-  const scopeNodeId = 'scope:' + scopeName;
-  macroData.nodes = macroData.nodes.filter(n => n.id !== scopeNodeId);
-  // Keep cross-scope links between *other* scopes; remove those touching this scope.
-  macroData.links = macroData.links.filter(
-    l => l.source !== scopeNodeId && l.target !== scopeNodeId &&
-         l.source?.id !== scopeNodeId && l.target?.id !== scopeNodeId
-  );
+  removeMacroNode('scope:' + scopeName);
 
-  // Position micro artifacts in a mini-sphere around the scope's universe position.
   const anchor = scopeSpherePos.get(scopeName) || { x: 0, y: 0, z: 0 };
-  const MICRO_RADIUS = 60;
-
-  // Sort micro nodes by degree within the scope.
-  const microDeg = {};
-  for (const l of micro.links) {
-    microDeg[l.source] = (microDeg[l.source] || 0) + 1;
-    microDeg[l.target] = (microDeg[l.target] || 0) + 1;
+  kindData.nodes = placeInMiniSphere(kindData.nodes, kindData.links, anchor, 90);
+  // Store kind sphere positions for depth-2 expansion.
+  for (const n of kindData.nodes) {
+    scopeSpherePos.set('kind:' + scopeName + ':' + n.group, { x: n.x, y: n.y, z: n.z });
   }
-  const sortedMicro = [...micro.nodes].sort((a, b) => (microDeg[b.id] || 0) - (microDeg[a.id] || 0));
-  const microPos = fibonacciSphere(sortedMicro.length, MICRO_RADIUS);
-  sortedMicro.forEach((node, i) => {
-    node.x = anchor.x + microPos[i].x;
-    node.y = anchor.y + microPos[i].y;
-    node.z = anchor.z + microPos[i].z;
-  });
-  micro.nodes = sortedMicro;
 
-  expandedScopes.set(scopeName, micro);
-  createBubble(scopeName);
+  expandedScopes.set(scopeName, kindData);
+  createBubble(scopeName, 100);
   applyGraphData();
+  updateModeBadge();
+}
 
-  document.getElementById('mode-badge').textContent =
-    expandedScopes.size === 0 ? 'universe · scope view' : 'microscope · artifact view';
+// ─── depth 1 → 2: kind-group → artifacts ─────────────────────────────────
+async function expandKind(scopeName, kindName) {
+  const key = scopeName + ':' + kindName;
+  if (expandedKinds.has(key)) return;
+
+  const status = document.getElementById('status-select').value;
+  const activeRels = [...document.querySelectorAll('.rel-toggle.active')].map(el => el.dataset.rel);
+  const params = new URLSearchParams({ scope: scopeName, status });
+  if (activeRels.length) params.set('relations', activeRels.join(','));
+
+  document.getElementById('stats').textContent = `Loading ${scopeName}/${kindName}…`;
+
+  // Fetch all artifacts in scope, then filter to this kind client-side.
+  const res = await fetch('/api/graph?' + params);
+  const artData = await res.json();
+  artData.nodes = artData.nodes.filter(n => n.kind === kindName);
+  const nodeIds = new Set(artData.nodes.map(n => n.id));
+  artData.links = artData.links.filter(l => nodeIds.has(l.source) && nodeIds.has(l.target));
+
+  // Remove the kind-group node from expanded scope.
+  const kindNodeId = 'kind:' + key;
+  if (expandedScopes.has(scopeName)) {
+    const sd = expandedScopes.get(scopeName);
+    sd.nodes = sd.nodes.filter(n => n.id !== kindNodeId);
+    sd.links = sd.links.filter(l =>
+      l.source !== kindNodeId && l.target !== kindNodeId &&
+      l.source?.id !== kindNodeId && l.target?.id !== kindNodeId
+    );
+  }
+
+  const anchor = scopeSpherePos.get(kindNodeId) || scopeSpherePos.get(scopeName) || { x: 0, y: 0, z: 0 };
+  artData.nodes = placeInMiniSphere(artData.nodes, artData.links, anchor, 45);
+
+  expandedKinds.set(key, artData);
+  createBubble(kindNodeId, 55);
+  applyGraphData();
+  updateModeBadge();
 }
 
 // ─── collapse scope → macro ───────────────────────────────────────────────
 async function collapseScope(scopeName) {
   if (!expandedScopes.has(scopeName)) return;
+
+  // Also collapse any kind expansions for this scope.
+  for (const key of [...expandedKinds.keys()]) {
+    if (key.startsWith(scopeName + ':')) {
+      expandedKinds.delete(key);
+      removeBubble('kind:' + key);
+    }
+  }
   expandedScopes.delete(scopeName);
   removeBubble(scopeName);
 
-  // Reload the full macro data to restore the scope node + its cross links.
   const res = await fetch('/api/graph/scopes');
   const fresh = await res.json();
-
-  // Keep only the scopes that are still collapsed.
   const stillExpanded = new Set(expandedScopes.keys());
   macroData.nodes = fresh.nodes.filter(n => !stillExpanded.has(n.scope));
   macroData.links = fresh.links.filter(l => {
-    const fs = l.source?.replace?.('scope:', '') || l.source;
-    const ts = l.target?.replace?.('scope:', '') || l.target;
+    const fs = (l.source?.id || l.source)?.replace('scope:', '');
+    const ts = (l.target?.id || l.target)?.replace('scope:', '');
     return !stillExpanded.has(fs) && !stillExpanded.has(ts);
   });
 
   applyGraphData();
-
-  document.getElementById('mode-badge').textContent =
-    expandedScopes.size === 0 ? 'universe · scope view' : 'microscope · artifact view';
+  updateModeBadge();
 }
 
 // ─── click handlers ───────────────────────────────────────────────────────
 function onNodeClick(node) {
   if (node.kind === 'scope') {
     expandScope(node.scope || node.name);
+    return;
+  }
+  if (node.kind === 'kind-group') {
+    expandKind(node.scope, node.group);
     return;
   }
   openSidebar(node.id);
@@ -399,47 +466,55 @@ function onNodeDblClick(node) {
 
 function onNodeRightClick(node, event) {
   event.preventDefault();
-  const items = node.kind === 'scope' ? [
-    { label: '🔭 Expand scope', action: () => expandScope(node.scope || node.name) },
-  ] : [
-    { label: '🔗 Open detail', action: () => window.open(`/artifacts/${node.id}`, '_blank') },
-    { label: '🌳 Open tree',   action: () => window.open(`/tree/${node.id}`, '_blank') },
-    { label: '📦 Collapse scope', action: () => collapseScope(node.scope) },
-    { sep: true },
-    { label: '⬆ Set active',   action: () => patchField(node.id, 'status', 'active') },
-    { label: '✓ Set complete',  action: () => patchField(node.id, 'status', 'complete') },
-  ];
+  let items;
+  if (node.kind === 'scope') {
+    items = [
+      { label: '🔭 Expand (kinds)', action: () => expandScope(node.scope || node.name) },
+    ];
+  } else if (node.kind === 'kind-group') {
+    items = [
+      { label: '🔬 Expand (artifacts)', action: () => expandKind(node.scope, node.group) },
+      { label: '📦 Collapse scope',     action: () => collapseScope(node.scope) },
+    ];
+  } else {
+    items = [
+      { label: '🔗 Open detail',    action: () => window.open(`/artifacts/${node.id}`, '_blank') },
+      { label: '🌳 Open tree',      action: () => window.open(`/tree/${node.id}`, '_blank') },
+      { label: '📦 Collapse scope', action: () => collapseScope(node.scope) },
+      { sep: true },
+      { label: '⬆ Set active',     action: () => patchField(node.id, 'status', 'active') },
+      { label: '✓ Set complete',    action: () => patchField(node.id, 'status', 'complete') },
+    ];
+  }
   showCtxMenu(event.clientX, event.clientY, items);
 }
 
 // ─── Three.js scope bubbles ───────────────────────────────────────────────
-function createBubble(scopeName) {
+// createBubble adds a translucent sphere to the Three.js scene.
+// initialRadius is a hint for the initial scale; updateBubbles adjusts it
+// every 6 ticks based on actual node positions.
+function createBubble(key, initialRadius = 100) {
   const scene = Graph.scene();
+  const color = new THREE.Color(KIND_COLOR.scope);
+
   const geo = new THREE.SphereGeometry(1, 32, 32);
   const mat = new THREE.MeshBasicMaterial({
-    color: new THREE.Color(KIND_COLOR.scope),
-    transparent: true,
-    opacity: 0.04,
-    side: THREE.BackSide, // render inside face for containment feel
-    depthWrite: false,
+    color, transparent: true, opacity: 0.04,
+    side: THREE.BackSide, depthWrite: false,
   });
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.userData.scopeName = scopeName;
+  mesh.scale.setScalar(initialRadius);
   scene.add(mesh);
-  scopeBubbles.set(scopeName, mesh);
+  scopeBubbles.set(key, mesh);
 
-  // Outer wireframe ring for clarity.
   const wGeo = new THREE.SphereGeometry(1, 12, 8);
   const wMat = new THREE.MeshBasicMaterial({
-    color: new THREE.Color(KIND_COLOR.scope),
-    transparent: true,
-    opacity: 0.12,
-    wireframe: true,
+    color, transparent: true, opacity: 0.1, wireframe: true,
   });
   const wMesh = new THREE.Mesh(wGeo, wMat);
-  wMesh.userData.scopeName = scopeName + '_wire';
+  wMesh.scale.setScalar(initialRadius);
   scene.add(wMesh);
-  scopeBubbles.set(scopeName + '_wire', wMesh);
+  scopeBubbles.set(key + '_wire', wMesh);
 }
 
 function removeBubble(scopeName) {
@@ -457,32 +532,44 @@ function clearBubbles() {
 }
 
 let tickCount = 0;
+// fitBubble computes the centroid and bounding radius of a node set,
+// then moves and scales the corresponding Three.js sphere meshes.
+function fitBubble(key, memberNodes, padding) {
+  if (!memberNodes.length) return;
+  let cx = 0, cy = 0, cz = 0;
+  for (const n of memberNodes) { cx += n.x || 0; cy += n.y || 0; cz += n.z || 0; }
+  cx /= memberNodes.length; cy /= memberNodes.length; cz /= memberNodes.length;
+
+  let r = 20;
+  for (const n of memberNodes) {
+    const d = Math.hypot((n.x||0)-cx, (n.y||0)-cy, (n.z||0)-cz);
+    if (d > r) r = d;
+  }
+  r += padding;
+
+  for (const bkey of [key, key + '_wire']) {
+    const mesh = scopeBubbles.get(bkey);
+    if (!mesh) continue;
+    mesh.position.set(cx, cy, cz);
+    mesh.scale.setScalar(r);
+  }
+}
+
 function updateBubbles() {
-  if (++tickCount % 6 !== 0) return; // throttle to every 6th tick
+  if (++tickCount % 6 !== 0) return;
   const { nodes } = Graph.graphData();
+
+  // Scope bubbles: encompass all kind-group nodes in scope.
   for (const [scopeName] of expandedScopes) {
-    const scopeNodes = nodes.filter(n => n.scope === scopeName && n.kind !== 'scope');
-    if (!scopeNodes.length) continue;
+    const members = nodes.filter(n => n.scope === scopeName && n.kind === 'kind-group');
+    fitBubble(scopeName, members, 50);
+  }
 
-    // Compute centroid.
-    let cx = 0, cy = 0, cz = 0;
-    for (const n of scopeNodes) { cx += n.x || 0; cy += n.y || 0; cz += n.z || 0; }
-    cx /= scopeNodes.length; cy /= scopeNodes.length; cz /= scopeNodes.length;
-
-    // Compute bounding radius.
-    let r = 30;
-    for (const n of scopeNodes) {
-      const d = Math.hypot((n.x||0)-cx, (n.y||0)-cy, (n.z||0)-cz);
-      if (d > r) r = d;
-    }
-    r += 40; // padding
-
-    for (const key of [scopeName, scopeName + '_wire']) {
-      const mesh = scopeBubbles.get(key);
-      if (!mesh) continue;
-      mesh.position.set(cx, cy, cz);
-      mesh.scale.setScalar(r);
-    }
+  // Kind bubbles: encompass all artifact nodes for that kind in scope.
+  for (const [key] of expandedKinds) {
+    const [scopeName, kindName] = key.split(':');
+    const members = nodes.filter(n => n.scope === scopeName && n.kind === kindName);
+    fitBubble('kind:' + key, members, 25);
   }
 }
 
@@ -530,13 +617,30 @@ function updateExpandedTags() {
   const wrap = document.getElementById('expanded-wrap');
   const list = document.getElementById('expanded-list');
   list.innerHTML = '';
-  if (expandedScopes.size === 0) { wrap.style.display = 'none'; return; }
+  const total = expandedScopes.size + expandedKinds.size;
+  if (total === 0) { wrap.style.display = 'none'; return; }
   wrap.style.display = 'block';
   for (const [sc] of expandedScopes) {
     const tag = document.createElement('span');
     tag.className = 'expanded-tag';
     tag.innerHTML = `${sc} <span style="opacity:0.6">✕</span>`;
     tag.onclick = () => collapseScope(sc);
+    list.appendChild(tag);
+  }
+  for (const [key] of expandedKinds) {
+    const [sc, kind] = key.split(':');
+    const tag = document.createElement('span');
+    tag.className = 'expanded-tag';
+    tag.style.background = 'rgba(99,102,241,0.2)';
+    tag.style.borderColor = 'rgba(99,102,241,0.4)';
+    tag.style.color = '#c7d2fe';
+    tag.innerHTML = `${sc}/${kind} <span style="opacity:0.6">✕</span>`;
+    tag.onclick = () => {
+      expandedKinds.delete(key);
+      removeBubble('kind:' + key);
+      applyGraphData();
+      updateModeBadge();
+    };
     list.appendChild(tag);
   }
 }

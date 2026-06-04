@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -8,17 +9,21 @@ import (
 	parchment "github.com/dpopsuev/parchment"
 )
 
-// graphNode is the node format expected by 3d-force-graph.
+// ── graph wire types ────────────────────────────────────────────────────────
+// These are the JSON types consumed by 3d-force-graph on the client.
+
+// graphNode is a node in the 3d-force-graph payload.
 type graphNode struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
 	Kind   string `json:"kind"`
 	Status string `json:"status"`
 	Scope  string `json:"scope"`
-	Val    int    `json:"val"` // controls sphere size (degree)
+	Group  string `json:"group,omitempty"` // kind group for intermediate depth level
+	Val    int    `json:"val"`             // sphere radius (degree-proportional)
 }
 
-// graphLink is the link format expected by 3d-force-graph.
+// graphLink is an edge in the 3d-force-graph payload.
 type graphLink struct {
 	Source   string  `json:"source"`
 	Target   string  `json:"target"`
@@ -26,28 +31,28 @@ type graphLink struct {
 	Weight   float64 `json:"weight,omitempty"`
 }
 
-// graphData is the JSON payload returned by GET /api/graph.
+// graphData is the full payload returned by all /api/graph* endpoints.
 type graphData struct {
 	Nodes []graphNode `json:"nodes"`
 	Links []graphLink `json:"links"`
 }
 
-// handleAPIGraphScopes returns one node per scope with cross-scope edges.
-// GET /api/graph?level=scopes
-func (s *Server) handleAPIGraphScopes(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+// ── graph builders ──────────────────────────────────────────────────────────
+// Pure functions: no HTTP, no global state. Each receives a Protocol and
+// returns graphData. Handlers are thin dispatchers over these builders.
 
-	// Fetch all artifacts to find cross-scope edges and count per scope.
-	allArts, err := s.proto.ListArtifacts(ctx, parchment.ListInput{})
+// buildScopeGraph returns one node per scope and one link per cross-scope edge
+// pair. Node Val is proportional to artifact count; link Weight is the number
+// of cross-scope edges between the two scopes.
+func buildScopeGraph(ctx context.Context, proto *parchment.Protocol) (graphData, error) {
+	allArts, err := proto.ListArtifacts(ctx, parchment.ListInput{})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return graphData{}, err
 	}
 
-	// Build id→scope index and count per scope.
 	scopeOf := make(map[string]string, len(allArts))
 	countByScope := make(map[string]int)
-	allIDs := make([]string, 0, len(allArts))
+	ids := make([]string, 0, len(allArts))
 	for _, a := range allArts {
 		sc := a.Scope
 		if sc == "" || sc == parchment.SchemaScope {
@@ -55,24 +60,23 @@ func (s *Server) handleAPIGraphScopes(w http.ResponseWriter, r *http.Request) {
 		}
 		scopeOf[a.ID] = sc
 		countByScope[sc]++
-		allIDs = append(allIDs, a.ID)
+		ids = append(ids, a.ID)
 	}
 
-	// Fetch all edges, aggregate cross-scope ones.
-	edges, _ := s.proto.Store().ListEdges(ctx, allIDs, nil)
-	type edgeKey struct{ from, to, rel string }
-	crossEdgeWeight := make(map[edgeKey]float64)
+	edges, _ := proto.Store().ListEdges(ctx, ids, nil)
+
+	type edgeKey struct{ from, to string }
+	weight := make(map[edgeKey]float64)
 	for _, e := range edges {
 		fs, ts := scopeOf[e.From], scopeOf[e.To]
-		if fs == "" || ts == "" || fs == ts || fs == parchment.SchemaScope || ts == parchment.SchemaScope {
+		if fs == "" || ts == "" || fs == ts {
 			continue
 		}
-		// Normalise direction so A→B and B→A don't double-count.
-		from, to := fs, ts
-		if from > to {
-			from, to = to, from
+		// Canonical direction: lexicographic min → max avoids double-counting.
+		if fs > ts {
+			fs, ts = ts, fs
 		}
-		crossEdgeWeight[edgeKey{from, to, e.Relation}]++
+		weight[edgeKey{fs, ts}]++
 	}
 
 	nodes := make([]graphNode, 0, len(countByScope))
@@ -82,18 +86,12 @@ func (s *Server) handleAPIGraphScopes(w http.ResponseWriter, r *http.Request) {
 			Name:  scope,
 			Kind:  "scope",
 			Scope: scope,
-			Val:   max(3, count/20), // size by artifact count, min 3
+			Val:   max(3, count/20),
 		})
 	}
 
-	links := make([]graphLink, 0, len(crossEdgeWeight))
-	seen := make(map[string]bool)
-	for ek, w := range crossEdgeWeight {
-		key := ek.from + "|" + ek.to
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
+	links := make([]graphLink, 0, len(weight))
+	for ek, w := range weight {
 		links = append(links, graphLink{
 			Source:   "scope:" + ek.from,
 			Target:   "scope:" + ek.to,
@@ -102,61 +100,89 @@ func (s *Server) handleAPIGraphScopes(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	writeJSON(w, graphData{Nodes: nodes, Links: links})
+	return graphData{Nodes: nodes, Links: links}, nil
 }
 
-// handleAPIGraph serves the graph data for 3d-force-graph.
-// GET /api/graph?scope=&status=&relations=
-func (s *Server) handleAPIGraph(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	scope := q.Get("scope")
-	statusFilter := q.Get("status") // comma-separated, default active+draft
-	relFilter := q.Get("relations")
-
-	if statusFilter == "" {
-		statusFilter = "active,draft,current,proposed,in_progress,in_review,fleeting"
-	}
-	statuses := strings.Split(statusFilter, ",")
-
-	var relations []string
-	if relFilter != "" {
-		relations = strings.Split(relFilter, ",")
+// buildKindGraph returns one node per kind within a scope and links between
+// kinds based on cross-kind edges. Used as the intermediate depth level
+// between scope super-nodes and individual artifact nodes.
+func buildKindGraph(ctx context.Context, proto *parchment.Protocol, scope string, statuses, relations []string) (graphData, error) {
+	arts, err := fetchArtifacts(ctx, proto, scope, statuses)
+	if err != nil {
+		return graphData{}, err
 	}
 
-	ctx := r.Context()
+	kindOf := make(map[string]string, len(arts))
+	countByKind := make(map[string]int)
+	ids := make([]string, 0, len(arts))
+	for _, a := range arts {
+		k := a.ResolvedKind()
+		kindOf[a.ID] = k
+		countByKind[k]++
+		ids = append(ids, a.ID)
+	}
 
-	// Fetch all matching artifacts across requested statuses.
-	var arts []*parchment.Artifact
-	for _, st := range statuses {
-		batch, err := s.proto.ListArtifacts(ctx, parchment.ListInput{
-			Scope:  scope,
-			Status: strings.TrimSpace(st),
-		})
-		if err != nil {
+	edges, _ := proto.Store().ListEdges(ctx, ids, relations)
+
+	type edgeKey struct{ from, to string }
+	weight := make(map[edgeKey]float64)
+	for _, e := range edges {
+		fk, tk := kindOf[e.From], kindOf[e.To]
+		if fk == "" || tk == "" || fk == tk {
 			continue
 		}
-		arts = append(arts, batch...)
+		if fk > tk {
+			fk, tk = tk, fk
+		}
+		weight[edgeKey{fk, tk}]++
 	}
 
-	// Build id set for edge filtering.
+	nodes := make([]graphNode, 0, len(countByKind))
+	for kind, count := range countByKind {
+		nodes = append(nodes, graphNode{
+			ID:    "kind:" + scope + ":" + kind,
+			Name:  kind,
+			Kind:  "kind-group",
+			Scope: scope,
+			Group: kind,
+			Val:   max(2, count/5),
+		})
+	}
+
+	links := make([]graphLink, 0, len(weight))
+	for ek, w := range weight {
+		links = append(links, graphLink{
+			Source:   "kind:" + scope + ":" + ek.from,
+			Target:   "kind:" + scope + ":" + ek.to,
+			Relation: "cross-kind",
+			Weight:   w,
+		})
+	}
+
+	return graphData{Nodes: nodes, Links: links}, nil
+}
+
+// buildArtifactGraph returns individual artifact nodes and their edges,
+// filtered by scope, statuses, and relation types.
+func buildArtifactGraph(ctx context.Context, proto *parchment.Protocol, scope string, statuses, relations []string) (graphData, error) {
+	arts, err := fetchArtifacts(ctx, proto, scope, statuses)
+	if err != nil {
+		return graphData{}, err
+	}
+
 	ids := make([]string, 0, len(arts))
-	idSet := make(map[string]bool, len(arts))
 	for _, a := range arts {
 		ids = append(ids, a.ID)
-		idSet[a.ID] = true
 	}
 
-	// Fetch edges between these artifacts.
-	edges, _ := s.proto.Store().ListEdges(ctx, ids, relations)
+	edges, _ := proto.Store().ListEdges(ctx, ids, relations)
 
-	// Build degree map for node sizing.
 	degree := make(map[string]int, len(ids))
 	for _, e := range edges {
 		degree[e.From]++
 		degree[e.To]++
 	}
 
-	// Assemble response.
 	nodes := make([]graphNode, 0, len(arts))
 	for _, a := range arts {
 		nodes = append(nodes, graphNode{
@@ -165,7 +191,7 @@ func (s *Server) handleAPIGraph(w http.ResponseWriter, r *http.Request) {
 			Kind:   a.ResolvedKind(),
 			Status: a.ResolvedStatus(),
 			Scope:  a.ResolvedScope(),
-			Val:    degree[a.ID] + 1, // min 1 so zero-degree nodes are visible
+			Val:    degree[a.ID] + 1,
 		})
 	}
 
@@ -179,10 +205,71 @@ func (s *Server) handleAPIGraph(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	writeJSON(w, graphData{Nodes: nodes, Links: links})
+	return graphData{Nodes: nodes, Links: links}, nil
 }
 
-// handleAPIScopes returns the distinct scopes present in the store.
+// fetchArtifacts fetches artifacts for a scope across multiple statuses.
+// Each status is queried separately because ListArtifacts only accepts one.
+func fetchArtifacts(ctx context.Context, proto *parchment.Protocol, scope string, statuses []string) ([]*parchment.Artifact, error) {
+	var all []*parchment.Artifact
+	for _, st := range statuses {
+		batch, err := proto.ListArtifacts(ctx, parchment.ListInput{
+			Scope:  scope,
+			Status: strings.TrimSpace(st),
+		})
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, batch...)
+	}
+	return all, nil
+}
+
+// ── HTTP handlers ───────────────────────────────────────────────────────────
+// Handlers are thin: parse request → call builder → write JSON.
+
+// handleAPIGraphScopes serves the scope-level graph (universe view).
+// GET /api/graph/scopes
+func (s *Server) handleAPIGraphScopes(w http.ResponseWriter, r *http.Request) {
+	data, err := buildScopeGraph(r.Context(), s.proto)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, data)
+}
+
+// handleAPIGraphKinds serves the kind-level graph (intermediate depth).
+// GET /api/graph/kinds?scope=&status=&relations=
+func (s *Server) handleAPIGraphKinds(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	scope := q.Get("scope")
+	statuses, relations := parseFilters(q.Get("status"), q.Get("relations"))
+
+	data, err := buildKindGraph(r.Context(), s.proto, scope, statuses, relations)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, data)
+}
+
+// handleAPIGraph serves the artifact-level graph (deepest view).
+// GET /api/graph?scope=&status=&relations=
+func (s *Server) handleAPIGraph(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	scope := q.Get("scope")
+	statuses, relations := parseFilters(q.Get("status"), q.Get("relations"))
+
+	data, err := buildArtifactGraph(r.Context(), s.proto, scope, statuses, relations)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, data)
+}
+
+// handleAPIScopes returns the distinct non-schema scopes present in the store.
 // GET /api/scopes
 func (s *Server) handleAPIScopes(w http.ResponseWriter, r *http.Request) {
 	info, err := s.proto.Store().ListScopeInfo(r.Context())
@@ -216,7 +303,7 @@ func (s *Server) handleAPICreateArtifact(w http.ResponseWriter, r *http.Request)
 }
 
 // handleAPIPatchArtifact handles PATCH /api/artifacts/{id}.
-// Body: {"field": "status", "value": "active"}
+// Body: {"field": "status", "value": "active", "force": false}
 func (s *Server) handleAPIPatchArtifact(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var body struct {
@@ -276,7 +363,7 @@ func (s *Server) handleAPIDeleteEdge(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleFragmentArtifact serves a stripped artifact detail for the sidebar.
+// handleFragmentArtifact serves a stripped artifact detail for HTMX sidebar loads.
 // GET /fragments/artifacts/{id}
 func (s *Server) handleFragmentArtifact(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -299,14 +386,30 @@ func (s *Server) handleFragmentArtifact(w http.ResponseWriter, r *http.Request) 
 // handleGraph serves the graph explorer page.
 // GET /graph
 func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
-	s.render(w, "graph.html", map[string]any{
-		"Title": "Graph",
-	})
+	s.render(w, "graph.html", map[string]any{"Title": "Graph"})
 }
 
+// ── helpers ─────────────────────────────────────────────────────────────────
+
+const defaultStatuses = "active,draft,current,proposed,in_progress,in_review,fleeting"
+
+// parseFilters splits comma-separated status and relation query params.
+// An empty status string falls back to the default active-work set.
+func parseFilters(statusParam, relationsParam string) (statuses, relations []string) {
+	if statusParam == "" {
+		statusParam = defaultStatuses
+	}
+	statuses = strings.Split(statusParam, ",")
+	if relationsParam != "" {
+		relations = strings.Split(relationsParam, ",")
+	}
+	return statuses, relations
+}
+
+// writeJSON encodes v as JSON and writes it to w with the correct Content-Type.
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "")
-	_ = enc.Encode(v) //nolint:errcheck // write errors are not actionable server-side
+	_ = enc.Encode(v) //nolint:errcheck // network write errors are not actionable server-side
 }
