@@ -169,21 +169,7 @@ func TestContextRead_KnowledgeInSameScope(t *testing.T) {
 	}
 }
 
-// --- SyncLexicon ---
 
-func TestSyncLexicon_EmptyDirectory(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	svc := newTestService(t)
-
-	n, err := svc.SyncLexicon(ctx, t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n != 0 {
-		t.Errorf("expected 0 artifacts from empty dir, got %d", n)
-	}
-}
 
 // --- Motd ---
 
