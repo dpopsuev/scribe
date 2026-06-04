@@ -47,9 +47,17 @@ func MustConfig() *config.Config {
 
 // MustService is the single construction path for most CLI commands.
 // Uses service.Open so homeScopes and schema loading are identical to the MCP server.
+// Applies the same CWD-based scope detection as the serve command.
 func MustService() (svc *service.Service, cleanup func()) {
 	cfg := MustConfig()
-	s, cl, err := service.Open(cfg)
+	// Mirror serve.go: CWD detection → configured scopes.
+	var homeScopes []string
+	if cwd, err := os.Getwd(); err == nil {
+		if sc := cfg.ScopeForDir(cwd); sc != "" {
+			homeScopes = []string{sc}
+		}
+	}
+	s, cl, err := service.Open(cfg, homeScopes)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)

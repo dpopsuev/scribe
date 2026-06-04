@@ -24,6 +24,8 @@ func MotdCmd() *cobra.Command {
 			var homeScopes []string
 			if sc := cfg.ScopeForDir(cwd); sc != "" {
 				homeScopes = []string{sc}
+			} else {
+				homeScopes = cfg.ResolvedScopes()
 			}
 			svc, closeDB, err := service.Open(cfg, homeScopes)
 			if err != nil {

@@ -55,7 +55,7 @@ func NewServer(svc *service.Service, vocab []string, version string) (*sdkmcp.Se
 	destructiveHint := true
 
 	artifactDesc := "CRUD + search + graph for work (task/spec/bug/goal) and knowledge (note/concept/source) artifacts. " +
-		"FIND: list(query=) for keyword FTS; recall(query=, top=10) for ranked FTS with kind/recency scoring — both cheaper than list. " +
+		"FIND: list(query=) for keyword FTS; recall(query=, top=10) for ranked FTS with kind/recency scoring; list(semantic=true, query=) for vector similarity (requires embeddings). " +
 		"READ: get(id=) full artifact; get_section(id=, name=) for one section only (cheaper). " +
 		"LIST: always add scope/kind/status or top=N — bare list returns ALL artifacts and burns context. " +
 		"WRITE: create, set, attach_section, archive. " +
