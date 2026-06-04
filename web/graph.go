@@ -389,6 +389,12 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "graph.html", map[string]any{"Title": "Graph"})
 }
 
+// handleStress serves the graph stress-test page.
+// GET /stress
+func (s *Server) handleStress(w http.ResponseWriter, r *http.Request) {
+	s.render(w, "stress.html", map[string]any{"Title": "Stress Test"})
+}
+
 // ── helpers ─────────────────────────────────────────────────────────────────
 
 const defaultStatuses = "active,draft,current,proposed,in_progress,in_review,fleeting"

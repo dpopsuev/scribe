@@ -1,0 +1,472 @@
+{{define "content"}}
+<style>
+  body { overflow: hidden; }
+  #graph-root { position:fixed; top:0; left:0; right:0; bottom:0; z-index:0; }
+
+  #hud {
+    position:fixed; top:1rem; left:1rem; z-index:10;
+    background:rgba(0,0,8,0.88); backdrop-filter:blur(8px);
+    border:1px solid rgba(255,255,255,0.12); border-radius:8px;
+    padding:0.75rem 1rem; font-size:0.8em; color:#e2e8f0;
+    font-family:monospace; min-width:280px;
+  }
+  .hud-row { display:flex; justify-content:space-between; gap:1.5rem; margin:0.15rem 0; }
+  .hud-label { opacity:0.55; }
+  .hud-val { font-weight:600; color:#93c5fd; }
+  .hud-val.warn  { color:#fbbf24; }
+  .hud-val.crit  { color:#f87171; }
+  .hud-sep { border-top:1px solid rgba(255,255,255,0.1); margin:0.4rem 0; }
+  h3 { margin:0 0 0.5rem; color:#f1f5f9; font-size:0.88em; letter-spacing:0.04em; }
+
+  #controls {
+    position:fixed; top:1rem; right:1rem; z-index:10;
+    background:rgba(0,0,8,0.88); backdrop-filter:blur(8px);
+    border:1px solid rgba(255,255,255,0.12); border-radius:8px;
+    padding:0.75rem 1rem; font-size:0.8em; color:#e2e8f0;
+    display:flex; flex-direction:column; gap:0.4rem; min-width:220px;
+  }
+  #controls strong { color:#f1f5f9; }
+  #controls label { display:flex; justify-content:space-between; align-items:center; }
+  #controls input[type=range] { width:110px; }
+  #controls input[type=checkbox] { width:16px; }
+  .btn {
+    padding:0.3rem 0.6rem; border-radius:4px; cursor:pointer; font-size:0.8em;
+    border:1px solid rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);
+    color:#e2e8f0; transition:background 0.1s;
+  }
+  .btn:hover { background:rgba(255,255,255,0.18); }
+  .btn.danger { border-color:rgba(239,68,68,0.5); color:#fca5a5; }
+  .btn-row { display:flex; gap:0.4rem; flex-wrap:wrap; }
+
+  #fps-bar {
+    position:fixed; bottom:0; left:0; right:0; height:3px; z-index:20;
+    background:rgba(255,255,255,0.05);
+  }
+  #fps-fill { height:100%; width:100%; background:#10b981; transition:width 0.1s, background 0.1s; }
+
+  #log {
+    position:fixed; bottom:1rem; left:1rem; z-index:10;
+    font-size:0.72em; font-family:monospace; color:rgba(255,255,255,0.35);
+    pointer-events:none; max-width:500px;
+  }
+  .log-entry { margin:0.1rem 0; }
+  .log-warn { color:#fbbf24; }
+  .log-crit { color:#f87171; }
+</style>
+
+<div id="graph-root"></div>
+
+<div id="hud">
+  <h3>Graph Stress Test</h3>
+  <div class="hud-row"><span class="hud-label">FPS</span><span id="m-fps" class="hud-val">—</span></div>
+  <div class="hud-row"><span class="hud-label">Frame time</span><span id="m-frame" class="hud-val">—</span></div>
+  <div class="hud-row"><span class="hud-label">Nodes</span><span id="m-nodes" class="hud-val">0</span></div>
+  <div class="hud-row"><span class="hud-label">Links</span><span id="m-links" class="hud-val">0</span></div>
+  <div class="hud-sep"></div>
+  <div class="hud-row"><span class="hud-label">Physics time</span><span id="m-phys" class="hud-val">—</span></div>
+  <div class="hud-row"><span class="hud-label">Draw calls</span><span id="m-draw" class="hud-val">—</span></div>
+  <div class="hud-row"><span class="hud-label">Triangles</span><span id="m-tri" class="hud-val">—</span></div>
+  <div class="hud-sep"></div>
+  <div class="hud-row"><span class="hud-label">GC pressure</span><span id="m-gc" class="hud-val">—</span></div>
+  <div class="hud-row"><span class="hud-label">Heap used</span><span id="m-heap" class="hud-val">—</span></div>
+</div>
+
+<div id="controls">
+  <strong>Controls</strong>
+
+  <label>Add rate (nodes/s) <span id="rate-val">1</span>
+    <input type="range" id="add-rate" min="0" max="60" value="1" step="1">
+  </label>
+
+  <label>Batch size <span id="batch-val">1</span>
+    <input type="range" id="batch-size" min="1" max="100" value="1" step="1">
+  </label>
+
+  <div class="hud-sep"></div>
+  <strong style="font-size:0.75em;opacity:0.7">Optimizations</strong>
+
+  <label>distanceMax <span id="dmax-val">∞</span>
+    <input type="range" id="dist-max" min="0" max="500" value="0" step="25">
+  </label>
+
+  <label>nodeResolution <span id="res-val">8</span>
+    <input type="range" id="node-res" min="2" max="16" value="8" step="2">
+  </label>
+
+  <label>theta <span id="theta-val">0.9</span>
+    <input type="range" id="theta" min="0.5" max="2.0" value="0.9" step="0.1">
+  </label>
+
+  <label>Pointer interaction
+    <input type="checkbox" id="pointer-int" checked>
+  </label>
+
+  <label>InstancedMesh
+    <input type="checkbox" id="instanced">
+  </label>
+
+  <label>Batched links
+    <input type="checkbox" id="batched-links">
+  </label>
+
+  <div class="hud-sep"></div>
+  <div class="btn-row">
+    <button class="btn" id="btn-pause">Pause</button>
+    <button class="btn" id="btn-reset">Reset</button>
+    <button class="btn danger" id="btn-stop-add">Stop adding</button>
+  </div>
+
+  <div style="opacity:0.5;font-size:0.72em;margin-top:0.25rem">
+    <a href="/graph" style="color:#93c5fd">← back to graph</a>
+  </div>
+</div>
+
+<div id="fps-bar"><div id="fps-fill"></div></div>
+<div id="log"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.176.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1.80.0/dist/3d-force-graph.min.js"></script>
+<script>
+// ── state ──────────────────────────────────────────────────────────────────
+let graphData = { nodes: [], links: [] };
+let addInterval = null;
+let addRate = 1;       // nodes per second
+let batchSize = 1;
+let paused = false;
+let useInstanced = false;
+let useBatchedLinks = false;
+let instancedMesh = null;
+let batchedLineMesh = null;
+
+// ── metrics ────────────────────────────────────────────────────────────────
+let frameCount = 0, lastFpsTime = performance.now();
+let frameTimes = [];
+let physTimes = [];
+
+// ── graph init ─────────────────────────────────────────────────────────────
+const Graph = ForceGraph3D({ controlType: 'orbit' })(document.getElementById('graph-root'))
+  .backgroundColor('#00000a')
+  .nodeColor(() => `hsl(${Math.random()*360},70%,60%)`)
+  .nodeVal(1)
+  .nodeResolution(8)
+  .linkColor(() => 'rgba(148,163,184,0.3)')
+  .linkWidth(0)
+  .d3AlphaDecay(0.01)
+  .d3VelocityDecay(0.3)
+  .cooldownTime(Infinity)
+  .warmupTicks(0)
+  .onEngineTick(onTick)
+  .graphData(graphData);
+
+// Remove center force, add radial to keep universe shape.
+Graph.d3Force('center', null);
+Graph.d3Force('charge').strength(-60);
+
+// ── tick handler ───────────────────────────────────────────────────────────
+let lastTick = performance.now();
+function onTick() {
+  const now = performance.now();
+  const physMs = now - lastTick;
+  lastTick = now;
+  physTimes.push(physMs);
+  if (physTimes.length > 60) physTimes.shift();
+
+  // Update instanced mesh positions if active.
+  if (useInstanced && instancedMesh) {
+    const matrix = new THREE.Matrix4();
+    const { nodes } = Graph.graphData();
+    nodes.forEach((n, i) => {
+      if (i >= instancedMesh.count) return;
+      matrix.setPosition(n.x || 0, n.y || 0, n.z || 0);
+      instancedMesh.setMatrixAt(i, matrix);
+    });
+    instancedMesh.instanceMatrix.needsUpdate = true;
+  }
+
+  // Update batched link segments if active.
+  if (useBatchedLinks && batchedLineMesh) {
+    const { links } = Graph.graphData();
+    const pos = batchedLineMesh.geometry.attributes.position;
+    links.forEach((l, i) => {
+      if (i * 6 + 5 >= pos.array.length) return;
+      const s = l.source, t = l.target;
+      pos.array[i*6+0] = s.x||0; pos.array[i*6+1] = s.y||0; pos.array[i*6+2] = s.z||0;
+      pos.array[i*6+3] = t.x||0; pos.array[i*6+4] = t.y||0; pos.array[i*6+5] = t.z||0;
+    });
+    pos.needsUpdate = true;
+  }
+}
+
+// ── frame metrics ──────────────────────────────────────────────────────────
+let lastFrame = performance.now();
+function onAnimFrame() {
+  requestAnimationFrame(onAnimFrame);
+  if (paused) return;
+
+  const now = performance.now();
+  const dt = now - lastFrame;
+  lastFrame = now;
+  frameTimes.push(dt);
+  if (frameTimes.length > 60) frameTimes.shift();
+  frameCount++;
+
+  // FPS from last second.
+  if (now - lastFpsTime >= 500) {
+    const elapsed = (now - lastFpsTime) / 1000;
+    const fps = Math.round(frameCount / elapsed);
+    frameCount = 0;
+    lastFpsTime = now;
+
+    const avgFrame = frameTimes.reduce((a,b)=>a+b,0) / frameTimes.length;
+    const avgPhys  = physTimes.length ? physTimes.reduce((a,b)=>a+b,0) / physTimes.length : 0;
+    const { nodes, links } = Graph.graphData();
+
+    // Renderer info.
+    const info = Graph.renderer().info;
+    const drawCalls = info.render.calls;
+    const tris = info.render.triangles;
+
+    // Memory.
+    const heap = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1024 / 1024) : null;
+
+    updateHud(fps, avgFrame, nodes.length, links.length, avgPhys, drawCalls, tris, heap);
+    // Reset renderer counters after reading.
+    info.reset();
+  }
+}
+requestAnimationFrame(onAnimFrame);
+
+function classify(val, warnAt, critAt) {
+  if (val >= critAt) return 'crit';
+  if (val >= warnAt) return 'warn';
+  return '';
+}
+
+function updateHud(fps, frame, nodes, links, phys, draws, tris, heap) {
+  const set = (id, text, cls = '') => {
+    const el = document.getElementById(id);
+    el.textContent = text;
+    el.className = 'hud-val ' + cls;
+  };
+  set('m-fps',   fps + ' fps',       classify(60-fps, 15, 30));
+  set('m-frame', frame.toFixed(1) + ' ms', classify(frame, 16.6, 33));
+  set('m-nodes', nodes.toLocaleString());
+  set('m-links', links.toLocaleString());
+  set('m-phys',  phys.toFixed(1) + ' ms',  classify(phys, 8, 16));
+  set('m-draw',  draws.toLocaleString(),    classify(draws, 2000, 5000));
+  set('m-tri',   (tris/1000).toFixed(1) + 'K', classify(tris, 200000, 500000));
+  set('m-heap',  heap !== null ? heap + ' MB' : 'n/a',
+      heap && classify(heap, 200, 400));
+
+  // GC pressure heuristic: jank frames (>33ms) in last window.
+  const jank = frameTimes.filter(t => t > 33).length;
+  set('m-gc', jank > 0 ? jank + ' jank frames' : 'clean',
+      classify(jank, 1, 5));
+
+  // FPS bar.
+  const pct = Math.min(100, (fps / 60) * 100);
+  const fill = document.getElementById('fps-fill');
+  fill.style.width = pct + '%';
+  fill.style.background = fps >= 45 ? '#10b981' : fps >= 30 ? '#fbbf24' : '#ef4444';
+}
+
+// ── node addition ──────────────────────────────────────────────────────────
+function addNodes(count) {
+  const { nodes, links } = graphData;
+  for (let i = 0; i < count; i++) {
+    const id = nodes.length;
+    nodes.push({ id });
+    if (id > 0) {
+      // Connect to a random existing node.
+      links.push({ source: id, target: Math.floor(Math.random() * id) });
+    }
+  }
+  Graph.graphData(graphData);
+
+  // Grow instanced mesh if needed.
+  if (useInstanced && instancedMesh && nodes.length > instancedMesh.count) {
+    rebuildInstancedMesh();
+  }
+  if (useBatchedLinks && batchedLineMesh && links.length * 6 > batchedLineMesh.geometry.attributes.position.array.length / 6) {
+    rebuildBatchedLinks();
+  }
+}
+
+function startAdding() {
+  stopAdding();
+  if (addRate === 0) return;
+  const intervalMs = 1000 / addRate;
+  addInterval = setInterval(() => {
+    if (!paused) addNodes(batchSize);
+  }, intervalMs);
+}
+
+function stopAdding() {
+  if (addInterval) { clearInterval(addInterval); addInterval = null; }
+}
+
+// ── instanced mesh ─────────────────────────────────────────────────────────
+function rebuildInstancedMesh() {
+  if (instancedMesh) {
+    Graph.scene().remove(instancedMesh);
+    instancedMesh.geometry.dispose();
+    instancedMesh.material.dispose();
+  }
+  const count = Math.max(graphData.nodes.length, 1000);
+  const geo = new THREE.SphereGeometry(4, 6, 6);
+  const mat = new THREE.MeshLambertMaterial({ color: 0x4f46e5 });
+  instancedMesh = new THREE.InstancedMesh(geo, mat, count);
+  instancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  Graph.scene().add(instancedMesh);
+
+  // Hide default node spheres.
+  Graph.nodeVisibility(false);
+  log('InstancedMesh created (' + count + ' slots)', 'warn');
+}
+
+function teardownInstancedMesh() {
+  if (instancedMesh) {
+    Graph.scene().remove(instancedMesh);
+    instancedMesh.geometry.dispose();
+    instancedMesh.material.dispose();
+    instancedMesh = null;
+  }
+  Graph.nodeVisibility(true);
+}
+
+// ── batched line segments ──────────────────────────────────────────────────
+function rebuildBatchedLinks() {
+  if (batchedLineMesh) {
+    Graph.scene().remove(batchedLineMesh);
+    batchedLineMesh.geometry.dispose();
+    batchedLineMesh.material.dispose();
+  }
+  const cap = Math.max(graphData.links.length * 2, 1000);
+  const positions = new Float32Array(cap * 6); // 2 endpoints × 3 coords
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setDrawRange(0, graphData.links.length * 2);
+  const mat = new THREE.LineBasicMaterial({ color: 0x4f46e5, transparent: true, opacity: 0.3 });
+  batchedLineMesh = new THREE.LineSegments(geo, mat);
+  Graph.scene().add(batchedLineMesh);
+  Graph.linkVisibility(false);
+  log('BatchedLinks created (' + cap + ' slots)', 'warn');
+}
+
+function teardownBatchedLinks() {
+  if (batchedLineMesh) {
+    Graph.scene().remove(batchedLineMesh);
+    batchedLineMesh.geometry.dispose();
+    batchedLineMesh.material.dispose();
+    batchedLineMesh = null;
+  }
+  Graph.linkVisibility(true);
+}
+
+// ── log ────────────────────────────────────────────────────────────────────
+const logEl = document.getElementById('log');
+const logEntries = [];
+function log(msg, level = '') {
+  const ts = ((performance.now() / 1000) | 0);
+  logEntries.push({ ts, msg, level });
+  if (logEntries.length > 6) logEntries.shift();
+  logEl.innerHTML = logEntries.map(e =>
+    `<div class="log-entry ${e.level ? 'log-' + e.level : ''}">[${e.ts}s] ${e.msg}</div>`
+  ).join('');
+}
+
+// ── controls wiring ────────────────────────────────────────────────────────
+const rateSlider = document.getElementById('add-rate');
+rateSlider.addEventListener('input', () => {
+  addRate = +rateSlider.value;
+  document.getElementById('rate-val').textContent = addRate;
+  startAdding();
+});
+
+const batchSlider = document.getElementById('batch-size');
+batchSlider.addEventListener('input', () => {
+  batchSize = +batchSlider.value;
+  document.getElementById('batch-val').textContent = batchSize;
+});
+
+const distSlider = document.getElementById('dist-max');
+distSlider.addEventListener('input', () => {
+  const val = +distSlider.value;
+  document.getElementById('dmax-val').textContent = val === 0 ? '∞' : val;
+  if (val === 0) {
+    Graph.d3Force('charge').distanceMax(Infinity);
+  } else {
+    Graph.d3Force('charge').distanceMax(val);
+    Graph.d3ReheatSimulation();
+  }
+  log('distanceMax = ' + (val === 0 ? 'Infinity' : val));
+});
+
+const resSlider = document.getElementById('node-res');
+resSlider.addEventListener('input', () => {
+  const val = +resSlider.value;
+  document.getElementById('res-val').textContent = val;
+  Graph.nodeResolution(val);
+  log('nodeResolution = ' + val);
+});
+
+const thetaSlider = document.getElementById('theta');
+thetaSlider.addEventListener('input', () => {
+  const val = parseFloat(thetaSlider.value).toFixed(1);
+  document.getElementById('theta-val').textContent = val;
+  Graph.d3Force('charge').theta(+val);
+  Graph.d3ReheatSimulation();
+  log('theta = ' + val);
+});
+
+document.getElementById('pointer-int').addEventListener('change', e => {
+  Graph.enablePointerInteraction(e.target.checked);
+  log('pointerInteraction = ' + e.target.checked);
+});
+
+document.getElementById('instanced').addEventListener('change', e => {
+  useInstanced = e.target.checked;
+  if (useInstanced) rebuildInstancedMesh();
+  else teardownInstancedMesh();
+});
+
+document.getElementById('batched-links').addEventListener('change', e => {
+  useBatchedLinks = e.target.checked;
+  if (useBatchedLinks) rebuildBatchedLinks();
+  else teardownBatchedLinks();
+});
+
+document.getElementById('btn-pause').addEventListener('click', () => {
+  paused = !paused;
+  if (paused) { Graph.pauseAnimation(); }
+  else { Graph.resumeAnimation(); }
+  document.getElementById('btn-pause').textContent = paused ? 'Resume' : 'Pause';
+  log(paused ? 'Paused' : 'Resumed');
+});
+
+document.getElementById('btn-reset').addEventListener('click', () => {
+  stopAdding();
+  graphData = { nodes: [], links: [] };
+  Graph.graphData(graphData);
+  teardownInstancedMesh();
+  teardownBatchedLinks();
+  document.getElementById('instanced').checked = false;
+  document.getElementById('batched-links').checked = false;
+  useInstanced = false; useBatchedLinks = false;
+  log('Reset');
+  startAdding();
+});
+
+document.getElementById('btn-stop-add').addEventListener('click', () => {
+  stopAdding();
+  log('Stopped adding nodes');
+});
+
+// ── start ──────────────────────────────────────────────────────────────────
+log('Stress test ready. Adjust add rate to begin.');
+startAdding();
+
+window.addEventListener('resize', () =>
+  Graph.width(window.innerWidth).height(window.innerHeight));
+</script>
+{{end}}
