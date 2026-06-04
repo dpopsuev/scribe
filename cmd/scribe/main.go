@@ -45,7 +45,6 @@ func main() {
 		cmds.OverlapsCmd(),
 		cmds.OrphansCmd(),
 		cmds.ScopeKeysCmd(),
-		cmds.KindCodesCmd(),
 		cmds.ServeCmd(),
 		cmds.ReseedCmd(),
 		cmds.SeedCmd(),

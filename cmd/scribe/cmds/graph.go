@@ -290,19 +290,3 @@ func ScopeKeysCmd() *cobra.Command {
 		},
 	}
 }
-
-func KindCodesCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "kind-codes",
-		Short: "List kind code mappings",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, cleanup := MustService()
-			defer cleanup()
-			codes := svc.Proto.ListKindCodes()
-			for kind, code := range codes {
-				fmt.Printf("%s → %s\n", kind, code)
-			}
-			return nil
-		},
-	}
-}
