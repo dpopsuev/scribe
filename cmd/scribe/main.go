@@ -39,7 +39,6 @@ func main() {
 		cmds.VacuumCmd(),
 		cmds.DfCmd(),
 		cmds.MotdCmd(),
-		cmds.DrainCmd(),
 		cmds.InventoryCmd(),
 		cmds.LinkCmd(),
 		cmds.UnlinkCmd(),

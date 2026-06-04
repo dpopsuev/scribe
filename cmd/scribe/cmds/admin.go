@@ -135,60 +135,6 @@ func VacuumCmd() *cobra.Command {
 	return cmd
 }
 
-func DrainCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "drain",
-		Short: "Discover or clean up legacy .cursor/contracts markdown files",
-	}
-	discoverSubCmd := &cobra.Command{
-		Use:   "discover <path>",
-		Short: "List .md files under a directory for agent-driven migration",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, cleanup := MustService()
-			defer cleanup()
-			entries, err := svc.DrainDiscover(context.Background(), args[0])
-			if err != nil {
-				return err
-			}
-			if len(entries) == 0 {
-				fmt.Println("no .md files found")
-				return nil
-			}
-			format, _ := cmd.Flags().GetString("format")
-			if format == formatJSON {
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				return enc.Encode(entries)
-			}
-			for _, e := range entries {
-				fmt.Printf("%-50s  [dir: %-15s  %d bytes]\n", e.Path, e.Dir, e.SizeB)
-			}
-			fmt.Printf("\n%d files discovered.\n", len(entries))
-			return nil
-		},
-	}
-	discoverSubCmd.Flags().String("format", "text", "output format (text, json)")
-
-	cleanupSubCmd := &cobra.Command{
-		Use:   "cleanup <path>",
-		Short: "Delete .md files under a directory after migration",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, cleanup := MustService()
-			defer cleanup()
-			n, err := svc.DrainCleanup(context.Background(), args[0])
-			if err != nil {
-				return err
-			}
-			fmt.Printf("removed %d files\n", n)
-			return nil
-		},
-	}
-	cmd.AddCommand(discoverSubCmd, cleanupSubCmd)
-	return cmd
-}
-
 func InventoryCmd() *cobra.Command {
 	var format string
 	cmd := &cobra.Command{

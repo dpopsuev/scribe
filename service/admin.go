@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -66,13 +64,6 @@ type SetGoalResult struct {
 }
 
 // DrainEntry represents a discovered legacy markdown file.
-type DrainEntry struct {
-	Path     string `json:"path"`
-	Dir      string `json:"dir"`
-	Filename string `json:"filename"`
-	SizeB    int64  `json:"size_bytes"`
-}
-
 // --- Service methods ---
 
 const defaultDashboardStaleDays = 30
@@ -283,45 +274,6 @@ func (s *Service) SetGoal(ctx context.Context, in SetGoalInput) (*SetGoalResult,
 	}
 
 	return &SetGoalResult{Goal: goal, Root: root, Archived: archived}, nil
-}
-
-// DrainDiscover lists legacy .md files under path.
-func (s *Service) DrainDiscover(_ context.Context, path string) ([]DrainEntry, error) {
-	if path == "" {
-		return nil, fmt.Errorf("path is required") //nolint:err113 // agent-facing error
-	}
-	var entries []DrainEntry
-	err := filepath.Walk(path, func(fpath string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return nil
-		}
-		if !strings.HasSuffix(info.Name(), ".md") || strings.HasPrefix(info.Name(), "_") {
-			return nil
-		}
-		rel, _ := filepath.Rel(path, fpath)
-		entries = append(entries, DrainEntry{
-			Path: fpath, Dir: filepath.Dir(rel),
-			Filename: info.Name(), SizeB: info.Size(),
-		})
-		return nil
-	})
-	return entries, err
-}
-
-// DrainCleanup removes all drain-candidate files under path.
-func (s *Service) DrainCleanup(ctx context.Context, path string) (int, error) {
-	entries, err := s.DrainDiscover(ctx, path)
-	if err != nil {
-		return 0, err
-	}
-	removed := 0
-	for _, e := range entries {
-		if err := os.Remove(e.Path); err != nil && !os.IsNotExist(err) {
-			return removed, err
-		}
-		removed++
-	}
-	return removed, nil
 }
 
 // IsComponentLabel reports whether s matches the Scribe component label format.
