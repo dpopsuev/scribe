@@ -201,7 +201,7 @@ func TestArtifact_Create_TemplatePartialDraft_Accepted(t *testing.T) {
 	// This should succeed (draft) not fail.
 	out := callTool(t, cs, "artifact", map[string]any{
 		"action": "create",
-		"kind":   parchment.KindNeed,
+		"kind":   "need",
 		"title":  "partial need — no sections yet",
 		"scope":  "test",
 		"links":  map[string][]string{parchment.RelSatisfies: {tplID}},
@@ -246,7 +246,7 @@ func TestArtifact_Promote_TemplateConformanceEnforced(t *testing.T) {
 	// Should succeed as draft.
 	artOut := callTool(t, cs, "artifact", map[string]any{
 		"action": "create",
-		"kind":   parchment.KindNeed,
+		"kind":   "need",
 		"title":  "needs acceptance",
 		"scope":  "test",
 		"links":  map[string][]string{parchment.RelSatisfies: {tpl.ID}},
@@ -261,7 +261,7 @@ func TestArtifact_Promote_TemplateConformanceEnforced(t *testing.T) {
 		}
 	}
 	if artID == "" {
-		arts, _ := proto.ListArtifacts(ctx, parchment.ListInput{Kind: parchment.KindNeed})
+		arts, _ := proto.ListArtifacts(ctx, parchment.ListInput{Kind: "need"})
 		if len(arts) > 0 {
 			artID = arts[0].ID
 		}
