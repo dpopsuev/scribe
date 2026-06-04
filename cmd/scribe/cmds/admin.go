@@ -7,7 +7,6 @@ import (
 	"os"
 	"strings"
 
-	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/config"
 	"github.com/dpopsuev/scribe/service"
 	"github.com/spf13/cobra"
@@ -340,79 +339,6 @@ func CheckCmd() *cobra.Command {
 	cmd.Flags().StringVar(&scope, "scope", "", "limit to a specific scope")
 	cmd.Flags().StringVar(&format, "format", "text", "output format (text, json)")
 	cmd.Flags().BoolVar(&fix, "fix", false, "auto-repair fixable violations")
-	return cmd
-}
-
-func MigrateCmd() *cobra.Command {
-	var format string
-	cmd := &cobra.Command{
-		Use:   "migrate",
-		Short: "Run DB migration: remove legacy edges, validate and fix artifacts against schema",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, cleanup := MustService()
-			defer cleanup()
-			result, err := svc.Proto.Migrate(context.Background())
-			if err != nil {
-				return err
-			}
-			if format == formatJSON {
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				return enc.Encode(result)
-			}
-			if result.SatisfiesRemoved > 0 {
-				fmt.Printf("Removed %d satisfies edges\n", result.SatisfiesRemoved)
-			}
-			for _, f := range result.Fixes {
-				fmt.Printf("  fix: %s\n", f)
-			}
-			fmt.Printf("\nScanned %d, passed %d, violations %d, fixes %d\n",
-				result.Report.TotalScanned, result.Report.TotalPassed,
-				result.Report.TotalViolations, len(result.Fixes))
-
-			lintResults := svc.Proto.Lint()
-			lintErrors := 0
-			for _, r := range lintResults {
-				if r.Level == lintLevelError {
-					lintErrors++
-					fmt.Printf("LINT ERROR %s\n", r.Message)
-				}
-			}
-			if lintErrors > 0 {
-				fmt.Printf("\n%d lint error(s) found\n", lintErrors)
-				os.Exit(1)
-			}
-			fmt.Println("Schema lint: OK")
-			return nil
-		},
-	}
-	cmd.Flags().StringVar(&format, "format", "text", "output format (text, json)")
-	return cmd
-}
-
-func MigrateIDsCmd() *cobra.Command {
-	var src, dst string
-	cmd := &cobra.Command{
-		Use:   "migrate-ids",
-		Short: "Copy a database and replace all artifact IDs with UUID v4 values",
-		Long: `migrate-ids copies the source SQLite database to the destination path
-and rewrites every scope-derived artifact ID (e.g. PROJ-TSK-309) to a UUID v4.
-All cross-references (parent, depends_on, links, edges) are updated.
-The source database is never modified.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := parchment.MigrateToUUID(src, dst)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("Migration complete: %d remapped, %d skipped (already UUID)\n",
-				result.Remapped, result.Skipped)
-			return nil
-		},
-	}
-	cmd.Flags().StringVar(&src, "src", "", "source database path (required)")
-	cmd.Flags().StringVar(&dst, "dst", "", "destination database path; must not exist (required)")
-	_ = cmd.MarkFlagRequired("src")
-	_ = cmd.MarkFlagRequired("dst")
 	return cmd
 }
 

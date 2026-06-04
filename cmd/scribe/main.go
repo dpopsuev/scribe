@@ -55,8 +55,6 @@ func main() {
 		cmds.VocabCmd(),
 		cmds.LintCmd(),
 		cmds.CheckCmd(),
-		cmds.MigrateCmd(),
-		cmds.MigrateIDsCmd(),
 		cmds.ConfigCmd(),
 		cmds.ExportCmd(),
 		cmds.ImportCmd(),
