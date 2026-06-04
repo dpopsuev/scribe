@@ -10,15 +10,6 @@ import (
 
 const ruleTokenBudget = 4000
 
-// CodePointers carries file and symbol references from a task's ComponentMap.
-// The agent uses these to load code via its file reading tools — Parchment
-// stores the routing information, not the content.
-type CodePointers struct {
-	Files   []string `json:"files,omitempty"`
-	Symbols []string `json:"symbols,omitempty"`
-	Hint    string   `json:"hint,omitempty"`
-}
-
 // RuleEntry is a resolved rule artifact ready for injection into agent context.
 type RuleEntry struct {
 	ID       string   `json:"id"`
@@ -40,7 +31,6 @@ type KindHint struct {
 type ContextPacket struct {
 	Task      *parchment.Artifact   `json:"task"`
 	Know      []*parchment.Artifact `json:"know,omitempty"`
-	Code      CodePointers          `json:"code"`
 	Rules     []RuleEntry           `json:"rules,omitempty"`
 	KindHints []KindHint            `json:"kind_hints,omitempty"` // guidance from _schema for the task's kind
 }
@@ -67,21 +57,12 @@ func (s *Service) ContextRead(ctx context.Context, taskID string) (*ContextPacke
 		}
 	}
 
-	code := CodePointers{
-		Files:   task.Components.Files,
-		Symbols: task.Components.Symbols,
-	}
-	if len(code.Files) > 0 || len(code.Symbols) > 0 {
-		code.Hint = "load via lector.read or file reader at these paths"
-	}
-
 	rules := s.resolveRules(ctx, task.Labels)
 	kindHints := s.resolveKindHints(ctx, task.Kind)
 
 	return &ContextPacket{
 		Task:      task,
 		Know:      know,
-		Code:      code,
 		Rules:     rules,
 		KindHints: kindHints,
 	}, nil
