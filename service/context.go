@@ -182,7 +182,8 @@ func userDefinedLabels(labels []string) []string {
 			strings.HasPrefix(l, "status:") ||
 			strings.HasPrefix(l, "scope:") ||
 			strings.HasPrefix(l, "priority:") ||
-			strings.HasPrefix(l, "sprint:") {
+			strings.HasPrefix(l, "sprint:") ||
+			strings.HasPrefix(l, "compliance:") {
 			continue
 		}
 		out = append(out, l)
