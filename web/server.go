@@ -49,7 +49,7 @@ func NewServer(proto *parchment.Protocol) *Server {
 
 	for _, page := range []string{
 		"dashboard.html", "list.html", "detail.html",
-		"tree.html", "search.html", "stress.html",
+		"tree.html", "search.html",
 	} {
 		clone := template.Must(layoutTmpl.Clone())
 		s.pages[page] = template.Must(clone.ParseFS(templateFS, "templates/"+page))
@@ -75,7 +75,6 @@ func NewServer(proto *parchment.Protocol) *Server {
 	s.mux.HandleFunc("GET /tree/{id}", s.handleTree)
 	s.mux.HandleFunc("GET /search", s.handleSearch)
 	s.mux.HandleFunc("GET /graph", s.handleGraph)
-	s.mux.HandleFunc("GET /stress", s.handleStress)
 	s.mux.HandleFunc("GET /events", s.handleEvents)
 
 	// Fragment endpoints (HTMX sidebar loads)

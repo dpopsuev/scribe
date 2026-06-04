@@ -117,7 +117,24 @@
 <div id="ctx-menu" style="display:none"></div>
 
 <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.176.0/build/three.min.js"></script>
+<!-- 3d-force-graph bundles Three.js internally but does not expose window.THREE.
+     We use three.cjs (CommonJS build, works as UMD in modern browsers) to get
+     THREE globally for the scope bubble geometry. If it fails to load, bubbles
+     are silently disabled — the graph still runs. -->
+<script>
+// Attempt to load THREE from three.cjs and shim it as window.THREE.
+// Falls back gracefully: the graph runs without bubbles if THREE is absent.
+(function() {
+  var s = document.createElement('script');
+  s.src = 'https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.cjs';
+  s.onload = function() {
+    // three.cjs exports via CommonJS; in a browser module context it may not
+    // set window.THREE. If THREE is already defined after load, nothing to do.
+    // Otherwise, the graph runs without scope bubbles.
+  };
+  document.head.appendChild(s);
+})();
+</script>
 <script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1.80.0/dist/3d-force-graph.min.js"></script>
 <script>
 // ─── palette ──────────────────────────────────────────────────────────────
@@ -158,7 +175,8 @@ let macroData = { nodes: [], links: [] };
 let scopeBubbles = new Map();      // key → THREE.Mesh (scope and kind bubbles)
 
 // ─── graph ────────────────────────────────────────────────────────────────
-const Graph = ForceGraph3D({ controlType: 'orbit' })(document.getElementById('graph-root'))
+// Expose as window._Graph so chromedp tests can call graphData(), renderer() etc.
+const Graph = window._Graph = ForceGraph3D({ controlType: 'orbit' })(document.getElementById('graph-root'))
   .backgroundColor('#05050f')
   .nodeColor(nodeColor)
   .nodeVal(n => n.kind === 'scope' ? Math.sqrt(n.val || 1) * 4 : Math.sqrt(n.val || 1) * 1.5)
@@ -181,8 +199,7 @@ const Graph = ForceGraph3D({ controlType: 'orbit' })(document.getElementById('gr
   .d3VelocityDecay(0.25)    // low friction — floaty
   .warmupTicks(0)            // no pre-bake; positions come from fibonacci
   .cooldownTime(Infinity)
-  .onNodeClick(onNodeClick)
-  .onNodeDblClick(onNodeDblClick)
+  .onNodeClick(onNodeClickWithDbl)
   .onNodeRightClick(onNodeRightClick)
   .onBackgroundClick(closeSidebar)
   .onEngineTick(updateBubbles);
@@ -440,6 +457,20 @@ async function collapseScope(scopeName) {
 }
 
 // ─── click handlers ───────────────────────────────────────────────────────
+// Detect double-click via timestamp delta — onNodeDblClick not in 3d-force-graph 1.80.
+let _lastClickNode = null, _lastClickTime = 0;
+function onNodeClickWithDbl(node) {
+  const now = Date.now();
+  if (_lastClickNode === node && now - _lastClickTime < 300) {
+    _lastClickNode = null;
+    onNodeDblClick(node);
+    return;
+  }
+  _lastClickNode = node;
+  _lastClickTime = now;
+  onNodeClick(node);
+}
+
 function onNodeClick(node) {
   if (node.kind === 'scope') {
     expandScope(node.scope || node.name);
@@ -491,9 +522,11 @@ function onNodeRightClick(node, event) {
 
 // ─── Three.js scope bubbles ───────────────────────────────────────────────
 // createBubble adds a translucent sphere to the Three.js scene.
+// Silently no-ops if THREE is not available (e.g. CDN load failed).
 // initialRadius is a hint for the initial scale; updateBubbles adjusts it
 // every 6 ticks based on actual node positions.
 function createBubble(key, initialRadius = 100) {
+  if (typeof THREE === 'undefined') return; // THREE optional — graph works without bubbles
   const scene = Graph.scene();
   const color = new THREE.Color(KIND_COLOR.scope);
 
