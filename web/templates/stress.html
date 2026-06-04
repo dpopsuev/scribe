@@ -60,6 +60,8 @@
   <h3>Graph Stress Test</h3>
   <div class="hud-row"><span class="hud-label">FPS</span><span id="m-fps" class="hud-val">—</span></div>
   <div class="hud-row"><span class="hud-label">Frame time</span><span id="m-frame" class="hud-val">—</span></div>
+  <div class="hud-row"><span class="hud-label">Work time</span><span id="m-work" class="hud-val" title="Actual CPU work, excludes vsync idle">—</span></div>
+  <div class="hud-row"><span class="hud-label">Headroom</span><span id="m-budget" class="hud-val" title="16.6ms - work = spare budget">—</span></div>
   <div class="hud-row"><span class="hud-label">Nodes</span><span id="m-nodes" class="hud-val">0</span></div>
   <div class="hud-row"><span class="hud-label">Links</span><span id="m-links" class="hud-val">0</span></div>
   <div class="hud-sep"></div>
@@ -67,8 +69,11 @@
   <div class="hud-row"><span class="hud-label">Draw calls</span><span id="m-draw" class="hud-val">—</span></div>
   <div class="hud-row"><span class="hud-label">Triangles</span><span id="m-tri" class="hud-val">—</span></div>
   <div class="hud-sep"></div>
-  <div class="hud-row"><span class="hud-label">GC pressure</span><span id="m-gc" class="hud-val">—</span></div>
+  <div class="hud-row"><span class="hud-label">Jank frames</span><span id="m-gc" class="hud-val">—</span></div>
   <div class="hud-row"><span class="hud-label">Heap used</span><span id="m-heap" class="hud-val">—</span></div>
+  <div class="hud-sep"></div>
+  <div style="font-size:0.7em;opacity:0.6;margin-bottom:0.2rem">FPS distribution</div>
+  <pre id="m-pyramid" style="font-size:0.68em;margin:0;line-height:1.4;white-space:pre"></pre>
 </div>
 
 <div id="controls">
@@ -138,13 +143,56 @@ let useBatchedLinks = false;
 let instancedMesh = null;
 let batchedLineMesh = null;
 
-// ── metrics ────────────────────────────────────────────────────────────────
+// ── metrics (hegemony PerfTracker pattern) ──────────────────────────────────
+// We track two distinct time measurements, as hegemony does:
+//   frameTimeMs — total frame duration including vsync idle
+//   workTimeMs  — actual CPU work time measured via PerformanceObserver
+//
+// frameBudget = targetMs - workTimeMs (not frameTimeMs) gives true headroom.
 let frameCount = 0, lastFpsTime = performance.now();
-let frameTimes = [];
-let physTimes = [];
+let frameTimes  = [];  // total frame times (vsync + work)
+let workTimes   = [];  // actual work times from PerformanceObserver
+let physTimes   = [];  // physics tick times from onEngineTick
+
+// FPS tier accumulator — hegemony's tierReport pattern.
+// Tiers: [90+, 60+, 30+, 0+] — accumulated over the session.
+const TIERS = [
+  { min: 90, label: 'Excellent', color: '#44aaff' },
+  { min: 60, label: 'Good',      color: '#44ff44' },
+  { min: 30, label: 'Acceptable',color: '#ffaa00' },
+  { min:  0, label: 'Poor',      color: '#ff4444' },
+];
+const tierCounts = TIERS.map(() => 0);
+let totalFramesCounted = 0;
+
+// PerformanceObserver captures accurate frame timing without vsync distortion.
+// This is the equivalent of hegemony's recordWorkTime(performance.now() - workStart).
+if (typeof PerformanceObserver !== 'undefined') {
+  try {
+    const po = new PerformanceObserver(list => {
+      for (const entry of list.getEntries()) {
+        // 'frame' entries give actual main thread work time.
+        workTimes.push(entry.duration);
+        if (workTimes.length > 120) workTimes.shift();
+      }
+    });
+    po.observe({ type: 'frame', buffered: false });
+  } catch (_) { /* not supported — fallback to frameTimeMs */ }
+}
 
 // ── graph init ─────────────────────────────────────────────────────────────
-const Graph = ForceGraph3D({ controlType: 'orbit' })(document.getElementById('graph-root'))
+// Apply WebGL best practices from MDN + hegemony renderer.ts:
+//   antialias: false     — large perf win, barely visible at small node sizes
+//   powerPreference      — request high-performance GPU (discrete over integrated)
+//   pixelRatio ≤ 2       — avoid 3x-4x overdraw on HiDPI displays
+const Graph = ForceGraph3D({
+  controlType: 'orbit',
+  rendererConfig: {
+    antialias: false,
+    powerPreference: 'high-performance',
+    alpha: false,            // avoid back-buffer alpha emulation cost (MDN)
+  },
+})(document.getElementById('graph-root'))
   .backgroundColor('#00000a')
   .nodeColor(() => `hsl(${Math.random()*360},70%,60%)`)
   .nodeVal(1)
@@ -157,6 +205,10 @@ const Graph = ForceGraph3D({ controlType: 'orbit' })(document.getElementById('gr
   .warmupTicks(0)
   .onEngineTick(onTick)
   .graphData(graphData);
+
+// Cap pixel ratio — hegemony: Math.min(window.devicePixelRatio, 2).
+// Renders at 2x on Retina; avoids 3x–4x cost on high-DPI mobile.
+Graph.renderer().setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
 // Remove center force, add radial to keep universe shape.
 Graph.d3Force('center', null);
@@ -198,6 +250,13 @@ function onTick() {
 }
 
 // ── frame metrics ──────────────────────────────────────────────────────────
+// Pattern from hegemony renderer.ts:
+//   perfTracker.tick(now)           — update rolling FPS
+//   perfTracker.recordWorkTime(...) — bracket actual render cost
+//   frameBudget()                   — traffic-light status
+//
+// We measure frameTime from rAF timestamps (includes vsync).
+// workTime comes from PerformanceObserver 'frame' entries (excludes vsync).
 let lastFrame = performance.now();
 function onAnimFrame() {
   requestAnimationFrame(onAnimFrame);
@@ -206,11 +265,19 @@ function onAnimFrame() {
   const now = performance.now();
   const dt = now - lastFrame;
   lastFrame = now;
+
   frameTimes.push(dt);
-  if (frameTimes.length > 60) frameTimes.shift();
+  if (frameTimes.length > 120) frameTimes.shift();
+
+  // Accumulate into FPS tier — hegemony tierReport pattern.
+  const instantFps = dt > 0 ? 1000 / dt : 0;
+  totalFramesCounted++;
+  for (let i = 0; i < TIERS.length; i++) {
+    if (instantFps >= TIERS[i].min) { tierCounts[i]++; break; }
+  }
+
   frameCount++;
 
-  // FPS from last second.
   if (now - lastFpsTime >= 500) {
     const elapsed = (now - lastFpsTime) / 1000;
     const fps = Math.round(frameCount / elapsed);
@@ -218,23 +285,58 @@ function onAnimFrame() {
     lastFpsTime = now;
 
     const avgFrame = frameTimes.reduce((a,b)=>a+b,0) / frameTimes.length;
-    const avgPhys  = physTimes.length ? physTimes.reduce((a,b)=>a+b,0) / physTimes.length : 0;
+
+    // workTimeMs: from PerformanceObserver if available, else estimate.
+    // hegemony uses: perfTracker.recordWorkTime(performance.now() - workStart)
+    // We use PerformanceObserver 'frame' entries as equivalent.
+    const avgWork = workTimes.length
+      ? workTimes.slice(-60).reduce((a,b)=>a+b,0) / Math.min(workTimes.length, 60)
+      : avgFrame * 0.7; // rough estimate: ~70% of frame is work, ~30% vsync
+
+    const avgPhys = physTimes.length
+      ? physTimes.reduce((a,b)=>a+b,0) / physTimes.length : 0;
+
     const { nodes, links } = Graph.graphData();
 
-    // Renderer info.
+    // Read renderer info BEFORE reset — MDN: getParameter-style calls can stall.
+    // Reading info.render is cheap (already cached by Three.js).
     const info = Graph.renderer().info;
     const drawCalls = info.render.calls;
     const tris = info.render.triangles;
 
-    // Memory.
-    const heap = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1024 / 1024) : null;
+    const heap = performance.memory
+      ? Math.round(performance.memory.usedJSHeapSize / 1024 / 1024) : null;
 
-    updateHud(fps, avgFrame, nodes.length, links.length, avgPhys, drawCalls, tris, heap);
-    // Reset renderer counters after reading.
+    // Frame budget (hegemony frameBudget pattern).
+    const TARGET_MS = 1000 / 60; // 16.6ms
+    const headroom = TARGET_MS - avgWork;
+    const budgetStatus = headroom >= TARGET_MS * 0.3 ? 'green'
+      : headroom >= 0 ? 'yellow' : 'red';
+
+    updateHud(fps, avgFrame, avgWork, headroom, budgetStatus,
+              nodes.length, links.length, avgPhys, drawCalls, tris, heap);
+
+    // Reset AFTER reading — Three.js accumulates between resets.
     info.reset();
   }
 }
 requestAnimationFrame(onAnimFrame);
+
+// ── tier pyramid (hegemony formatTierPyramid pattern) ─────────────────────
+// Shows accumulated FPS distribution as a right-aligned histogram.
+// Tall bar = many frames at that tier. Red on bottom = poor; blue on top = excellent.
+function tierPyramid() {
+  if (totalFramesCounted === 0) return '';
+  const BAR = 18;
+  const maxPct = Math.max(1, ...tierCounts.map(c => c / totalFramesCounted * 100));
+  return TIERS.map(({ label, color }, i) => {
+    const pct = tierCounts[i] / totalFramesCounted * 100;
+    const len = Math.round((pct / maxPct) * BAR);
+    const bar = '█'.repeat(len);
+    const pad = ' '.repeat(BAR - len);
+    return `<span style="color:${color};font-family:monospace">${pad}${bar}</span> ${pct.toFixed(1).padStart(5)}%  ${label}`;
+  }).join('\n');
+}
 
 function classify(val, warnAt, critAt) {
   if (val >= critAt) return 'crit';
@@ -242,28 +344,56 @@ function classify(val, warnAt, critAt) {
   return '';
 }
 
-function updateHud(fps, frame, nodes, links, phys, draws, tris, heap) {
+// updateHud — hegemony PerfTracker snapshot pattern.
+// Parameters mirror hegemony's PerfSnapshot interface:
+//   fps, frameTimeMs, workTimeMs (actual CPU work), headroomMs, budgetStatus,
+//   drawCalls, triangles (GPU counters from renderer.info)
+function updateHud(fps, frame, work, headroom, budgetStatus,
+                   nodes, links, phys, draws, tris, heap) {
   const set = (id, text, cls = '') => {
     const el = document.getElementById(id);
+    if (!el) return;
     el.textContent = text;
     el.className = 'hud-val ' + cls;
   };
-  set('m-fps',   fps + ' fps',       classify(60-fps, 15, 30));
-  set('m-frame', frame.toFixed(1) + ' ms', classify(frame, 16.6, 33));
-  set('m-nodes', nodes.toLocaleString());
-  set('m-links', links.toLocaleString());
-  set('m-phys',  phys.toFixed(1) + ' ms',  classify(phys, 8, 16));
-  set('m-draw',  draws.toLocaleString(),    classify(draws, 2000, 5000));
-  set('m-tri',   (tris/1000).toFixed(1) + 'K', classify(tris, 200000, 500000));
-  set('m-heap',  heap !== null ? heap + ' MB' : 'n/a',
-      heap && classify(heap, 200, 400));
+  const setHTML = (id, html) => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = html;
+  };
 
-  // GC pressure heuristic: jank frames (>33ms) in last window.
+  set('m-fps',    fps + ' fps',                classify(60-fps, 15, 30));
+  set('m-frame',  frame.toFixed(1) + ' ms',    classify(frame, 16.6, 33));
+
+  // workTime: actual CPU work excluding vsync idle — the real bottleneck signal.
+  // hegemony: workTimeMs < 11ms → 90+ fps headroom; <16.6ms → 60fps safe.
+  set('m-work',   work.toFixed(1) + ' ms',
+      work > 16.6 ? 'crit' : work > 11 ? 'warn' : '');
+
+  // frameBudget traffic light — hegemony pattern: green/yellow/red.
+  const budgetColors = { green: '', yellow: 'warn', red: 'crit' };
+  set('m-budget',
+      (headroom >= 0 ? '+' : '') + headroom.toFixed(1) + ' ms ' +
+      (budgetStatus === 'green' ? '●' : budgetStatus === 'yellow' ? '◑' : '○'),
+      budgetColors[budgetStatus]);
+
+  set('m-nodes',  nodes.toLocaleString());
+  set('m-links',  links.toLocaleString());
+  set('m-phys',   phys.toFixed(1) + ' ms',    classify(phys, 8, 16));
+  set('m-draw',   draws.toLocaleString(),      classify(draws, 2000, 5000));
+  set('m-tri',    (tris/1000).toFixed(1) + 'K', classify(tris, 200000, 500000));
+  set('m-heap',   heap !== null ? heap + ' MB' : 'n/a',
+      heap ? classify(heap, 200, 400) : '');
+
+  // Jank: frames taking >33ms (2× budget) — indicates GC stalls or overload.
   const jank = frameTimes.filter(t => t > 33).length;
-  set('m-gc', jank > 0 ? jank + ' jank frames' : 'clean',
+  set('m-gc', jank > 0 ? jank + ' / ' + frameTimes.length + ' frames' : 'clean',
       classify(jank, 1, 5));
 
-  // FPS bar.
+  // FPS tier pyramid — hegemony formatTierPyramid pattern.
+  // Updates every 500ms alongside the other metrics.
+  setHTML('m-pyramid', tierPyramid());
+
+  // Bottom FPS bar.
   const pct = Math.min(100, (fps / 60) * 100);
   const fill = document.getElementById('fps-fill');
   fill.style.width = pct + '%';
