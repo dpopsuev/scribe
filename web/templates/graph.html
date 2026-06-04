@@ -323,11 +323,8 @@ async function loadMacro() {
   expandedScopes.clear();
   clearBubbles();
   applyGraphData();
-
-  // Aim immediately (nodes have fibonacci positions already).
-  aimAtCenterOfMass(0);
-  // Re-aim smoothly after physics has had a moment to spread things out.
-  setTimeout(() => aimAtCenterOfMass(1500), 2000);
+  updateModeBadge();
+  aimAtCenterOfMass(1200);
 }
 
 // ─── N-depth helpers ──────────────────────────────────────────────────────
@@ -392,6 +389,7 @@ async function expandScope(scopeName) {
   createBubble(scopeName, 100);
   applyGraphData();
   updateModeBadge();
+  aimAtCenterOfMass(1200);
 }
 
 // ─── depth 1 → 2: kind-group → artifacts ─────────────────────────────────
@@ -431,6 +429,7 @@ async function expandKind(scopeName, kindName) {
   createBubble(kindNodeId, 55);
   applyGraphData();
   updateModeBadge();
+  aimAtCenterOfMass(1200);
 }
 
 // ─── collapse scope → macro ───────────────────────────────────────────────
@@ -696,14 +695,21 @@ document.querySelectorAll('.rel-toggle').forEach(el =>
 
 // ─── camera ───────────────────────────────────────────────────────────────
 
-// Compute the weighted centroid of all currently rendered nodes.
-// Weight = val (sphere size) so large scope spheres dominate the center.
-// A tiny isolated scope pulls no harder than its visual weight warrants.
+// Compute the weighted centroid of the outermost visible nodes only.
+// Expanded leaf nodes (artifacts, kind-groups when inside a scope drill)
+// are excluded — the center tracks the largest parent spheres regardless
+// of drill depth. Falls back to all nodes only when no parents remain.
 function centerOfMass() {
   const { nodes } = Graph.graphData();
   if (!nodes.length) return { x: 0, y: 0, z: 0 };
+
+  // Parent nodes are scopes and kind-groups — the structural super-nodes.
+  // Individual artifact nodes are always leaves and must not pull the center.
+  const parents = nodes.filter(n => n.kind === 'scope' || n.kind === 'kind-group');
+  const pool = parents.length ? parents : nodes;
+
   let cx = 0, cy = 0, cz = 0, totalW = 0;
-  for (const n of nodes) {
+  for (const n of pool) {
     const w = n.val || 1;
     cx += (n.x || 0) * w;
     cy += (n.y || 0) * w;
