@@ -534,17 +534,18 @@ export function initGraph(injectedDeps) {
       cam.position.z - ctrl.target.z,
     );
 
-    smoothDist = smoothDist == null ? rawDist : smoothDist * 0.97 + rawDist * 0.03;
+    // α=0.08: ~12 frames to respond — fast enough to feel responsive, slow enough to avoid jitter.
+    smoothDist = smoothDist == null ? rawDist : smoothDist * 0.92 + rawDist * 0.08;
 
-    // Seed lastApplied from initial position — prevents collapse on boot.
+    // Seed from initial settled position so boot doesn't trigger adaptation.
     if (lastApplied == null && frameCount > 60) {
       lastApplied = smoothDist;
       return;
     }
     if (lastApplied == null) return;
 
-    // Apply only when smoothed dist differs >25% — EMA ensures zoom has settled.
-    if (Math.abs(smoothDist - lastApplied) / lastApplied > 0.25) {
+    // Trigger on 15% change — noticeable zoom without jitter.
+    if (Math.abs(smoothDist - lastApplied) / lastApplied > 0.15) {
       const { G, rep, dmax } = forcesForDist(smoothDist);
       Graph.d3Force('gravity', forceSelfGravity(G, 40, 'val'));
       Graph.d3Force('charge')?.strength?.(rep);

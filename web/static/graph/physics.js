@@ -25,10 +25,15 @@ export function forcesForDist(dist, minDist = 150, maxDist = 3000) {
   const t = Math.max(0, Math.min(1,
     Math.log(dist / minDist) / Math.log(maxDist / minDist),
   ));
+  // t=0 (zoomed in):  weak gravity + strong repulsion → loose/large cluster
+  // t=1 (zoomed out): strong gravity + weak repulsion → tight/small cluster
+  const G    = 0.01 + 0.4  * t * t;    // 0.01 → 0.41
+  const rep  = -(250 - 220 * t * t);   // -250 → -30
+  const dmax = 600  - 550 * t;         // 600  → 50
   return {
-    G:    0.01 + 0.4  * t * t,
-    rep: -(250  - 220 * t * t),
-    dmax:  600  - 550 * t,
+    G:    Math.max(0.01, Math.min(0.41, G)),
+    rep:  Math.max(-250, Math.min(-30,  rep)),
+    dmax: Math.max(50,   Math.min(600,  dmax)),
   };
 }
 

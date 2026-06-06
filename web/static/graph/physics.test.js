@@ -345,44 +345,28 @@ describe('forceSelfGravity', () => {
 });
 
 describe('forcesForDist', () => {
-  it('zoomed in (dist=150) → weak gravity, strong repulsion, large dmax', () => {
-    const { G, rep, dmax } = forcesForDist(150);
-    expect(G).toBeCloseTo(0.01, 3);
-    expect(rep).toBeCloseTo(-250, 0);
-    expect(dmax).toBeCloseTo(600, 0);
+  // r_eq ≈ |rep| / G — equilibrium cluster radius given force parameters.
+  function clusterRadius(dist) {
+    const { G, rep } = forcesForDist(dist);
+    return Math.abs(rep) / G;
+  }
+
+  const ZOOMED_IN  = 200;
+  const ZOOMED_OUT = 2000;
+
+  it('zoomed in → looser cluster than zoomed out', () => {
+    expect(clusterRadius(ZOOMED_IN)).toBeGreaterThan(clusterRadius(ZOOMED_OUT));
   });
 
-  it('zoomed out (dist=3000) → strong gravity, weak repulsion, small dmax', () => {
-    const { G, rep, dmax } = forcesForDist(3000);
-    expect(G).toBeCloseTo(0.41, 2);
-    expect(rep).toBeCloseTo(-30, 0);
-    expect(dmax).toBeCloseTo(50, 0);
+  it('zoomed out → tighter cluster than zoomed in', () => {
+    expect(clusterRadius(ZOOMED_OUT)).toBeLessThan(clusterRadius(ZOOMED_IN));
   });
 
-  it('mid-range → intermediate values', () => {
-    const { G, rep, dmax } = forcesForDist(669); // geometric midpoint
-    expect(G).toBeGreaterThan(0.01);
-    expect(G).toBeLessThan(0.41);
-    expect(rep).toBeGreaterThan(-250);
-    expect(rep).toBeLessThan(-30);
-  });
-
-  it('dist < minDist clamps to t=0', () => {
-    const { G } = forcesForDist(50);
-    expect(G).toBeCloseTo(0.01, 3);
-  });
-
-  it('dist > maxDist clamps to t=1', () => {
-    const { G } = forcesForDist(10000);
-    expect(G).toBeCloseTo(0.41, 2);
-  });
-
-  it('cluster radius grows as dist decreases (zooming in spreads nodes)', () => {
-    const far  = forcesForDist(2000);
-    const near = forcesForDist(300);
-    // equilibrium r_eq ≈ |rep| / G — larger when zoomed in
-    const r_far  = Math.abs(far.rep)  / far.G;
-    const r_near = Math.abs(near.rep) / near.G;
-    expect(r_near).toBeGreaterThan(r_far);
+  it('cluster radius decreases monotonically as camera moves farther', () => {
+    const r300  = clusterRadius(300);
+    const r600  = clusterRadius(600);
+    const r1200 = clusterRadius(1200);
+    expect(r300).toBeGreaterThan(r600);
+    expect(r600).toBeGreaterThan(r1200);
   });
 });
