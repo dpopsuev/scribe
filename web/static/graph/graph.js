@@ -121,6 +121,11 @@ let Graph = null;
 let fitAllNodesFn  = null; // set by initGraph; called from loadMacro after data is loaded
 let enableOrbitFn  = null; // set by initGraph; called from loadMacro to start spinning on boot
 
+// Active camera animation — null when idle.
+// tickCamAnim() reads this each frame and clears it when done.
+// Only distance + target are animated; autoRotate owns the direction.
+let camAnim = null;
+
 // Zoom-adaptive force state — module-level so loadMacro() can reference them.
 // loadMacro is a module-scope async function; variables declared inside
 // initGraph() are not in its closure scope.
@@ -357,20 +362,19 @@ function aimAtCenterOfMass(animMs = 0, distOverride = null) {
       Math.round(targetPos.x), Math.round(targetPos.y), Math.round(targetPos.z));
     return;
   }
-  const startPos = { x: cam.x, y: cam.y, z: cam.z };
-  const startTgt = { x: controls.target.x, y: controls.target.y, z: controls.target.z };
-  const t0 = performance.now();
-  // easeInOutSine: (1-cos(πt))/2 — C∞ sinusoidal curve, natural like a pendulum or wave.
-  // Smoothest standard ease: no discontinuity in any derivative at t=0 or t=1.
-  const ease = t => (1 - Math.cos(Math.PI * t)) / 2;
-  const lerp = (a, b, t) => a + (b-a)*t;
-  (function tick() {
-    const t = ease(Math.min((performance.now()-t0)/animMs, 1));
-    controls.object.position.set(lerp(startPos.x,targetPos.x,t), lerp(startPos.y,targetPos.y,t), lerp(startPos.z,targetPos.z,t));
-    controls.target.set(lerp(startTgt.x,com.x,t), lerp(startTgt.y,com.y,t), lerp(startTgt.z,com.z,t));
-    controls.update();
-    if (t < 1) requestAnimationFrame(tick);
-  })();
+
+  // Animated: record start/end state for tickCamAnim() to step each frame.
+  // Only distance and target are animated — autoRotate keeps driving the direction,
+  // so orbit continues uninterrupted while the camera glides to its new position.
+  const startDist = Math.hypot(cam.x - controls.target.x, cam.y - controls.target.y, cam.z - controls.target.z);
+  camAnim = {
+    startDist,
+    targetDist: camDist,
+    startTarget: { x: controls.target.x, y: controls.target.y, z: controls.target.z },
+    endTarget:   { x: com.x, y: com.y, z: com.z },
+    t0:          performance.now(),
+    duration:    animMs,
+  };
 }
 
 
@@ -742,6 +746,39 @@ export function initGraph(injectedDeps) {
     }
   }
 
+  // ── Camera position animation ─────────────────────────────────────────────
+  // Steps camAnim each frame — animates only radial distance + target point.
+  // Direction is left to OrbitControls so autoRotate keeps running during fly.
+  const ease = t => (1 - Math.cos(Math.PI * t)) / 2; // easeInOutSine
+  const lerp = (a, b, t) => a + (b - a) * t;
+
+  function tickCamAnim() {
+    if (!camAnim) return;
+    const cam  = Graph.camera();
+    const ctrl = Graph.controls();
+    if (!cam || !ctrl) return;
+
+    const t = ease(Math.min((performance.now() - camAnim.t0) / camAnim.duration, 1));
+
+    // Step target point.
+    ctrl.target.set(
+      lerp(camAnim.startTarget.x, camAnim.endTarget.x, t),
+      lerp(camAnim.startTarget.y, camAnim.endTarget.y, t),
+      lerp(camAnim.startTarget.z, camAnim.endTarget.z, t),
+    );
+
+    // Step distance along whatever direction autoRotate has landed the camera.
+    const dx = cam.position.x - ctrl.target.x;
+    const dy = cam.position.y - ctrl.target.y;
+    const dz = cam.position.z - ctrl.target.z;
+    const currentDist = Math.hypot(dx, dy, dz) || 1;
+    const newDist = lerp(camAnim.startDist, camAnim.targetDist, t);
+    const f = newDist / currentDist;
+    cam.position.set(ctrl.target.x + dx * f, ctrl.target.y + dy * f, ctrl.target.z + dz * f);
+
+    if (t >= 1) camAnim = null;
+  }
+
   // ── Orbit speed ramp ──────────────────────────────────────────────────────
   // Ramps orbitCurrent toward orbitTarget each frame (~2 s to full speed at ORBIT_RAMP_RATE).
   // Keeps ctrl.autoRotate true while spinning so OrbitControls applies the rotation.
@@ -823,6 +860,9 @@ export function initGraph(injectedDeps) {
     if (!Graph) return;
     const t0 = performance.now();
     frameCount++;
+
+    // Camera animation runs every frame — steps distance + target, preserves orbit direction.
+    tickCamAnim();
 
     // Orbit ramp runs every frame — lerps autoRotateSpeed toward target (flywheel feel).
     tickOrbitRamp();
