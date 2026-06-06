@@ -555,7 +555,7 @@ export function initGraph(injectedDeps) {
     // Labels fade out beyond FADE_END world units.
     const FADE_START = 300, FADE_END = 900;
     for (const node of Graph.graphData().nodes) {
-      const obj = (node as any).__threeObj;
+      const obj = node.__threeObj;
       if (!obj) continue;
       const sprite = obj.children?.[0];
       if (!sprite?.isSprite) continue;
