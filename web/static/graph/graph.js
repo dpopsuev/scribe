@@ -486,10 +486,14 @@ export function initGraph(injectedDeps) {
     .linkDirectionalParticleSpeed(0.004)
     .linkDirectionalParticleWidth(1.5)
     .linkCurvature(l => l.relation === 'depends_on' ? 0.15 : 0)
-    .d3AlphaDecay(0.004)
-    .d3VelocityDecay(0.25)
-    .warmupTicks(80)
-    .cooldownTime(Infinity)
+    // Default alphaDecay (0.0228) reaches alphaMin in ~300 ticks.
+    // warmupTicks(300) runs physics synchronously before first render —
+    // graph appears already settled, no visible animation on boot.
+    // cooldownTime(0) stops real-time simulation immediately after warmup.
+    // Dragging a node reheats the simulation as normal.
+    .d3VelocityDecay(0.3)
+    .warmupTicks(300)
+    .cooldownTime(0)
     .onNodeClick(onNodeClickWithDbl)
     .onNodeRightClick(onNodeRightClick)
     .onBackgroundClick((() => {
