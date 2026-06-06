@@ -32,7 +32,19 @@
  * @param {number|null} lastDist  distance at which forces were last applied (null = first call)
  * @returns {{ G, rep, dmax } | null}
  */
-export function forcesForDist(dist, minDist = 150, maxDist = 3000, sensitivity = 0.05, lastDist = undefined) {
+// Bounds for zoom-adaptive clustering. Values outside these distances clamp.
+export const ZOOM_MIN_DIST = 150;   // world units — closest expected camera distance
+export const ZOOM_MAX_DIST = 3000;  // world units — farthest expected camera distance
+
+// Force parameter bounds — capped so physics never produces pathological states.
+export const GRAVITY_MIN   = 0.01;  // near-zero gravity → nodes float freely
+export const GRAVITY_MAX   = 0.41;  // strong gravity → tight cluster
+export const REPULSION_MIN = -250;  // strong repulsion → large spread radius
+export const REPULSION_MAX = -30;   // weak repulsion  → small spread radius
+export const DMAX_MIN      = 50;    // world units — repulsion only at very close range
+export const DMAX_MAX      = 600;   // world units — repulsion acts across full cluster
+
+export function forcesForDist(dist, minDist = ZOOM_MIN_DIST, maxDist = ZOOM_MAX_DIST, sensitivity = 0.05, lastDist = undefined) {
   // Dead zone: if change is below sensitivity, caller should skip the update.
   if (lastDist != null && Math.abs(dist - lastDist) / lastDist < sensitivity) {
     return null;
@@ -46,9 +58,9 @@ export function forcesForDist(dist, minDist = 150, maxDist = 3000, sensitivity =
   const rep  = -(250 - 220 * t * t);
   const dmax = 600  - 550 * t;
   return {
-    G:    Math.max(0.01, Math.min(0.41, G)),
-    rep:  Math.max(-250, Math.min(-30,  rep)),
-    dmax: Math.max(50,   Math.min(600,  dmax)),
+    G:    Math.max(GRAVITY_MIN,   Math.min(GRAVITY_MAX,   G)),
+    rep:  Math.max(REPULSION_MIN, Math.min(REPULSION_MAX, rep)),
+    dmax: Math.max(DMAX_MIN,      Math.min(DMAX_MAX,      dmax)),
   };
 }
 

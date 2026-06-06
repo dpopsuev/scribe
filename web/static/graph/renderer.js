@@ -14,15 +14,33 @@
 
 import { KIND_HUES, buildPalette } from './palette.js';
 
-// ── Health color scale (violations → hue) ─────────────────────────────────
+// ── Node appearance ────────────────────────────────────────────────────────
+const NODE_REL_SIZE        = 6;    // ForceGraph3D nodeRelSize base multiplier
+const NODE_OPACITY         = 0.95; // slight transparency improves depth perception
+const NODE_RESOLUTION      = 12;   // sphere segment count — 8 is blocky, 16 is smooth
+const NODE_ARROW_LENGTH    = 4;    // world units — depends_on arrow head size
+const NODE_SIZE_MIN        = 2;    // minimum nodeVal (prevents invisible micro-nodes)
+const NODE_SIZE_MAX        = 40;   // maximum nodeVal (prevents nodes swallowing links)
+const ARTIFACT_COUNT_SCALE = 20;   // val = artifact_count / ARTIFACT_COUNT_SCALE
+
+// ── Link appearance ────────────────────────────────────────────────────────
+const LINK_WIDTH_PRIMARY   = 2;    // world units — default cross-scope / dependency links
+const LINK_WIDTH_SECONDARY = 1;    // world units — parent_of (subordinate visual weight)
+
+// ── Label canvas ───────────────────────────────────────────────────────────
+const LABEL_SCALE_WORLD    = 28;   // world-unit size of the label sprite
+
+// ── Health color scale (violations → Oklch hue) ───────────────────────────
 // 0 violations: kind color unchanged
-// 1–3: amber — something needs attention
-// 4+:  red   — broken, needs immediate fix
+// 1–3: amber (H=45°) — needs attention
+// 4+:  red   (H=12°) — broken
 const HEALTH_HUES = { ok: null, warn: 45, error: 12 };
+const HEALTH_VIOLATION_WARN_THRESHOLD  = 1;
+const HEALTH_VIOLATION_ERROR_THRESHOLD = 4;
 
 function healthHue(violations) {
-  if (!violations || violations === 0) return HEALTH_HUES.ok;
-  if (violations <= 3)                 return HEALTH_HUES.warn;
+  if (!violations || violations < HEALTH_VIOLATION_WARN_THRESHOLD)  return HEALTH_HUES.ok;
+  if (violations < HEALTH_VIOLATION_ERROR_THRESHOLD)                 return HEALTH_HUES.warn;
   return HEALTH_HUES.error;
 }
 
@@ -163,7 +181,7 @@ export class KindColorRenderer extends BaseRenderer {
       ? this._canvasCache.get(node.id).canvas
       : null;
     if (!canvas) {
-      canvas = makeLabelCanvas(node.name, (node.val || 1) * 20);
+      canvas = makeLabelCanvas(node.name, (node.val || 1) * ARTIFACT_COUNT_SCALE);
       this._canvasCache.set(node.id, { key: cacheKey, canvas });
     }
     const texture  = new THREE.CanvasTexture(canvas);
@@ -172,8 +190,7 @@ export class KindColorRenderer extends BaseRenderer {
       depthTest: false,  // always renders in front
     });
     const sprite = new THREE.Sprite(material);
-    const scale  = 28;
-    sprite.scale.set(scale, scale * CANVAS_H / CANVAS_W, 1);
+    sprite.scale.set(LABEL_SCALE_WORLD, LABEL_SCALE_WORLD * CANVAS_H / CANVAS_W, 1);
     // Position above node — offset by the node's rendered radius
     const radius = Math.cbrt(this._nodeVal(node.val)) * 6;
     sprite.position.set(0, radius + scale * 0.3, 0);
@@ -183,16 +200,16 @@ export class KindColorRenderer extends BaseRenderer {
   apply(g) {
     return g
       .nodeColor(n => this._nodeColor(n))
-      .nodeRelSize(6)
-      .nodeVal(n => this._nodeVal(n.val))
-      .nodeOpacity(0.95)
+      .nodeRelSize(NODE_REL_SIZE)
+      .nodeVal(n => Math.max(NODE_SIZE_MIN, Math.min(NODE_SIZE_MAX, Math.cbrt(n.val || 1) * 2)))
+      .nodeOpacity(NODE_OPACITY)
       .nodeThreeObject(n => this._labelSprite(n))
       .nodeThreeObjectExtend(true)
-      .nodeResolution(12)
+      .nodeResolution(NODE_RESOLUTION)
       .linkColor(l => LINK_COLORS[l.relation] || DEFAULT_LINK_COLOR)
       .linkOpacity(1)
-      .linkWidth(l => l.relation === 'parent_of' ? 1 : 2)
-      .linkDirectionalArrowLength(l => l.relation === 'depends_on' ? 4 : 0)
+      .linkWidth(l => l.relation === 'parent_of' ? LINK_WIDTH_SECONDARY : LINK_WIDTH_PRIMARY)
+      .linkDirectionalArrowLength(l => l.relation === 'depends_on' ? NODE_ARROW_LENGTH : 0)
       .linkDirectionalArrowRelPos(1);
   }
 }

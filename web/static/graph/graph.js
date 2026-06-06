@@ -32,10 +32,36 @@ import { createGraphState }                    from './graph-state.js';
 const log = createLogger('graph');
 
 const GRAPH_BG          = '#05050f';
-const UNIVERSE_RADIUS   = 180;
-const MINI_KIND_R       = 55;
-const MINI_ART_R        = 28;
-const VC_LERP           = 0.015;
+const UNIVERSE_RADIUS   = 180;   // world units — scope super-node sphere radius
+const MINI_KIND_R       = 55;    // world units — kind-group mini-sphere radius
+const MINI_ART_R        = 28;    // world units — artifact mini-sphere radius
+
+// ── Smoothing coefficients ─────────────────────────────────────────────────
+// All EMA (exponential moving average) coefficients follow the convention:
+//   smoothed = prev * (1 - α) + raw * α
+// Higher α = faster response, more jitter. Lower α = smoother, more lag.
+
+// Camera distance EMA — 0.08 ≈ 12-frame lag at 60fps (~0.2s smoothing window)
+const CAM_DIST_EMA         = 0.08;
+// Virtual-center kite lerp — slow drift keeps orbit pivot stable
+const VIRTUAL_CENTER_LERP  = 0.015;
+
+// ── Zoom-adaptive clustering ───────────────────────────────────────────────
+const ZOOM_LERP_PER_FRAME  = 0.06;   // 6%/frame → 95% of target in ~50 frames (~0.8s)
+const ZOOM_DEAD_ZONE       = 0.05;   // ignore zoom changes < 5% (prevents micro-jitter)
+
+// ── Label rendering ────────────────────────────────────────────────────────
+const LABEL_UPDATE_EVERY_N_FRAMES = 4;    // ~15fps updates — imperceptible at human refresh rate
+const LABEL_OPACITY_EPSILON       = 0.02; // skip GPU write if opacity change < 2%
+const LABEL_FADE_START_DIST       = 300;  // world units — full opacity within this distance
+const LABEL_FADE_END_DIST         = 900;  // world units — fully transparent beyond this distance
+
+// ── Frame budget ───────────────────────────────────────────────────────────
+const FRAME_BUDGET_MS      = 8;    // our JS budget per frame — leaves headroom for Three.js + browser
+
+// ── Interaction timing ─────────────────────────────────────────────────────
+const DOUBLE_CLICK_MAX_MS  = 300;  // max gap between two clicks to count as double-click
+const BG_RECENTER_ANIM_MS  = 600;  // camera re-centre animation duration on bg double-click
 
 
 const DEFAULT_STATUSES = 'active,draft,current,proposed,in_progress,in_review,fleeting';
@@ -376,16 +402,16 @@ function onTick() {
   }
   // Lerp state.virtualCenter toward weighted CoM — informational only, no camera side-effects.
   const com = centerOfMass(Graph.graphData().nodes);
-  state.virtualCenter.x += (com.x - state.virtualCenter.x) * VC_LERP;
-  state.virtualCenter.y += (com.y - state.virtualCenter.y) * VC_LERP;
-  state.virtualCenter.z += (com.z - state.virtualCenter.z) * VC_LERP;
+  state.virtualCenter.x += (com.x - state.virtualCenter.x) * VIRTUAL_CENTER_LERP;
+  state.virtualCenter.y += (com.y - state.virtualCenter.y) * VIRTUAL_CENTER_LERP;
+  state.virtualCenter.z += (com.z - state.virtualCenter.z) * VIRTUAL_CENTER_LERP;
   tickGlows();
 }
 
 
 function onNodeClickWithDbl(node) {
   const now = Date.now();
-  if (state.lastClick.node === node && now - state.lastClick.time < 300) {
+  if (state.lastClick.node === node && now - state.lastClick.time < DOUBLE_CLICK_MAX_MS) {
     state.lastClick.node = null;
     if (node.kind !== 'scope' && node.scope) collapseScope(node.scope);
     return;
@@ -498,7 +524,7 @@ export function initGraph(injectedDeps) {
       return () => {
         closeSidebar(state.els.sidebar);
         const now = Date.now();
-        if (now - lastBgClick < 300) aimAtCenterOfMass(600);
+        if (now - lastBgClick < DOUBLE_CLICK_MAX_MS) aimAtCenterOfMass(BG_RECENTER_ANIM_MS);
         lastBgClick = now;
       };
     })())
@@ -536,8 +562,8 @@ export function initGraph(injectedDeps) {
   // Dead zone (sensitivity=0.05): if zoom changed < 5% from last applied
   // distance, forcesForDist returns null → lerp target stays unchanged.
   // This prevents micro-jitter from continuously nudging forces.
-  const LERP = 0.06;             // 6% per frame → 95% of target in ~50 frames (~0.8s)
-  const SENSITIVITY = 0.05;     // 5% distance change required to update target
+  const LERP = ZOOM_LERP_PER_FRAME;
+  const SENSITIVITY = ZOOM_DEAD_ZONE;
 
   function tickZoomAdaptor() {
     const cam  = Graph.camera();
@@ -551,7 +577,7 @@ export function initGraph(injectedDeps) {
     );
 
     // EMA smoothing — α=0.08 ≈ 12 frames lag, filters per-frame scroll jitter.
-    smoothDist = smoothDist == null ? rawDist : smoothDist * 0.92 + rawDist * 0.08;
+    smoothDist = smoothDist == null ? rawDist : smoothDist * (1 - CAM_DIST_EMA) + rawDist * CAM_DIST_EMA;
 
     // Compute desired state. Returns null if within dead zone (< 5% change).
     const desired = forcesForDist(smoothDist, 150, 3000, SENSITIVITY, lastForceDist);
@@ -575,14 +601,14 @@ export function initGraph(injectedDeps) {
   // ── Label manager — lazy, throttled, threshold-gated ─────────────────────
   // Runs every LABEL_INTERVAL frames. Skips individual nodes when opacity
   // delta < OPACITY_EPSILON — avoids GPU state changes for imperceptible diffs.
-  const LABEL_INTERVAL  = 4;     // update labels at ~15fps, not 60fps
-  const OPACITY_EPSILON = 0.02;  // skip write if change < 2%
+  const LABEL_INTERVAL  = LABEL_UPDATE_EVERY_N_FRAMES;
+  const OPACITY_EPSILON = LABEL_OPACITY_EPSILON;
   const lastOpacity = new Map(); // nodeId → last written opacity
 
   function tickLabelManager() {
     const cam = Graph.camera();
     if (!cam) return;
-    const FADE_START = 300, FADE_END = 900;
+    const FADE_START = LABEL_FADE_START_DIST, FADE_END = LABEL_FADE_END_DIST;
     for (const node of Graph.graphData().nodes) {
       const sprite = node.__threeObj?.children?.[0];
       if (!sprite?.isSprite) continue;
@@ -604,7 +630,7 @@ export function initGraph(injectedDeps) {
   // Measures its own wall time. If we exceeded half the frame budget last tick,
   // skip heavy work this tick so the renderer stays unblocked.
   // Priority: zoom adaptation (very slow) > label updates (slow) > nothing.
-  const FRAME_BUDGET_MS = 8; // half of 16.67ms — leave headroom for Three.js render
+  // FRAME_BUDGET_MS is defined at module level
   let frameMs = 0;
 
   (function frame() {
