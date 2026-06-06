@@ -4,11 +4,9 @@ import {
   weightedCentroid,
   parentNodes,
   centerOfMass,
-  forceRadialSphere,
   equatorPriorityPositions,
   placeInMiniSphere,
-  scaleNodesByDistance,
-  forceSelfGravity,
+  forceNBodyGravity,
   forcesForDist,
   clusterMaxRadius,
   clusterRadiusFromVolume,
@@ -133,33 +131,7 @@ describe('centerOfMass', () => {
   });
 });
 
-// ── forceRadialSphere ─────────────────────────────────────────────────────────
 
-describe('forceRadialSphere', () => {
-  it('attracts node inside sphere outward', () => {
-    const force = forceRadialSphere(100, 1);
-    const node = { x: 50, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
-    force.initialize([node]);
-    force(1); // alpha=1, full strength
-    expect(node.vx).toBeGreaterThan(0); // pushed outward toward radius 100
-  });
-
-  it('repels node outside sphere inward', () => {
-    const force = forceRadialSphere(50, 1);
-    const node = { x: 100, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
-    force.initialize([node]);
-    force(1);
-    expect(node.vx).toBeLessThan(0); // pushed inward toward radius 50
-  });
-
-  it('zero force at exactly targetRadius', () => {
-    const force = forceRadialSphere(100, 1);
-    const node = { x: 100, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
-    force.initialize([node]);
-    force(1);
-    expect(node.vx).toBeCloseTo(0, 10);
-  });
-});
 
 // ── equatorPriorityPositions ──────────────────────────────────────────────────
 
@@ -219,159 +191,94 @@ describe('placeInMiniSphere', () => {
   });
 });
 
-// ── scaleNodesByDistance ──────────────────────────────────────────────────────
 
-describe('scaleNodesByDistance', () => {
-  // Build a fake mesh that records the last setScalar call.
-  function fakeMesh() {
-    const m = { scale: { last: null, setScalar(r) { this.last = r; } } };
-    return m;
-  }
 
-  // r = targetPx * distance * 2 * tan(fov/2) / viewportH
-  const FOV_RAD = 75 * Math.PI / 180;
-  const H       = 800;
-  const TARGET  = 10;
-  const CAM     = { x: 0, y: 0, z: 0 };
-
-  it('scales a single node at known distance', () => {
-    const node  = { x: 0, y: 0, z: 100 };
-    const mesh  = fakeMesh();
-    const map   = new Map([['a', { mesh, node }]]);
-    scaleNodesByDistance(map, CAM, TARGET, FOV_RAD, H);
-    const expected = TARGET * 100 * 2 * Math.tan(FOV_RAD / 2) / H;
-    expect(mesh.scale.last).toBeCloseTo(expected, 6);
-  });
-
-  it('doubling distance doubles world radius (constant angular size)', () => {
-    const near = { x: 0, y: 0, z: 100 };
-    const far  = { x: 0, y: 0, z: 200 };
-    const mNear = fakeMesh(), mFar = fakeMesh();
-    const map = new Map([['n', { mesh: mNear, node: near }], ['f', { mesh: mFar, node: far }]]);
-    scaleNodesByDistance(map, CAM, TARGET, FOV_RAD, H);
-    expect(mFar.scale.last / mNear.scale.last).toBeCloseTo(2, 5);
-  });
-
-  it('uses camera position, not origin', () => {
-    const cam  = { x: 50, y: 0, z: 0 };
-    const node = { x: 50, y: 0, z: 100 }; // 100 units behind camera in z
-    const mesh = fakeMesh();
-    const map  = new Map([['a', { mesh, node }]]);
-    scaleNodesByDistance(map, cam, TARGET, FOV_RAD, H);
-    const expected = TARGET * 100 * 2 * Math.tan(FOV_RAD / 2) / H;
-    expect(mesh.scale.last).toBeCloseTo(expected, 6);
-  });
-
-  it('node at distance 0 does not crash', () => {
-    const node = { x: 0, y: 0, z: 0 };
-    const mesh = fakeMesh();
-    const map  = new Map([['a', { mesh, node }]]);
-    expect(() => scaleNodesByDistance(map, CAM, TARGET, FOV_RAD, H)).not.toThrow();
-    expect(mesh.scale.last).toBeGreaterThan(0);
-  });
-
-  it('empty map does not crash', () => {
-    expect(() => scaleNodesByDistance(new Map(), CAM, TARGET, FOV_RAD, H)).not.toThrow();
-  });
-
-  it('missing node coordinates treated as 0', () => {
-    const node  = {};
-    const mesh  = fakeMesh();
-    const cam   = { x: 0, y: 0, z: 50 };
-    const map   = new Map([['a', { mesh, node }]]);
-    scaleNodesByDistance(map, cam, TARGET, FOV_RAD, H);
-    const expected = TARGET * 50 * 2 * Math.tan(FOV_RAD / 2) / H;
-    expect(mesh.scale.last).toBeCloseTo(expected, 6);
-  });
-
-  it('larger targetPx produces larger world radius proportionally', () => {
-    const node  = { x: 0, y: 0, z: 100 };
-    const m1 = fakeMesh(), m2 = fakeMesh();
-    const map1 = new Map([['a', { mesh: m1, node }]]);
-    const map2 = new Map([['a', { mesh: m2, node }]]);
-    scaleNodesByDistance(map1, CAM, 10, FOV_RAD, H);
-    scaleNodesByDistance(map2, CAM, 20, FOV_RAD, H);
-    expect(m2.scale.last / m1.scale.last).toBeCloseTo(2, 5);
-  });
-});
-
-describe('forceSelfGravity', () => {
+describe('forceNBodyGravity', () => {
   function makeNode(x, y, z, val = 1) {
     return { x, y, z, val, vx: 0, vy: 0, vz: 0 };
   }
 
-  it('exposes setG() for in-place parameter update', () => {
-    const force = forceSelfGravity(0.1, 0);
-    const node  = makeNode(100, 0, 0);
-    force.initialize([node]);
-
+  it('attracts two nodes toward each other', () => {
+    const force = forceNBodyGravity(1, 0);
+    const a = makeNode(-100, 0, 0);
+    const b = makeNode( 100, 0, 0);
+    force.initialize([a, b]);
     force(1);
-    const accelLow = Math.abs(node.vx);
-    node.vx = 0;
-
-    force.setG(1.0); // 10x stronger
-    force(1);
-    const accelHigh = Math.abs(node.vx);
-
-    expect(accelHigh).toBeGreaterThan(accelLow * 5);
+    expect(a.vx).toBeGreaterThan(0); // a pulled toward b (+x)
+    expect(b.vx).toBeLessThan(0);    // b pulled toward a (-x)
   });
 
-  it('setG(0) stops gravity', () => {
-    const force = forceSelfGravity(1.0, 0);
-    const node  = makeNode(100, 0, 0);
-    force.initialize([node]);
+  it('heavier attractor pulls the light node harder', () => {
+    // a (light, val=1) and b (heavy, val=100) separated on x-axis.
+    // Acceleration on a = G * b.val / r² — scales with b's mass.
+    // Acceleration on b = G * a.val / r² — scales with a's mass (small).
+    const force = forceNBodyGravity(1, 0);
+    const light = makeNode(-100, 0, 0, 1);
+    const heavy = makeNode( 100, 0, 0, 100);
+    force.initialize([light, heavy]);
+    force(1);
+    // light is pulled strongly toward heavy (a_light = G*100/r²)
+    // heavy is pulled weakly toward light (a_heavy = G*1/r²)
+    expect(Math.abs(light.vx)).toBeGreaterThan(Math.abs(heavy.vx) * 50);
+  });
+
+  it('setG(0) stops all gravity', () => {
+    const force = forceNBodyGravity(1, 0);
+    const a = makeNode(-50, 0, 0);
+    const b = makeNode( 50, 0, 0);
+    force.initialize([a, b]);
     force.setG(0);
     force(1);
-    expect(node.vx).toBe(0);
+    expect(a.vx).toBe(0);
+    expect(b.vx).toBe(0);
   });
 
-  it('pulls a node toward origin', () => {
-    const force = forceSelfGravity(1, 0);  // G=1, no softening
-    const node = makeNode(100, 0, 0);
-    force.initialize([node]);
+  it('setG scales force proportionally', () => {
+    const force = forceNBodyGravity(0.1, 0);
+    const a = makeNode(-100, 0, 0);
+    const b = makeNode( 100, 0, 0);
+    force.initialize([a, b]);
     force(1);
-    expect(node.vx).toBeLessThan(0);  // pulled toward origin (-x direction)
-    expect(node.vy).toBeCloseTo(0);
-    expect(node.vz).toBeCloseTo(0);
-  });
-
-  it('heavier nodes (larger val) accelerate more', () => {
-    const force = forceSelfGravity(1, 0);
-    const light = makeNode(100, 0, 0, 1);
-    const heavy = makeNode(100, 0, 0, 10);
-    force.initialize([light]);
+    const lowAcc = Math.abs(a.vx);
+    a.vx = 0; b.vx = 0;
+    force.setG(1.0);
     force(1);
-    const lightAcc = Math.abs(light.vx);
-    force.initialize([heavy]);
-    force(1);
-    const heavyAcc = Math.abs(heavy.vx);
-    expect(heavyAcc).toBeGreaterThan(lightAcc);
-  });
-
-  it('softening prevents infinite force at origin', () => {
-    const force = forceSelfGravity(1, 30);
-    const node = makeNode(0, 0, 0);
-    force.initialize([node]);
-    expect(() => force(1)).not.toThrow();
-    expect(Number.isFinite(node.vx)).toBe(true);
+    expect(Math.abs(a.vx)).toBeCloseTo(lowAcc * 10, 5);
   });
 
   it('alpha=0 applies no force', () => {
-    const force = forceSelfGravity(1, 30);
-    const node = makeNode(100, 100, 100);
-    force.initialize([node]);
+    const force = forceNBodyGravity(1, 0);
+    const a = makeNode(-100, 0, 0);
+    const b = makeNode( 100, 0, 0);
+    force.initialize([a, b]);
     force(0);
-    expect(node.vx).toBe(0);
-    expect(node.vy).toBe(0);
-    expect(node.vz).toBe(0);
+    expect(a.vx).toBe(0);
+    expect(b.vx).toBe(0);
   });
 
-  it('node at origin with softening gets small finite force', () => {
-    const force = forceSelfGravity(1, 30);
-    const node = makeNode(0, 0, 0, 5);
-    force.initialize([node]);
+  it('softening prevents infinite force when nodes overlap', () => {
+    const force = forceNBodyGravity(1, 30);
+    const a = makeNode(0, 0, 0);
+    const b = makeNode(0, 0, 0);
+    force.initialize([a, b]);
+    expect(() => force(1)).not.toThrow();
+    expect(Number.isFinite(a.vx)).toBe(true);
+    expect(Number.isFinite(b.vx)).toBe(true);
+  });
+
+  it('momentum is conserved — sum(mass·Δv) = 0 by Newton 3rd law', () => {
+    // Acceleration on i due to j: G·mj/r². On j due to i: G·mi/r².
+    // Mass-weighted velocity change: mi·(G·mj/r²) = mj·(G·mi/r²) — exact cancellation.
+    // Raw velocity sum is NOT conserved (heavier nodes accelerate less in real physics).
+    const force = forceNBodyGravity(1, 10);
+    const nodes = [makeNode(-50, 0, 0, 3), makeNode(50, 20, 0, 7), makeNode(0, -80, 10, 2)];
+    force.initialize(nodes);
     force(1);
-    expect(node.vx).toBe(0);  // zero displacement → zero net force direction
+    const mass = n => Math.max(1, n.val);
+    const pX = nodes.reduce((s, n) => s + n.vx * mass(n), 0);
+    const pY = nodes.reduce((s, n) => s + n.vy * mass(n), 0);
+    expect(pX).toBeCloseTo(0, 10);
+    expect(pY).toBeCloseTo(0, 10);
   });
 });
 

@@ -16,13 +16,12 @@ import { buildPalette }                         from './palette.js';
 import { centerOfMass, parentNodes,
          placeInMiniSphere,
          equatorPriorityPositions,
-         forceSelfGravity,
+         forceNBodyGravity,
          forcesForDist,
          clusterMaxRadius,
          clusterRadiusFromVolume,
          forceRadiusCap,
          computeFitDistance,
-         computeFitDistanceForCount,
          ZOOM_MIN_DIST,
          ZOOM_MAX_DIST }                         from './physics.js';
 import { glowColor, glowConfig }               from './glow.js';
@@ -132,7 +131,7 @@ let camAnim = null;
 let currentG    = GRAVITY_INIT;
 let currentRep  = REPULSION_INIT;
 let currentDmax = DMAX_INIT;
-let gravityForce  = null; // created inside initGraph once forceSelfGravity is ready
+let gravityForce  = null; // created inside initGraph; forceNBodyGravity instance
 let capForce      = null; // forceRadiusCap — prevents unbounded scatter
 
 function mergedGraphData() {
@@ -692,7 +691,7 @@ export function initGraph(injectedDeps) {
   let lastForceDist = null;
 
   // gravityForce/currentG/Rep/Dmax are module-level — initialise forces now.
-  gravityForce = forceSelfGravity(currentG, GRAVITY_SOFTENING, 'val');
+  gravityForce = forceNBodyGravity(currentG, GRAVITY_SOFTENING, 'val');
   capForce     = forceRadiusCap(UNIVERSE_RADIUS); // placeholder radius; loadMacro sets real value
 
   // ── Zoom adaptor (SRP: only touches forces) ───────────────────────────────

@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { forcesForDist, forceSelfGravity } from './physics.js';
+import { forcesForDist, forceNBodyGravity } from './physics.js';
 import { KindColorRenderer, FALLBACK_KIND_COLORS } from './renderer.js';
 
 // ── helpers ───────────────────────────────────────────────────────────────
@@ -63,19 +63,19 @@ describe('forcesForDist — O(1)', () => {
   });
 });
 
-// ── O(n): forceSelfGravity ────────────────────────────────────────────────
+// ── O(n²): forceNBodyGravity ──────────────────────────────────────────────
 
-describe('forceSelfGravity — O(n)', () => {
+describe('forceNBodyGravity — O(n²)', () => {
   // Run ITERS iterations per timed block so wall time >> performance.now() resolution.
   // Single-call timing (~0.005ms) is dominated by JIT noise; 200 calls gives ~1ms signal.
   const ITERS = 200;
 
-  it('does not scale worse than O(n): 5× nodes → less than 15× time', () => {
+  it('does not scale worse than O(n²): 5× nodes → less than 30× time', () => {
     const small = makeNodes(20);
     const large = makeNodes(100);
 
-    const force20  = forceSelfGravity(0.12, 40);
-    const force100 = forceSelfGravity(0.12, 40);
+    const force20  = forceNBodyGravity(0.12, 40);
+    const force100 = forceNBodyGravity(0.12, 40);
     force20.initialize(small);
     force100.initialize(large);
 
@@ -87,19 +87,20 @@ describe('forceSelfGravity — O(n)', () => {
     const t100 = medianMs(() => { for (let i = 0; i < ITERS; i++) force100(0.5); });
 
     const ratio = t100 / Math.max(t20, 0.01);
-    // Upper bound only: O(n²) would give 25×; O(n) gives ~5× ± JIT noise.
-    // No lower bound — JIT SIMD can legitimately make larger arrays faster per element.
-    expect(ratio, `time ratio 100/20 nodes = ${ratio.toFixed(2)}, want < 15`).toBeLessThan(15);
+    // forceNBodyGravity is O(n²): 5× nodes → 25× time. Allow 30× for JIT noise.
+    // An O(n³) regression would give 125× — caught clearly.
+    expect(ratio, `time ratio 100/20 nodes = ${ratio.toFixed(2)}, want < 30`).toBeLessThan(30);
   });
 
   it('stays under 10ms per call for 500 nodes', () => {
     const nodes = makeNodes(500);
-    const force = forceSelfGravity(0.12, 40);
+    const force = forceNBodyGravity(0.12, 40);
     force.initialize(nodes);
     // Time 20 calls, check average — removes single-call GC spikes.
     const total = medianMs(() => { for (let i = 0; i < 20; i++) force(0.5); });
     const perCall = total / 20;
-    expect(perCall, `forceSelfGravity(500 nodes) avg = ${perCall.toFixed(2)}ms, want < 10ms`).toBeLessThan(10);
+    // O(n²): 500 nodes → 124,750 pairs. 10ms per call is a generous budget.
+    expect(perCall, `forceNBodyGravity(500 nodes) avg = ${perCall.toFixed(2)}ms, want < 10ms`).toBeLessThan(10);
   });
 });
 
@@ -208,18 +209,18 @@ describe('frame budget — combined operations scale sub-linearly', () => {
     const ITERS = 100;
 
     const nodes10 = makeNodes(10);
-    const force10 = forceSelfGravity(0.12, 40);
+    const force10 = forceNBodyGravity(0.12, 40);
     force10.initialize(nodes10);
     const t10 = medianMs(() => { for (let i = 0; i < ITERS; i++) { forcesForDist(700); force10(0.3); } });
 
     const nodes85 = makeNodes(85);
-    const force85 = forceSelfGravity(0.12, 40);
+    const force85 = forceNBodyGravity(0.12, 40);
     force85.initialize(nodes85);
     const t85 = medianMs(() => { for (let i = 0; i < ITERS; i++) { forcesForDist(700); force85(0.3); } });
 
     const ratio = t85 / Math.max(t10, 0.01);
-    // O(n): 8.5× nodes → expect ~8.5× time; 20× is generous slop for JIT/cache.
-    // An O(n²) regression would give 72× — caught clearly.
-    expect(ratio, `85-node/10-node ratio = ${ratio.toFixed(2)}, want < 20`).toBeLessThan(20);
+    // forceNBodyGravity is O(n²): 8.5× nodes → ~72× time; allow 100× for JIT noise.
+    // An O(n³) regression would give 614× — caught clearly.
+    expect(ratio, `85-node/10-node ratio = ${ratio.toFixed(2)}, want < 100`).toBeLessThan(100);
   });
 });

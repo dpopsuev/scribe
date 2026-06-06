@@ -164,22 +164,50 @@ export function forceRadiusCap(maxRadius, strength = 0.15) {
   return force;
 }
 
-export function forceSelfGravity(initialG = 0.15, softening = 30, massKey = 'val') {
+
+
+/**
+ * Pairwise N-body gravity — each node attracts every other node with force
+ * proportional to the ATTRACTOR's mass (not the pulled node's mass).
+ *
+ *   a_i += G · α · mass_j / (r_ij² + ε²) · unit(j→i)   for all j ≠ i
+ *
+ * Because the attractor mass scales the force, heavy nodes pull everything
+ * toward themselves strongly. Nodes sort by mass from center outward —
+ * the heaviest cluster at the core, the lightest at the periphery.
+ *
+ * O(n²) pairs per tick — fine for the graphs this codebase handles (≤ 300 nodes).
+ * Plummer softening ε prevents the force from diverging when nodes overlap.
+ */
+export function forceNBodyGravity(initialG = 0.15, softening = 40, massKey = 'val') {
   let G = initialG;
-  let nodes;
+  let nodes = [];
   function force(alpha) {
-    for (const n of nodes) {
-      const mass = Math.max(1, n[massKey] || 1);
-      const x = n.x || 0, y = n.y || 0, z = n.z || 0;
-      const r2 = x*x + y*y + z*z + softening*softening;
-      const k  = G * alpha * mass / Math.sqrt(r2);
-      n.vx = (n.vx || 0) - x * k;
-      n.vy = (n.vy || 0) - y * k;
-      n.vz = (n.vz || 0) - z * k;
+    const n = nodes.length;
+    for (let i = 0; i < n; i++) {
+      const ni = nodes[i];
+      const mi = Math.max(1, ni[massKey] || 1);
+      for (let j = i + 1; j < n; j++) {
+        const nj = nodes[j];
+        const mj = Math.max(1, nj[massKey] || 1);
+        const dx = (nj.x || 0) - (ni.x || 0);
+        const dy = (nj.y || 0) - (ni.y || 0);
+        const dz = (nj.z || 0) - (ni.z || 0);
+        const r2 = dx*dx + dy*dy + dz*dz + softening*softening;
+        // f = G·α / r³  (Plummer softening folds ε into r2 so no separate /r term needed)
+        const f = G * alpha / (r2 * Math.sqrt(r2));
+        // Acceleration on i toward j scales with j's mass; vice-versa.
+        ni.vx = (ni.vx || 0) + dx * f * mj;
+        ni.vy = (ni.vy || 0) + dy * f * mj;
+        ni.vz = (ni.vz || 0) + dz * f * mj;
+        nj.vx = (nj.vx || 0) - dx * f * mi;
+        nj.vy = (nj.vy || 0) - dy * f * mi;
+        nj.vz = (nj.vz || 0) - dz * f * mi;
+      }
     }
   }
   force.initialize = ns => { nodes = ns; };
-  // In-place update — avoids re-registering the force on every animation frame.
+  // Same interface as forceSelfGravity — zoom adaptor calls setG in-place.
   force.setG = newG => { G = newG; };
   return force;
 }
@@ -251,28 +279,6 @@ export function centerOfMass(nodes) {
 }
 
 
-/**
- * Returns a d3-force compatible force function that attracts nodes toward
- * the surface of a sphere of targetRadius. Replaces the 'center' force so
- * nodes float freely within the sphere rather than collapsing to the origin.
- *
- * strength: 0–1, default 0.08 (gentle — preserves the floaty feel).
- */
-export function forceRadialSphere(targetRadius, strength = 0.08) {
-  let nodes;
-  function force(alpha) {
-    for (const n of nodes) {
-      const d = Math.sqrt((n.x||0)**2 + (n.y||0)**2 + (n.z||0)**2) || 1;
-      const scale = (targetRadius - d) / d * alpha * strength;
-      n.vx = (n.vx || 0) + (n.x || 0) * scale;
-      n.vy = (n.vy || 0) + (n.y || 0) * scale;
-      n.vz = (n.vz || 0) + (n.z || 0) * scale;
-    }
-  }
-  force.initialize = ns => { nodes = ns; };
-  return force;
-}
-
 
 /**
  * Maps n sorted items (highest-weight first) to fibonacci sphere positions
@@ -305,30 +311,6 @@ export function equatorPriorityPositions(n, radius) {
  * @returns {Array} nodes with x, y, z set
  */
 
-/**
- * Scales each node mesh so it subtends exactly targetPx pixels on screen
- * regardless of its distance from the camera (constant angular size).
- *
- * Formula: worldRadius = targetPx * distance * 2 * tan(fov/2) / viewportH
- *   — derived from the pinhole projection: projectedPx = r/d * focalLengthPx
- *     where focalLengthPx = H / (2 * tan(fov/2))
- *
- * @param {Map<string, { mesh: { scale: { setScalar(r: number): void } }, node: { x?, y?, z? } }>} nodeMeshes
- * @param {{ x: number, y: number, z: number }} cameraPos
- * @param {number} targetPx   desired apparent radius in pixels
- * @param {number} fovRad     vertical field-of-view in radians
- * @param {number} viewportH  viewport height in pixels
- */
-export function scaleNodesByDistance(nodeMeshes, cameraPos, targetPx, fovRad, viewportH) {
-  const unitScale = (targetPx * 2 * Math.tan(fovRad / 2)) / viewportH;
-  for (const [, { mesh, node }] of nodeMeshes) {
-    const dx = (node.x || 0) - cameraPos.x;
-    const dy = (node.y || 0) - cameraPos.y;
-    const dz = (node.z || 0) - cameraPos.z;
-    const distance = Math.hypot(dx, dy, dz) || 1;
-    mesh.scale.setScalar(unitScale * distance);
-  }
-}
 
 export function placeInMiniSphere(nodes, links, anchor, radius) {
   // Compute degree per node.
