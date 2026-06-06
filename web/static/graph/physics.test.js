@@ -294,6 +294,31 @@ describe('forceSelfGravity', () => {
     return { x, y, z, val, vx: 0, vy: 0, vz: 0 };
   }
 
+  it('exposes setG() for in-place parameter update', () => {
+    const force = forceSelfGravity(0.1, 0);
+    const node  = makeNode(100, 0, 0);
+    force.initialize([node]);
+
+    force(1);
+    const accelLow = Math.abs(node.vx);
+    node.vx = 0;
+
+    force.setG(1.0); // 10x stronger
+    force(1);
+    const accelHigh = Math.abs(node.vx);
+
+    expect(accelHigh).toBeGreaterThan(accelLow * 5);
+  });
+
+  it('setG(0) stops gravity', () => {
+    const force = forceSelfGravity(1.0, 0);
+    const node  = makeNode(100, 0, 0);
+    force.initialize([node]);
+    force.setG(0);
+    force(1);
+    expect(node.vx).toBe(0);
+  });
+
   it('pulls a node toward origin', () => {
     const force = forceSelfGravity(1, 0);  // G=1, no softening
     const node = makeNode(100, 0, 0);
@@ -368,5 +393,29 @@ describe('forcesForDist', () => {
     const r1200 = clusterRadius(1200);
     expect(r300).toBeGreaterThan(r600);
     expect(r600).toBeGreaterThan(r1200);
+  });
+});
+
+describe('forcesForDist — dead zone', () => {
+  it('returns null when dist change is below sensitivity threshold', () => {
+    // 615/600 = 2.5% change, threshold 5% → null
+    const result = forcesForDist(615, 150, 3000, 0.05, 600);
+    expect(result).toBeNull();
+  });
+
+  it('returns params when change exceeds threshold', () => {
+    const result = forcesForDist(900, 150, 3000, 0.05); // 50% change from 600
+    expect(result).not.toBeNull();
+    expect(result).toHaveProperty('G');
+  });
+
+  it('always returns params when lastDist is null (first call)', () => {
+    const result = forcesForDist(600, 150, 3000, 0.05, null);
+    expect(result).not.toBeNull();
+  });
+
+  it('threshold=0 means every call returns params', () => {
+    expect(forcesForDist(601, 150, 3000, 0)).not.toBeNull();
+    expect(forcesForDist(600, 150, 3000, 0)).not.toBeNull();
   });
 });

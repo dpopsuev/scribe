@@ -21,15 +21,30 @@
  * t=0 (zoomed in, dist≈150): weak gravity, strong repulsion → spread.
  * t=1 (zoomed out, dist≈3000): strong gravity, weak repulsion → tight.
  */
-export function forcesForDist(dist, minDist = 150, maxDist = 3000) {
+/**
+ * Returns force parameters for the given camera distance, or null if the
+ * change from lastDist is below the sensitivity dead zone.
+ *
+ * @param {number} dist       current smoothed camera distance
+ * @param {number} minDist    closest expected zoom
+ * @param {number} maxDist    farthest expected zoom
+ * @param {number} sensitivity fractional dead zone — skip update if |Δdist/lastDist| < sensitivity
+ * @param {number|null} lastDist  distance at which forces were last applied (null = first call)
+ * @returns {{ G, rep, dmax } | null}
+ */
+export function forcesForDist(dist, minDist = 150, maxDist = 3000, sensitivity = 0.05, lastDist = undefined) {
+  // Dead zone: if change is below sensitivity, caller should skip the update.
+  if (lastDist != null && Math.abs(dist - lastDist) / lastDist < sensitivity) {
+    return null;
+  }
   const t = Math.max(0, Math.min(1,
     Math.log(dist / minDist) / Math.log(maxDist / minDist),
   ));
   // t=0 (zoomed in):  weak gravity + strong repulsion → loose/large cluster
   // t=1 (zoomed out): strong gravity + weak repulsion → tight/small cluster
-  const G    = 0.01 + 0.4  * t * t;    // 0.01 → 0.41
-  const rep  = -(250 - 220 * t * t);   // -250 → -30
-  const dmax = 600  - 550 * t;         // 600  → 50
+  const G    = 0.01 + 0.4  * t * t;
+  const rep  = -(250 - 220 * t * t);
+  const dmax = 600  - 550 * t;
   return {
     G:    Math.max(0.01, Math.min(0.41, G)),
     rep:  Math.max(-250, Math.min(-30,  rep)),
@@ -37,7 +52,8 @@ export function forcesForDist(dist, minDist = 150, maxDist = 3000) {
   };
 }
 
-export function forceSelfGravity(G = 0.15, softening = 30, massKey = 'val') {
+export function forceSelfGravity(initialG = 0.15, softening = 30, massKey = 'val') {
+  let G = initialG;
   let nodes;
   function force(alpha) {
     for (const n of nodes) {
@@ -51,6 +67,8 @@ export function forceSelfGravity(G = 0.15, softening = 30, massKey = 'val') {
     }
   }
   force.initialize = ns => { nodes = ns; };
+  // In-place update — avoids re-registering the force on every animation frame.
+  force.setG = newG => { G = newG; };
   return force;
 }
 

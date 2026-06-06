@@ -110,13 +110,13 @@ async function loadMacro() {
     state.scopeSpherePos.set(n.scope || n.name, positions[i]);
   });
 
-  // N-body physics: Plummer-softened gravity toward origin (dense core) +
-  // short-range repulsion (prevents collapse). No radial shell constraint.
+  // N-body physics: Plummer-softened gravity + short-range repulsion.
+  // gravityForce is the shared instance updated in-place by tickZoomAdaptor.
   Graph.d3Force('center',  null);
   Graph.d3Force('radial',  null);
-  Graph.d3Force('gravity', forceSelfGravity(0.12, 40, 'val'));
-  Graph.d3Force('charge')?.strength?.(-80);
-  Graph.d3Force('charge')?.distanceMax?.(180);
+  Graph.d3Force('gravity', gravityForce);
+  Graph.d3Force('charge')?.strength?.(currentRep);
+  Graph.d3Force('charge')?.distanceMax?.(currentDmax);
 
   // Give renderer the full node set so it can normalise sizes and pre-build textures.
   renderer.init(sorted);
@@ -488,8 +488,9 @@ export function initGraph(injectedDeps) {
     .linkDirectionalParticleWidth(1.5)
     .linkCurvature(l => l.relation === 'depends_on' ? 0.15 : 0)
     .d3VelocityDecay(0.3)
+    .d3AlphaTarget(0.05)  // keeps physics warm so force changes produce smooth drift
     .warmupTicks(300)
-    .cooldownTime(2000)   // physics runs for 2s after each reheat then stops
+    .cooldownTime(Infinity)
     .onNodeClick(onNodeClickWithDbl)
     .onNodeRightClick(onNodeRightClick)
     .onBackgroundClick((() => {
@@ -516,13 +517,28 @@ export function initGraph(injectedDeps) {
     Graph.width(window.innerWidth).height(window.innerHeight));
 
   // ── Per-frame adaptive systems ────────────────────────────────────────────
-  // EMA-smoothed camera distance. α=0.03 ≈ 1s lag at 30fps — filters scroll jitter.
   let smoothDist = null;
-  // Seeded to initial distance after first frame so boot never triggers adaptation.
-  let lastApplied = null;
   let frameCount = 0;
 
+  // Lerp state — current force parameters, animated toward desired each frame.
+  let currentG    = 0.12;
+  let currentRep  = -80;
+  let currentDmax = 180;
+  // Last distance at which forces were actually updated (for dead-zone check).
+  let lastForceDist = null;
+  // Single gravity force object — updated in-place via setG(), no re-registration.
+  const gravityForce = forceSelfGravity(currentG, 40, 'val');
+
   // ── Zoom adaptor (SRP: only touches forces) ───────────────────────────────
+  // Runs every frame. Smooths camera distance (EMA), lerps current force
+  // parameters toward the desired state, skips writes below dead zone.
+  //
+  // Dead zone (sensitivity=0.05): if zoom changed < 5% from last applied
+  // distance, forcesForDist returns null → lerp target stays unchanged.
+  // This prevents micro-jitter from continuously nudging forces.
+  const LERP = 0.06;             // 6% per frame → 95% of target in ~50 frames (~0.8s)
+  const SENSITIVITY = 0.05;     // 5% distance change required to update target
+
   function tickZoomAdaptor() {
     const cam  = Graph.camera();
     const ctrl = Graph.controls();
@@ -534,26 +550,26 @@ export function initGraph(injectedDeps) {
       cam.position.z - ctrl.target.z,
     );
 
-    // α=0.08: ~12 frames to respond — fast enough to feel responsive, slow enough to avoid jitter.
+    // EMA smoothing — α=0.08 ≈ 12 frames lag, filters per-frame scroll jitter.
     smoothDist = smoothDist == null ? rawDist : smoothDist * 0.92 + rawDist * 0.08;
 
-    // Seed from initial settled position so boot doesn't trigger adaptation.
-    if (lastApplied == null && frameCount > 60) {
-      lastApplied = smoothDist;
-      return;
-    }
-    if (lastApplied == null) return;
+    // Compute desired state. Returns null if within dead zone (< 5% change).
+    const desired = forcesForDist(smoothDist, 150, 3000, SENSITIVITY, lastForceDist);
+    if (desired !== null) lastForceDist = smoothDist;
 
-    // Trigger on 15% change — noticeable zoom without jitter.
-    if (Math.abs(smoothDist - lastApplied) / lastApplied > 0.15) {
-      const { G, rep, dmax } = forcesForDist(smoothDist);
-      Graph.d3Force('gravity', forceSelfGravity(G, 40, 'val'));
-      Graph.d3Force('charge')?.strength?.(rep);
-      Graph.d3Force('charge')?.distanceMax?.(dmax);
-      Graph.d3ReheatSimulation();
-      log.info('zoom-adapt dist=%d G=%.3f rep=%.1f dmax=%.1f', Math.round(smoothDist), G, rep, dmax);
-      lastApplied = smoothDist;
-    }
+    // Lerp current toward desired (or hold if in dead zone — target unchanged).
+    const targetG    = desired ? desired.G    : currentG;
+    const targetRep  = desired ? desired.rep  : currentRep;
+    const targetDmax = desired ? desired.dmax : currentDmax;
+
+    currentG    += (targetG    - currentG)    * LERP;
+    currentRep  += (targetRep  - currentRep)  * LERP;
+    currentDmax += (targetDmax - currentDmax) * LERP;
+
+    // Update forces in-place — no re-registration, no allocation.
+    gravityForce.setG(currentG);
+    Graph.d3Force('charge')?.strength?.(currentRep);
+    Graph.d3Force('charge')?.distanceMax?.(currentDmax);
   }
 
   // ── Label manager — lazy, throttled, threshold-gated ─────────────────────
@@ -597,8 +613,8 @@ export function initGraph(injectedDeps) {
     const t0 = performance.now();
     frameCount++;
 
-    // Zoom adaptation: every 30 frames (~2fps checks). Never urgent.
-    if (frameCount % 30 === 0) tickZoomAdaptor();
+    // Zoom adaptation runs every frame — pure lerp + dead zone, O(1), ~0.1ms.
+    tickZoomAdaptor();
 
     // Label updates: every LABEL_INTERVAL frames, skip if last frame was expensive.
     if (frameCount % LABEL_INTERVAL === 0 && frameMs < FRAME_BUDGET_MS) {
