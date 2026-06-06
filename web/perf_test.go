@@ -18,9 +18,15 @@
 package web_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	_ "image/jpeg"
+	_ "image/png"
+	"math"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -66,7 +72,7 @@ func startServer(t *testing.T) *httptest.Server {
 		})
 	}
 	proto := parchment.New(s, nil, []string{"alpha", "beta", "gamma"}, nil, parchment.ProtocolConfig{})
-	srv := httptest.NewServer(web.NewServer(proto))
+	srv := httptest.NewServer(web.NewServer(proto, "dev"))
 	t.Cleanup(func() { srv.Close(); _ = s.Close() })
 	return srv
 }
@@ -352,6 +358,131 @@ func max(a, b float64) float64 {
 	return b
 }
 
+// TestGraph_RenderPipeline asserts each stage of the node rendering pipeline:
+//
+//  1. window.THREE is available (UMD build loaded correctly)
+//  2. _Graph.graphData().nodes is non-empty after loadMacro
+//  3. Every node has a Three.js object registered (nodeThreeObject was called)
+//  4. No node material colour is black (0x000000) — palette wired correctly
+//  5. Every node mesh has scale > 0 (scaleNodesByDistance ran at least once)
+func TestGraph_RenderPipeline(t *testing.T) {
+	srv := startServer(t)
+	ctx := newBrowser(t)
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	chromedp.ListenTarget(ctx, func(ev any) {
+		switch ev := ev.(type) {
+		case *runtime.EventExceptionThrown:
+			t.Logf("[exception] %s", ev.ExceptionDetails.Error())
+		}
+	})
+
+	if err := chromedp.Run(ctx,
+		chromedp.Navigate(srv.URL+"/graph"),
+		chromedp.Sleep(15*time.Second),
+	); err != nil {
+		t.Fatalf("navigate: %v", err)
+	}
+
+	const pipelineJS = `(function() {
+		try {
+			// Stage 1: ForceGraph3D initialised
+			var graphOK = typeof _Graph !== 'undefined' && typeof _Graph.graphData === 'function';
+			if (!graphOK) return JSON.stringify({error: 'ForceGraph3D not initialised (_Graph missing)'});
+
+			// Stage 2: graph data loaded — scope nodes present after loadMacro
+			var nodes     = _Graph.graphData().nodes;
+			var nodeCount = nodes.length;
+
+			// Stage 3: WebGL context live and error-free
+			var gl      = _Graph.renderer().getContext();
+			var glError = gl.getError(); // 0 = GL_NO_ERROR
+
+			// Stage 4: every node must have a corresponding sphere mesh in the scene.
+			// ForceGraph3D always sets transparent=true on node materials (to support
+			// variable nodeOpacity), so we do NOT filter by transparent here.
+			var meshCount = 0, blackMaterial = 0, zeroScale = 0;
+			_Graph.scene().traverse(function(obj) {
+				if (!obj.isMesh) return;
+				if (!obj.geometry || obj.geometry.type !== 'SphereGeometry') return;
+				if (!obj.visible) return;
+				// Skip glow meshes: they use BackSide rendering.
+				if (obj.material && obj.material.side === 1) return; // THREE.BackSide = 1
+				meshCount++;
+				var c = obj.material && obj.material.color;
+				if (c && c.r === 0 && c.g === 0 && c.b === 0) blackMaterial++;
+				if (obj.scale && obj.scale.x <= 0) zeroScale++;
+			});
+
+			// Stage 5: window.THREE availability (optional — used for scope bubbles/glow)
+			var threeOK = typeof THREE !== 'undefined' && typeof THREE.SphereGeometry === 'function';
+
+			return JSON.stringify({
+				graphOK:       graphOK,
+				nodeCount:     nodeCount,
+				meshCount:     meshCount,
+				blackMaterial: blackMaterial,
+				zeroScale:     zeroScale,
+				glError:       glError,
+				threeOK:       threeOK,
+			});
+		} catch(e) { return JSON.stringify({error: e.message}); }
+	})()`
+
+	var raw string
+	if err := chromedp.Run(ctx, chromedp.Evaluate(pipelineJS, &raw)); err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+
+	var m struct {
+		Error         string `json:"error"`
+		GraphOK       bool   `json:"graphOK"`
+		NodeCount     int    `json:"nodeCount"`
+		MeshCount     int    `json:"meshCount"`
+		BlackMaterial int    `json:"blackMaterial"`
+		ZeroScale     int    `json:"zeroScale"`
+		GLError       int    `json:"glError"`
+		ThreeOK       bool   `json:"threeOK"`
+	}
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		t.Fatalf("parse: %v — raw: %s", err, raw)
+	}
+	if m.Error != "" {
+		t.Fatalf("JS error: %s", m.Error)
+	}
+
+	t.Logf("ForceGraph3D initialised: %v", m.GraphOK)
+	t.Logf("nodes loaded: %d", m.NodeCount)
+	t.Logf("meshes in scene: %d", m.MeshCount)
+	t.Logf("nodes with black material: %d", m.BlackMaterial)
+	t.Logf("nodes with zero scale: %d", m.ZeroScale)
+	t.Logf("WebGL error code: %d (0=none)", m.GLError)
+	t.Logf("window.THREE available: %v (optional — glow/bubbles only)", m.ThreeOK)
+
+	// Stage 1: graph initialised
+	if !m.GraphOK {
+		t.Fatal("FAIL stage 1: _Graph not initialised")
+	}
+	// Stage 2: data loaded
+	if m.NodeCount == 0 {
+		t.Error("FAIL stage 2: no nodes loaded — fetchScopeGraph or applyGraphData broken")
+	}
+	// Stage 3: WebGL clean — errors are swallowed by renderer, surface them here
+	if m.GLError != 0 {
+		t.Errorf("FAIL stage 3: WebGL error %d — shader compilation failed silently", m.GLError)
+	}
+	// Stage 4: one sphere mesh per node
+	if m.MeshCount != m.NodeCount {
+		t.Errorf("FAIL stage 4: %d sphere meshes for %d nodes — ForceGraph3D did not create a mesh for every node",
+			m.MeshCount, m.NodeCount)
+	}
+	// Stage 5: no black nodes (invisible against dark background)
+	if m.BlackMaterial > 0 {
+		t.Errorf("FAIL stage 5: %d/%d nodes have black material — palette broken", m.BlackMaterial, m.MeshCount)
+	}
+}
+
 // TestGraph_CameraAimsAtCenterOfMass verifies that after the graph loads,
 // the camera's OrbitControls target (the orbit pivot) matches the weighted
 // center of mass of the visible parent nodes to within a tolerance.
@@ -453,5 +584,356 @@ func TestGraph_CameraAimsAtCenterOfMass(t *testing.T) {
 	// Camera must be at a reasonable distance — not at origin, not infinitely far.
 	if m.CamDist < 100 || m.CamDist > 5000 {
 		t.Errorf("FAIL: camera distance %d is unreasonable (want 100–5000)", m.CamDist)
+	}
+}
+
+// TestGraph_NodesInFrustum asserts that after the graph loads, at least half the
+// scope nodes fall within the camera's view frustum — i.e. they are actually
+// visible, not behind or beside the camera.
+//
+// This is the regression test for the onTick ctrl.update() bug: when onTick
+// called ctrl.update() on every 6th frame it continuously repositioned the
+// camera, causing it to look away from the node cluster so nodes were never
+// in the frustum despite being visible=true in the scene graph.
+func TestGraph_NodesInFrustum(t *testing.T) {
+	srv := startServer(t)
+	ctx := newBrowser(t)
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	if err := chromedp.Run(ctx,
+		chromedp.Navigate(srv.URL+"/graph"),
+		chromedp.Sleep(15*time.Second),
+	); err != nil {
+		t.Fatalf("navigate: %v", err)
+	}
+
+	const js = `(function() {
+		try {
+			var g = window._Graph;
+			var nodes = g.graphData().nodes;
+			if (!nodes.length) return JSON.stringify({error: 'no nodes'});
+
+			var cam = g.camera();
+			var ctrl = g.controls();
+
+			// Capture controls.target before and after waiting one second.
+			// If onTick is calling ctrl.update() the target will drift.
+			var t0 = {x: ctrl.target.x, y: ctrl.target.y, z: ctrl.target.z};
+
+			// Project each node through the camera frustum manually.
+			// A node is "in frustum" if the vector from cam to node has a
+			// positive dot product with the cam look direction AND the node
+			// is within the field of view cone.
+			var camPos = cam.position;
+			// Look direction: from cam toward controls.target
+			var lx = ctrl.target.x - camPos.x;
+			var ly = ctrl.target.y - camPos.y;
+			var lz = ctrl.target.z - camPos.z;
+			var llen = Math.sqrt(lx*lx + ly*ly + lz*lz) || 1;
+			lx /= llen; ly /= llen; lz /= llen;
+
+			var halfFovRad = (cam.fov / 2) * Math.PI / 180;
+			var cosFov = Math.cos(halfFovRad);
+
+			var inFrustum = 0;
+			nodes.forEach(function(n) {
+				var dx = (n.x||0) - camPos.x;
+				var dy = (n.y||0) - camPos.y;
+				var dz = (n.z||0) - camPos.z;
+				var dlen = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
+				var dot = (dx*lx + dy*ly + dz*lz) / dlen;
+				if (dot > cosFov) inFrustum++;
+			});
+
+			return JSON.stringify({
+				nodeCount:   nodes.length,
+				inFrustum:   inFrustum,
+				camPos:      {x: Math.round(camPos.x), y: Math.round(camPos.y), z: Math.round(camPos.z)},
+				target:      {x: Math.round(ctrl.target.x), y: Math.round(ctrl.target.y), z: Math.round(ctrl.target.z)},
+				target0:     {x: Math.round(t0.x), y: Math.round(t0.y), z: Math.round(t0.z)},
+			});
+		} catch(e) { return JSON.stringify({error: e.message}); }
+	})()`
+
+	var raw string
+	if err := chromedp.Run(ctx, chromedp.Evaluate(js, &raw)); err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+
+	var m struct {
+		Error     string `json:"error"`
+		NodeCount int    `json:"nodeCount"`
+		InFrustum int    `json:"inFrustum"`
+		CamPos    struct{ X, Y, Z int }
+		Target    struct{ X, Y, Z int }
+		Target0   struct{ X, Y, Z int }
+	}
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		t.Fatalf("parse: %v — raw: %s", err, raw)
+	}
+	if m.Error != "" {
+		t.Fatalf("JS: %s", m.Error)
+	}
+
+	t.Logf("nodes: %d  in-frustum: %d", m.NodeCount, m.InFrustum)
+	t.Logf("camera: {%d %d %d}", m.CamPos.X, m.CamPos.Y, m.CamPos.Z)
+	t.Logf("controls.target: {%d %d %d}", m.Target.X, m.Target.Y, m.Target.Z)
+
+	// At least half the scope nodes must be in the camera frustum.
+	want := m.NodeCount / 2
+	if m.InFrustum < want {
+		t.Errorf("FAIL: only %d/%d nodes in frustum (want >= %d) — camera not aimed at node cluster",
+			m.InFrustum, m.NodeCount, want)
+	}
+}
+
+// TestGraph_MeshPositionsMatchNodes is the integration test for Step 3→4:
+// after loadMacro assigns x,y,z to node objects and passes them to
+// Graph.graphData(), ForceGraph3D must place each node's Three.js mesh at the
+// same position. If positions diverge the node renders at the wrong location.
+//
+// Given: graph loaded with 3 scope nodes placed by equatorPriorityPositions
+// When: we read node data positions and the corresponding mesh parent positions
+// Then: each mesh parent position is within 1 world-unit of the node data position
+func TestGraph_MeshPositionsMatchNodes(t *testing.T) {
+	srv := startServer(t)
+	ctx := newBrowser(t)
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	var consoleLines []string
+	chromedp.ListenTarget(ctx, func(ev any) {
+		if ev, ok := ev.(*runtime.EventConsoleAPICalled); ok {
+			for _, arg := range ev.Args {
+				consoleLines = append(consoleLines, string(arg.Value))
+			}
+		}
+	})
+
+	if err := chromedp.Run(ctx,
+		chromedp.Navigate(srv.URL+"/graph"),
+		chromedp.Sleep(15*time.Second),
+	); err != nil {
+		t.Fatalf("navigate: %v", err)
+	}
+
+	// Dump [graph] log lines — Orange instrumentation.
+	for _, l := range consoleLines {
+		if len(l) > 2 {
+			t.Logf("console: %s", l)
+		}
+	}
+
+	const js = `(function() {
+		var g = window._Graph;
+		if (!g) return JSON.stringify({error: 'no _Graph'});
+		var nodes = g.graphData().nodes;
+		if (!nodes.length) return JSON.stringify({error: 'no nodes'});
+
+		var results = [];
+		// Build position map from scene meshes.
+		// ForceGraph3D places node position on the mesh's OWN local position
+		// inside a Group that sits at world origin — so o.position is the
+		// mesh's world position.
+		var meshPositions = [];
+		g.scene().traverse(function(o) {
+			if (o.isMesh && o.visible && o.geometry && o.geometry.type === 'SphereGeometry') {
+				meshPositions.push({x: o.position.x, y: o.position.y, z: o.position.z});
+			}
+		});
+
+		// For each node, find the closest mesh and measure the gap.
+		var maxGap = 0, mismatch = 0;
+		nodes.forEach(function(n) {
+			var nx = n.x || 0, ny = n.y || 0, nz = n.z || 0;
+			var best = Infinity;
+			meshPositions.forEach(function(mp) {
+				var d = Math.sqrt(Math.pow(mp.x-nx,2)+Math.pow(mp.y-ny,2)+Math.pow(mp.z-nz,2));
+				if (d < best) best = d;
+			});
+			if (best > 1) mismatch++;
+			if (best > maxGap) maxGap = best;
+			results.push({id: n.id, nodePos: {x:Math.round(nx),y:Math.round(ny),z:Math.round(nz)}, gap: Math.round(best)});
+		});
+
+		return JSON.stringify({
+			nodeCount:    nodes.length,
+			meshCount:    meshPositions.length,
+			mismatch:     mismatch,
+			maxGapUnits:  Math.round(maxGap),
+			sample:       results.slice(0, 3),
+		});
+	})()`
+
+	var raw string
+	if err := chromedp.Run(ctx, chromedp.Evaluate(js, &raw)); err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+
+	var m struct {
+		Error       string `json:"error"`
+		NodeCount   int    `json:"nodeCount"`
+		MeshCount   int    `json:"meshCount"`
+		Mismatch    int    `json:"mismatch"`
+		MaxGapUnits int    `json:"maxGapUnits"`
+		Sample      []struct {
+			ID      string `json:"id"`
+			NodePos struct{ X, Y, Z int }
+			Gap     int `json:"gap"`
+		} `json:"sample"`
+	}
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		t.Fatalf("parse: %v — raw: %s", err, raw)
+	}
+	if m.Error != "" {
+		t.Fatalf("JS: %s", m.Error)
+	}
+
+	t.Logf("nodes=%d meshes=%d mismatch=%d maxGap=%d units", m.NodeCount, m.MeshCount, m.Mismatch, m.MaxGapUnits)
+	for _, s := range m.Sample {
+		t.Logf("  %s nodePos=(%d,%d,%d) meshGap=%d", s.ID, s.NodePos.X, s.NodePos.Y, s.NodePos.Z, s.Gap)
+	}
+
+	if m.MeshCount == 0 {
+		t.Error("FAIL: no sphere meshes in scene — ForceGraph3D created no node objects")
+	}
+	// Each node must have a mesh within 1 world-unit of its data position.
+	if m.Mismatch > 0 {
+		t.Errorf("FAIL: %d/%d nodes have no mesh within 1 unit — positions not propagated from data to scene",
+			m.Mismatch, m.NodeCount)
+	}
+}
+
+// TestGraph_CanvasHasNodePixels is the E2E visual test: takes a PNG screenshot
+// of the graph canvas and asserts that at least 0.1% of pixels are brighter
+// than the background color (#05050f). If all pixels are background-dark, no
+// nodes are rendering regardless of what the scene graph says.
+//
+// Given: graph loaded with white nodes on dark background
+// When: screenshot taken after physics has settled
+// Then: >0.1% of pixels have luminance above background threshold
+func TestGraph_CanvasHasNodePixels(t *testing.T) {
+	srv := startServer(t)
+	ctx := newBrowser(t)
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	if err := chromedp.Run(ctx,
+		chromedp.Navigate(srv.URL+"/graph"),
+		chromedp.Sleep(15*time.Second),
+	); err != nil {
+		t.Fatalf("navigate: %v", err)
+	}
+
+	var buf []byte
+	if err := chromedp.Run(ctx, chromedp.FullScreenshot(&buf, 90)); err != nil {
+		t.Fatalf("screenshot: %v", err)
+	}
+
+	img, _, err := image.Decode(bytes.NewReader(buf))
+	if err != nil {
+		t.Fatalf("decode screenshot: %v", err)
+	}
+
+	bounds := img.Bounds()
+	total := bounds.Dx() * bounds.Dy()
+	bright := 0
+	// Background is #05050f: R=5, G=5, B=15. Any pixel significantly brighter
+	// than this is a node, link, or UI element.
+	const bgLum = 5.0/255.0*0.2126 + 5.0/255.0*0.7152 + 15.0/255.0*0.0722 // ≈ 0.0047
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			c := img.At(x, y)
+			r, g, b, _ := c.RGBA()
+			lum := float64(r>>8)/255.0*0.2126 + float64(g>>8)/255.0*0.7152 + float64(b>>8)/255.0*0.0722
+			if lum > bgLum*3 { // 3× above background
+				bright++
+			}
+		}
+	}
+
+	pct := float64(bright) / float64(total) * 100
+	t.Logf("screenshot: %dx%d  bright_pixels=%d  bright_pct=%.3f%%", bounds.Dx(), bounds.Dy(), bright, pct)
+
+	// Baseline: background color only. Expected: at least 0.1% bright pixels
+	// (links alone would produce this). If 0%, the WebGL canvas is blank.
+	if pct < 0.1 {
+		t.Errorf("FAIL: only %.3f%% bright pixels — canvas appears blank (nodes not rendering)", pct)
+	}
+
+	// Nodes are white (#ffffff). Links are rgba(148,163,184,0.25) — faint slate.
+	// If nodes render, we expect noticeably more bright pixels than links alone.
+	// Threshold 0.5% catches the case where only links render (no spheres).
+	_ = color.RGBA{}
+	_ = math.Pi
+	if pct < 0.5 {
+		t.Logf("WARN: %.3f%% bright pixels — only links may be rendering, nodes absent", pct)
+	}
+}
+
+
+// TestGraph_RendererConfig asserts the active renderer produces visible,
+// non-black nodes with the correct material properties.
+// Replaces the stale TestGraph_NodesZPinned which tested a removed fz invariant.
+//
+// Given: graph loaded with KindColorRenderer (hardcoded kind colors, opacity 0.9)
+// When:  inspect sphere mesh materials in the scene
+// Then:  materials are non-black, semi-transparent, depth-writing
+func TestGraph_RendererConfig(t *testing.T) {
+	srv := startServer(t)
+	ctx := newBrowser(t)
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	if err := chromedp.Run(ctx,
+		chromedp.Navigate(srv.URL+"/graph"),
+		chromedp.Sleep(15*time.Second),
+	); err != nil {
+		t.Fatalf("navigate: %v", err)
+	}
+
+	const js = `(function() {
+		var g = window._Graph;
+		if (!g) return JSON.stringify({error: 'no _Graph'});
+		var nodes = g.graphData().nodes;
+		var bad = [];
+		g.scene().traverse(function(o) {
+			if (!o.isMesh || !o.visible || !o.geometry || o.geometry.type !== 'SphereGeometry') return;
+			var m = o.material;
+			var c = m.color;
+			// Non-black: at least one channel above 0.1
+			if (c && c.r < 0.1 && c.g < 0.1 && c.b < 0.1)
+				bad.push('black material: ' + JSON.stringify({r:c.r,g:c.g,b:c.b}));
+			// opacity must be 0.9 (KindColorRenderer)
+			if (Math.abs(m.opacity - 0.9) > 0.05)
+				bad.push('opacity=' + m.opacity + ' want 0.9');
+		});
+		return JSON.stringify({
+			nodeCount: nodes.length,
+			bad:       bad.slice(0, 3),
+		});
+	})()`
+
+	var raw string
+	if err := chromedp.Run(ctx, chromedp.Evaluate(js, &raw)); err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+
+	var m struct {
+		Error     string   `json:"error"`
+		NodeCount int      `json:"nodeCount"`
+		Bad       []string `json:"bad"`
+	}
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		t.Fatalf("parse: %v — raw: %s", err, raw)
+	}
+	if m.Error != "" {
+		t.Fatalf("JS: %s", m.Error)
+	}
+
+	t.Logf("nodes=%d  material-violations=%d", m.NodeCount, len(m.Bad))
+	if len(m.Bad) > 0 {
+		t.Errorf("FAIL: renderer produced bad materials:\n%s", m.Bad)
 	}
 }

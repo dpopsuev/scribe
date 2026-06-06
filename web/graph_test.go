@@ -49,7 +49,7 @@ func setupGraph(t *testing.T) *web.Server {
 	}
 
 	proto := parchment.New(s, nil, []string{"alpha", "beta"}, nil, parchment.ProtocolConfig{})
-	return web.NewServer(proto)
+	return web.NewServer(proto, "dev")
 }
 
 // ── /api/graph/scopes ─────────────────────────────────────────────────────

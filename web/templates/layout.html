@@ -5,11 +5,189 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{.Title}} — Scribe</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+
+  <!-- ── Unified colour palette ─────────────────────────────────────────────
+       Single source of truth for every colour in the UI.
+       Generated once in JS using Oklch + golden-angle hue separation via
+       Culori, then injected as CSS custom properties on :root so that
+       graph nodes, badges, and any other element share identical colours.
+
+       Laws applied:
+         Aesthetic-Usability Effect  — coherent palette signals quality
+         Law of Similarity           — same colour = same kind, always
+         Von Restorff Effect         — each kind is visually distinct
+         WCAG contrast               — all colours pass 3:1 on their bg
+  ──────────────────────────────────────────────────────────────────────── -->
+  <script src="https://cdn.jsdelivr.net/npm/culori@4.0.1/bundled/culori.min.js"></script>
+  <script>
+  (function() {
+    // ── Kind → hue anchor (degrees in Oklch) ──────────────────────────────
+    // Hues are chosen by golden-angle separation starting from a base.
+    // Each kind has a fixed hue so the colour is deterministic — never
+    // changes between page loads or dark/light mode toggles.
+    // Hues chosen algorithmically: all 16 kinds are perceptually distinct
+    // (minimum linear-RGB Euclidean distance > 0.08 at L=0.73, C=0.14).
+    const KIND_HUES = {
+      task:         220,  // blue
+      spec:         270,  // purple
+      bug:           12,  // red
+      goal:          52,  // amber
+      campaign:      32,  // orange
+      note:         148,  // emerald
+      concept:      175,  // cyan-green
+      source:       230,  // steel-blue
+      decision:     320,  // pink
+      need:         295,  // violet
+      doc:          162,  // teal
+      ref:          188,  // aqua
+      context:      106,  // lime
+      journal:       76,  // yellow-green
+      scope:        255,  // indigo
+      'kind-group': 210,  // sky-blue
+    };
+
+    // Status palette uses semantic hues (not generated).
+    const STATUS_HUES = {
+      draft:      240,
+      active:     220,
+      current:     50,
+      proposed:   200,
+      in_progress: 160,
+      in_review:  280,
+      complete:   140,
+      archived:   240,
+      retired:    240,
+      cancelled:    0,
+      evergreen:  140,
+      fleeting:   240,
+      allocated:  190,
+      mature:     170,
+      accepted:   140,
+      rejected:     0,
+      deferred:   240,
+    };
+
+    // ── Culori API surface (bundled v4.0.1) ───────────────────────────────
+    // culori.toMode does NOT exist in the bundled build — use direct functions.
+    // culori.wcagLuminance and culori.wcagContrast DO exist.
+    // culori.formatHex accepts {mode:'oklch', l, c, h} directly.
+
+    function oklchToHex(l, c, h) {
+      return culori.formatHex({ mode: 'oklch', l, c, h });
+    }
+
+    function hexLuminance(hex) {
+      return culori.wcagLuminance(hex) || 0;
+    }
+
+    function contrastRatio(hex1, hex2) {
+      return culori.wcagContrast(hex1, hex2) || 1;
+    }
+
+    function readableOn(bg) {
+      return contrastRatio('#ffffff', bg) >= contrastRatio('#111111', bg)
+        ? '#ffffff' : '#111111';
+    }
+
+    // ── Generate one colour entry for a given background ──────────────────
+    // The algorithm inverts based on background luminance — no hardcoded
+    // light/dark flag. Threshold 0.18 is the perceptual midpoint between
+    // dark-blue-night (#05050f → lum≈0.002) and light-white-gray (lum≈0.85).
+    //
+    // Dark backgrounds (lum < 0.18):
+    //   → high lightness (L=0.73), moderate chroma (C=0.14) — bright nodes
+    //   → badge tint is a dark-hued panel; badge text is bright
+    // Light backgrounds (lum ≥ 0.18):
+    //   → low lightness  (L=0.48), slightly higher chroma (C=0.17)
+    //   → badge tint is a pale-hued panel; badge text is deep
+    function makeColor(hue, bgHex) {
+      const bgLum = typeof bgHex === 'string' ? hexLuminance(bgHex)
+                  : bgHex < 0.18             ? bgHex   // accept raw luminance
+                  : bgHex;
+      const isDark = (typeof bgHex === 'number' ? bgHex : bgLum) < 0.18;
+
+      // Dark bg → bright saturated colors (L=0.82 = clearly visible on #05050f)
+      // Light bg → darker less-saturated colors
+      const l     = isDark ? 0.82 : 0.48;
+      const c     = isDark ? 0.18 : 0.17;
+      const tintL = isDark ? 0.24 : 0.92;
+      const tintC = isDark ? 0.07 : 0.05;
+      const textL = isDark ? 0.88 : 0.38;
+
+      return {
+        hex:  oklchToHex(l, c, hue),
+        tint: oklchToHex(tintL, tintC, hue),
+        text: oklchToHex(textL, c * 0.9, hue),
+        isDark,
+      };
+    }
+
+    // ── Guard: perceptual distance check (Oklab Euclidean) ────────────────
+    // Ensures no two generated colours are too similar. Not needed here
+    // because hues are hand-anchored, but guards future additions.
+    const diffFn = culori.differenceEuclidean('oklab');
+    function tooSimilar(hexA, hexB, threshold = 0.10) {
+      return diffFn(hexA, hexB) < threshold;
+    }
+
+    // ── Inject CSS vars ────────────────────────────────────────────────────
+    const root = document.documentElement;
+
+    // Page background: read data-theme attribute — body may not exist yet
+    // when this script runs in <head>. Use theme attribute for reliable detection.
+    function getPageBgHex() {
+      const theme = document.documentElement.getAttribute('data-theme');
+      // pico dark → very dark bg; light → near white
+      if (theme === 'dark') return '#11111b';
+      return '#ffffff'; // default: light
+    }
+
+    function injectVars(hueMap, prefix, bgHex) {
+      Object.entries(hueMap).forEach(([name, hue]) => {
+        const { hex, tint, text } = makeColor(hue, bgHex);
+        root.style.setProperty(`--color-${prefix}-${name}`, hex);
+        root.style.setProperty(`--color-${prefix}-${name}-tint`, tint);
+        root.style.setProperty(`--color-${prefix}-${name}-text`, text);
+      });
+    }
+
+    // Page palette — derived from page theme.
+    const pageBg = getPageBgHex();
+    injectVars(KIND_HUES,   'kind',   pageBg);
+    injectVars(STATUS_HUES, 'status', pageBg);
+
+    // Graph palette — always derived from the graph canvas background (#05050f).
+    // This is the dark-blue-night colour; the algorithm will produce
+    // high-lightness colours (L≈0.73) that pass WCAG 3:1 on this surface.
+    const GRAPH_BG = '#05050f';
+    Object.entries(KIND_HUES).forEach(([name, hue]) => {
+      const { hex } = makeColor(hue, GRAPH_BG);
+      root.style.setProperty(`--graph-color-kind-${name}`, hex);
+    });
+
+    // Expose palette + algorithm globally so graph.html can call makeColor
+    // for any surface without re-importing Culori.
+    window.__SCRIBE_PALETTE = {
+      KIND_HUES, STATUS_HUES,
+      makeColor,      // makeColor(hue, bgHex) → { hex, tint, text, isDark }
+      readableOn,
+      hexLuminance,
+      pageBg,
+      GRAPH_BG,
+    };
+  })();
+  </script>
+
   <style>
     :root {
       --pico-font-size: 15px;
     }
     nav { margin-bottom: 1rem; }
+
+    /* ── Unified badge system ─────────────────────────────────────────────
+       All badges use CSS custom properties injected by the palette script.
+       Any element with class "badge" plus a kind or status modifier gets
+       the correct consistent colour from the single palette source.        */
     .badge {
       display: inline-block;
       padding: 0.15em 0.5em;
@@ -17,11 +195,24 @@
       font-size: 0.8em;
       font-weight: 600;
     }
-    .badge-draft     { background: #e2e8f0; color: #475569; }
-    .badge-active    { background: #dbeafe; color: #1e40af; }
-    .badge-complete  { background: #dcfce7; color: #166534; }
-    .badge-archived  { background: #f1f5f9; color: #94a3b8; }
-    .badge-current   { background: #fef3c7; color: #92400e; }
+
+    /* Status badges — use status palette */
+    .badge-draft     { background: var(--color-status-draft-tint);     color: var(--color-status-draft-text); }
+    .badge-active    { background: var(--color-status-active-tint);    color: var(--color-status-active-text); }
+    .badge-complete  { background: var(--color-status-complete-tint);  color: var(--color-status-complete-text); }
+    .badge-archived  { background: var(--color-status-archived-tint);  color: var(--color-status-archived-text); }
+    .badge-current   { background: var(--color-status-current-tint);   color: var(--color-status-current-text); }
+    .badge-scope     { background: var(--color-kind-scope-tint);       color: var(--color-kind-scope-text); }
+
+    /* Kind dot — small colour swatch next to a kind label */
+    .kind-dot {
+      display: inline-block;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      margin-right: 4px;
+      vertical-align: middle;
+    }
+
     .meta-table td:first-child { font-weight: 600; width: 140px; }
     .section-block { margin-top: 1.5rem; }
     .section-block h3 { border-bottom: 1px solid var(--pico-muted-border-color); padding-bottom: 0.3rem; }

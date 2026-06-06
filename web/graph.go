@@ -14,13 +14,14 @@ import (
 
 // graphNode is a node in the 3d-force-graph payload.
 type graphNode struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Kind   string `json:"kind"`
-	Status string `json:"status"`
-	Scope  string `json:"scope"`
-	Group  string `json:"group,omitempty"` // kind group for intermediate depth level
-	Val    int    `json:"val"`             // sphere radius (degree-proportional)
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Kind       string `json:"kind"`
+	Status     string `json:"status"`
+	Scope      string `json:"scope"`
+	Group      string `json:"group,omitempty"` // kind group for intermediate depth level
+	Val        int    `json:"val"`             // sphere radius (degree-proportional)
+	Violations int    `json:"violations"`      // compliance violation count; 0 = compliant
 }
 
 // graphLink is an edge in the 3d-force-graph payload.
@@ -186,12 +187,13 @@ func buildArtifactGraph(ctx context.Context, proto *parchment.Protocol, scope st
 	nodes := make([]graphNode, 0, len(arts))
 	for _, a := range arts {
 		nodes = append(nodes, graphNode{
-			ID:     a.ID,
-			Name:   a.Title,
-			Kind:   a.ResolvedKind(),
-			Status: a.ResolvedStatus(),
-			Scope:  a.ResolvedScope(),
-			Val:    degree[a.ID] + 1,
+			ID:         a.ID,
+			Name:       a.Title,
+			Kind:       a.ResolvedKind(),
+			Status:     a.ResolvedStatus(),
+			Scope:      a.ResolvedScope(),
+			Val:        degree[a.ID] + 1,
+			Violations: violationCount(a),
 		})
 	}
 
@@ -386,13 +388,47 @@ func (s *Server) handleFragmentArtifact(w http.ResponseWriter, r *http.Request) 
 // handleGraph serves the graph explorer page.
 // GET /graph
 func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
-	s.render(w, "graph.html", map[string]any{"Title": "Graph"})
+	w.Header().Set("Cache-Control", "no-store")
+	s.render(w, "graph.html", map[string]any{"Title": "Graph", "Version": s.version})
+}
+
+func (s *Server) handleGraphV1(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	s.render(w, "graph_v1.html", map[string]any{"Title": "Graph v1"})
 }
 
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
 const defaultStatuses = "active,draft,current,proposed,in_progress,in_review,fleeting"
+
+// violationCount returns the number of compliance violations on an artifact.
+// 0 = compliant (compliance:ok label or no compliance label at all).
+// N>0 = N distinct violations from extra["compliance_violations"].
+// ViolationCount is exported for testing.
+func ViolationCount(a *parchment.Artifact) int { return violationCount(a) }
+
+func violationCount(a *parchment.Artifact) int {
+	compliant := true
+	for _, l := range a.Labels {
+		if l == parchment.LabelPrefixCompliance+"violation" {
+			compliant = false
+		}
+	}
+	if compliant {
+		return 0
+	}
+	// Count violations from Extra field.
+	if viols, ok := a.Extra[parchment.ExtraKeyComplianceViolations]; ok {
+		switch v := viols.(type) {
+		case []any:
+			return len(v)
+		case []string:
+			return len(v)
+		}
+	}
+	return 1 // violation label present but no detail → count as 1
+}
 
 // parseFilters splits comma-separated status and relation query params.
 // An empty status string falls back to the default active-work set.

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <title>graph test harness</title>
+  <style>
+    body { margin: 0; background: #05050f; }
+    #graph-root { position: fixed; inset: 0; }
+    /* minimal palette vars so kindHex() returns a visible colour */
+    :root {
+      --graph-color-kind-scope: #6dc6ff;
+      --graph-color-kind-task:  #3b82f6;
+    }
+  </style>
+</head>
+<body>
+  <div id="graph-root"></div>
+  <!-- No external THREE — 3d-force-graph uses its own bundled version -->
+  <script src="/vendor/culori.umd.js"></script>
+  <script src="/vendor/3d-force-graph.min.js"></script>
+  <script type="module">
+    import { initGraph } from './graph.js';
+    initGraph({
+      ForceGraph3D: window.ForceGraph3D,
+      THREE:        window.THREE,
+      culori:       window.culori,
+      htmx:         { process: () => {} },   // stub — not needed for rendering
+    });
+  </script>
+</body>
+</html>

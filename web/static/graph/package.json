@@ -1,0 +1,20 @@
+{
+  "name": "scribe-graph",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:firefox": "playwright test --project=firefox",
+    "test:e2e:chrome": "playwright test --project=chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "jsdom": "^29.1.1",
+    "serve": "^14.2.6",
+    "vitest": "^2.0.0"
+  },
+  "dependencies": {
+    "culori": "^4.0.2"
+  }
+}

@@ -20,23 +20,28 @@ import (
 //go:embed templates/*.html
 var templateFS embed.FS
 
+//go:embed all:static
+var staticFS embed.FS
+
 var md = goldmark.New(
 	goldmark.WithExtensions(extension.GFM),
 	goldmark.WithRendererOptions(html.WithUnsafe()),
 )
 
 type Server struct {
-	proto *parchment.Protocol
-	svc   *service.Service
-	pages map[string]*template.Template
-	mux   *http.ServeMux
+	proto   *parchment.Protocol
+	svc     *service.Service
+	pages   map[string]*template.Template
+	mux     *http.ServeMux
+	version string
 }
 
-func NewServer(proto *parchment.Protocol) *Server {
+func NewServer(proto *parchment.Protocol, version string) *Server {
 	s := &Server{
-		proto: proto,
-		svc:   service.New(proto, nil, nil),
-		pages: make(map[string]*template.Template),
+		proto:   proto,
+		svc:     service.New(proto, nil, nil),
+		pages:   make(map[string]*template.Template),
+		version: version,
 	}
 
 	funcMap := template.FuncMap{
@@ -66,7 +71,13 @@ func NewServer(proto *parchment.Protocol) *Server {
 	graphClone := template.Must(layoutTmpl.Clone())
 	s.pages["graph.html"] = template.Must(graphClone.ParseFS(templateFS, "templates/graph.html"))
 
+	graphV1Clone := template.Must(layoutTmpl.Clone())
+	s.pages["graph_v1.html"] = template.Must(graphV1Clone.ParseFS(templateFS, "templates/graph_v1.html"))
+
 	s.mux = http.NewServeMux()
+
+	// Static JS modules (graph/)
+	s.mux.Handle("GET /static/", http.FileServer(http.FS(staticFS)))
 
 	// Read-only pages
 	s.mux.HandleFunc("GET /", s.handleDashboard)
@@ -75,6 +86,7 @@ func NewServer(proto *parchment.Protocol) *Server {
 	s.mux.HandleFunc("GET /tree/{id}", s.handleTree)
 	s.mux.HandleFunc("GET /search", s.handleSearch)
 	s.mux.HandleFunc("GET /graph", s.handleGraph)
+	s.mux.HandleFunc("GET /graph-v1", s.handleGraphV1)
 	s.mux.HandleFunc("GET /events", s.handleEvents)
 
 	// Fragment endpoints (HTMX sidebar loads)

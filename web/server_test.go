@@ -43,7 +43,7 @@ func setup(t *testing.T) *web.Server {
 	})
 
 	proto := parchment.New(s, nil, []string{"test"}, nil, parchment.ProtocolConfig{})
-	return web.NewServer(proto)
+	return web.NewServer(proto, "dev")
 }
 
 func TestDashboard(t *testing.T) {
@@ -183,7 +183,7 @@ func TestEventFeed_EmitsSSE(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := web.NewServer(proto)
+	srv := web.NewServer(proto, "dev")
 	rr := httptest.NewRecorder()
 	srv.ServeHTTP(rr, httptest.NewRequest("GET", "/events?since="+before, http.NoBody))
 
