@@ -19,7 +19,8 @@ import { centerOfMass, parentNodes,
          forceSelfGravity,
          forcesForDist,
          clusterMaxRadius,
-         forceRadiusCap }                       from './physics.js';
+         forceRadiusCap,
+         computeFitDistanceForCount }            from './physics.js';
 import { glowColor, glowConfig }               from './glow.js';
 import { fetchScopeGraph, fetchKindGraph,
          fetchArtifactGraph,
@@ -570,20 +571,11 @@ export function initGraph(injectedDeps) {
   function fitAllNodes(animMs = 800) {
     const nodes = Graph.graphData().nodes;
     if (!nodes.length) return;
-    const cam  = Graph.camera();
-    const com  = centerOfMass(nodes);
-
-    // Use clusterMaxRadius as the bounding radius — it's the cap we enforce,
-    // so fitting to it guarantees all nodes are visible regardless of physics state.
-    const cap = clusterMaxRadius(nodes.length);
-    let maxR  = cap;
-    for (const n of nodes) {
-      const d = Math.hypot((n.x||0) - com.x, (n.y||0) - com.y, (n.z||0) - com.z);
-      if (d > maxR) maxR = d; // actual spread may still exceed cap during transient
-    }
-    const halfFovRad = cam.fov / 2 * Math.PI / 180;
-    const fitDist    = Math.min(
-      (maxR / Math.tan(halfFovRad)) * FIT_ALL_PADDING,
+    // Camera leads physics: use the settled cap radius, not actual transient positions.
+    // computeFitDistanceForCount(n) = clusterMaxRadius(n) / tan(FOV/2) * padding.
+    // Identical at boot and at idle — same formula, same input → same camera distance.
+    const fitDist = Math.min(
+      computeFitDistanceForCount(nodes.length, Graph.camera().fov, FIT_ALL_PADDING),
       CAMERA_DIST_MAX,
     );
     aimAtCenterOfMass(animMs, fitDist);

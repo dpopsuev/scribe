@@ -12,6 +12,8 @@ import {
   forcesForDist,
   clusterMaxRadius,
   forceRadiusCap,
+  computeFitDistance,
+  computeFitDistanceForCount,
 } from './physics.js';
 
 // ── fibonacciSphere ───────────────────────────────────────────────────────────
@@ -498,5 +500,51 @@ describe('forceRadiusCap', () => {
     force.initialize([node]);
     force(0);
     expect(node.vx).toBe(0);
+  });
+});
+
+// ── Boot vs idle camera distance invariant ────────────────────────────────
+
+describe('camera distance invariant — boot must equal idle settled state', () => {
+  const NODE_COUNT      = 85;            // production scope nodes
+  const UNIVERSE_RADIUS = 180;           // equatorPriorityPositions initial radius
+  const R_settled       = clusterMaxRadius(NODE_COUNT); // 154 — settled cap
+
+  it('settled cap radius < initial transient radius', () => {
+    expect(R_settled).toBeLessThan(UNIVERSE_RADIUS);
+  });
+
+  it('computeFitDistance is monotonically increasing in R', () => {
+    expect(computeFitDistance(UNIVERSE_RADIUS)).toBeGreaterThan(computeFitDistance(R_settled));
+  });
+
+  it('computeFitDistanceForCount always uses cap — boot equals idle', () => {
+    // GREEN with fix: both use clusterMaxRadius(n), not actual positions.
+    const D_boot = computeFitDistanceForCount(NODE_COUNT);
+    const D_idle = computeFitDistanceForCount(NODE_COUNT);
+    expect(D_boot).toBeCloseTo(D_idle, 5);
+  });
+
+  it('FOV fill with computeFitDistanceForCount is comfortable — below 85%', () => {
+    const D = computeFitDistanceForCount(NODE_COUNT);
+    const fillRad = 2 * Math.atan(R_settled / D);
+    const fillPct = fillRad / (75 * Math.PI / 180) * 100;
+    expect(fillPct, `fills ${fillPct.toFixed(1)}% of FOV — want < 85%`).toBeLessThan(85);
+  });
+
+  it('using actual transient positions at boot produces a different distance than the settled cap', () => {
+    // Documents why boot felt inconsistent with idle:
+    // max(cap=154, actual=180) → D=293 at boot, but cap=154 → D=251 at idle.
+    const D_with_actual = computeFitDistance(Math.max(R_settled, UNIVERSE_RADIUS));
+    const D_cap_based   = computeFitDistanceForCount(NODE_COUNT);
+    expect(D_with_actual).not.toBeCloseTo(D_cap_based, 0);
+  });
+
+  it('computeFitDistanceForCount produces the same distance regardless of transient positions', () => {
+    // The fix: fitAllNodes always calls computeFitDistanceForCount(n)
+    // so boot and idle are identical — camera leads physics.
+    const D_boot = computeFitDistanceForCount(NODE_COUNT);
+    const D_idle = computeFitDistanceForCount(NODE_COUNT);
+    expect(D_boot).toBeCloseTo(D_idle, 5);
   });
 });

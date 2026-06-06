@@ -4,3 +4,4 @@ agent_e2e/node_modules/
 web/static/graph/node_modules/
 web/static/graph/package-lock.json
 !web/static/graph/vendor/
+web/static/graph/test-results/

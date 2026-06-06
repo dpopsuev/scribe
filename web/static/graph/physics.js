@@ -64,6 +64,33 @@ export function forcesForDist(dist, minDist = ZOOM_MIN_DIST, maxDist = ZOOM_MAX_
   };
 }
 
+// ── Camera fit distance ───────────────────────────────────────────────────
+
+/**
+ * Camera distance required to show a cluster of radius R inside the FOV
+ * with the given padding factor.
+ *
+ * Derived from: fill = 2·atan(R/D) / FOV
+ * Rearranged:   D = R / tan(FOV/2) · padding
+ *
+ * @param {number} R          cluster bounding radius (world units)
+ * @param {number} fovDeg     camera vertical FOV in degrees
+ * @param {number} padding    breathing-room multiplier (1.0 = exactly fits)
+ */
+export function computeFitDistance(R, fovDeg = 75, padding = 1.25) {
+  const halfFovRad = fovDeg / 2 * Math.PI / 180;
+  return (R / Math.tan(halfFovRad)) * padding;
+}
+
+/**
+ * Camera distance using clusterMaxRadius(n) as the reference — not actual
+ * node positions. Ensures boot and idle produce the same camera placement
+ * regardless of transient physics state.
+ */
+export function computeFitDistanceForCount(n, fovDeg = 75, padding = 1.25) {
+  return computeFitDistance(clusterMaxRadius(n), fovDeg, padding);
+}
+
 // ── Cluster radius cap ────────────────────────────────────────────────────
 
 const BASE_CLUSTER_RADIUS = 80; // world units at 10 nodes
