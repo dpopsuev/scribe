@@ -2,13 +2,11 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    // palette, physics, glow, api: no DOM needed
-    // ui: needs DOM (document.createElement)
     environmentMatchGlobs: [
-      ['ui.test.js', 'jsdom'],
+      ['ui.test.js',   'jsdom'],
+      ['perf.test.js', 'jsdom'],  // canvas cache tests need document
     ],
     environment: 'node',
-    // Playwright spec files are not Vitest tests
     exclude: ['**/*.spec.ts', 'node_modules/**'],
   },
 });
