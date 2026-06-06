@@ -64,6 +64,45 @@ export function forcesForDist(dist, minDist = ZOOM_MIN_DIST, maxDist = ZOOM_MAX_
   };
 }
 
+// ── Cluster radius cap ────────────────────────────────────────────────────
+
+const BASE_CLUSTER_RADIUS = 80; // world units at 10 nodes
+
+/**
+ * Maximum cluster radius for n nodes — logarithmic so more nodes get
+ * slightly more room without the cluster growing linearly:
+ *   n=10  → 80   (baseline)
+ *   n=100 → 160  (10× nodes → 2× radius)
+ *   n=1000→ 240  (100× nodes → 3× radius)
+ */
+export function clusterMaxRadius(n) {
+  return BASE_CLUSTER_RADIUS * Math.max(1, Math.log10(Math.max(n, 10) / 10) + 1);
+}
+
+/**
+ * Soft radius cap: pulls nodes toward origin only when they exceed maxRadius.
+ * Inside the cap: zero force. Outside: restoring force proportional to excess.
+ * Prevents repulsion from scattering nodes indefinitely.
+ */
+export function forceRadiusCap(maxRadius, strength = 0.15) {
+  let cap   = maxRadius;
+  let nodes = [];
+  function force(alpha) {
+    for (const n of nodes) {
+      const x = n.x || 0, y = n.y || 0, z = n.z || 0;
+      const r = Math.hypot(x, y, z);
+      if (r <= cap) continue;
+      const k = strength * alpha * (r - cap) / r;
+      n.vx = (n.vx || 0) - x * k;
+      n.vy = (n.vy || 0) - y * k;
+      n.vz = (n.vz || 0) - z * k;
+    }
+  }
+  force.initialize  = ns  => { nodes = ns; };
+  force.setMaxRadius = r  => { cap   = r; };
+  return force;
+}
+
 export function forceSelfGravity(initialG = 0.15, softening = 30, massKey = 'val') {
   let G = initialG;
   let nodes;

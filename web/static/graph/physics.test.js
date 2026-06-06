@@ -10,6 +10,8 @@ import {
   scaleNodesByDistance,
   forceSelfGravity,
   forcesForDist,
+  clusterMaxRadius,
+  forceRadiusCap,
 } from './physics.js';
 
 // ── fibonacciSphere ───────────────────────────────────────────────────────────
@@ -417,5 +419,84 @@ describe('forcesForDist — dead zone', () => {
   it('threshold=0 means every call returns params', () => {
     expect(forcesForDist(601, 150, 3000, 0)).not.toBeNull();
     expect(forcesForDist(600, 150, 3000, 0)).not.toBeNull();
+  });
+});
+
+describe('clusterMaxRadius', () => {
+  it('10 nodes → base radius', () => {
+    expect(clusterMaxRadius(10)).toBeCloseTo(80, 0);
+  });
+
+  it('100 nodes (10× more) → 2× radius', () => {
+    expect(clusterMaxRadius(100)).toBeCloseTo(160, 0);
+  });
+
+  it('1000 nodes (100× more) → 3× radius', () => {
+    expect(clusterMaxRadius(1000)).toBeCloseTo(240, 0);
+  });
+
+  it('85 nodes (production) → between 80 and 160', () => {
+    const r = clusterMaxRadius(85);
+    expect(r).toBeGreaterThan(80);
+    expect(r).toBeLessThan(160);
+  });
+
+  it('clamps at base for n < 10', () => {
+    expect(clusterMaxRadius(1)).toBeCloseTo(80, 0);
+    expect(clusterMaxRadius(5)).toBeCloseTo(80, 0);
+  });
+});
+
+describe('forceRadiusCap', () => {
+  function makeNode(x, y, z) {
+    return { x, y, z, vx: 0, vy: 0, vz: 0 };
+  }
+
+  it('applies no force to nodes inside the cap', () => {
+    const force = forceRadiusCap(200);
+    const node  = makeNode(100, 0, 0); // radius 100 < cap 200
+    force.initialize([node]);
+    force(1);
+    expect(node.vx).toBe(0);
+    expect(node.vy).toBe(0);
+    expect(node.vz).toBe(0);
+  });
+
+  it('pulls nodes outside the cap toward origin', () => {
+    const force = forceRadiusCap(100);
+    const node  = makeNode(200, 0, 0); // radius 200 > cap 100
+    force.initialize([node]);
+    force(1);
+    expect(node.vx).toBeLessThan(0); // pulled back toward origin
+  });
+
+  it('pull is proportional to excess beyond cap', () => {
+    const force = forceRadiusCap(100);
+    const small = makeNode(110, 0, 0); // 10 beyond cap
+    const large = makeNode(200, 0, 0); // 100 beyond cap
+    force.initialize([small]);
+    force(1);
+    const pullSmall = Math.abs(small.vx);
+    force.initialize([large]);
+    force(1);
+    const pullLarge = Math.abs(large.vx);
+    expect(pullLarge).toBeGreaterThan(pullSmall);
+  });
+
+  it('setMaxRadius updates cap in-place', () => {
+    const force = forceRadiusCap(50);
+    const node  = makeNode(80, 0, 0); // beyond 50, inside 200
+    force.initialize([node]);
+    force.setMaxRadius(200);
+    force(1);
+    expect(node.vx).toBe(0); // now inside new cap
+  });
+
+  it('alpha=0 applies no force', () => {
+    const force = forceRadiusCap(10);
+    const node  = makeNode(500, 0, 0);
+    force.initialize([node]);
+    force(0);
+    expect(node.vx).toBe(0);
   });
 });

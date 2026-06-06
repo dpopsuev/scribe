@@ -17,7 +17,9 @@ import { centerOfMass, parentNodes,
          placeInMiniSphere,
          equatorPriorityPositions,
          forceSelfGravity,
-         forcesForDist }                        from './physics.js';
+         forcesForDist,
+         clusterMaxRadius,
+         forceRadiusCap }                       from './physics.js';
 import { glowColor, glowConfig }               from './glow.js';
 import { fetchScopeGraph, fetchKindGraph,
          fetchArtifactGraph,
@@ -66,10 +68,10 @@ const DOUBLE_CLICK_MAX_MS  = 300;  // max gap between two clicks to count as dou
 const BG_RECENTER_ANIM_MS  = 600;  // camera re-centre animation duration on bg double-click
 
 // ── Idle orbit ─────────────────────────────────────────────────────────────
-// OrbitControls.autoRotate gives a lively ambient motion on boot and idle.
-// Disabled immediately on any user interaction; re-enabled after IDLE_MS quiet.
 const ORBIT_SPEED_DEG_PER_SEC  = 0.4;    // very slow — barely perceptible, non-distracting
-const IDLE_BEFORE_ORBIT_MS     = 4000;   // 4 s of no interaction → resume orbit
+const IDLE_ORBIT_MS            = 4000;   // 4 s idle → start spinning
+const IDLE_HOME_MS             = 20000;  // 20 s idle → reset to fit-all-nodes view + spin
+const FIT_ALL_PADDING          = 1.25;   // extra breathing room around the cluster edge
 
 
 const DEFAULT_STATUSES = 'active,draft,current,proposed,in_progress,in_review,fleeting';
@@ -86,7 +88,8 @@ let Graph = null;
 let currentG    = 0.12;
 let currentRep  = -80;
 let currentDmax = 180;
-let gravityForce = null; // created inside initGraph once forceSelfGravity is ready
+let gravityForce  = null; // created inside initGraph once forceSelfGravity is ready
+let capForce      = null; // forceRadiusCap — prevents unbounded scatter
 
 function mergedGraphData() {
   const nodes = [...state.macroData.nodes];
@@ -150,11 +153,15 @@ async function loadMacro() {
     state.scopeSpherePos.set(n.scope || n.name, positions[i]);
   });
 
-  // N-body physics: Plummer-softened gravity + short-range repulsion.
-  // gravityForce is the shared instance updated in-place by tickZoomAdaptor.
+  // N-body physics: gravity + repulsion + radius cap.
+  const maxR = clusterMaxRadius(sorted.length);
+  capForce.setMaxRadius(maxR);
+  log.info('loadMacro cap radius=%d for %d nodes', Math.round(maxR), sorted.length);
+
   Graph.d3Force('center',  null);
   Graph.d3Force('radial',  null);
   Graph.d3Force('gravity', gravityForce);
+  Graph.d3Force('cap',     capForce);
   Graph.d3Force('charge')?.strength?.(currentRep);
   Graph.d3Force('charge')?.distanceMax?.(currentDmax);
 
@@ -272,7 +279,8 @@ function removeMacroNode(nodeId) {
 }
 
 
-function aimAtCenterOfMass(animMs = 0) {
+// distOverride: when set by fitAllNodes(), uses FOV-computed distance instead of radius*mult.
+function aimAtCenterOfMass(animMs = 0, distOverride = null) {
   const controls = Graph.controls();
   if (!controls?.target) return;
 
@@ -285,7 +293,7 @@ function aimAtCenterOfMass(animMs = 0) {
     const d = Math.hypot((n.x||0)-com.x, (n.y||0)-com.y, (n.z||0)-com.z);
     if (d > radius) radius = d;
   }
-  const camDist = Math.min(radius * CAMERA_DIST_MULT, CAMERA_DIST_MAX);
+  const camDist = distOverride ?? Math.min(radius * CAMERA_DIST_MULT, CAMERA_DIST_MAX);
   const cam = controls.object.position;
   const dx = cam.x-com.x, dy = cam.y-com.y, dz = cam.z-com.z;
   const len = Math.hypot(dx, dy, dz) || 1;
@@ -555,10 +563,37 @@ export function initGraph(injectedDeps) {
   window.addEventListener('resize', () =>
     Graph.width(window.innerWidth).height(window.innerHeight));
 
+  // ── Fit all nodes ──────────────────────────────────────────────────────
+  // Positions camera so the entire node cluster fills the viewport.
+  // Uses the camera's actual FOV to compute exact distance — guarantees
+  // every node is visible with FIT_ALL_PADDING breathing room.
+  function fitAllNodes(animMs = 800) {
+    const nodes = Graph.graphData().nodes;
+    if (!nodes.length) return;
+    const cam  = Graph.camera();
+    const com  = centerOfMass(nodes);
+
+    // Use clusterMaxRadius as the bounding radius — it's the cap we enforce,
+    // so fitting to it guarantees all nodes are visible regardless of physics state.
+    const cap = clusterMaxRadius(nodes.length);
+    let maxR  = cap;
+    for (const n of nodes) {
+      const d = Math.hypot((n.x||0) - com.x, (n.y||0) - com.y, (n.z||0) - com.z);
+      if (d > maxR) maxR = d; // actual spread may still exceed cap during transient
+    }
+    const halfFovRad = cam.fov / 2 * Math.PI / 180;
+    const fitDist    = Math.min(
+      (maxR / Math.tan(halfFovRad)) * FIT_ALL_PADDING,
+      CAMERA_DIST_MAX,
+    );
+    aimAtCenterOfMass(animMs, fitDist);
+  }
+
   // ── Idle orbit ──────────────────────────────────────────────────────────
-  // Enable autoRotate on boot and after IDLE_BEFORE_ORBIT_MS of no interaction.
-  // Disabled immediately on pointer/wheel so user always has full control.
-  let orbitIdleTimer = null;
+  // Short idle  (IDLE_ORBIT_MS): start slow orbit spin.
+  // Long idle   (IDLE_HOME_MS):  return to fit-all-nodes view, then orbit.
+  let orbitTimer = null;
+  let homeTimer  = null;
 
   function enableOrbit() {
     const ctrl = Graph.controls();
@@ -567,30 +602,42 @@ export function initGraph(injectedDeps) {
     ctrl.autoRotateSpeed = ORBIT_SPEED_DEG_PER_SEC;
   }
 
-  function pauseOrbit() {
+  function goHome() {
+    fitAllNodes(1200);   // smooth 1.2 s camera fly-back
+    enableOrbit();
+  }
+
+  function resetIdleTimers() {
+    clearTimeout(orbitTimer);
+    clearTimeout(homeTimer);
+    orbitTimer = setTimeout(enableOrbit, IDLE_ORBIT_MS);
+    homeTimer  = setTimeout(goHome,      IDLE_HOME_MS);
+  }
+
+  function onInteraction() {
     const ctrl = Graph.controls();
     if (ctrl) ctrl.autoRotate = false;
-    clearTimeout(orbitIdleTimer);
-    orbitIdleTimer = setTimeout(enableOrbit, IDLE_BEFORE_ORBIT_MS);
+    resetIdleTimers();
   }
 
   const graphRoot = document.getElementById('graph-root');
   if (graphRoot) {
-    graphRoot.addEventListener('pointerdown', pauseOrbit);
-    graphRoot.addEventListener('wheel',       pauseOrbit, { passive: true });
+    graphRoot.addEventListener('pointerdown', onInteraction);
+    graphRoot.addEventListener('wheel',       onInteraction, { passive: true });
   }
 
-  // Start orbit after physics warmup completes (warmupTicks is synchronous,
-  // but we give the first render a tick to settle visually).
-  setTimeout(enableOrbit, 500);
+  // On boot: fit all nodes first (camera already positioned by aimAtCenterOfMass,
+  // but recalculate with exact FOV), then start idle timers.
+  setTimeout(() => { fitAllNodes(0); resetIdleTimers(); }, 600);
 
   // ── Per-frame adaptive systems ────────────────────────────────────────────
   let smoothDist = null;
   let frameCount = 0;
   let lastForceDist = null;
 
-  // gravityForce/currentG/Rep/Dmax are module-level — initialise the force now.
+  // gravityForce/currentG/Rep/Dmax are module-level — initialise forces now.
   gravityForce = forceSelfGravity(currentG, 40, 'val');
+  capForce     = forceRadiusCap(UNIVERSE_RADIUS); // placeholder radius; loadMacro sets real value
 
   // ── Zoom adaptor (SRP: only touches forces) ───────────────────────────────
   // Runs every frame. Smooths camera distance (EMA), lerps current force
