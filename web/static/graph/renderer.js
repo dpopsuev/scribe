@@ -15,7 +15,7 @@
 import { KIND_HUES, buildPalette } from './palette.js';
 
 // ── Node appearance ────────────────────────────────────────────────────────
-const SPHERE_SCALE         = 6;    // ForceGraph3D nodeRelSize — world radius = cbrt(nodeVal) × this
+export const SPHERE_SCALE  = 6;    // ForceGraph3D nodeRelSize — world radius = cbrt(nodeVal) × this
 const NODE_OPACITY         = 0.95; // slight transparency improves depth perception
 const SPHERE_SEGMENTS      = 12;   // longitude/latitude divisions — 8 blocky, 16 smooth
 const ARROW_HEAD_SIZE      = 4;    // world units — depends_on arrow head length

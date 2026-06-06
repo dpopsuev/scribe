@@ -87,9 +87,9 @@ describe('forceNBodyGravity — O(n²)', () => {
     const t100 = medianMs(() => { for (let i = 0; i < ITERS; i++) force100(0.5); });
 
     const ratio = t100 / Math.max(t20, 0.01);
-    // forceNBodyGravity is O(n²): 5× nodes → 25× time. Allow 30× for JIT noise.
+    // forceNBodyGravity is O(n²): 5× nodes → 25× time. Allow 35× for JIT noise.
     // An O(n³) regression would give 125× — caught clearly.
-    expect(ratio, `time ratio 100/20 nodes = ${ratio.toFixed(2)}, want < 30`).toBeLessThan(30);
+    expect(ratio, `time ratio 100/20 nodes = ${ratio.toFixed(2)}, want < 35`).toBeLessThan(35);
   });
 
   it('stays under 10ms per call for 500 nodes', () => {

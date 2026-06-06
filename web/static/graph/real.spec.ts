@@ -178,17 +178,22 @@ test.describe('real server — current /graph', () => {
       const tgt  = ctrl.target;
       const distFromCoM = Math.hypot(cam.x-tgt.x, cam.y-tgt.y, cam.z-tgt.z);
       const n    = g.graphData().nodes.length;
-      // Mirror graph.js: nodeVisualVolume + clusterRadiusFromVolume + computeFitDistance.
+      // Mirror graph.js computeMaxZoomOut exactly.
       const NODE_VAL_MIN    = 2, NODE_VAL_MAX = 40;
       const VOLUME_BASE     = 21.5;
-      const FIT_ALL_PADDING = 1.8;
-      const fov = g.camera().fov;
-      const totalVol = g.graphData().nodes.reduce((s: number, nd: any) =>
-        s + Math.max(NODE_VAL_MIN, Math.min(NODE_VAL_MAX, Math.cbrt(nd.val || 1) * 2)), 0);
-      const radius  = VOLUME_BASE * Math.cbrt(Math.max(1, totalVol));
-      const fitDist = radius / Math.tan(fov / 2 * Math.PI / 180) * FIT_ALL_PADDING;
-      // ctrl.maxDistance IS fitDist — no separate static cap.
-      const expected = fitDist;
+      const SPHERE_SCALE    = 6;
+      const MIN_GAP         = 8;
+      const nodes = g.graphData().nodes;
+      const nv = (nd: any) => Math.max(NODE_VAL_MIN, Math.min(NODE_VAL_MAX, Math.cbrt(nd.val || 1) * 2));
+      const totalVol  = nodes.reduce((s: number, nd: any) => s + nv(nd), 0);
+      const capR      = VOLUME_BASE * Math.cbrt(Math.max(1, totalVol));
+      const nodeR     = nodes.reduce((max: number, nd: any) => Math.max(max, Math.cbrt(nv(nd)) * SPHERE_SCALE), 0);
+      const boundR    = capR + nodeR + MIN_GAP;
+      const camera    = g.camera();
+      const fovVRad   = camera.fov * Math.PI / 180;
+      const fovHRad   = 2 * Math.atan(Math.tan(fovVRad / 2) * (camera.aspect || 1));
+      const fovEff    = Math.min(fovVRad, fovHRad);
+      const expected  = boundR / Math.tan(fovEff / 2);
       return { distFromCoM: Math.round(distFromCoM), expected: Math.round(expected), n };
     });
     console.log(`  boot camDistFromCoM=${result.distFromCoM} expected=${result.expected} n=${result.n}`);

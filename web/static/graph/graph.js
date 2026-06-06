@@ -21,7 +21,6 @@ import { centerOfMass, parentNodes,
          clusterMaxRadius,
          clusterRadiusFromVolume,
          forceRadiusCap,
-         computeFitDistance,
          ZOOM_MIN_DIST,
          ZOOM_MAX_DIST }                         from './physics.js';
 import { glowColor, glowConfig }               from './glow.js';
@@ -31,7 +30,7 @@ import { fetchScopeGraph, fetchKindGraph,
 import { setModeBadge, depthFromExpanded, setStats,
          renderExpandedTags, openSidebar, closeSidebar,
          showContextMenu }                       from './ui.js';
-import { KindColorRenderer, NODE_SIZE_MIN, NODE_SIZE_MAX } from './renderer.js';
+import { KindColorRenderer, NODE_SIZE_MIN, NODE_SIZE_MAX, SPHERE_SCALE } from './renderer.js';
 import { createLogger }                        from './logger.js';
 import { createGraphState }                    from './graph-state.js';
 
@@ -53,8 +52,18 @@ const ORBIT_PIVOT_DRIFT_RATE = 0.015; // slow drift keeps the orbit pivot stable
 const FORCE_ADAPT_RATE    = 0.06;  // fraction of force gap closed per frame (~0.8 s to settle)
 const FORCE_DEAD_ZONE     = 0.05;  // camera must move >5% before forces re-tune
 const CAMERA_PULLBACK_MULT = 2.0;  // fallback: camera placed at cluster_radius × this
-const CAMERA_DIST_MAX      = UNIVERSE_RADIUS * 3; // fallback cap when no fit distance known
+const CAMERA_DIST_MAX      = UNIVERSE_RADIUS * 3; // fallback cap before data is loaded
 const CAMERA_MIN_DIST      = 10;   // prevents camera passing through node spheres
+
+// ── Viewport-aware zoom-out boundary ──────────────────────────────────────
+// The maximum zoom-out distance is not a constant — it depends on:
+//   1. Cluster bounding radius (from node volume)
+//   2. Largest node sphere radius (surface extends past the cluster centre)
+//   3. Minimum gap between the outermost surface and the frustum edge
+//   4. Viewport aspect ratio (portrait vs landscape changes the constraining FOV)
+// computeMaxZoomOut() recomputes all four factors on every call.
+const MIN_NODE_SCREEN_GAP  = 8;    // world units of breathing room inside the frustum edge
+const FALLBACK_COMFORT     = 1.05; // padding used when viewport dimensions are unavailable
 
 // ── Force initial state ────────────────────────────────────────────────────
 const GRAVITY_INIT         = 0.12;  // starting gravity strength (mid-range zoom)
@@ -92,7 +101,6 @@ const ORBIT_CRUISE_SPEED   = 0.4;   // deg/s at cruise — slow enough to feel c
 const ORBIT_RAMP_RATE      = 0.025; // fraction of speed gap closed per frame (~2 s to full speed)
 const IDLE_ORBIT_MS        = 4000;  // idle before spin begins
 const IDLE_HOME_MS         = 20000; // idle before camera flies home
-const FIT_ALL_PADDING      = 1.8;   // cluster fills ~58% of FOV — comfortable breathing room
 
 // ── Physics settle delay ───────────────────────────────────────────────────
 const PHYSICS_SETTLE_MS    = 3000;  // wait this long after data load before re-aiming camera
@@ -110,6 +118,37 @@ function nodeVisualVolume(node) {
 // Sum of nodeVisualVolume across all nodes — the shared input for radius and camera distance.
 function totalNodeVolume(nodes) {
   return nodes.reduce((s, n) => s + nodeVisualVolume(n), 0);
+}
+
+// World-space radius of the largest rendered sphere.
+// ForceGraph3D: sphere_world_radius = cbrt(nodeVal) * nodeRelSize (= SPHERE_SCALE).
+function maxNodeWorldRadius(nodes) {
+  return nodes.reduce((max, n) => Math.max(max, Math.cbrt(nodeVisualVolume(n)) * SPHERE_SCALE), 0);
+}
+
+/**
+ * Camera distance that guarantees every node surface is inside the frustum,
+ * accounting for viewport aspect ratio.
+ *
+ * Bounding radius = cluster_cap_radius + largest_node_sphere + gap
+ * Constraining FOV = min(vertical, horizontal) — whichever dimension is narrower.
+ * D = boundingRadius / tan(fovEff / 2)
+ *
+ * @param {Array}  nodes   — current graph nodes
+ * @param {object} camera  — Three.js PerspectiveCamera (camera.fov, camera.aspect)
+ */
+function computeMaxZoomOut(nodes, camera) {
+  const vol      = totalNodeVolume(nodes);
+  const capR     = clusterRadiusFromVolume(vol);
+  const nodeR    = maxNodeWorldRadius(nodes);
+  const boundR   = capR + nodeR + MIN_NODE_SCREEN_GAP;
+
+  const fovVRad  = camera.fov * Math.PI / 180;
+  const aspect   = camera.aspect || FALLBACK_COMFORT;
+  const fovHRad  = 2 * Math.atan(Math.tan(fovVRad / 2) * aspect);
+  const fovEff   = Math.min(fovVRad, fovHRad);
+
+  return boundR / Math.tan(fovEff / 2);
 }
 
 let state = null;   // createGraphState() — one per initGraph call
@@ -612,9 +651,13 @@ export function initGraph(injectedDeps) {
   ctrl.maxDistance  = CAMERA_DIST_MAX; // overwritten by fitAllNodes once data is loaded
   ctrl.enableZoom   = false;           // zoom handled manually for momentum effect
 
-  // Resize handler.
-  window.addEventListener('resize', () =>
-    Graph.width(window.innerWidth).height(window.innerHeight));
+  // Resize handler — update graph dimensions and recompute maxDistance.
+  // maxDistance depends on viewport aspect ratio, so it changes on resize.
+  window.addEventListener('resize', () => {
+    Graph.width(window.innerWidth).height(window.innerHeight);
+    const nodes = Graph.graphData().nodes;
+    if (nodes.length) Graph.controls().maxDistance = computeMaxZoomOut(nodes, Graph.camera());
+  });
 
   // ── Fit all nodes ──────────────────────────────────────────────────────
   // Positions camera so the entire node cluster fills the viewport.
@@ -623,12 +666,7 @@ export function initGraph(injectedDeps) {
   function fitAllNodes(animMs = 800) {
     const nodes = Graph.graphData().nodes;
     if (!nodes.length) return;
-    // Cluster radius and camera distance both derive from total node visual volume —
-    // same formula as the renderer, same formula as the force cap in loadMacro.
-    // No static distance cap: ctrl.maxDistance becomes the zoom-out boundary instead.
-    const vol     = totalNodeVolume(nodes);
-    const radius  = clusterRadiusFromVolume(vol);
-    const fitDist = computeFitDistance(radius, Graph.camera().fov, FIT_ALL_PADDING);
+    const fitDist = computeMaxZoomOut(nodes, Graph.camera());
     Graph.controls().maxDistance = fitDist;
     aimAtCenterOfMass(animMs, fitDist);
   }
