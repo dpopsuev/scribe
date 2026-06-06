@@ -70,9 +70,15 @@ let state = null;   // createGraphState() — one per initGraph call
 let deps  = {};     // injected CDN globals
 let palette = null; // built from culori + GRAPH_BG
 let renderer = null;
-
 let Graph = null;
 
+// Zoom-adaptive force state — module-level so loadMacro() can reference them.
+// loadMacro is a module-scope async function; variables declared inside
+// initGraph() are not in its closure scope.
+let currentG    = 0.12;
+let currentRep  = -80;
+let currentDmax = 180;
+let gravityForce = null; // created inside initGraph once forceSelfGravity is ready
 
 function mergedGraphData() {
   const nodes = [...state.macroData.nodes];
@@ -514,7 +520,6 @@ export function initGraph(injectedDeps) {
     .linkDirectionalParticleWidth(1.5)
     .linkCurvature(l => l.relation === 'depends_on' ? 0.15 : 0)
     .d3VelocityDecay(0.3)
-    .d3AlphaTarget(0.05)  // keeps physics warm so force changes produce smooth drift
     .warmupTicks(300)
     .cooldownTime(Infinity)
     .onNodeClick(onNodeClickWithDbl)
@@ -545,15 +550,10 @@ export function initGraph(injectedDeps) {
   // ── Per-frame adaptive systems ────────────────────────────────────────────
   let smoothDist = null;
   let frameCount = 0;
-
-  // Lerp state — current force parameters, animated toward desired each frame.
-  let currentG    = 0.12;
-  let currentRep  = -80;
-  let currentDmax = 180;
-  // Last distance at which forces were actually updated (for dead-zone check).
   let lastForceDist = null;
-  // Single gravity force object — updated in-place via setG(), no re-registration.
-  const gravityForce = forceSelfGravity(currentG, 40, 'val');
+
+  // gravityForce/currentG/Rep/Dmax are module-level — initialise the force now.
+  gravityForce = forceSelfGravity(currentG, 40, 'val');
 
   // ── Zoom adaptor (SRP: only touches forces) ───────────────────────────────
   // Runs every frame. Smooths camera distance (EMA), lerps current force
