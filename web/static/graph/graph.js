@@ -62,7 +62,7 @@ const CAMERA_MIN_DIST      = 10;     // world units — prevents camera entering
 // Wheel events accumulate a velocity; each frame applies and decays it.
 // This gives a "coast-to-stop" feel with gradual acceleration and deceleration.
 const ZOOM_TICK_IMPULSE    = 0.05;   // log-space velocity added per wheel tick
-const ZOOM_DECAY           = 0.84;   // velocity × this per frame → ~95% gone in ~18 frames (~300ms)
+const ZOOM_DECAY           = 0.88;   // velocity × this per frame → ~95% gone in ~24 frames (~400ms)
 
 // ── Node visual volume ─────────────────────────────────────────────────────
 // Must match renderer.js nodeVal formula exactly so cluster radius and camera
@@ -80,12 +80,17 @@ const LABEL_FADE_END_DIST         = 900;  // world units — fully transparent b
 const FRAME_BUDGET_MS      = 8;    // our JS budget per frame — leaves headroom for Three.js + browser
 
 // ── Interaction timing ─────────────────────────────────────────────────────
-const DOUBLE_CLICK_MAX_MS  = 300;  // max gap between two clicks to count as double-click
-const BG_RECENTER_ANIM_MS  = 600;  // camera re-centre animation duration on bg double-click
+const DOUBLE_CLICK_MAX_MS  = 300;   // max gap between two clicks to count as double-click
+const BG_RECENTER_ANIM_MS  = 1000;  // camera re-centre animation on bg double-click
+const SETTLE_ANIM_MS       = 1800;  // camera re-aim after physics settle (was 800 — too abrupt)
+const HOME_ANIM_MS         = 2500;  // camera fly-home on idle (was 1200 — too abrupt)
 
 // ── Idle orbit ─────────────────────────────────────────────────────────────
-const ORBIT_SPEED_DEG_PER_SEC  = 0.4;    // very slow — barely perceptible, non-distracting
-const IDLE_ORBIT_MS            = 4000;   // 4 s idle → start spinning
+// Speed is lerped toward the target each frame (flywheel ramp) rather than snapping
+// on/off. ORBIT_LERP ≈ 0.025 → ~95% of target speed in ~120 frames (~2 s at 60 fps).
+const ORBIT_SPEED_DEG_PER_SEC  = 0.4;    // cruise speed — barely perceptible, non-distracting
+const ORBIT_LERP               = 0.025;  // acceleration/deceleration rate per frame
+const IDLE_ORBIT_MS            = 4000;   // 4 s idle → begin spin ramp-up
 const IDLE_HOME_MS             = 20000;  // 20 s idle → reset to fit-all-nodes view + spin
 const FIT_ALL_PADDING          = 1.8;    // cluster fills ~58% of FOV — comfortable breathing room
 
@@ -210,10 +215,10 @@ async function loadMacro() {
   // fitAllNodesFn is set by initGraph; null-guard for the case loadMacro races before init.
   if (fitAllNodesFn) {
     fitAllNodesFn(0);
-    setTimeout(() => fitAllNodesFn(800), 3000);
+    setTimeout(() => fitAllNodesFn(SETTLE_ANIM_MS), 3000);
   } else {
     aimAtCenterOfMass(0);
-    setTimeout(() => aimAtCenterOfMass(800), 3000);
+    setTimeout(() => aimAtCenterOfMass(SETTLE_ANIM_MS), 3000);
   }
   if (enableOrbitFn) enableOrbitFn();
 }
@@ -350,7 +355,9 @@ function aimAtCenterOfMass(animMs = 0, distOverride = null) {
   const startPos = { x: cam.x, y: cam.y, z: cam.z };
   const startTgt = { x: controls.target.x, y: controls.target.y, z: controls.target.z };
   const t0 = performance.now();
-  const ease = t => t < 0.5 ? 2*t*t : -1+(4-2*t)*t;
+  // easeInOutSine: (1-cos(πt))/2 — C∞ sinusoidal curve, natural like a pendulum or wave.
+  // Smoothest standard ease: no discontinuity in any derivative at t=0 or t=1.
+  const ease = t => (1 - Math.cos(Math.PI * t)) / 2;
   const lerp = (a, b, t) => a + (b-a)*t;
   (function tick() {
     const t = ease(Math.min((performance.now()-t0)/animMs, 1));
@@ -621,20 +628,20 @@ export function initGraph(injectedDeps) {
   enableOrbitFn  = enableOrbit;
 
   // ── Idle orbit ──────────────────────────────────────────────────────────
-  // Short idle  (IDLE_ORBIT_MS): start slow orbit spin.
-  // Long idle   (IDLE_HOME_MS):  return to fit-all-nodes view, then orbit.
-  let orbitTimer = null;
-  let homeTimer  = null;
+  // Short idle  (IDLE_ORBIT_MS): begin ramp-up toward cruise speed.
+  // Long idle   (IDLE_HOME_MS):  return to fit-all-nodes view, continue orbit.
+  // Speed is lerped each frame (tickOrbitRamp) — never snaps on or off.
+  let orbitTimer    = null;
+  let homeTimer     = null;
+  let orbitTarget   = 0;                   // deg/s — what we're ramping toward
+  let orbitCurrent  = 0;                   // deg/s — actual speed this frame
 
   function enableOrbit() {
-    const ctrl = Graph.controls();
-    if (!ctrl) return;
-    ctrl.autoRotate      = true;
-    ctrl.autoRotateSpeed = ORBIT_SPEED_DEG_PER_SEC;
+    orbitTarget = ORBIT_SPEED_DEG_PER_SEC; // ramp starts in tickOrbitRamp
   }
 
   function goHome() {
-    fitAllNodes(1200);   // smooth 1.2 s camera fly-back
+    fitAllNodes(HOME_ANIM_MS);
     enableOrbit();
   }
 
@@ -646,8 +653,7 @@ export function initGraph(injectedDeps) {
   }
 
   function onInteraction() {
-    const ctrl = Graph.controls();
-    if (ctrl) ctrl.autoRotate = false;
+    orbitTarget = 0; // ramp-down starts in tickOrbitRamp
     resetIdleTimers();
   }
 
@@ -731,6 +737,22 @@ export function initGraph(injectedDeps) {
     }
   }
 
+  // ── Orbit speed ramp ──────────────────────────────────────────────────────
+  // Lerps orbitCurrent toward orbitTarget each frame (ORBIT_LERP ≈ 0.025 → ~2 s ramp).
+  // Keeps ctrl.autoRotate true while spinning so OrbitControls applies the rotation.
+  function tickOrbitRamp() {
+    orbitCurrent += (orbitTarget - orbitCurrent) * ORBIT_LERP;
+    const ctrl = Graph.controls();
+    if (!ctrl) return;
+    if (Math.abs(orbitCurrent) < 0.0005) {
+      orbitCurrent = 0;
+      ctrl.autoRotate = false;
+    } else {
+      ctrl.autoRotate      = true;
+      ctrl.autoRotateSpeed = orbitCurrent;
+    }
+  }
+
   // ── Zoom momentum ─────────────────────────────────────────────────────────
   // Each frame: move camera along current view ray by the accumulated velocity
   // (log-space, so zoom is multiplicative), then decay the velocity.
@@ -796,6 +818,9 @@ export function initGraph(injectedDeps) {
     if (!Graph) return;
     const t0 = performance.now();
     frameCount++;
+
+    // Orbit ramp runs every frame — lerps autoRotateSpeed toward target (flywheel feel).
+    tickOrbitRamp();
 
     // Zoom momentum runs every frame — moves camera along view ray, decays velocity.
     tickZoomMomentum();
