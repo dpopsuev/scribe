@@ -49,6 +49,8 @@ const VIRTUAL_CENTER_LERP  = 0.015;
 // ── Zoom-adaptive clustering ───────────────────────────────────────────────
 const ZOOM_LERP_PER_FRAME  = 0.06;   // 6%/frame → 95% of target in ~50 frames (~0.8s)
 const ZOOM_DEAD_ZONE       = 0.05;   // ignore zoom changes < 5% (prevents micro-jitter)
+const CAMERA_DIST_MULT     = 2.0;    // camera distance = cluster_radius × this; 3.5 was too far
+const CAMERA_DIST_MAX      = UNIVERSE_RADIUS * 3; // world units — absolute cap
 
 // ── Label rendering ────────────────────────────────────────────────────────
 const LABEL_UPDATE_EVERY_N_FRAMES = 4;    // ~15fps updates — imperceptible at human refresh rate
@@ -62,6 +64,12 @@ const FRAME_BUDGET_MS      = 8;    // our JS budget per frame — leaves headroo
 // ── Interaction timing ─────────────────────────────────────────────────────
 const DOUBLE_CLICK_MAX_MS  = 300;  // max gap between two clicks to count as double-click
 const BG_RECENTER_ANIM_MS  = 600;  // camera re-centre animation duration on bg double-click
+
+// ── Idle orbit ─────────────────────────────────────────────────────────────
+// OrbitControls.autoRotate gives a lively ambient motion on boot and idle.
+// Disabled immediately on any user interaction; re-enabled after IDLE_MS quiet.
+const ORBIT_SPEED_DEG_PER_SEC  = 0.4;    // very slow — barely perceptible, non-distracting
+const IDLE_BEFORE_ORBIT_MS     = 4000;   // 4 s of no interaction → resume orbit
 
 
 const DEFAULT_STATUSES = 'active,draft,current,proposed,in_progress,in_review,fleeting';
@@ -277,7 +285,7 @@ function aimAtCenterOfMass(animMs = 0) {
     const d = Math.hypot((n.x||0)-com.x, (n.y||0)-com.y, (n.z||0)-com.z);
     if (d > radius) radius = d;
   }
-  const camDist = Math.min(radius * 3.5, UNIVERSE_RADIUS * 5);
+  const camDist = Math.min(radius * CAMERA_DIST_MULT, CAMERA_DIST_MAX);
   const cam = controls.object.position;
   const dx = cam.x-com.x, dy = cam.y-com.y, dz = cam.z-com.z;
   const len = Math.hypot(dx, dy, dz) || 1;
@@ -547,6 +555,35 @@ export function initGraph(injectedDeps) {
   window.addEventListener('resize', () =>
     Graph.width(window.innerWidth).height(window.innerHeight));
 
+  // ── Idle orbit ──────────────────────────────────────────────────────────
+  // Enable autoRotate on boot and after IDLE_BEFORE_ORBIT_MS of no interaction.
+  // Disabled immediately on pointer/wheel so user always has full control.
+  let orbitIdleTimer = null;
+
+  function enableOrbit() {
+    const ctrl = Graph.controls();
+    if (!ctrl) return;
+    ctrl.autoRotate      = true;
+    ctrl.autoRotateSpeed = ORBIT_SPEED_DEG_PER_SEC;
+  }
+
+  function pauseOrbit() {
+    const ctrl = Graph.controls();
+    if (ctrl) ctrl.autoRotate = false;
+    clearTimeout(orbitIdleTimer);
+    orbitIdleTimer = setTimeout(enableOrbit, IDLE_BEFORE_ORBIT_MS);
+  }
+
+  const graphRoot = document.getElementById('graph-root');
+  if (graphRoot) {
+    graphRoot.addEventListener('pointerdown', pauseOrbit);
+    graphRoot.addEventListener('wheel',       pauseOrbit, { passive: true });
+  }
+
+  // Start orbit after physics warmup completes (warmupTicks is synchronous,
+  // but we give the first render a tick to settle visually).
+  setTimeout(enableOrbit, 500);
+
   // ── Per-frame adaptive systems ────────────────────────────────────────────
   let smoothDist = null;
   let frameCount = 0;
@@ -588,6 +625,7 @@ export function initGraph(injectedDeps) {
     const targetRep  = desired ? desired.rep  : currentRep;
     const targetDmax = desired ? desired.dmax : currentDmax;
 
+    const prevG = currentG;
     currentG    += (targetG    - currentG)    * LERP;
     currentRep  += (targetRep  - currentRep)  * LERP;
     currentDmax += (targetDmax - currentDmax) * LERP;
@@ -596,6 +634,13 @@ export function initGraph(injectedDeps) {
     gravityForce.setG(currentG);
     Graph.d3Force('charge')?.strength?.(currentRep);
     Graph.d3Force('charge')?.distanceMax?.(currentDmax);
+
+    // Physics must be running for force changes to move nodes.
+    // Without d3AlphaTarget (not in 3d-force-graph 1.80.0), reheat when
+    // G changes meaningfully so nodes drift to the new equilibrium.
+    if (Math.abs(currentG - prevG) > 0.005) {
+      Graph.d3ReheatSimulation();
+    }
   }
 
   // ── Label manager — lazy, throttled, threshold-gated ─────────────────────
