@@ -22,7 +22,9 @@ import { centerOfMass, parentNodes,
          clusterRadiusFromVolume,
          forceRadiusCap,
          computeFitDistance,
-         computeFitDistanceForCount }            from './physics.js';
+         computeFitDistanceForCount,
+         ZOOM_MIN_DIST,
+         ZOOM_MAX_DIST }                         from './physics.js';
 import { glowColor, glowConfig }               from './glow.js';
 import { fetchScopeGraph, fetchKindGraph,
          fetchArtifactGraph,
@@ -30,77 +32,80 @@ import { fetchScopeGraph, fetchKindGraph,
 import { setModeBadge, depthFromExpanded, setStats,
          renderExpandedTags, openSidebar, closeSidebar,
          showContextMenu }                       from './ui.js';
-import { KindColorRenderer }                   from './renderer.js';
+import { KindColorRenderer, NODE_SIZE_MIN, NODE_SIZE_MAX } from './renderer.js';
 import { createLogger }                        from './logger.js';
 import { createGraphState }                    from './graph-state.js';
 
 const log = createLogger('graph');
 
-const GRAPH_BG          = '#05050f';
-const UNIVERSE_RADIUS   = 180;   // world units — scope super-node sphere radius
-const MINI_KIND_R       = 55;    // world units — kind-group mini-sphere radius
-const MINI_ART_R        = 28;    // world units — artifact mini-sphere radius
+const GRAPH_BG             = '#05050f';
+const UNIVERSE_RADIUS      = 180;   // world units — scope sphere initial placement radius
+const KIND_SPHERE_RADIUS   = 55;    // world units — kind-group mini-sphere radius
+const ARTIFACT_SPHERE_RADIUS = 28;  // world units — artifact mini-sphere radius
 
-// ── Smoothing coefficients ─────────────────────────────────────────────────
-// All EMA (exponential moving average) coefficients follow the convention:
-//   smoothed = prev * (1 - α) + raw * α
-// Higher α = faster response, more jitter. Lower α = smoother, more lag.
+// ── Smoothing rates ────────────────────────────────────────────────────────
+// All smoothing uses: smoothed = prev * (1 - rate) + raw * rate
+// Higher rate = faster response, more jitter. Lower rate = smoother, more lag.
 
-// Camera distance EMA — 0.08 ≈ 12-frame lag at 60fps (~0.2s smoothing window)
-const CAM_DIST_EMA         = 0.08;
-// Virtual-center kite lerp — slow drift keeps orbit pivot stable
-const VIRTUAL_CENTER_LERP  = 0.015;
+const CAMERA_DIST_SMOOTHING  = 0.08;  // ~12-frame lag at 60 fps (~0.2 s window)
+const ORBIT_PIVOT_DRIFT_RATE = 0.015; // slow drift keeps the orbit pivot stable
 
-// ── Zoom-adaptive clustering ───────────────────────────────────────────────
-const ZOOM_LERP_PER_FRAME  = 0.06;   // 6%/frame → 95% of target in ~50 frames (~0.8s)
-const ZOOM_DEAD_ZONE       = 0.05;   // ignore zoom changes < 5% (prevents micro-jitter)
-const CAMERA_DIST_MULT     = 2.0;    // camera distance = cluster_radius × this; 3.5 was too far
-const CAMERA_DIST_MAX      = UNIVERSE_RADIUS * 3; // world units — fallback cap for aimAtCenterOfMass
-const CAMERA_MIN_DIST      = 10;     // world units — prevents camera entering node spheres
+// ── Force adaptation ───────────────────────────────────────────────────────
+const FORCE_ADAPT_RATE    = 0.06;  // fraction of force gap closed per frame (~0.8 s to settle)
+const FORCE_DEAD_ZONE     = 0.05;  // camera must move >5% before forces re-tune
+const CAMERA_PULLBACK_MULT = 2.0;  // fallback: camera placed at cluster_radius × this
+const CAMERA_DIST_MAX      = UNIVERSE_RADIUS * 3; // fallback cap when no fit distance known
+const CAMERA_MIN_DIST      = 10;   // prevents camera passing through node spheres
 
-// ── Zoom momentum ──────────────────────────────────────────────────────────
-// Wheel events accumulate a velocity; each frame applies and decays it.
-// This gives a "coast-to-stop" feel with gradual acceleration and deceleration.
-const ZOOM_TICK_IMPULSE    = 0.05;   // log-space velocity added per wheel tick
-const ZOOM_DECAY           = 0.88;   // velocity × this per frame → ~95% gone in ~24 frames (~400ms)
+// ── Force initial state ────────────────────────────────────────────────────
+const GRAVITY_INIT         = 0.12;  // starting gravity strength (mid-range zoom)
+const REPULSION_INIT       = -80;   // starting repulsion strength (mid-range zoom)
+const DMAX_INIT            = 180;   // starting repulsion reach in world units (mid-range zoom)
+const GRAVITY_SOFTENING    = 40;    // Plummer softening radius — prevents singularity at origin
+const GRAVITY_REHEAT_DELTA = 0.005; // minimum G change that warrants a physics reheat
 
-// ── Node visual volume ─────────────────────────────────────────────────────
-// Must match renderer.js nodeVal formula exactly so cluster radius and camera
-// distance are always derived from the same input as the rendered sphere size.
-const NODE_VAL_MIN = 2;   // matches renderer.js NODE_SIZE_MIN
-const NODE_VAL_MAX = 40;  // matches renderer.js NODE_SIZE_MAX
+// ── Scroll zoom momentum ───────────────────────────────────────────────────
+// Each scroll tick adds an impulse; the impulse coasts to zero each frame.
+const SCROLL_ZOOM_IMPULSE  = 0.05;  // log-space speed added per scroll tick
+const SCROLL_ZOOM_COAST    = 0.88;  // fraction of speed kept each frame (~400 ms to stop)
 
 // ── Label rendering ────────────────────────────────────────────────────────
-const LABEL_UPDATE_EVERY_N_FRAMES = 4;    // ~15fps updates — imperceptible at human refresh rate
+const LABEL_UPDATE_EVERY_N_FRAMES = 4;    // ~15 fps updates — imperceptible at human refresh rate
 const LABEL_OPACITY_EPSILON       = 0.02; // skip GPU write if opacity change < 2%
 const LABEL_FADE_START_DIST       = 300;  // world units — full opacity within this distance
 const LABEL_FADE_END_DIST         = 900;  // world units — fully transparent beyond this distance
 
 // ── Frame budget ───────────────────────────────────────────────────────────
-const FRAME_BUDGET_MS      = 8;    // our JS budget per frame — leaves headroom for Three.js + browser
+const FRAME_BUDGET_MS      = 8;    // JS budget per frame — headroom for Three.js + browser
 
 // ── Interaction timing ─────────────────────────────────────────────────────
 const DOUBLE_CLICK_MAX_MS  = 300;   // max gap between two clicks to count as double-click
-const BG_RECENTER_ANIM_MS  = 1000;  // camera re-centre animation on bg double-click
-const SETTLE_ANIM_MS       = 1800;  // camera re-aim after physics settle (was 800 — too abrupt)
-const HOME_ANIM_MS         = 2500;  // camera fly-home on idle (was 1200 — too abrupt)
+const RECENTER_ANIM_MS     = 1000;  // camera fly to centre on background double-click
+const SETTLE_ANIM_MS       = 1800;  // camera re-aim after physics settle
+const HOME_ANIM_MS         = 2500;  // camera fly-home on idle timeout
+
+// ── Link curves ────────────────────────────────────────────────────────────
+const DEPENDS_ON_CURVATURE = 0.15;  // arc bend for depends_on edges — shows direction clearly
 
 // ── Idle orbit ─────────────────────────────────────────────────────────────
-// Speed is lerped toward the target each frame (flywheel ramp) rather than snapping
-// on/off. ORBIT_LERP ≈ 0.025 → ~95% of target speed in ~120 frames (~2 s at 60 fps).
-const ORBIT_SPEED_DEG_PER_SEC  = 0.4;    // cruise speed — barely perceptible, non-distracting
-const ORBIT_LERP               = 0.025;  // acceleration/deceleration rate per frame
-const IDLE_ORBIT_MS            = 4000;   // 4 s idle → begin spin ramp-up
-const IDLE_HOME_MS             = 20000;  // 20 s idle → reset to fit-all-nodes view + spin
-const FIT_ALL_PADDING          = 1.8;    // cluster fills ~58% of FOV — comfortable breathing room
+// Speed ramps up/down each frame (flywheel feel) — never snaps on or off.
+const ORBIT_CRUISE_SPEED   = 0.4;   // deg/s at cruise — slow enough to feel calm
+const ORBIT_RAMP_RATE      = 0.025; // fraction of speed gap closed per frame (~2 s to full speed)
+const IDLE_ORBIT_MS        = 4000;  // idle before spin begins
+const IDLE_HOME_MS         = 20000; // idle before camera flies home
+const FIT_ALL_PADDING      = 1.8;   // cluster fills ~58% of FOV — comfortable breathing room
+
+// ── Physics settle delay ───────────────────────────────────────────────────
+const PHYSICS_SETTLE_MS    = 3000;  // wait this long after data load before re-aiming camera
 
 
 const DEFAULT_STATUSES = 'active,draft,current,proposed,in_progress,in_review,fleeting';
 
 // Computes the visual nodeVal for one node — identical to renderer.js nodeVal lambda.
 // Used to derive cluster radius and camera distance from actual node sizes, not just count.
+// NODE_SIZE_MIN / NODE_SIZE_MAX imported from renderer.js — single source of truth.
 function nodeVisualVolume(node) {
-  return Math.max(NODE_VAL_MIN, Math.min(NODE_VAL_MAX, Math.cbrt(node.val || 1) * 2));
+  return Math.max(NODE_SIZE_MIN, Math.min(NODE_SIZE_MAX, Math.cbrt(node.val || 1) * 2));
 }
 
 // Sum of nodeVisualVolume across all nodes — the shared input for radius and camera distance.
@@ -119,9 +124,9 @@ let enableOrbitFn  = null; // set by initGraph; called from loadMacro to start s
 // Zoom-adaptive force state — module-level so loadMacro() can reference them.
 // loadMacro is a module-scope async function; variables declared inside
 // initGraph() are not in its closure scope.
-let currentG    = 0.12;
-let currentRep  = -80;
-let currentDmax = 180;
+let currentG    = GRAVITY_INIT;
+let currentRep  = REPULSION_INIT;
+let currentDmax = DMAX_INIT;
 let gravityForce  = null; // created inside initGraph once forceSelfGravity is ready
 let capForce      = null; // forceRadiusCap — prevents unbounded scatter
 
@@ -215,10 +220,10 @@ async function loadMacro() {
   // fitAllNodesFn is set by initGraph; null-guard for the case loadMacro races before init.
   if (fitAllNodesFn) {
     fitAllNodesFn(0);
-    setTimeout(() => fitAllNodesFn(SETTLE_ANIM_MS), 3000);
+    setTimeout(() => fitAllNodesFn(SETTLE_ANIM_MS), PHYSICS_SETTLE_MS);
   } else {
     aimAtCenterOfMass(0);
-    setTimeout(() => aimAtCenterOfMass(SETTLE_ANIM_MS), 3000);
+    setTimeout(() => aimAtCenterOfMass(SETTLE_ANIM_MS), PHYSICS_SETTLE_MS);
   }
   if (enableOrbitFn) enableOrbitFn();
 }
@@ -241,13 +246,13 @@ async function expandScope(scopeName) {
   removeMacroNode('scope:' + scopeName);
 
   const anchor = state.scopeSpherePos.get(scopeName) || { x: 0, y: 0, z: 0 };
-  kindData.nodes = placeInMiniSphere(kindData.nodes, kindData.links, anchor, MINI_KIND_R);
+  kindData.nodes = placeInMiniSphere(kindData.nodes, kindData.links, anchor, KIND_SPHERE_RADIUS);
   for (const n of kindData.nodes) {
     state.scopeSpherePos.set('kind:' + scopeName + ':' + (n.group || n.kind), { x: n.x, y: n.y, z: n.z });
   }
 
   state.expandedScopes.set(scopeName, kindData);
-  createBubble(scopeName, MINI_KIND_R + 10);
+  createBubble(scopeName, KIND_SPHERE_RADIUS + 10);
   applyGraphData();
   updateModeBadge();
 }
@@ -281,10 +286,10 @@ async function expandKind(scopeName, kindName) {
   }
 
   const anchor = state.scopeSpherePos.get(kindNodeId) || state.scopeSpherePos.get(scopeName) || { x: 0, y: 0, z: 0 };
-  artData.nodes = placeInMiniSphere(artData.nodes, artData.links, anchor, MINI_ART_R);
+  artData.nodes = placeInMiniSphere(artData.nodes, artData.links, anchor, ARTIFACT_SPHERE_RADIUS);
 
   state.expandedKinds.set(key, artData);
-  createBubble('kind:' + key, MINI_ART_R + 10);
+  createBubble('kind:' + key, ARTIFACT_SPHERE_RADIUS + 10);
   applyGraphData();
   updateModeBadge();
 }
@@ -335,7 +340,7 @@ function aimAtCenterOfMass(animMs = 0, distOverride = null) {
     const d = Math.hypot((n.x||0)-com.x, (n.y||0)-com.y, (n.z||0)-com.z);
     if (d > radius) radius = d;
   }
-  const camDist = distOverride ?? Math.min(radius * CAMERA_DIST_MULT, CAMERA_DIST_MAX);
+  const camDist = distOverride ?? Math.min(radius * CAMERA_PULLBACK_MULT, CAMERA_DIST_MAX);
   const cam = controls.object.position;
   const dx = cam.x-com.x, dy = cam.y-com.y, dz = cam.z-com.z;
   const len = Math.hypot(dx, dy, dz) || 1;
@@ -468,9 +473,9 @@ function onTick() {
   }
   // Lerp state.virtualCenter toward weighted CoM — informational only, no camera side-effects.
   const com = centerOfMass(Graph.graphData().nodes);
-  state.virtualCenter.x += (com.x - state.virtualCenter.x) * VIRTUAL_CENTER_LERP;
-  state.virtualCenter.y += (com.y - state.virtualCenter.y) * VIRTUAL_CENTER_LERP;
-  state.virtualCenter.z += (com.z - state.virtualCenter.z) * VIRTUAL_CENTER_LERP;
+  state.virtualCenter.x += (com.x - state.virtualCenter.x) * ORBIT_PIVOT_DRIFT_RATE;
+  state.virtualCenter.y += (com.y - state.virtualCenter.y) * ORBIT_PIVOT_DRIFT_RATE;
+  state.virtualCenter.z += (com.z - state.virtualCenter.z) * ORBIT_PIVOT_DRIFT_RATE;
   tickGlows();
 }
 
@@ -578,7 +583,7 @@ export function initGraph(injectedDeps) {
     .linkDirectionalParticles(l => l.relation === 'depends_on' ? 2 : 0)
     .linkDirectionalParticleSpeed(0.004)
     .linkDirectionalParticleWidth(1.5)
-    .linkCurvature(l => l.relation === 'depends_on' ? 0.15 : 0)
+    .linkCurvature(l => l.relation === 'depends_on' ? DEPENDS_ON_CURVATURE : 0)
     .d3VelocityDecay(0.3)
     .warmupTicks(300)
     .cooldownTime(Infinity)
@@ -589,7 +594,7 @@ export function initGraph(injectedDeps) {
       return () => {
         closeSidebar(state.els.sidebar);
         const now = Date.now();
-        if (now - lastBgClick < DOUBLE_CLICK_MAX_MS) aimAtCenterOfMass(BG_RECENTER_ANIM_MS);
+        if (now - lastBgClick < DOUBLE_CLICK_MAX_MS) aimAtCenterOfMass(RECENTER_ANIM_MS);
         lastBgClick = now;
       };
     })())
@@ -637,7 +642,7 @@ export function initGraph(injectedDeps) {
   let orbitCurrent  = 0;                   // deg/s — actual speed this frame
 
   function enableOrbit() {
-    orbitTarget = ORBIT_SPEED_DEG_PER_SEC; // ramp starts in tickOrbitRamp
+    orbitTarget = ORBIT_CRUISE_SPEED; // ramp starts in tickOrbitRamp
   }
 
   function goHome() {
@@ -667,7 +672,7 @@ export function initGraph(injectedDeps) {
     // positive deltaY = scroll down = zoom out (increase distance).
     graphRoot.addEventListener('wheel', (e) => {
       e.preventDefault();
-      zoomVelocity += (e.deltaY > 0 ? 1 : -1) * ZOOM_TICK_IMPULSE;
+      zoomVelocity += (e.deltaY > 0 ? 1 : -1) * SCROLL_ZOOM_IMPULSE;
       onInteraction();
     }, { passive: false });
   }
@@ -683,7 +688,7 @@ export function initGraph(injectedDeps) {
   let lastForceDist = null;
 
   // gravityForce/currentG/Rep/Dmax are module-level — initialise forces now.
-  gravityForce = forceSelfGravity(currentG, 40, 'val');
+  gravityForce = forceSelfGravity(currentG, GRAVITY_SOFTENING, 'val');
   capForce     = forceRadiusCap(UNIVERSE_RADIUS); // placeholder radius; loadMacro sets real value
 
   // ── Zoom adaptor (SRP: only touches forces) ───────────────────────────────
@@ -693,8 +698,8 @@ export function initGraph(injectedDeps) {
   // Dead zone (sensitivity=0.05): if zoom changed < 5% from last applied
   // distance, forcesForDist returns null → lerp target stays unchanged.
   // This prevents micro-jitter from continuously nudging forces.
-  const LERP = ZOOM_LERP_PER_FRAME;
-  const SENSITIVITY = ZOOM_DEAD_ZONE;
+  const LERP = FORCE_ADAPT_RATE;
+  const SENSITIVITY = FORCE_DEAD_ZONE;
 
   function tickZoomAdaptor() {
     const cam  = Graph.camera();
@@ -708,10 +713,10 @@ export function initGraph(injectedDeps) {
     );
 
     // EMA smoothing — α=0.08 ≈ 12 frames lag, filters per-frame scroll jitter.
-    smoothDist = smoothDist == null ? rawDist : smoothDist * (1 - CAM_DIST_EMA) + rawDist * CAM_DIST_EMA;
+    smoothDist = smoothDist == null ? rawDist : smoothDist * (1 - CAMERA_DIST_SMOOTHING) + rawDist * CAMERA_DIST_SMOOTHING;
 
     // Compute desired state. Returns null if within dead zone (< 5% change).
-    const desired = forcesForDist(smoothDist, 150, 3000, SENSITIVITY, lastForceDist);
+    const desired = forcesForDist(smoothDist, ZOOM_MIN_DIST, ZOOM_MAX_DIST, SENSITIVITY, lastForceDist);
     if (desired !== null) lastForceDist = smoothDist;
 
     // Lerp current toward desired (or hold if in dead zone — target unchanged).
@@ -732,16 +737,16 @@ export function initGraph(injectedDeps) {
     // Physics must be running for force changes to move nodes.
     // Without d3AlphaTarget (not in 3d-force-graph 1.80.0), reheat when
     // G changes meaningfully so nodes drift to the new equilibrium.
-    if (Math.abs(currentG - prevG) > 0.005) {
+    if (Math.abs(currentG - prevG) > GRAVITY_REHEAT_DELTA) {
       Graph.d3ReheatSimulation();
     }
   }
 
   // ── Orbit speed ramp ──────────────────────────────────────────────────────
-  // Lerps orbitCurrent toward orbitTarget each frame (ORBIT_LERP ≈ 0.025 → ~2 s ramp).
+  // Ramps orbitCurrent toward orbitTarget each frame (~2 s to full speed at ORBIT_RAMP_RATE).
   // Keeps ctrl.autoRotate true while spinning so OrbitControls applies the rotation.
   function tickOrbitRamp() {
-    orbitCurrent += (orbitTarget - orbitCurrent) * ORBIT_LERP;
+    orbitCurrent += (orbitTarget - orbitCurrent) * ORBIT_RAMP_RATE;
     const ctrl = Graph.controls();
     if (!ctrl) return;
     if (Math.abs(orbitCurrent) < 0.0005) {
@@ -775,7 +780,7 @@ export function initGraph(injectedDeps) {
     );
     const f = newDist / dist;
     c.position.set(tgt.x + dx * f, tgt.y + dy * f, tgt.z + dz * f);
-    zoomVelocity *= ZOOM_DECAY;
+    zoomVelocity *= SCROLL_ZOOM_COAST;
   }
 
   // ── Label manager — lazy, throttled, threshold-gated ─────────────────────

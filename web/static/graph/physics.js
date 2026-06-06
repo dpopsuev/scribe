@@ -54,9 +54,17 @@ export function forcesForDist(dist, minDist = ZOOM_MIN_DIST, maxDist = ZOOM_MAX_
   ));
   // t=0 (zoomed in):  weak gravity + strong repulsion → loose/large cluster
   // t=1 (zoomed out): strong gravity + weak repulsion → tight/small cluster
-  const G    = 0.01 + 0.4  * t * t;
-  const rep  = -(250 - 220 * t * t);
-  const dmax = 600  - 550 * t;
+  // Gravity rises quadratically from floor to ceiling as camera zooms out.
+  // Repulsion and reach fall linearly, pulling nodes tighter at distance.
+  const GRAVITY_FLOOR     = 0.01;  // minimum gravity — nodes float when zoomed in
+  const GRAVITY_SWING     = 0.40;  // range above floor gravity covers (floor + swing = near GRAVITY_MAX)
+  const REPULSION_NEAR    = 250;   // repulsion magnitude when zoomed in (spread out)
+  const REPULSION_SWING   = 220;   // how much repulsion drops as camera zooms out
+  const DMAX_NEAR         = 600;   // repulsion reach when zoomed in
+  const DMAX_SWING        = 550;   // how much reach shrinks as camera zooms out
+  const G    = GRAVITY_FLOOR   + GRAVITY_SWING   * t * t;
+  const rep  = -(REPULSION_NEAR - REPULSION_SWING * t * t);
+  const dmax = DMAX_NEAR       - DMAX_SWING       * t;
   return {
     G:    Math.max(GRAVITY_MIN,   Math.min(GRAVITY_MAX,   G)),
     rep:  Math.max(REPULSION_MIN, Math.min(REPULSION_MAX, rep)),
@@ -101,7 +109,7 @@ export function computeFitDistanceForVolume(totalNodeVolume, fovDeg = 75, paddin
 
 // ── Cluster radius cap ────────────────────────────────────────────────────
 
-const BASE_CLUSTER_RADIUS = 80; // world units at 10 nodes
+const COUNT_RADIUS_SCALE = 80; // world units at baseline of 10 nodes
 
 /**
  * Maximum cluster radius for n nodes — logarithmic so more nodes get
@@ -111,12 +119,12 @@ const BASE_CLUSTER_RADIUS = 80; // world units at 10 nodes
  *   n=1000→ 240  (100× nodes → 3× radius)
  */
 export function clusterMaxRadius(n) {
-  return BASE_CLUSTER_RADIUS * Math.max(1, Math.log10(Math.max(n, 10) / 10) + 1);
+  return COUNT_RADIUS_SCALE * Math.max(1, Math.log10(Math.max(n, 10) / 10) + 1);
 }
 
 // Calibrated so that 87 nodes with avg nodeVal≈4.3 (val=10 each) gives radius≈155,
-// matching clusterMaxRadius(87) for continuity.
-const VOLUME_CLUSTER_BASE = 21.5;
+// matching clusterMaxRadius(87) for continuity with the count-based formula.
+const VOLUME_RADIUS_SCALE = 21.5;
 
 /**
  * Cluster radius from total node visual volume — the sum of nodeVal across all
@@ -129,7 +137,7 @@ const VOLUME_CLUSTER_BASE = 21.5;
  * zoom level and cluster tightness are always derived from the same input.
  */
 export function clusterRadiusFromVolume(totalNodeVolume) {
-  return VOLUME_CLUSTER_BASE * Math.cbrt(Math.max(1, totalNodeVolume));
+  return VOLUME_RADIUS_SCALE * Math.cbrt(Math.max(1, totalNodeVolume));
 }
 
 /**
