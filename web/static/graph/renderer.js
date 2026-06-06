@@ -17,7 +17,6 @@
  *   renderer.apply(graphBuilder);  // returns graphBuilder for chaining
  */
 
-// ── Kind colour map ───────────────────────────────────────────────────────
 // Hardcoded hex strings that work without culori or CSS custom properties.
 // Source of truth for KindColorRenderer. CSSVarRenderer reads from CSS vars
 // injected by layout.html's palette script and falls back to this map.
@@ -41,7 +40,6 @@ export const KIND_COLORS = {
 
 export const DEFAULT_NODE_COLOR = '#94a3b8';
 
-// ── Interface ─────────────────────────────────────────────────────────────
 
 export class BaseRenderer {
   /** Apply node appearance to the ForceGraph3D builder. Returns builder. */
@@ -50,7 +48,6 @@ export class BaseRenderer {
   }
 }
 
-// ── KindColorRenderer — v1 exact appearance ───────────────────────────────
 
 /**
  * Reproduces the v1 node appearance exactly.
@@ -67,7 +64,6 @@ export class KindColorRenderer extends BaseRenderer {
   }
 }
 
-// ── CSSVarRenderer — palette-driven appearance (next ablation candidate) ──
 
 /**
  * Reads node colors from CSS custom properties injected by layout.html.

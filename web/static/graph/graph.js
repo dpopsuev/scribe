@@ -37,19 +37,15 @@ const MINI_ART_R        = 28;
 const VC_LERP           = 0.015;
 
 
-// ── Default status filter ─────────────────────────────────────────────────────
 const DEFAULT_STATUSES = 'active,draft,current,proposed,in_progress,in_review,fleeting';
 
-// ── Per-instance state (set in initGraph) ─────────────────────────────────────
 let state = null;   // createGraphState() — one per initGraph call
 let deps  = {};     // injected CDN globals
 let palette = null; // built from culori + GRAPH_BG
 let renderer = null;
 
-// Convenience accessors — avoid state.graph everywhere in closures
 let Graph = null;
 
-// ── Merged graph data ─────────────────────────────────────────────────────────
 
 function mergedGraphData() {
   const nodes = [...state.macroData.nodes];
@@ -80,7 +76,6 @@ function updateModeBadge() {
   setModeBadge(state.els.modeBadge, depthFromExpanded(state.expandedScopes.size, state.expandedKinds.size));
 }
 
-// ── Scope super-node load (universe view) ─────────────────────────────────────
 
 async function loadMacro() {
   if (state.els.stats) state.els.stats.textContent = 'Loading universe…';
@@ -132,7 +127,6 @@ async function loadMacro() {
   setTimeout(() => aimAtCenterOfMass(800), 3000);
 }
 
-// ── Scope → kind-groups (depth 1) ────────────────────────────────────────────
 
 async function expandScope(scopeName) {
   if (state.expandedScopes.has(scopeName)) return;
@@ -162,7 +156,6 @@ async function expandScope(scopeName) {
   updateModeBadge();
 }
 
-// ── Kind-group → artifacts (depth 2) ─────────────────────────────────────────
 
 async function expandKind(scopeName, kindName) {
   const key = scopeName + ':' + kindName;
@@ -200,7 +193,6 @@ async function expandKind(scopeName, kindName) {
   updateModeBadge();
 }
 
-// ── Collapse ──────────────────────────────────────────────────────────────────
 
 async function collapseScope(scopeName) {
   log.info('collapseScope scope=%s', scopeName);
@@ -232,7 +224,6 @@ function removeMacroNode(nodeId) {
     l.source?.id !== nodeId && l.target?.id !== nodeId);
 }
 
-// ── Camera ────────────────────────────────────────────────────────────────────
 
 function aimAtCenterOfMass(animMs = 0) {
   const controls = Graph.controls();
@@ -278,7 +269,6 @@ function aimAtCenterOfMass(animMs = 0) {
   })();
 }
 
-// ── Three.js scope bubbles ────────────────────────────────────────────────────
 
 function createBubble(key, initialRadius = 100) {
   if (!deps.THREE) return;
@@ -322,7 +312,6 @@ function fitBubble(key, memberNodes, padding) {
   }
 }
 
-// ── Glow meshes ───────────────────────────────────────────────────────────────
 
 
 
@@ -367,7 +356,6 @@ function tickGlows() {
   }
 }
 
-// ── Engine tick ───────────────────────────────────────────────────────────────
 
 function onTick() {
   if (++state.tickCount % 6 !== 0) return;
@@ -387,7 +375,6 @@ function onTick() {
   tickGlows();
 }
 
-// ── Click handlers ────────────────────────────────────────────────────────────
 
 function onNodeClickWithDbl(node) {
   const now = Date.now();
@@ -435,13 +422,11 @@ function onNodeRightClick(node, event) {
   showContextMenu(state.els.ctxMenu, event.clientX, event.clientY, items);
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function activeRelations() {
   return [...document.querySelectorAll('.rel-toggle.active')].map(el => el.dataset.rel);
 }
 
-// ── initGraph — public entry point ────────────────────────────────────────────
 
 /**
  * Initialise the graph. Call once after CDN scripts have loaded.

@@ -14,7 +14,6 @@
  *   import { buildPalette, hexLuminance, contrastRatio } from './palette.js';
  */
 
-// ── Kind hue anchors (degrees in Oklch) ────────────────────────────────────
 // Chosen so all 16 kinds are perceptually distinct: minimum linear-RGB
 // Euclidean distance > 0.08 at L=0.82, C=0.18.
 export const KIND_HUES = {
@@ -59,7 +58,6 @@ export const STATUS_HUES = {
 // Background luminance threshold: below this → dark bg → bright colours.
 export const DARK_THRESHOLD = 0.18;
 
-// ── Core colour math ─────────────────────────────────────────────────────────
 
 /**
  * WCAG relative luminance of a CSS hex colour string.

@@ -5,7 +5,6 @@
  * tested with jsdom. No direct window/document access at module load time.
  */
 
-// ── Mode badge ────────────────────────────────────────────────────────────────
 
 const DEPTH_LABELS = {
   scope:    'universe · scope view',
@@ -31,7 +30,6 @@ export function depthFromExpanded(expandedScopeCount, expandedKindCount) {
   return 'scope';
 }
 
-// ── Stats ─────────────────────────────────────────────────────────────────────
 
 /**
  * Update the stats line (node count · link count).
@@ -40,7 +38,6 @@ export function setStats(el, nodeCount, linkCount) {
   if (el) el.textContent = `${nodeCount} nodes · ${linkCount} links`;
 }
 
-// ── Expanded tags ─────────────────────────────────────────────────────────────
 
 /**
  * Render the list of expanded scope/kind tags in the control panel.
@@ -78,7 +75,6 @@ export function renderExpandedTags(wrapEl, listEl, expandedScopes, expandedKinds
   }
 }
 
-// ── Sidebar ───────────────────────────────────────────────────────────────────
 
 /**
  * Open the HTMX sidebar for a given artifact ID.
@@ -102,7 +98,6 @@ export function closeSidebar(sidebarEl) {
   sidebarEl?.classList.remove('open');
 }
 
-// ── Context menu ──────────────────────────────────────────────────────────────
 
 /**
  * Show a context menu at (x, y) with the given items.
@@ -135,7 +130,6 @@ export function showContextMenu(menuEl, x, y, items) {
   }, 10);
 }
 
-// ── Controls wiring ───────────────────────────────────────────────────────────
 
 /**
  * Wire relation toggle buttons — clicking one toggles its active state.

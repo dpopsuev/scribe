@@ -5,7 +5,6 @@
  * All functions take explicit arguments — no global state.
  */
 
-// ── Fibonacci sphere ─────────────────────────────────────────────────────────
 
 /**
  * Distributes n points evenly on the surface of a sphere of given radius.
@@ -29,7 +28,6 @@ export function fibonacciSphere(n, radius) {
   });
 }
 
-// ── Centre of mass ────────────────────────────────────────────────────────────
 
 /**
  * Weighted centroid of a node array. Weight = node.val (sphere size).
@@ -73,7 +71,6 @@ export function centerOfMass(nodes) {
   return weightedCentroid(parentNodes(nodes));
 }
 
-// ── Radial sphere force ───────────────────────────────────────────────────────
 
 /**
  * Returns a d3-force compatible force function that attracts nodes toward
@@ -97,7 +94,6 @@ export function forceRadialSphere(targetRadius, strength = 0.08) {
   return force;
 }
 
-// ── Equator-priority fibonacci mapping ───────────────────────────────────────
 
 /**
  * Maps n sorted items (highest-weight first) to fibonacci sphere positions
@@ -118,7 +114,6 @@ export function equatorPriorityPositions(n, radius) {
   return order.map(idx => positions[Math.max(0, Math.min(idx, n - 1))]);
 }
 
-// ── Mini-sphere placement ─────────────────────────────────────────────────────
 
 /**
  * Places nodes in a fibonacci mini-sphere centred on anchor,
@@ -130,7 +125,6 @@ export function equatorPriorityPositions(n, radius) {
  * @param {number} radius
  * @returns {Array} nodes with x, y, z set
  */
-// ── Distance-based node scaling ───────────────────────────────────────────────
 
 /**
  * Scales each node mesh so it subtends exactly targetPx pixels on screen
