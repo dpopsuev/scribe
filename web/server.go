@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -23,6 +24,8 @@ var templateFS embed.FS
 //go:embed all:static
 var staticFS embed.FS
 
+var errTemplateNotFound = errors.New("template not found")
+
 var md = goldmark.New(
 	goldmark.WithExtensions(extension.GFM),
 	goldmark.WithRendererOptions(html.WithUnsafe()),
@@ -34,50 +37,53 @@ type Server struct {
 	pages   map[string]*template.Template
 	mux     *http.ServeMux
 	version string
+	devPath string // non-empty → serve templates+static from filesystem (dev mode)
 }
 
-func NewServer(proto *parchment.Protocol, version string) *Server {
+// NewServer creates the UI server. devPath, when non-empty, serves templates
+// and static files from the local filesystem so frontend changes take effect
+// on browser refresh without rebuilding the container.
+// Pass via --dev-ui <path/to/web>.
+func NewServer(proto *parchment.Protocol, version, devPath string) *Server {
 	s := &Server{
 		proto:   proto,
 		svc:     service.New(proto, nil, nil),
 		pages:   make(map[string]*template.Template),
 		version: version,
+		devPath: devPath,
 	}
 
-	funcMap := template.FuncMap{
-		"renderMarkdown": renderMarkdown,
+	if devPath == "" {
+		funcMap := template.FuncMap{"renderMarkdown": renderMarkdown}
+		layoutTmpl := template.Must(
+			template.New("layout.html").Funcs(funcMap).ParseFS(templateFS, "templates/layout.html"),
+		)
+		for _, page := range []string{
+			"dashboard.html", "list.html", "detail.html", "tree.html", "search.html",
+		} {
+			clone := template.Must(layoutTmpl.Clone())
+			s.pages[page] = template.Must(clone.ParseFS(templateFS, "templates/"+page))
+		}
+		fragmentTmpl := template.Must(
+			template.New("fragment_artifact.html").Funcs(funcMap).ParseFS(
+				templateFS, "templates/fragment_artifact.html"),
+		)
+		s.pages["fragment_artifact.html"] = fragmentTmpl
+		for _, g := range []string{"graph.html", "graph_v1.html"} {
+			clone := template.Must(layoutTmpl.Clone())
+			s.pages[g] = template.Must(clone.ParseFS(templateFS, "templates/"+g))
+		}
 	}
-
-	layoutTmpl := template.Must(
-		template.New("layout.html").Funcs(funcMap).ParseFS(templateFS, "templates/layout.html"),
-	)
-
-	for _, page := range []string{
-		"dashboard.html", "list.html", "detail.html",
-		"tree.html", "search.html",
-	} {
-		clone := template.Must(layoutTmpl.Clone())
-		s.pages[page] = template.Must(clone.ParseFS(templateFS, "templates/"+page))
-	}
-
-	// fragment templates render without the layout wrapper
-	fragmentTmpl := template.Must(
-		template.New("fragment_artifact.html").Funcs(funcMap).ParseFS(
-			templateFS, "templates/fragment_artifact.html"),
-	)
-	s.pages["fragment_artifact.html"] = fragmentTmpl
-
-	// graph template needs layout but also uses full viewport — register after loop
-	graphClone := template.Must(layoutTmpl.Clone())
-	s.pages["graph.html"] = template.Must(graphClone.ParseFS(templateFS, "templates/graph.html"))
-
-	graphV1Clone := template.Must(layoutTmpl.Clone())
-	s.pages["graph_v1.html"] = template.Must(graphV1Clone.ParseFS(templateFS, "templates/graph_v1.html"))
+	// In dev mode templates are parsed fresh on every request — see loadTemplate().
 
 	s.mux = http.NewServeMux()
 
-	// Static JS modules (graph/)
-	s.mux.Handle("GET /static/", http.FileServer(http.FS(staticFS)))
+	if devPath != "" {
+		// Serve static files directly from disk — browser hard-refresh picks up changes.
+		s.mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.Dir(devPath+"/static"))))
+	} else {
+		s.mux.Handle("GET /static/", http.FileServer(http.FS(staticFS)))
+	}
 
 	// Read-only pages
 	s.mux.HandleFunc("GET /", s.handleDashboard)
@@ -186,16 +192,41 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// devTemplate parses layout + named template fresh from disk on each call.
+func (s *Server) devTemplate(name string) (*template.Template, error) {
+	funcMap := template.FuncMap{"renderMarkdown": renderMarkdown}
+	layout, err := template.New("layout.html").Funcs(funcMap).ParseFiles(s.devPath + "/templates/layout.html")
+	if err != nil {
+		return nil, fmt.Errorf("parse layout: %w", err)
+	}
+	clone, err := layout.Clone()
+	if err != nil {
+		return nil, err
+	}
+	return clone.ParseFiles(s.devPath + "/templates/" + name)
+}
+
 func (s *Server) render(w http.ResponseWriter, name string, data any) {
-	tmpl, ok := s.pages[name]
-	if !ok {
-		http.Error(w, "template not found: "+name, http.StatusInternalServerError)
+	tmpl, err := s.resolveTemplate(name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := tmpl.ExecuteTemplate(w, "layout.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+func (s *Server) resolveTemplate(name string) (*template.Template, error) {
+	if s.devPath != "" {
+		return s.devTemplate(name)
+	}
+	tmpl, ok := s.pages[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", errTemplateNotFound, name)
+	}
+	return tmpl, nil
 }
 
 func renderMarkdown(text string) template.HTML {

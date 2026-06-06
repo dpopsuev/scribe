@@ -72,7 +72,7 @@ func startServer(t *testing.T) *httptest.Server {
 		})
 	}
 	proto := parchment.New(s, nil, []string{"alpha", "beta", "gamma"}, nil, parchment.ProtocolConfig{})
-	srv := httptest.NewServer(web.NewServer(proto, "dev"))
+	srv := httptest.NewServer(web.NewServer(proto, "dev", ""))
 	t.Cleanup(func() { srv.Close(); _ = s.Close() })
 	return srv
 }
