@@ -515,7 +515,24 @@ export function initGraph(injectedDeps) {
     Graph.width(window.innerWidth).height(window.innerHeight));
 
   // ── Per-frame adaptive systems ────────────────────────────────────────────
-  let lastCamDist = null;
+  // Zoom-adaptive force parameters interpolated in log-distance space.
+  // t=0 (zoomed in, dist≈150): weak gravity, strong repulsion → spread.
+  // t=1 (zoomed out, dist≈3000): strong gravity, weak repulsion → tight.
+  function forcesForDist(rawDist) {
+    const t = Math.max(0, Math.min(1,
+      Math.log(rawDist / 150) / Math.log(3000 / 150),
+    ));
+    return {
+      G:    0.01 + 0.4  * t * t,          // 0.01 → 0.41
+      rep: -(250  - 220 * t * t),         // -250 → -30
+      dmax:  600  - 550 * t,              // 600  → 50
+    };
+  }
+
+  // EMA-smoothed camera distance — ignores per-frame jitter.
+  // α=0.03 means ~33 frames to respond to a step change (≈1s at 30fps).
+  let smoothDist = null;
+  let lastApplied = null;
 
   (function frame() {
     requestAnimationFrame(frame);
@@ -525,29 +542,28 @@ export function initGraph(injectedDeps) {
     const ctrl = Graph.controls();
     if (!cam || !ctrl) return;
 
-    const dist = Math.hypot(
+    const rawDist = Math.hypot(
       cam.position.x - ctrl.target.x,
       cam.position.y - ctrl.target.y,
       cam.position.z - ctrl.target.z,
     );
 
+    // EMA smoothing — prevents jitter from firing multiple reheats.
+    smoothDist = smoothDist == null
+      ? rawDist
+      : smoothDist * 0.97 + rawDist * 0.03;
+
     // ── 1. Zoom-adaptive clustering ─────────────────────────────────────────
-    // Tighter cluster when zoomed out; spaced out when zoomed in.
-    // Trigger on >20% distance change; reheat physics for 2s to re-settle.
-    if (lastCamDist && Math.abs(dist - lastCamDist) / lastCamDist > 0.2) {
-      const ref   = 600;                        // reference distance
-      const ratio = dist / ref;                 // >1 = zoomed out, <1 = zoomed in
-      const G     = Math.min(0.3, 0.12 * ratio);
-      const rep   = Math.max(-200, -80 / ratio);
-      const dmax  = Math.min(400, 180 * ratio);
+    // Apply only when smoothed distance differs >25% from last applied.
+    // The EMA ensures the camera has stopped moving before we reheat.
+    if (lastApplied == null || Math.abs(smoothDist - lastApplied) / lastApplied > 0.25) {
+      const { G, rep, dmax } = forcesForDist(smoothDist);
       Graph.d3Force('gravity', forceSelfGravity(G, 40, 'val'));
       Graph.d3Force('charge')?.strength?.(rep);
       Graph.d3Force('charge')?.distanceMax?.(dmax);
       Graph.d3ReheatSimulation();
-      log.info('zoom-adapt dist=%d G=%.2f rep=%.0f', Math.round(dist), G, rep);
-      lastCamDist = dist;
-    } else if (!lastCamDist) {
-      lastCamDist = dist;
+      log.info('zoom-adapt smoothDist=%d G=%.3f rep=%.1f dmax=%.1f', Math.round(smoothDist), G, rep, dmax);
+      lastApplied = smoothDist;
     }
 
     // ── 2. Distance-sorted, fade-by-distance labels ─────────────────────────
