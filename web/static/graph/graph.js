@@ -117,6 +117,9 @@ async function loadMacro() {
   Graph.d3Force('charge')?.strength?.(-80);
   Graph.d3Force('charge')?.distanceMax?.(180);
 
+  // Give renderer the full node set so it can normalise sizes and pre-build textures.
+  renderer.init(sorted);
+
   state.macroData = { nodes: sorted, links: data.links };
   state.expandedScopes.clear();
   state.expandedKinds.clear();
