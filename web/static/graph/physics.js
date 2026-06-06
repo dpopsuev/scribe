@@ -5,6 +5,33 @@
  * All functions take explicit arguments — no global state.
  */
 
+/**
+ * Gravitational well toward origin with Plummer softening.
+ *
+ * Implements: a_i = G * mass_i / (r_i² + ε²)^(3/2) · r_i
+ *
+ * Combined with short-range repulsion (manyBody negative + distanceMax),
+ * produces a self-gravitating cluster: dense core, sparse periphery —
+ * the equilibrium seen in star clusters and galactic halos.
+ * ε (softening) prevents infinite force when two nodes overlap.
+ */
+export function forceSelfGravity(G = 0.15, softening = 30, massKey = 'val') {
+  let nodes;
+  function force(alpha) {
+    for (const n of nodes) {
+      const mass = Math.max(1, n[massKey] || 1);
+      const x = n.x || 0, y = n.y || 0, z = n.z || 0;
+      const r2 = x*x + y*y + z*z + softening*softening;
+      const k  = G * alpha * mass / Math.sqrt(r2);
+      n.vx = (n.vx || 0) - x * k;
+      n.vy = (n.vy || 0) - y * k;
+      n.vz = (n.vz || 0) - z * k;
+    }
+  }
+  force.initialize = ns => { nodes = ns; };
+  return force;
+}
+
 
 /**
  * Distributes n points evenly on the surface of a sphere of given radius.

@@ -8,6 +8,7 @@ import {
   equatorPriorityPositions,
   placeInMiniSphere,
   scaleNodesByDistance,
+  forceSelfGravity,
 } from './physics.js';
 
 // ── fibonacciSphere ───────────────────────────────────────────────────────────
@@ -284,5 +285,60 @@ describe('scaleNodesByDistance', () => {
     scaleNodesByDistance(map1, CAM, 10, FOV_RAD, H);
     scaleNodesByDistance(map2, CAM, 20, FOV_RAD, H);
     expect(m2.scale.last / m1.scale.last).toBeCloseTo(2, 5);
+  });
+});
+
+describe('forceSelfGravity', () => {
+  function makeNode(x, y, z, val = 1) {
+    return { x, y, z, val, vx: 0, vy: 0, vz: 0 };
+  }
+
+  it('pulls a node toward origin', () => {
+    const force = forceSelfGravity(1, 0);  // G=1, no softening
+    const node = makeNode(100, 0, 0);
+    force.initialize([node]);
+    force(1);
+    expect(node.vx).toBeLessThan(0);  // pulled toward origin (-x direction)
+    expect(node.vy).toBeCloseTo(0);
+    expect(node.vz).toBeCloseTo(0);
+  });
+
+  it('heavier nodes (larger val) accelerate more', () => {
+    const force = forceSelfGravity(1, 0);
+    const light = makeNode(100, 0, 0, 1);
+    const heavy = makeNode(100, 0, 0, 10);
+    force.initialize([light]);
+    force(1);
+    const lightAcc = Math.abs(light.vx);
+    force.initialize([heavy]);
+    force(1);
+    const heavyAcc = Math.abs(heavy.vx);
+    expect(heavyAcc).toBeGreaterThan(lightAcc);
+  });
+
+  it('softening prevents infinite force at origin', () => {
+    const force = forceSelfGravity(1, 30);
+    const node = makeNode(0, 0, 0);
+    force.initialize([node]);
+    expect(() => force(1)).not.toThrow();
+    expect(Number.isFinite(node.vx)).toBe(true);
+  });
+
+  it('alpha=0 applies no force', () => {
+    const force = forceSelfGravity(1, 30);
+    const node = makeNode(100, 100, 100);
+    force.initialize([node]);
+    force(0);
+    expect(node.vx).toBe(0);
+    expect(node.vy).toBe(0);
+    expect(node.vz).toBe(0);
+  });
+
+  it('node at origin with softening gets small finite force', () => {
+    const force = forceSelfGravity(1, 30);
+    const node = makeNode(0, 0, 0, 5);
+    force.initialize([node]);
+    force(1);
+    expect(node.vx).toBe(0);  // zero displacement → zero net force direction
   });
 });

@@ -16,7 +16,7 @@ import { buildPalette }                         from './palette.js';
 import { centerOfMass, parentNodes,
          placeInMiniSphere,
          equatorPriorityPositions,
-         forceRadialSphere }                    from './physics.js';
+         forceSelfGravity }                     from './physics.js';
 import { glowColor, glowConfig }               from './glow.js';
 import { fetchScopeGraph, fetchKindGraph,
          fetchArtifactGraph,
@@ -100,9 +100,7 @@ async function loadMacro() {
   }
   const sorted = [...data.nodes].sort((a, b) => (deg[b.id] || 0) - (deg[a.id] || 0));
 
-  // Place nodes on a sphere of UNIVERSE_RADIUS before physics starts.
-  // equatorPriorityPositions front-loads high-degree nodes at equator where
-  // they are most visible. forceRadialSphere keeps them near the sphere surface.
+  // Seed positions on a sphere so nodes start spread (not all at origin).
   const positions = equatorPriorityPositions(sorted.length, UNIVERSE_RADIUS);
   sorted.forEach((n, i) => {
     n.x = positions[i].x;
@@ -110,9 +108,14 @@ async function loadMacro() {
     n.z = positions[i].z;
     state.scopeSpherePos.set(n.scope || n.name, positions[i]);
   });
-  Graph.d3Force('center', null);
-  Graph.d3Force('radial', forceRadialSphere(UNIVERSE_RADIUS, 0.06));
-  Graph.d3Force('charge')?.strength?.(-60);
+
+  // N-body physics: Plummer-softened gravity toward origin (dense core) +
+  // short-range repulsion (prevents collapse). No radial shell constraint.
+  Graph.d3Force('center',  null);
+  Graph.d3Force('radial',  null);
+  Graph.d3Force('gravity', forceSelfGravity(0.12, 40, 'val'));
+  Graph.d3Force('charge')?.strength?.(-80);
+  Graph.d3Force('charge')?.distanceMax?.(180);
 
   state.macroData = { nodes: sorted, links: data.links };
   state.expandedScopes.clear();
