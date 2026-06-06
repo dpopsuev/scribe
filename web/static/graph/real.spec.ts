@@ -178,15 +178,19 @@ test.describe('real server — current /graph', () => {
       const tgt  = ctrl.target;
       const distFromCoM = Math.hypot(cam.x-tgt.x, cam.y-tgt.y, cam.z-tgt.z);
       const n    = g.graphData().nodes.length;
-      const BASE = 80;
+      const BASE           = 80;
+      const UNIVERSE_RADIUS = 180;
+      const FIT_ALL_PADDING = 1.8;
+      const CAMERA_DIST_MAX = UNIVERSE_RADIUS * 3;
       const cap  = BASE * Math.max(1, Math.log10(Math.max(n, 10) / 10) + 1);
       const fov  = g.camera().fov;
-      const expected = (cap / Math.tan(fov / 2 * Math.PI / 180)) * 1.25;
+      const fitDist  = cap / Math.tan(fov / 2 * Math.PI / 180) * FIT_ALL_PADDING;
+      const expected = Math.min(fitDist, CAMERA_DIST_MAX);
       return { distFromCoM: Math.round(distFromCoM), expected: Math.round(expected), n };
     });
     console.log(`  boot camDistFromCoM=${result.distFromCoM} expected=${result.expected} n=${result.n}`);
-    // Double-sided: camera must be close enough to see nodes AND far enough for breathing room.
-    // Expected = clusterMaxRadius(n) / tan(FOV/2) * FIT_ALL_PADDING → cluster fills ~58% of FOV.
+    // Double-sided: camera must be within ±15% of fitAllNodes expected distance.
+    // expected = min(clusterMaxRadius(n)/tan(FOV/2)*FIT_ALL_PADDING, CAMERA_DIST_MAX).
     expect(result.distFromCoM,
       `camera too close (${result.distFromCoM} < ${Math.round(result.expected * 0.85)}) — cluster fills >65% of FOV`
     ).toBeGreaterThan(result.expected * 0.85);

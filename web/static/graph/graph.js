@@ -82,6 +82,7 @@ let deps  = {};     // injected CDN globals
 let palette = null; // built from culori + GRAPH_BG
 let renderer = null;
 let Graph = null;
+let fitAllNodesFn = null; // set by initGraph; called from loadMacro after data is loaded
 
 // Zoom-adaptive force state — module-level so loadMacro() can reference them.
 // loadMacro is a module-scope async function; variables declared inside
@@ -176,10 +177,15 @@ async function loadMacro() {
   applyGraphData();
   updateModeBadge();
 
-  // Camera aims immediately then re-aims after physics settles.
-  // fz=0 pins nodes to XY plane so re-aim is safe (no 3D scatter).
-  aimAtCenterOfMass(0);
-  setTimeout(() => aimAtCenterOfMass(800), 3000);
+  // Camera: FOV-accurate fit immediately, then smooth re-fit after physics settles.
+  // fitAllNodesFn is set by initGraph; null-guard for the case loadMacro races before init.
+  if (fitAllNodesFn) {
+    fitAllNodesFn(0);
+    setTimeout(() => fitAllNodesFn(800), 3000);
+  } else {
+    aimAtCenterOfMass(0);
+    setTimeout(() => aimAtCenterOfMass(800), 3000);
+  }
 }
 
 
@@ -580,6 +586,7 @@ export function initGraph(injectedDeps) {
     );
     aimAtCenterOfMass(animMs, fitDist);
   }
+  fitAllNodesFn = fitAllNodes;
 
   // ── Idle orbit ──────────────────────────────────────────────────────────
   // Short idle  (IDLE_ORBIT_MS): start slow orbit spin.
@@ -620,7 +627,8 @@ export function initGraph(injectedDeps) {
 
   // On boot: fit all nodes first (camera already positioned by aimAtCenterOfMass,
   // but recalculate with exact FOV), then start idle timers.
-  setTimeout(() => { fitAllNodes(0); resetIdleTimers(); }, 600);
+  // fitAllNodes is called from loadMacro after data is loaded — no race with setTimeout.
+  setTimeout(resetIdleTimers, 600);
 
   // ── Per-frame adaptive systems ────────────────────────────────────────────
   let smoothDist = null;
