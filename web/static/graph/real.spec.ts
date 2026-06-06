@@ -171,8 +171,23 @@ test.describe('real server — current /graph', () => {
 
     // Camera must not drift far — if nodes are at radius 180 and camera is at
     // radius > UNIVERSE_RADIUS*5=900, nodes are sub-pixel (< 7px diameter).
-    const camDist = Math.hypot(state!.camPos.x, state!.camPos.y, state!.camPos.z);
-    expect(camDist, `camera too far from origin (${Math.round(camDist)} units) — nodes invisible`).toBeLessThan(1200);
+    const result = await page.evaluate(() => {
+      const g    = (window as any)._Graph;
+      const cam  = g.camera().position;
+      const ctrl = g.controls();
+      const tgt  = ctrl.target;
+      const distFromCoM = Math.hypot(cam.x-tgt.x, cam.y-tgt.y, cam.z-tgt.z);
+      const n    = g.graphData().nodes.length;
+      const BASE = 80;
+      const cap  = BASE * Math.max(1, Math.log10(Math.max(n, 10) / 10) + 1);
+      const fov  = g.camera().fov;
+      const expected = (cap / Math.tan(fov / 2 * Math.PI / 180)) * 1.25;
+      return { distFromCoM: Math.round(distFromCoM), expected: Math.round(expected), n };
+    });
+    console.log(`  boot camDistFromCoM=${result.distFromCoM} expected=${result.expected} n=${result.n}`);
+    expect(result.distFromCoM,
+      `boot camera ${result.distFromCoM} units from CoM, expected ~${result.expected}`
+    ).toBeLessThan(result.expected * 1.1);
 
     // Threshold is 3%: links alone produce ~2%, nodes add at least 1% more.
     // 0.5% only catches blank screens — this catches invisible-nodes-with-links.
