@@ -486,14 +486,9 @@ export function initGraph(injectedDeps) {
     .linkDirectionalParticleSpeed(0.004)
     .linkDirectionalParticleWidth(1.5)
     .linkCurvature(l => l.relation === 'depends_on' ? 0.15 : 0)
-    // Default alphaDecay (0.0228) reaches alphaMin in ~300 ticks.
-    // warmupTicks(300) runs physics synchronously before first render —
-    // graph appears already settled, no visible animation on boot.
-    // cooldownTime(0) stops real-time simulation immediately after warmup.
-    // Dragging a node reheats the simulation as normal.
     .d3VelocityDecay(0.3)
     .warmupTicks(300)
-    .cooldownTime(0)
+    .cooldownTime(2000)   // physics runs for 2s after each reheat then stops
     .onNodeClick(onNodeClickWithDbl)
     .onNodeRightClick(onNodeRightClick)
     .onBackgroundClick((() => {
@@ -519,7 +514,66 @@ export function initGraph(injectedDeps) {
   window.addEventListener('resize', () =>
     Graph.width(window.innerWidth).height(window.innerHeight));
 
-  // Load scope data.
+  // ── Per-frame adaptive systems ────────────────────────────────────────────
+  let lastCamDist = null;
+
+  (function frame() {
+    requestAnimationFrame(frame);
+    if (!Graph) return;
+
+    const cam  = Graph.camera();
+    const ctrl = Graph.controls();
+    if (!cam || !ctrl) return;
+
+    const dist = Math.hypot(
+      cam.position.x - ctrl.target.x,
+      cam.position.y - ctrl.target.y,
+      cam.position.z - ctrl.target.z,
+    );
+
+    // ── 1. Zoom-adaptive clustering ─────────────────────────────────────────
+    // Tighter cluster when zoomed out; spaced out when zoomed in.
+    // Trigger on >20% distance change; reheat physics for 2s to re-settle.
+    if (lastCamDist && Math.abs(dist - lastCamDist) / lastCamDist > 0.2) {
+      const ref   = 600;                        // reference distance
+      const ratio = dist / ref;                 // >1 = zoomed out, <1 = zoomed in
+      const G     = Math.min(0.3, 0.12 * ratio);
+      const rep   = Math.max(-200, -80 / ratio);
+      const dmax  = Math.min(400, 180 * ratio);
+      Graph.d3Force('gravity', forceSelfGravity(G, 40, 'val'));
+      Graph.d3Force('charge')?.strength?.(rep);
+      Graph.d3Force('charge')?.distanceMax?.(dmax);
+      Graph.d3ReheatSimulation();
+      log.info('zoom-adapt dist=%d G=%.2f rep=%.0f', Math.round(dist), G, rep);
+      lastCamDist = dist;
+    } else if (!lastCamDist) {
+      lastCamDist = dist;
+    }
+
+    // ── 2. Distance-sorted, fade-by-distance labels ─────────────────────────
+    // Sprites closer to camera render on top (higher renderOrder).
+    // Labels fade out beyond FADE_END world units.
+    const FADE_START = 300, FADE_END = 900;
+    for (const node of Graph.graphData().nodes) {
+      const obj = (node as any).__threeObj;
+      if (!obj) continue;
+      const sprite = obj.children?.[0];
+      if (!sprite?.isSprite) continue;
+
+      const ndx = (node.x || 0) - cam.position.x;
+      const ndy = (node.y || 0) - cam.position.y;
+      const ndz = (node.z || 0) - cam.position.z;
+      const d   = Math.hypot(ndx, ndy, ndz);
+
+      // Fade: 1 within FADE_START, linear → 0 at FADE_END
+      sprite.material.opacity = Math.max(0,
+        Math.min(1, (FADE_END - d) / (FADE_END - FADE_START)));
+
+      // Depth sort: closer nodes get higher renderOrder → draw on top
+      sprite.renderOrder = Math.round(100000 / Math.max(d, 1));
+    }
+  })();
+
   loadMacro().catch(e => log.error('boot error=%s', e.message));
 }
 
