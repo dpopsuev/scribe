@@ -52,12 +52,12 @@ func setupGraph(t *testing.T) *web.Server {
 	return web.NewServer(proto, "dev", "")
 }
 
-// ── /api/graph/scopes ─────────────────────────────────────────────────────
+// ── /api/v1/graph/scopes ─────────────────────────────────────────────────────
 
 func TestAPIGraphScopes_ReturnsScopeNodes(t *testing.T) {
 	srv := setupGraph(t)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/graph/scopes", http.NoBody))
+	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/graph/scopes", http.NoBody))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d", w.Code)
@@ -96,7 +96,7 @@ func TestAPIGraphScopes_ReturnsScopeNodes(t *testing.T) {
 func TestAPIGraphScopes_ExcludesSchemaScope(t *testing.T) {
 	srv := setupGraph(t)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/graph/scopes", http.NoBody))
+	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/graph/scopes", http.NoBody))
 
 	var data struct {
 		Nodes []struct {
@@ -117,7 +117,7 @@ func TestAPIGraphKinds_ReturnsKindNodes(t *testing.T) {
 	srv := setupGraph(t)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet,
-		"/api/graph/kinds?scope=alpha&status=active,draft", http.NoBody))
+		"/api/v1/graph/kinds?scope=alpha&status=active,draft", http.NoBody))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d", w.Code)
@@ -149,7 +149,7 @@ func TestAPIGraphKinds_CrossKindLinks(t *testing.T) {
 	// Use "all" statuses to pick up both scopes separately.
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet,
-		"/api/graph/kinds?scope=alpha&status=active,draft&relations=depends_on", http.NoBody))
+		"/api/v1/graph/kinds?scope=alpha&status=active,draft&relations=depends_on", http.NoBody))
 
 	var data struct {
 		Links []any `json:"links"`
@@ -167,7 +167,7 @@ func TestAPIGraph_ReturnsArtifactNodes(t *testing.T) {
 	srv := setupGraph(t)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet,
-		"/api/graph?scope=alpha&status=active,draft", http.NoBody))
+		"/api/v1/graph?scope=alpha&status=active,draft", http.NoBody))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d", w.Code)
@@ -198,7 +198,7 @@ func TestAPIGraph_DefaultStatusFilter(t *testing.T) {
 	// No status param — should use default active-work statuses.
 	// TSK-A1 is active, TSK-A2 is draft — both should appear.
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/graph?scope=alpha", http.NoBody))
+	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/graph?scope=alpha", http.NoBody))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d", w.Code)
@@ -217,7 +217,7 @@ func TestAPIGraph_RelationFilter(t *testing.T) {
 	// Request only parent_of edges — depends_on edge should not appear.
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet,
-		"/api/graph?scope=alpha&status=active,draft&relations=parent_of", http.NoBody))
+		"/api/v1/graph?scope=alpha&status=active,draft&relations=parent_of", http.NoBody))
 
 	var data struct {
 		Links []any `json:"links"`
@@ -233,7 +233,7 @@ func TestAPIGraph_RelationFilter(t *testing.T) {
 func TestAPIScopes_ReturnsScopeList(t *testing.T) {
 	srv := setupGraph(t)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/scopes", http.NoBody))
+	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/scopes", http.NoBody))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d", w.Code)
@@ -256,7 +256,7 @@ func TestAPICreateArtifact_CreatesAndReturns(t *testing.T) {
 	srv := setupGraph(t)
 	body := `{"kind":"note","title":"new note","scope":"alpha"}`
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/artifacts", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/artifacts", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	srv.ServeHTTP(w, req)
 
@@ -277,7 +277,7 @@ func TestAPICreateArtifact_CreatesAndReturns(t *testing.T) {
 func TestAPICreateArtifact_BadJSON_Returns400(t *testing.T) {
 	srv := setupGraph(t)
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/artifacts", strings.NewReader("not json"))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/artifacts", strings.NewReader("not json"))
 	req.Header.Set("Content-Type", "application/json")
 	srv.ServeHTTP(w, req)
 
@@ -290,7 +290,7 @@ func TestAPIPatchArtifact_SetsField(t *testing.T) {
 	srv := setupGraph(t)
 	body := `{"field":"title","value":"updated title"}`
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPatch, "/api/artifacts/TSK-A1", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/artifacts/TSK-A1", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	srv.ServeHTTP(w, req)
 
@@ -303,7 +303,7 @@ func TestAPICreateEdge_CreatesEdge(t *testing.T) {
 	srv := setupGraph(t)
 	body := `{"from":"TSK-A2","to":"SPC-B1","relation":"implements","weight":0}`
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/edges", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/edges", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	srv.ServeHTTP(w, req)
 
@@ -316,7 +316,7 @@ func TestAPIDeleteEdge_DeletesEdge(t *testing.T) {
 	srv := setupGraph(t)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, httptest.NewRequest(http.MethodDelete,
-		"/api/edges/TSK-A1/implements/SPC-B1", http.NoBody))
+		"/api/v1/edges/TSK-A1/implements/SPC-B1", http.NoBody))
 
 	if w.Code != http.StatusNoContent {
 		t.Errorf("expected 204, got %d", w.Code)
@@ -348,5 +348,67 @@ func TestFragmentArtifact_NotFound_Returns404(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", w.Code)
+	}
+}
+
+// TestAPIGraphScopes_ContractMatchesFixture is the contract test between
+// Go's graphNode struct and the JS fixture at web/static/graph/fixtures/scope-graph.json.
+//
+// Given: a seeded store with scope nodes
+// When:  GET /api/v1/graph/scopes is called
+// Then:  every field present in the JS fixture exists in the response with the correct type
+//
+// If Go renames or removes a field, this test breaks before the frontend silently breaks.
+func TestAPIGraphScopes_ContractMatchesFixture(t *testing.T) {
+	srv := httptest.NewServer(setupGraph(t))
+	t.Cleanup(srv.Close)
+
+	resp, err := http.Get(srv.URL + "/api/v1/graph/scopes")
+	if err != nil {
+		t.Fatalf("GET /api/v1/graph/scopes: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+
+	// Decode into the same shape the JS fixture uses.
+	var body struct {
+		Nodes []map[string]any `json:"nodes"`
+		Links []map[string]any `json:"links"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(body.Nodes) == 0 {
+		t.Fatal("no nodes returned")
+	}
+
+	// Every field the JS fixture declares must be present with the right type.
+	// Source of truth: web/static/graph/fixtures/scope-graph.json
+	requiredStringFields := []string{"id", "name", "kind", "status", "scope"}
+	requiredNumericFields := []string{"val", "violations"}
+
+	for _, node := range body.Nodes {
+		for _, f := range requiredStringFields {
+			v, ok := node[f]
+			if !ok {
+				t.Errorf("node missing field %q — JS fixture expects it", f)
+				continue
+			}
+			if _, isStr := v.(string); !isStr {
+				t.Errorf("node field %q: want string, got %T", f, v)
+			}
+		}
+		for _, f := range requiredNumericFields {
+			v, ok := node[f]
+			if !ok {
+				t.Errorf("node missing field %q — JS fixture expects it", f)
+				continue
+			}
+			if _, isNum := v.(float64); !isNum {
+				t.Errorf("node field %q: want number, got %T", f, v)
+			}
+		}
 	}
 }

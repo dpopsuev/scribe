@@ -18,10 +18,10 @@ function mockFetch(body, status = 200) {
 // ── fetchScopeGraph ───────────────────────────────────────────────────────────
 
 describe('fetchScopeGraph', () => {
-  it('calls /api/graph/scopes', async () => {
+  it('calls /api/v1/graph/scopes', async () => {
     const fetch = mockFetch({ nodes: [], links: [] });
     await fetchScopeGraph(fetch);
-    expect(fetch).toHaveBeenCalledWith('/api/graph/scopes');
+    expect(fetch).toHaveBeenCalledWith('/api/v1/graph/scopes');
   });
 
   it('returns parsed JSON', async () => {
@@ -37,7 +37,7 @@ describe('fetchScopeGraph', () => {
   it('respects baseURL', async () => {
     const fetch = mockFetch({});
     await fetchScopeGraph(fetch, 'http://localhost:8080');
-    expect(fetch).toHaveBeenCalledWith('http://localhost:8080/api/graph/scopes');
+    expect(fetch).toHaveBeenCalledWith('http://localhost:8080/api/v1/graph/scopes');
   });
 });
 
@@ -48,7 +48,7 @@ describe('fetchKindGraph', () => {
     const fetch = mockFetch({ nodes: [], links: [] });
     await fetchKindGraph(fetch, 'scribe', ['active', 'draft'], []);
     const url = fetch.mock.calls[0][0];
-    expect(url).toContain('/api/graph/kinds');
+    expect(url).toContain('/api/v1/graph/kinds');
     expect(url).toContain('scope=scribe');
     expect(url).toContain('status=active%2Cdraft');
   });
@@ -69,10 +69,10 @@ describe('fetchKindGraph', () => {
 // ── fetchArtifactGraph ────────────────────────────────────────────────────────
 
 describe('fetchArtifactGraph', () => {
-  it('calls /api/graph with scope param', async () => {
+  it('calls /api/v1/graph with scope param', async () => {
     const fetch = mockFetch({ nodes: [], links: [] });
     await fetchArtifactGraph(fetch, 'parchment', ['active'], []);
-    expect(fetch.mock.calls[0][0]).toContain('/api/graph');
+    expect(fetch.mock.calls[0][0]).toContain('/api/v1/graph');
     expect(fetch.mock.calls[0][0]).toContain('scope=parchment');
   });
 });
@@ -86,10 +86,10 @@ describe('fetchScopes', () => {
     expect(result).toEqual(scopes);
   });
 
-  it('calls /api/scopes', async () => {
+  it('calls /api/v1/scopes', async () => {
     const fetch = mockFetch([]);
     await fetchScopes(fetch);
-    expect(fetch).toHaveBeenCalledWith('/api/scopes');
+    expect(fetch).toHaveBeenCalledWith('/api/v1/scopes');
   });
 });
 
@@ -99,7 +99,7 @@ describe('patchArtifact', () => {
   it('sends PATCH with correct body', async () => {
     const fetch = mockFetch({ id: 'T-1', field: 'status', value: 'active' });
     await patchArtifact(fetch, 'T-1', 'status', 'active');
-    expect(fetch).toHaveBeenCalledWith('/api/artifacts/T-1', expect.objectContaining({
+    expect(fetch).toHaveBeenCalledWith('/api/v1/artifacts/T-1', expect.objectContaining({
       method: 'PATCH',
       body: expect.stringContaining('"status"'),
     }));
@@ -151,7 +151,7 @@ describe('deleteEdge', () => {
   it('sends DELETE to correct URL', async () => {
     const fetch = mockFetch(null, 204);
     await deleteEdge(fetch, 'T-1', 'implements', 'SPEC-1');
-    expect(fetch.mock.calls[0][0]).toBe('/api/edges/T-1/implements/SPEC-1');
+    expect(fetch.mock.calls[0][0]).toBe('/api/v1/edges/T-1/implements/SPEC-1');
     expect(fetch.mock.calls[0][1].method).toBe('DELETE');
   });
 

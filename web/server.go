@@ -69,7 +69,7 @@ func NewServer(proto *parchment.Protocol, version, devPath string) *Server {
 				templateFS, "templates/fragment_artifact.html"),
 		)
 		s.pages["fragment_artifact.html"] = fragmentTmpl
-		for _, g := range []string{"graph.html", "graph_v1.html"} {
+		for _, g := range []string{"graph.html"} {
 			clone := template.Must(layoutTmpl.Clone())
 			s.pages[g] = template.Must(clone.ParseFS(templateFS, "templates/"+g))
 		}
@@ -92,23 +92,41 @@ func NewServer(proto *parchment.Protocol, version, devPath string) *Server {
 	s.mux.HandleFunc("GET /tree/{id}", s.handleTree)
 	s.mux.HandleFunc("GET /search", s.handleSearch)
 	s.mux.HandleFunc("GET /graph", s.handleGraph)
-	s.mux.HandleFunc("GET /graph-v1", s.handleGraphV1)
 	s.mux.HandleFunc("GET /events", s.handleEvents)
 
 	// Fragment endpoints (HTMX sidebar loads)
 	s.mux.HandleFunc("GET /fragments/artifacts/{id}", s.handleFragmentArtifact)
 
 	// JSON API — read (more-specific routes first)
-	s.mux.HandleFunc("GET /api/graph/scopes", s.handleAPIGraphScopes)
-	s.mux.HandleFunc("GET /api/graph/kinds", s.handleAPIGraphKinds)
-	s.mux.HandleFunc("GET /api/graph", s.handleAPIGraph)
-	s.mux.HandleFunc("GET /api/scopes", s.handleAPIScopes)
+	// JSON API v1 — graph read
+	s.mux.HandleFunc("GET /api/v1/graph/scopes", s.handleAPIGraphScopes)
+	s.mux.HandleFunc("GET /api/v1/graph/kinds", s.handleAPIGraphKinds)
+	s.mux.HandleFunc("GET /api/v1/graph", s.handleAPIGraph)
+	s.mux.HandleFunc("GET /api/v1/scopes", s.handleAPIScopes)
 
-	// JSON API — write
-	s.mux.HandleFunc("POST /api/artifacts", s.handleAPICreateArtifact)
-	s.mux.HandleFunc("PATCH /api/artifacts/{id}", s.handleAPIPatchArtifact)
-	s.mux.HandleFunc("POST /api/edges", s.handleAPICreateEdge)
-	s.mux.HandleFunc("DELETE /api/edges/{from}/{relation}/{to}", s.handleAPIDeleteEdge)
+	// JSON API v1 — write
+	s.mux.HandleFunc("POST /api/v1/artifacts", s.handleAPICreateArtifact)
+	s.mux.HandleFunc("PATCH /api/v1/artifacts/{id}", s.handleAPIPatchArtifact)
+	s.mux.HandleFunc("POST /api/v1/edges", s.handleAPICreateEdge)
+	s.mux.HandleFunc("DELETE /api/v1/edges/{from}/{relation}/{to}", s.handleAPIDeleteEdge)
+
+	// Legacy /api/* → /api/v1/* (301 permanent redirect).
+	// Preserves query string so old bookmarks and curl scripts keep working.
+	legacyRedirect := func(w http.ResponseWriter, r *http.Request) {
+		target := "/api/v1" + r.URL.Path[4:] // "/api/x" → "/api/v1/x"
+		if r.URL.RawQuery != "" {
+			target += "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, target, http.StatusMovedPermanently)
+	}
+	for _, pattern := range []string{
+		"GET /api/graph/scopes", "GET /api/graph/kinds", "GET /api/graph",
+		"GET /api/scopes",
+		"POST /api/artifacts", "PATCH /api/artifacts/{id}",
+		"POST /api/edges", "DELETE /api/edges/{from}/{relation}/{to}",
+	} {
+		s.mux.HandleFunc(pattern, legacyRedirect)
+	}
 
 	return s
 }

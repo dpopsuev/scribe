@@ -392,12 +392,6 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "graph.html", map[string]any{"Title": "Graph", "Version": s.version})
 }
 
-func (s *Server) handleGraphV1(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "no-store")
-	s.render(w, "graph_v1.html", map[string]any{"Title": "Graph v1"})
-}
-
-
 // ── helpers ─────────────────────────────────────────────────────────────────
 
 const defaultStatuses = "active,draft,current,proposed,in_progress,in_review,fleeting"
