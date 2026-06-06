@@ -54,13 +54,26 @@ export class BaseRenderer {
  * Hardcoded KIND_COLORS map, sqrt(val)*1.5 sizing, opacity 0.9.
  * Does not depend on CSS custom properties or external THREE.
  */
+export const LINK_COLORS = {
+  'cross-scope': 'rgba(148,163,184,0.8)',
+  'parent_of':   'rgba(148,163,184,0.5)',
+  'depends_on':  'rgba(251,146,60,0.8)',
+  'implements':  'rgba(52,211,153,0.8)',
+  'justifies':   'rgba(167,139,250,0.8)',
+  'satisfies':   'rgba(56,189,248,0.8)',
+};
+const DEFAULT_LINK_COLOR = 'rgba(148,163,184,0.6)';
+
 export class KindColorRenderer extends BaseRenderer {
   apply(g) {
     return g
       .nodeColor(n => KIND_COLORS[n.kind] || DEFAULT_NODE_COLOR)
       .nodeRelSize(6)
       .nodeVal(n => Math.max(1, Math.sqrt(n.val || 1)))
-      .nodeOpacity(0.9);
+      .nodeOpacity(0.9)
+      .linkColor(l => LINK_COLORS[l.relation] || DEFAULT_LINK_COLOR)
+      .linkOpacity(1)
+      .linkWidth(l => l.relation === 'parent_of' ? 1 : 2);
   }
 }
 

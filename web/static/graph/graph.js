@@ -475,9 +475,7 @@ export function initGraph(injectedDeps) {
       return `<div style="background:rgba(0,0,0,0.85);color:#e2e8f0;padding:5px 9px;border-radius:5px;font-size:12px;pointer-events:none;max-width:260px">${title}</div>`;
     })
     .nodeResolution(12)
-    .linkColor(() => 'rgba(148,163,184,0.25)')
-    .linkOpacity(0.55)
-    .linkWidth(l => l.relation === 'cross-scope' ? 0.8 : l.relation === 'parent_of' ? 0.4 : 1)
+    // link appearance owned by renderer
     .linkDirectionalParticles(l => l.relation === 'depends_on' ? 2 : 0)
     .linkDirectionalParticleSpeed(0.004)
     .linkDirectionalParticleWidth(1.5)
