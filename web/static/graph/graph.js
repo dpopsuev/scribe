@@ -16,7 +16,8 @@ import { buildPalette }                         from './palette.js';
 import { centerOfMass, parentNodes,
          placeInMiniSphere,
          equatorPriorityPositions,
-         forceSelfGravity }                     from './physics.js';
+         forceSelfGravity,
+         forcesForDist }                        from './physics.js';
 import { glowColor, glowConfig }               from './glow.js';
 import { fetchScopeGraph, fetchKindGraph,
          fetchArtifactGraph,
@@ -515,29 +516,14 @@ export function initGraph(injectedDeps) {
     Graph.width(window.innerWidth).height(window.innerHeight));
 
   // ── Per-frame adaptive systems ────────────────────────────────────────────
-  // Zoom-adaptive force parameters interpolated in log-distance space.
-  // t=0 (zoomed in, dist≈150): weak gravity, strong repulsion → spread.
-  // t=1 (zoomed out, dist≈3000): strong gravity, weak repulsion → tight.
-  function forcesForDist(rawDist) {
-    const t = Math.max(0, Math.min(1,
-      Math.log(rawDist / 150) / Math.log(3000 / 150),
-    ));
-    return {
-      G:    0.01 + 0.4  * t * t,          // 0.01 → 0.41
-      rep: -(250  - 220 * t * t),         // -250 → -30
-      dmax:  600  - 550 * t,              // 600  → 50
-    };
-  }
-
-  // EMA-smoothed camera distance — ignores per-frame jitter.
-  // α=0.03 means ~33 frames to respond to a step change (≈1s at 30fps).
+  // EMA-smoothed camera distance. α=0.03 ≈ 1s lag at 30fps — filters scroll jitter.
   let smoothDist = null;
+  // Seeded to initial distance after first frame so boot never triggers adaptation.
   let lastApplied = null;
+  let frameCount = 0;
 
-  (function frame() {
-    requestAnimationFrame(frame);
-    if (!Graph) return;
-
+  // ── Zoom adaptor (SRP: only touches forces) ───────────────────────────────
+  function tickZoomAdaptor() {
     const cam  = Graph.camera();
     const ctrl = Graph.controls();
     if (!cam || !ctrl) return;
@@ -548,46 +534,51 @@ export function initGraph(injectedDeps) {
       cam.position.z - ctrl.target.z,
     );
 
-    // EMA smoothing — prevents jitter from firing multiple reheats.
-    smoothDist = smoothDist == null
-      ? rawDist
-      : smoothDist * 0.97 + rawDist * 0.03;
+    smoothDist = smoothDist == null ? rawDist : smoothDist * 0.97 + rawDist * 0.03;
 
-    // ── 1. Zoom-adaptive clustering ─────────────────────────────────────────
-    // Apply only when smoothed distance differs >25% from last applied.
-    // The EMA ensures the camera has stopped moving before we reheat.
-    if (lastApplied == null || Math.abs(smoothDist - lastApplied) / lastApplied > 0.25) {
+    // Seed lastApplied from initial position — prevents collapse on boot.
+    if (lastApplied == null && frameCount > 60) {
+      lastApplied = smoothDist;
+      return;
+    }
+    if (lastApplied == null) return;
+
+    // Apply only when smoothed dist differs >25% — EMA ensures zoom has settled.
+    if (Math.abs(smoothDist - lastApplied) / lastApplied > 0.25) {
       const { G, rep, dmax } = forcesForDist(smoothDist);
       Graph.d3Force('gravity', forceSelfGravity(G, 40, 'val'));
       Graph.d3Force('charge')?.strength?.(rep);
       Graph.d3Force('charge')?.distanceMax?.(dmax);
       Graph.d3ReheatSimulation();
-      log.info('zoom-adapt smoothDist=%d G=%.3f rep=%.1f dmax=%.1f', Math.round(smoothDist), G, rep, dmax);
+      log.info('zoom-adapt dist=%d G=%.3f rep=%.1f dmax=%.1f', Math.round(smoothDist), G, rep, dmax);
       lastApplied = smoothDist;
     }
+  }
 
-    // ── 2. Distance-sorted, fade-by-distance labels ─────────────────────────
-    // Sprites closer to camera render on top (higher renderOrder).
-    // Labels fade out beyond FADE_END world units.
+  // ── Label manager (SRP: only touches sprite opacity + renderOrder) ─────────
+  function tickLabelManager() {
+    const cam = Graph.camera();
+    if (!cam) return;
     const FADE_START = 300, FADE_END = 900;
     for (const node of Graph.graphData().nodes) {
-      const obj = node.__threeObj;
-      if (!obj) continue;
-      const sprite = obj.children?.[0];
+      const sprite = node.__threeObj?.children?.[0];
       if (!sprite?.isSprite) continue;
-
-      const ndx = (node.x || 0) - cam.position.x;
-      const ndy = (node.y || 0) - cam.position.y;
-      const ndz = (node.z || 0) - cam.position.z;
-      const d   = Math.hypot(ndx, ndy, ndz);
-
-      // Fade: 1 within FADE_START, linear → 0 at FADE_END
-      sprite.material.opacity = Math.max(0,
-        Math.min(1, (FADE_END - d) / (FADE_END - FADE_START)));
-
-      // Depth sort: closer nodes get higher renderOrder → draw on top
+      const d = Math.hypot(
+        (node.x || 0) - cam.position.x,
+        (node.y || 0) - cam.position.y,
+        (node.z || 0) - cam.position.z,
+      );
+      sprite.material.opacity = Math.max(0, Math.min(1, (FADE_END - d) / (FADE_END - FADE_START)));
       sprite.renderOrder = Math.round(100000 / Math.max(d, 1));
     }
+  }
+
+  (function frame() {
+    requestAnimationFrame(frame);
+    if (!Graph) return;
+    frameCount++;
+    tickZoomAdaptor();
+    tickLabelManager();
   })();
 
   loadMacro().catch(e => log.error('boot error=%s', e.message));

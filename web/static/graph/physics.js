@@ -15,6 +15,23 @@
  * the equilibrium seen in star clusters and galactic halos.
  * ε (softening) prevents infinite force when two nodes overlap.
  */
+/**
+ * Returns force parameters for zoom-adaptive clustering.
+ * Maps camera distance to gravity/repulsion values using log-space interpolation.
+ * t=0 (zoomed in, dist≈150): weak gravity, strong repulsion → spread.
+ * t=1 (zoomed out, dist≈3000): strong gravity, weak repulsion → tight.
+ */
+export function forcesForDist(dist, minDist = 150, maxDist = 3000) {
+  const t = Math.max(0, Math.min(1,
+    Math.log(dist / minDist) / Math.log(maxDist / minDist),
+  ));
+  return {
+    G:    0.01 + 0.4  * t * t,
+    rep: -(250  - 220 * t * t),
+    dmax:  600  - 550 * t,
+  };
+}
+
 export function forceSelfGravity(G = 0.15, softening = 30, massKey = 'val') {
   let nodes;
   function force(alpha) {

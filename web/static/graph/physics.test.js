@@ -9,6 +9,7 @@ import {
   placeInMiniSphere,
   scaleNodesByDistance,
   forceSelfGravity,
+  forcesForDist,
 } from './physics.js';
 
 // ── fibonacciSphere ───────────────────────────────────────────────────────────
@@ -340,5 +341,48 @@ describe('forceSelfGravity', () => {
     force.initialize([node]);
     force(1);
     expect(node.vx).toBe(0);  // zero displacement → zero net force direction
+  });
+});
+
+describe('forcesForDist', () => {
+  it('zoomed in (dist=150) → weak gravity, strong repulsion, large dmax', () => {
+    const { G, rep, dmax } = forcesForDist(150);
+    expect(G).toBeCloseTo(0.01, 3);
+    expect(rep).toBeCloseTo(-250, 0);
+    expect(dmax).toBeCloseTo(600, 0);
+  });
+
+  it('zoomed out (dist=3000) → strong gravity, weak repulsion, small dmax', () => {
+    const { G, rep, dmax } = forcesForDist(3000);
+    expect(G).toBeCloseTo(0.41, 2);
+    expect(rep).toBeCloseTo(-30, 0);
+    expect(dmax).toBeCloseTo(50, 0);
+  });
+
+  it('mid-range → intermediate values', () => {
+    const { G, rep, dmax } = forcesForDist(669); // geometric midpoint
+    expect(G).toBeGreaterThan(0.01);
+    expect(G).toBeLessThan(0.41);
+    expect(rep).toBeGreaterThan(-250);
+    expect(rep).toBeLessThan(-30);
+  });
+
+  it('dist < minDist clamps to t=0', () => {
+    const { G } = forcesForDist(50);
+    expect(G).toBeCloseTo(0.01, 3);
+  });
+
+  it('dist > maxDist clamps to t=1', () => {
+    const { G } = forcesForDist(10000);
+    expect(G).toBeCloseTo(0.41, 2);
+  });
+
+  it('cluster radius grows as dist decreases (zooming in spreads nodes)', () => {
+    const far  = forcesForDist(2000);
+    const near = forcesForDist(300);
+    // equilibrium r_eq ≈ |rep| / G — larger when zoomed in
+    const r_far  = Math.abs(far.rep)  / far.G;
+    const r_near = Math.abs(near.rep) / near.G;
+    expect(r_near).toBeGreaterThan(r_far);
   });
 });

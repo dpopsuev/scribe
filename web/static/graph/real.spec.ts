@@ -200,5 +200,14 @@ test.describe('real server — current /graph', () => {
     // Threshold is 3%: links alone produce ~2%, nodes add at least 1% more.
     // 0.5% only catches blank screens — this catches invisible-nodes-with-links.
     expect(pct, `${browserName}: only links visible, nodes absent — bright=${pct.toFixed(3)}%`).toBeGreaterThan(3);
+
+    // Zoom-adaptive clustering must not collapse nodes to a point.
+    // If all nodes overlap, they appear as one tiny dot — same symptom as invisible nodes.
+    const spread = await page.evaluate(() => {
+      const nodes = (window as any)._Graph.graphData().nodes;
+      const dists = nodes.map((n: any) => Math.hypot(n.x||0, n.y||0, n.z||0));
+      return Math.max(...dists);
+    });
+    expect(spread, `nodes collapsed — max radius only ${Math.round(spread)} units`).toBeGreaterThan(30);
   });
 });
