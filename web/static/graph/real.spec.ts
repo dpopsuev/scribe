@@ -185,9 +185,14 @@ test.describe('real server — current /graph', () => {
       return { distFromCoM: Math.round(distFromCoM), expected: Math.round(expected), n };
     });
     console.log(`  boot camDistFromCoM=${result.distFromCoM} expected=${result.expected} n=${result.n}`);
+    // Double-sided: camera must be close enough to see nodes AND far enough for breathing room.
+    // Expected = clusterMaxRadius(n) / tan(FOV/2) * FIT_ALL_PADDING → cluster fills ~58% of FOV.
     expect(result.distFromCoM,
-      `boot camera ${result.distFromCoM} units from CoM, expected ~${result.expected}`
-    ).toBeLessThan(result.expected * 1.1);
+      `camera too close (${result.distFromCoM} < ${Math.round(result.expected * 0.85)}) — cluster fills >65% of FOV`
+    ).toBeGreaterThan(result.expected * 0.85);
+    expect(result.distFromCoM,
+      `camera too far (${result.distFromCoM} > ${Math.round(result.expected * 1.15)}) — cluster too small on screen`
+    ).toBeLessThan(result.expected * 1.15);
 
     // Threshold is 3%: links alone produce ~2%, nodes add at least 1% more.
     // 0.5% only catches blank screens — this catches invisible-nodes-with-links.

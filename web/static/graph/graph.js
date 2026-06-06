@@ -72,7 +72,7 @@ const BG_RECENTER_ANIM_MS  = 600;  // camera re-centre animation duration on bg 
 const ORBIT_SPEED_DEG_PER_SEC  = 0.4;    // very slow — barely perceptible, non-distracting
 const IDLE_ORBIT_MS            = 4000;   // 4 s idle → start spinning
 const IDLE_HOME_MS             = 20000;  // 20 s idle → reset to fit-all-nodes view + spin
-const FIT_ALL_PADDING          = 1.25;   // extra breathing room around the cluster edge
+const FIT_ALL_PADDING          = 1.8;    // cluster fills ~58% of FOV — comfortable breathing room
 
 
 const DEFAULT_STATUSES = 'active,draft,current,proposed,in_progress,in_review,fleeting';
