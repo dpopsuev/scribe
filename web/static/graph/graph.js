@@ -556,7 +556,13 @@ export function initGraph(injectedDeps) {
     }
   }
 
-  // ── Label manager (SRP: only touches sprite opacity + renderOrder) ─────────
+  // ── Label manager — lazy, throttled, threshold-gated ─────────────────────
+  // Runs every LABEL_INTERVAL frames. Skips individual nodes when opacity
+  // delta < OPACITY_EPSILON — avoids GPU state changes for imperceptible diffs.
+  const LABEL_INTERVAL  = 4;     // update labels at ~15fps, not 60fps
+  const OPACITY_EPSILON = 0.02;  // skip write if change < 2%
+  const lastOpacity = new Map(); // nodeId → last written opacity
+
   function tickLabelManager() {
     const cam = Graph.camera();
     if (!cam) return;
@@ -569,17 +575,37 @@ export function initGraph(injectedDeps) {
         (node.y || 0) - cam.position.y,
         (node.z || 0) - cam.position.z,
       );
-      sprite.material.opacity = Math.max(0, Math.min(1, (FADE_END - d) / (FADE_END - FADE_START)));
+      const opacity = Math.max(0, Math.min(1, (FADE_END - d) / (FADE_END - FADE_START)));
+      const prev = lastOpacity.get(node.id) ?? -1;
+      if (Math.abs(opacity - prev) < OPACITY_EPSILON) continue; // skip imperceptible change
+      sprite.material.opacity = opacity;
       sprite.renderOrder = Math.round(100000 / Math.max(d, 1));
+      lastOpacity.set(node.id, opacity);
     }
   }
+
+  // ── Self-throttling frame loop ─────────────────────────────────────────────
+  // Measures its own wall time. If we exceeded half the frame budget last tick,
+  // skip heavy work this tick so the renderer stays unblocked.
+  // Priority: zoom adaptation (very slow) > label updates (slow) > nothing.
+  const FRAME_BUDGET_MS = 8; // half of 16.67ms — leave headroom for Three.js render
+  let frameMs = 0;
 
   (function frame() {
     requestAnimationFrame(frame);
     if (!Graph) return;
+    const t0 = performance.now();
     frameCount++;
-    tickZoomAdaptor();
-    tickLabelManager();
+
+    // Zoom adaptation: every 30 frames (~2fps checks). Never urgent.
+    if (frameCount % 30 === 0) tickZoomAdaptor();
+
+    // Label updates: every LABEL_INTERVAL frames, skip if last frame was expensive.
+    if (frameCount % LABEL_INTERVAL === 0 && frameMs < FRAME_BUDGET_MS) {
+      tickLabelManager();
+    }
+
+    frameMs = performance.now() - t0;
   })();
 
   loadMacro().catch(e => log.error('boot error=%s', e.message));

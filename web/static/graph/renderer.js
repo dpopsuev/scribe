@@ -110,9 +110,12 @@ function makeLabelCanvas(name, count) {
 export class KindColorRenderer extends BaseRenderer {
   constructor() {
     super();
-    this._palette = null;
-    this._minCbrt = 1;
-    this._maxCbrt = 1;
+    this._palette  = null;
+    this._minCbrt  = 1;
+    this._maxCbrt  = 1;
+    // Canvas texture cache: nodeId → { key, canvas }
+    // key = `${name}|${val}|${violations}` — only recreate when data changes.
+    this._canvasCache = new Map();
   }
 
   // Called by graph.js once the scope node array is available.
@@ -155,7 +158,14 @@ export class KindColorRenderer extends BaseRenderer {
   _labelSprite(node) {
     const THREE = typeof window !== 'undefined' && window.THREE;
     if (!THREE) return null;
-    const canvas  = makeLabelCanvas(node.name, (node.val || 1) * 20);
+    const cacheKey = `${node.name}|${node.val}|${node.violations}`;
+    let canvas = this._canvasCache.get(node.id)?.key === cacheKey
+      ? this._canvasCache.get(node.id).canvas
+      : null;
+    if (!canvas) {
+      canvas = makeLabelCanvas(node.name, (node.val || 1) * 20);
+      this._canvasCache.set(node.id, { key: cacheKey, canvas });
+    }
     const texture  = new THREE.CanvasTexture(canvas);
     const material = new THREE.SpriteMaterial({
       map: texture, transparent: true,

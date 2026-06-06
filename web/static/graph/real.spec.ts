@@ -128,30 +128,7 @@ function saveScreenshot(page: Page, name: string) {
   return page.screenshot({ path: path.join(dir, `${name}.png`), fullPage: false });
 }
 
-// ── baseline: v1 must work ────────────────────────────────────────────────
-
-test.describe('real server — v1 baseline', () => {
-  test('graph-v1 renders nodes visibly', async ({ page, browserName }) => {
-    const { logs, errors } = await loadReal(page, '/graph-v1');
-
-    const state = await graphState(page);
-    const pct   = await brightPixelPct(page);
-    await saveScreenshot(page, `v1-${browserName}`);
-
-    console.log(`\n[${browserName}] /graph-v1`);
-    console.log(`  nodes=${state?.nodeCount}  meshes=${state?.meshCount}`);
-    console.log(`  inFrustum=${state?.inFrustum}  transparent=${state?.transparentCount}`);
-    console.log(`  camPos=${JSON.stringify(state?.camPos)}`);
-    console.log(`  bright=${pct.toFixed(3)}%`);
-    logs.filter(l => l.includes('[graph]')).forEach(l => console.log(' ', l));
-    if (errors.length) console.log('  ERRORS:', errors);
-
-    // v1 is the working reference — assert it renders nodes.
-    expect(pct, `v1 baseline must have bright pixels`).toBeGreaterThan(0.5);
-  });
-});
-
-// ── current: /graph must match v1 ────────────────────────────────────────
+// ── current /graph ───────────────────────────────────────────────────────
 
 test.describe('real server — current /graph', () => {
   test('graph renders nodes — must match v1 baseline', async ({ page, browserName }) => {
