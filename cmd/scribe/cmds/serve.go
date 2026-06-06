@@ -166,7 +166,7 @@ func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, ppro
 	)
 
 	if enableUI {
-		uiSrv := web.NewServer(svc.Proto)
+		uiSrv := web.NewServer(svc.Proto, Version)
 		go func() {
 			slog.InfoContext(ctx, "UI listening", slog.String(logKeyAddr, uiAddr))
 			if err := http.ListenAndServe(uiAddr, uiSrv); err != nil { //nolint:gosec // operator-configured address
@@ -312,7 +312,7 @@ func UICmd() *cobra.Command {
 				return err
 			}
 			defer cleanup()
-			uiSrv := web.NewServer(svc.Proto)
+			uiSrv := web.NewServer(svc.Proto, Version)
 			fmt.Fprintf(os.Stderr, "scribe: UI listening on %s\n", addr)
 			return http.ListenAndServe(addr, uiSrv) //nolint:gosec // operator-configured address
 		},

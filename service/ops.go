@@ -856,6 +856,7 @@ type setInput struct {
 	BypassGuards bool     `json:"bypass_guards,omitempty"`
 	Cascade      bool     `json:"cascade,omitempty"`
 	DryRun       bool     `json:"dry_run,omitempty"`
+	RenameID     bool     `json:"rename_id,omitempty"`
 	Scope        string   `json:"scope,omitempty"`
 	Kind         string   `json:"kind,omitempty"`
 	Status       string   `json:"status,omitempty"`
@@ -918,7 +919,7 @@ var opSet = Op{
 			return fmt.Sprintf("dry run: would set %s=%s on %d artifact(s): %v", in.Field, in.Value, len(ids), ids), nil
 		}
 		results, err := svc.Proto.SetField(ctx, ids, in.Field, in.Value, parchment.SetFieldOptions{
-			Force: in.Force, BypassGuards: in.BypassGuards, Cascade: in.Cascade,
+			Force: in.Force, BypassGuards: in.BypassGuards, Cascade: in.Cascade, RenameID: in.RenameID,
 		})
 		if err != nil {
 			return "", err
@@ -926,7 +927,11 @@ var opSet = Op{
 		var lines []string
 		for _, r := range results {
 			if r.OK {
-				lines = append(lines, fmt.Sprintf("%s.%s = %s", r.ID, in.Field, in.Value))
+				line := fmt.Sprintf("%s.%s = %s", r.ID, in.Field, in.Value)
+				if r.NewID != "" {
+					line += fmt.Sprintf(" (renamed → %s)", r.NewID)
+				}
+				lines = append(lines, line)
 			} else {
 				lines = append(lines, fmt.Sprintf("%s -> error: %s", r.ID, r.Error))
 			}

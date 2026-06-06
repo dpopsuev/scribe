@@ -21,6 +21,7 @@ import (
 // Query artifact(action=list, kind=label_definition, scope=_schema) to learn when to apply each label.
 const scribeInstructions = "Artifact graph + knowledge vault. " +
 	"SESSION START: admin(action=brief) — discloses scope, active goal, open bugs. " +
+	"CAPABILITIES: admin(action=capabilities) — structured map of every action, option, and field; call this when unsure what's possible (e.g. rename_id, dry_run, cascade). " +
 	"SCHEMA: the _schema scope is self-describing — query kind_definition, edge_type_definition, label_definition artifacts to learn when and how to use each construct."
 
 // NewServer creates an MCP server exposing Scribe tools over the given store.
@@ -145,17 +146,17 @@ type artifactInput struct {
 	Extra     map[string]any      `json:"extra,omitempty"`
 	Sections  []map[string]string `json:"sections,omitempty" jsonschema:"[{name, text}, ...]"`
 
-	Format  string   `json:"format,omitempty" jsonschema:"summary or full (default)"`
-	GroupBy string   `json:"group_by,omitempty" jsonschema:"status, scope, kind, sprint"`
-	Sort    string   `json:"sort,omitempty" jsonschema:"id, title, status, scope, kind"`
-	Limit    int    `json:"limit,omitempty"`
-	Cursor   string `json:"cursor,omitempty" jsonschema:"pagination cursor from previous list response"`
-	Count    bool   `json:"count,omitempty"`
-	Ranked   bool   `json:"ranked,omitempty" jsonschema:"scored FTS with kind and recency weighting"`
-	Semantic bool   `json:"semantic,omitempty" jsonschema:"vector similarity search (requires embeddings in store)"`
-	Top     int      `json:"top,omitempty" jsonschema:"N most relevant by status+priority+recency"`
-	Fields  []string `json:"fields,omitempty" jsonschema:"id, kind, scope, status, title, parent, priority"`
-	Query   string   `json:"query,omitempty" jsonschema:"substring search across title, goal, sections"`
+	Format   string   `json:"format,omitempty" jsonschema:"summary or full (default)"`
+	GroupBy  string   `json:"group_by,omitempty" jsonschema:"status, scope, kind, sprint"`
+	Sort     string   `json:"sort,omitempty" jsonschema:"id, title, status, scope, kind"`
+	Limit    int      `json:"limit,omitempty"`
+	Cursor   string   `json:"cursor,omitempty" jsonschema:"pagination cursor from previous list response"`
+	Count    bool     `json:"count,omitempty"`
+	Ranked   bool     `json:"ranked,omitempty" jsonschema:"scored FTS with kind and recency weighting"`
+	Semantic bool     `json:"semantic,omitempty" jsonschema:"vector similarity search (requires embeddings in store)"`
+	Top      int      `json:"top,omitempty" jsonschema:"N most relevant by status+priority+recency"`
+	Fields   []string `json:"fields,omitempty" jsonschema:"id, kind, scope, status, title, parent, priority"`
+	Query    string   `json:"query,omitempty" jsonschema:"substring search across title, goal, sections"`
 
 	TitleContains  string   `json:"title_contains,omitempty"`
 	CreatedAfter   string   `json:"created_after,omitempty"`
@@ -173,8 +174,9 @@ type artifactInput struct {
 
 	Field        string `json:"field,omitempty" jsonschema:"title, goal, scope, status, parent, priority, kind, depends_on, labels"`
 	Value        string `json:"value,omitempty" jsonschema:"new value (comma-separated for list fields)"`
-	Force        bool   `json:"force,omitempty" jsonschema:"bypass transition validation"`
-	BypassGuards bool   `json:"bypass_guards,omitempty" jsonschema:"skip lifecycle guards (archive semantics)"`
+	Force        bool   `json:"force,omitempty" jsonschema:"bypass transition validation — allows status moves that would normally be blocked by lifecycle rules"`
+	BypassGuards bool   `json:"bypass_guards,omitempty" jsonschema:"skip rule evaluator guards entirely (use for migrations or emergency fixes)"`
+	RenameID     bool   `json:"rename_id,omitempty" jsonschema:"when field is scope: atomically renames the artifact ID to match the new scope key; result.new_id contains the new ID; all edge references cascade automatically"`
 
 	Name           string   `json:"name,omitempty"`
 	Text           string   `json:"text,omitempty"`
@@ -184,8 +186,8 @@ type artifactInput struct {
 	Against        string   `json:"against,omitempty"`
 
 	IDs     []string `json:"ids,omitempty"`
-	Cascade bool     `json:"cascade,omitempty"`
-	DryRun  bool     `json:"dry_run,omitempty"`
+	Cascade bool     `json:"cascade,omitempty" jsonschema:"apply status transition recursively to all children (retire/archive tree operations)"`
+	DryRun  bool     `json:"dry_run,omitempty" jsonschema:"simulate the operation and return what would change without writing anything"`
 
 	Patch        map[string]string `json:"patch,omitempty" jsonschema:"{field: value} pairs for batch_update"`
 	Artifacts    []map[string]any  `json:"artifacts,omitempty"`
@@ -221,7 +223,7 @@ type knowledgeInput struct {
 }
 
 type adminInput struct {
-	Action  string `json:"action" jsonschema:"required,brief | changelog | dashboard | snapshot | set_goal | detect | correlate | ingest_session | decision | set_scope | set_scope_labels | context_read | session"`
+	Action  string `json:"action" jsonschema:"required,brief | capabilities | changelog | dashboard | snapshot | set_goal | detect | correlate | ingest_session | decision | set_scope | set_scope_labels | context_read | session"`
 	Compact bool   `json:"compact,omitempty" jsonschema:"minimal output for repeat calls (brief)"`
 
 	SnapshotAction string `json:"snapshot_action,omitempty" jsonschema:"create, list, diff, or restore"`

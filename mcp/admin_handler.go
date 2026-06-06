@@ -68,8 +68,10 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 		default:
 			return nil, nil, fmt.Errorf("session requires snapshot_action=start|commit|diff|merge") //nolint:err113 // agent-facing hint
 		}
+	case "capabilities":
+		return h.handleCapabilities(ctx)
 	default:
-		return nil, nil, fmt.Errorf("unknown admin action %q (valid: brief, changelog, dashboard, snapshot, set_goal, detect, correlate, ingest_session, decision, context_read, session, set_scope, set_scope_labels)", in.Action) //nolint:err113 // agent-facing hint
+		return nil, nil, fmt.Errorf("unknown admin action %q (valid: brief, capabilities, changelog, dashboard, snapshot, set_goal, detect, correlate, ingest_session, decision, context_read, session, set_scope, set_scope_labels)", in.Action) //nolint:err113 // agent-facing hint
 	}
 }
 
@@ -263,4 +265,55 @@ type detectInput struct {
 	Kind      string `json:"kind,omitempty"`
 	Project   string `json:"project,omitempty"`
 	StaleDays int    `json:"stale_days,omitempty" jsonschema:"days before a fleeting note is considered stuck (default: 7)"`
+}
+
+// handleCapabilities returns a structured map of every callable operation,
+// option, and field — the MCP equivalent of GraphQL introspection.
+// Agents call admin(action=capabilities) once at session start to discover
+// what's possible without relying on description prose or prior knowledge.
+func (h *handler) handleCapabilities(_ context.Context) (*sdkmcp.CallToolResult, any, error) {
+	caps := map[string]any{
+		// artifact tool actions
+		"artifact_actions": []string{
+			"create", "get", "list", "set", "update", "archive", "de-archive",
+			"retire", "attach_section", "detach_section", "bulk_section_update",
+			"diff", "recall", "orient", "tree", "briefing", "link", "unlink",
+			"topo_sort", "replace", "catalog", "impact",
+		},
+		// admin tool actions
+		"admin_actions": []string{
+			"brief", "capabilities", "changelog", "dashboard", "snapshot",
+			"set_goal", "detect", "correlate", "ingest_session", "decision",
+			"context_read", "session", "set_scope", "set_scope_labels",
+		},
+		// set() options — each is a bool flag on the set action
+		"set_options": map[string]string{ //nolint:gosec // G101: map keys are option names, not credentials
+			"force":         "bypass lifecycle transition validation — allows status moves blocked by rules",
+			"bypass_guards": "skip rule evaluator entirely — for migrations or emergency writes",
+			"cascade":       "apply operation recursively to all children — used with retire/archive",
+			"dry_run":       "simulate without writing — returns what would change",
+			"rename_id":     "field=scope only — atomically renames the artifact ID to match the new scope key; result.new_id carries the new identifier; all edge references cascade automatically",
+		},
+		// fields accepted by set(field=X, value=Y)
+		"set_fields": []string{
+			"title", "goal", "scope", "status", "parent", "priority",
+			"kind", "depends_on", "labels", "sprint", "alias",
+		},
+		// result shape for set() — new_id is only present when rename_id=true
+		"set_result_shape": map[string]string{
+			"id":     "artifact ID (original, before rename if rename_id was used)",
+			"new_id": "new artifact ID after scope rename — only present when rename_id=true",
+			"field":  "field that was set",
+			"value":  "value that was set",
+		},
+		// schema kinds available in _schema scope for structural discovery
+		"schema_kinds": []string{
+			"kind_definition", "edge_type_definition", "label_definition", "rule",
+		},
+		"schema_discovery": "artifact(action=list, kind=kind_definition, scope=_schema) — learn when to create each kind. " +
+			"artifact(action=list, kind=edge_type_definition, scope=_schema) — learn what each relation means. " +
+			"artifact(action=list, kind=label_definition, scope=_schema) — learn when to apply each label.",
+	}
+	data, _ := json.Marshal(caps)
+	return text(string(data)), nil, nil
 }
