@@ -3,8 +3,9 @@ module github.com/dpopsuev/scribe
 go 1.26
 
 require (
+	github.com/chromedp/cdproto v0.0.0-20260321001828-e3e3800016bc
+	github.com/chromedp/chromedp v0.15.1
 	github.com/dpopsuev/battery v0.11.0
-	github.com/dpopsuev/ordo v0.1.2
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/modelcontextprotocol/go-sdk v1.5.0
 	github.com/spf13/cobra v1.10.2
@@ -13,21 +14,23 @@ require (
 )
 
 require (
-	github.com/chromedp/cdproto v0.0.0-20260321001828-e3e3800016bc // indirect
-	github.com/chromedp/chromedp v0.15.1 // indirect
 	github.com/chromedp/sysutil v1.1.0 // indirect
+	github.com/deckarep/golang-set/v2 v2.8.0 // indirect
+	github.com/go-jose/go-jose/v3 v3.0.4 // indirect
 	github.com/go-json-experiment/json v0.0.0-20260214004413-d219187c3433 // indirect
+	github.com/go-stack/stack v1.8.1 // indirect
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/gobwas/ws v1.4.0 // indirect
 	github.com/kr/text v0.2.0 // indirect
+	github.com/playwright-community/playwright-go v0.5700.1 // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	modernc.org/sqlite v1.48.1 // indirect
 )
 
 require (
 	github.com/dominikbraun/graph v0.23.0 // indirect
-	github.com/dpopsuev/parchment v0.11.2
+	github.com/dpopsuev/parchment v0.22.1
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/jsonschema-go v0.4.3
 	github.com/google/uuid v1.6.0 // indirect
@@ -45,7 +48,3 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
-
-replace github.com/dpopsuev/parchment => ../parchment
-
-replace github.com/dpopsuev/ordo => ../ordo

@@ -17,7 +17,9 @@
     {{range .Artifacts}}
     <tr>
       <td><a href="/artifacts/{{.ID}}">{{.ID}}</a></td>
-      <td>{{.Kind}}</td>
+      <td>
+        <span class="kind-dot" style="background:var(--color-kind-{{.Kind}},#94a3b8)"></span>{{.Kind}}
+      </td>
       <td>{{.Scope}}</td>
       <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
       <td>{{.Title}}</td>

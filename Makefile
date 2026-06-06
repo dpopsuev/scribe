@@ -13,9 +13,7 @@ build:
 
 build-image:
 	@test -n "$(VERSION)" || (echo "error: VERSION is not set" && exit 1)
-	go mod vendor
 	podman build --build-arg VERSION=$(VERSION) -t $(IMAGE_REPO):$(VERSION) .
-	rm -rf vendor
 
 push-image:
 	@test -n "$(VERSION)" || (echo "error: VERSION is not set" && exit 1)
@@ -33,9 +31,9 @@ run:
 	else \
 		podman stop scribe 2>/dev/null || true; \
 		podman rm scribe 2>/dev/null || true; \
-		podman run -d --name scribe -p 8080:8080 --userns=keep-id \
+		podman run -d --name scribe -p 8080:8080 -p 8082:8082 --userns=keep-id \
 			-v $(SCRIBE_DATA):/data:Z \
-			$(IMAGE); \
+			$(IMAGE) --transport http --addr :8080 --ui --ui-addr :8082; \
 	fi
 	@sleep 1 && podman logs scribe 2>&1 | tail -3
 

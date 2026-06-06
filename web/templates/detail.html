@@ -3,7 +3,10 @@
 
 <table class="meta-table">
   <tr><td>ID</td><td>{{.Artifact.ID}}</td></tr>
-  <tr><td>Kind</td><td>{{.Artifact.Kind}}</td></tr>
+  <tr><td>Kind</td><td>
+    <span class="kind-dot" style="background:var(--color-kind-{{.Artifact.Kind}},#94a3b8)"></span>
+    {{.Artifact.Kind}}
+  </td></tr>
   <tr><td>Scope</td><td>{{.Artifact.Scope}}</td></tr>
   <tr><td>Status</td><td><span class="badge badge-{{.Artifact.Status}}">{{.Artifact.Status}}</span></td></tr>
   {{if .Artifact.Parent}}<tr><td>Parent</td><td><a href="/artifacts/{{.Artifact.Parent}}">{{.Artifact.Parent}}</a></td></tr>{{end}}

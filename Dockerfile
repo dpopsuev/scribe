@@ -1,10 +1,10 @@
 FROM golang:1.26-alpine AS build
 WORKDIR /build
 COPY go.mod go.sum ./
-COPY vendor/ vendor/
+RUN go mod download
 COPY . .
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -mod=vendor -trimpath -ldflags="-s -w -X main.Version=${VERSION}" -o /scribe ./cmd/scribe
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.Version=${VERSION}" -o /scribe ./cmd/scribe
 
 FROM scratch
 COPY --from=build /scribe /scribe
