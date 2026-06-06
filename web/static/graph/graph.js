@@ -19,7 +19,9 @@ import { centerOfMass, parentNodes,
          forceSelfGravity,
          forcesForDist,
          clusterMaxRadius,
+         clusterRadiusFromVolume,
          forceRadiusCap,
+         computeFitDistance,
          computeFitDistanceForCount }            from './physics.js';
 import { glowColor, glowConfig }               from './glow.js';
 import { fetchScopeGraph, fetchKindGraph,
@@ -53,7 +55,20 @@ const VIRTUAL_CENTER_LERP  = 0.015;
 const ZOOM_LERP_PER_FRAME  = 0.06;   // 6%/frame → 95% of target in ~50 frames (~0.8s)
 const ZOOM_DEAD_ZONE       = 0.05;   // ignore zoom changes < 5% (prevents micro-jitter)
 const CAMERA_DIST_MULT     = 2.0;    // camera distance = cluster_radius × this; 3.5 was too far
-const CAMERA_DIST_MAX      = UNIVERSE_RADIUS * 3; // world units — absolute cap
+const CAMERA_DIST_MAX      = UNIVERSE_RADIUS * 3; // world units — fallback cap for aimAtCenterOfMass
+const CAMERA_MIN_DIST      = 10;     // world units — prevents camera entering node spheres
+
+// ── Zoom momentum ──────────────────────────────────────────────────────────
+// Wheel events accumulate a velocity; each frame applies and decays it.
+// This gives a "coast-to-stop" feel with gradual acceleration and deceleration.
+const ZOOM_TICK_IMPULSE    = 0.05;   // log-space velocity added per wheel tick
+const ZOOM_DECAY           = 0.84;   // velocity × this per frame → ~95% gone in ~18 frames (~300ms)
+
+// ── Node visual volume ─────────────────────────────────────────────────────
+// Must match renderer.js nodeVal formula exactly so cluster radius and camera
+// distance are always derived from the same input as the rendered sphere size.
+const NODE_VAL_MIN = 2;   // matches renderer.js NODE_SIZE_MIN
+const NODE_VAL_MAX = 40;  // matches renderer.js NODE_SIZE_MAX
 
 // ── Label rendering ────────────────────────────────────────────────────────
 const LABEL_UPDATE_EVERY_N_FRAMES = 4;    // ~15fps updates — imperceptible at human refresh rate
@@ -77,12 +92,24 @@ const FIT_ALL_PADDING          = 1.8;    // cluster fills ~58% of FOV — comfor
 
 const DEFAULT_STATUSES = 'active,draft,current,proposed,in_progress,in_review,fleeting';
 
+// Computes the visual nodeVal for one node — identical to renderer.js nodeVal lambda.
+// Used to derive cluster radius and camera distance from actual node sizes, not just count.
+function nodeVisualVolume(node) {
+  return Math.max(NODE_VAL_MIN, Math.min(NODE_VAL_MAX, Math.cbrt(node.val || 1) * 2));
+}
+
+// Sum of nodeVisualVolume across all nodes — the shared input for radius and camera distance.
+function totalNodeVolume(nodes) {
+  return nodes.reduce((s, n) => s + nodeVisualVolume(n), 0);
+}
+
 let state = null;   // createGraphState() — one per initGraph call
 let deps  = {};     // injected CDN globals
 let palette = null; // built from culori + GRAPH_BG
 let renderer = null;
 let Graph = null;
-let fitAllNodesFn = null; // set by initGraph; called from loadMacro after data is loaded
+let fitAllNodesFn  = null; // set by initGraph; called from loadMacro after data is loaded
+let enableOrbitFn  = null; // set by initGraph; called from loadMacro to start spinning on boot
 
 // Zoom-adaptive force state — module-level so loadMacro() can reference them.
 // loadMacro is a module-scope async function; variables declared inside
@@ -156,9 +183,11 @@ async function loadMacro() {
   });
 
   // N-body physics: gravity + repulsion + radius cap.
-  const maxR = clusterMaxRadius(sorted.length);
+  // Radius scales with total node visual volume — larger/more nodes get more room.
+  const vol  = totalNodeVolume(sorted);
+  const maxR = clusterRadiusFromVolume(vol);
   capForce.setMaxRadius(maxR);
-  log.info('loadMacro cap radius=%d for %d nodes', Math.round(maxR), sorted.length);
+  log.info('loadMacro cap radius=%d vol=%d nodes=%d', Math.round(maxR), Math.round(vol), sorted.length);
 
   Graph.d3Force('center',  null);
   Graph.d3Force('radial',  null);
@@ -186,6 +215,7 @@ async function loadMacro() {
     aimAtCenterOfMass(0);
     setTimeout(() => aimAtCenterOfMass(800), 3000);
   }
+  if (enableOrbitFn) enableOrbitFn();
 }
 
 
@@ -558,13 +588,14 @@ export function initGraph(injectedDeps) {
     })())
     .onEngineTick(onTick);
 
-  // Allow close zoom and fast scroll.
+  // Camera near plane and zoom bounds.
   const cam = Graph.camera();
   cam.near = 0.1;
   cam.updateProjectionMatrix();
   const ctrl = Graph.controls();
-  ctrl.minDistance = 0;
-  ctrl.zoomSpeed   = 3.0;
+  ctrl.minDistance  = CAMERA_MIN_DIST;
+  ctrl.maxDistance  = CAMERA_DIST_MAX; // overwritten by fitAllNodes once data is loaded
+  ctrl.enableZoom   = false;           // zoom handled manually for momentum effect
 
   // Resize handler.
   window.addEventListener('resize', () =>
@@ -577,16 +608,17 @@ export function initGraph(injectedDeps) {
   function fitAllNodes(animMs = 800) {
     const nodes = Graph.graphData().nodes;
     if (!nodes.length) return;
-    // Camera leads physics: use the settled cap radius, not actual transient positions.
-    // computeFitDistanceForCount(n) = clusterMaxRadius(n) / tan(FOV/2) * padding.
-    // Identical at boot and at idle — same formula, same input → same camera distance.
-    const fitDist = Math.min(
-      computeFitDistanceForCount(nodes.length, Graph.camera().fov, FIT_ALL_PADDING),
-      CAMERA_DIST_MAX,
-    );
+    // Cluster radius and camera distance both derive from total node visual volume —
+    // same formula as the renderer, same formula as the force cap in loadMacro.
+    // No static distance cap: ctrl.maxDistance becomes the zoom-out boundary instead.
+    const vol     = totalNodeVolume(nodes);
+    const radius  = clusterRadiusFromVolume(vol);
+    const fitDist = computeFitDistance(radius, Graph.camera().fov, FIT_ALL_PADDING);
+    Graph.controls().maxDistance = fitDist;
     aimAtCenterOfMass(animMs, fitDist);
   }
-  fitAllNodesFn = fitAllNodes;
+  fitAllNodesFn  = fitAllNodes;
+  enableOrbitFn  = enableOrbit;
 
   // ── Idle orbit ──────────────────────────────────────────────────────────
   // Short idle  (IDLE_ORBIT_MS): start slow orbit spin.
@@ -619,10 +651,19 @@ export function initGraph(injectedDeps) {
     resetIdleTimers();
   }
 
+  // Zoom momentum state — accumulates scroll velocity, decays each frame.
+  let zoomVelocity = 0;
+
   const graphRoot = document.getElementById('graph-root');
   if (graphRoot) {
     graphRoot.addEventListener('pointerdown', onInteraction);
-    graphRoot.addEventListener('wheel',       onInteraction, { passive: true });
+    // Native zoom is disabled (ctrl.enableZoom=false); we drive it with momentum.
+    // positive deltaY = scroll down = zoom out (increase distance).
+    graphRoot.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      zoomVelocity += (e.deltaY > 0 ? 1 : -1) * ZOOM_TICK_IMPULSE;
+      onInteraction();
+    }, { passive: false });
   }
 
   // On boot: fit all nodes first (camera already positioned by aimAtCenterOfMass,
@@ -690,6 +731,31 @@ export function initGraph(injectedDeps) {
     }
   }
 
+  // ── Zoom momentum ─────────────────────────────────────────────────────────
+  // Each frame: move camera along current view ray by the accumulated velocity
+  // (log-space, so zoom is multiplicative), then decay the velocity.
+  // OrbitControls reads cam.position on its next update() and preserves the
+  // new distance because ctrl.enableZoom=false keeps its internal scale=1.
+  function tickZoomMomentum() {
+    if (Math.abs(zoomVelocity) < 0.0005) { zoomVelocity = 0; return; }
+    const c    = Graph.camera();
+    const ctrl = Graph.controls();
+    if (!c || !ctrl) return;
+    const tgt  = ctrl.target;
+    const dx   = c.position.x - tgt.x;
+    const dy   = c.position.y - tgt.y;
+    const dz   = c.position.z - tgt.z;
+    const dist = Math.hypot(dx, dy, dz) || 1;
+    // Positive velocity = zoom in (camera moves closer).
+    const newDist = Math.max(
+      ctrl.minDistance,
+      Math.min(ctrl.maxDistance, dist * Math.exp(-zoomVelocity)),
+    );
+    const f = newDist / dist;
+    c.position.set(tgt.x + dx * f, tgt.y + dy * f, tgt.z + dz * f);
+    zoomVelocity *= ZOOM_DECAY;
+  }
+
   // ── Label manager — lazy, throttled, threshold-gated ─────────────────────
   // Runs every LABEL_INTERVAL frames. Skips individual nodes when opacity
   // delta < OPACITY_EPSILON — avoids GPU state changes for imperceptible diffs.
@@ -730,6 +796,9 @@ export function initGraph(injectedDeps) {
     if (!Graph) return;
     const t0 = performance.now();
     frameCount++;
+
+    // Zoom momentum runs every frame — moves camera along view ray, decays velocity.
+    tickZoomMomentum();
 
     // Zoom adaptation runs every frame — pure lerp + dead zone, O(1), ~0.1ms.
     tickZoomAdaptor();

@@ -91,6 +91,14 @@ export function computeFitDistanceForCount(n, fovDeg = 75, padding = 1.25) {
   return computeFitDistance(clusterMaxRadius(n), fovDeg, padding);
 }
 
+/**
+ * Camera distance using clusterRadiusFromVolume(totalNodeVolume).
+ * totalNodeVolume = sum(nodeVal for all nodes); same formula as renderer.
+ */
+export function computeFitDistanceForVolume(totalNodeVolume, fovDeg = 75, padding = 1.25) {
+  return computeFitDistance(clusterRadiusFromVolume(totalNodeVolume), fovDeg, padding);
+}
+
 // ── Cluster radius cap ────────────────────────────────────────────────────
 
 const BASE_CLUSTER_RADIUS = 80; // world units at 10 nodes
@@ -104,6 +112,24 @@ const BASE_CLUSTER_RADIUS = 80; // world units at 10 nodes
  */
 export function clusterMaxRadius(n) {
   return BASE_CLUSTER_RADIUS * Math.max(1, Math.log10(Math.max(n, 10) / 10) + 1);
+}
+
+// Calibrated so that 87 nodes with avg nodeVal≈4.3 (val=10 each) gives radius≈155,
+// matching clusterMaxRadius(87) for continuity.
+const VOLUME_CLUSTER_BASE = 21.5;
+
+/**
+ * Cluster radius from total node visual volume — the sum of nodeVal across all
+ * nodes, where nodeVal uses the same formula as the renderer:
+ *   nodeVal(n) = clamp(cbrt(n.val || 1) * 2, NODE_SIZE_MIN, NODE_SIZE_MAX)
+ *
+ * Scales as cbrt(totalVolume): doubling total node volume grows the cluster
+ * radius by 26%. Larger or heavier nodes → bigger cluster → camera further out.
+ * Both the force cap radius and the idle camera distance use this value, so
+ * zoom level and cluster tightness are always derived from the same input.
+ */
+export function clusterRadiusFromVolume(totalNodeVolume) {
+  return VOLUME_CLUSTER_BASE * Math.cbrt(Math.max(1, totalNodeVolume));
 }
 
 /**

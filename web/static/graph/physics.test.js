@@ -11,9 +11,11 @@ import {
   forceSelfGravity,
   forcesForDist,
   clusterMaxRadius,
+  clusterRadiusFromVolume,
   forceRadiusCap,
   computeFitDistance,
   computeFitDistanceForCount,
+  computeFitDistanceForVolume,
 } from './physics.js';
 
 // ── fibonacciSphere ───────────────────────────────────────────────────────────
@@ -421,6 +423,63 @@ describe('forcesForDist — dead zone', () => {
   it('threshold=0 means every call returns params', () => {
     expect(forcesForDist(601, 150, 3000, 0)).not.toBeNull();
     expect(forcesForDist(600, 150, 3000, 0)).not.toBeNull();
+  });
+});
+
+describe('clusterRadiusFromVolume', () => {
+  // nodeVisualVolume = clamp(cbrt(val)*2, 2, 40) — same formula as renderer + graph.js.
+  function nv(val) { return Math.max(2, Math.min(40, Math.cbrt(val) * 2)); }
+
+  it('calibration: 87 nodes val=10 matches clusterMaxRadius(87) within 5%', () => {
+    // Ensures continuity with the count-based formula for typical production graphs.
+    const totalVol = 87 * nv(10);
+    const r = clusterRadiusFromVolume(totalVol);
+    const rCount = clusterMaxRadius(87);
+    expect(r).toBeGreaterThan(rCount * 0.95);
+    expect(r).toBeLessThan(rCount * 1.05);
+  });
+
+  it('larger nodes → bigger radius than same count of small nodes', () => {
+    const rSmall = clusterRadiusFromVolume(20 * nv(1));
+    const rLarge = clusterRadiusFromVolume(20 * nv(100));
+    expect(rLarge).toBeGreaterThan(rSmall);
+  });
+
+  it('more nodes → bigger radius', () => {
+    const r10  = clusterRadiusFromVolume(10  * nv(10));
+    const r100 = clusterRadiusFromVolume(100 * nv(10));
+    expect(r100).toBeGreaterThan(r10);
+  });
+
+  it('scales as cbrt — doubling total volume grows radius by ~26%', () => {
+    const r1 = clusterRadiusFromVolume(100);
+    const r2 = clusterRadiusFromVolume(200);
+    expect(r2 / r1).toBeCloseTo(Math.cbrt(2), 2);
+  });
+
+  it('zero or negative volume does not throw — uses floor of 1', () => {
+    expect(() => clusterRadiusFromVolume(0)).not.toThrow();
+    expect(clusterRadiusFromVolume(0)).toBeGreaterThan(0);
+  });
+});
+
+describe('computeFitDistanceForVolume', () => {
+  it('larger volume → greater camera distance', () => {
+    const d1 = computeFitDistanceForVolume(100);
+    const d2 = computeFitDistanceForVolume(1000);
+    expect(d2).toBeGreaterThan(d1);
+  });
+
+  it('wider FOV → closer camera for same volume', () => {
+    const dNarrow = computeFitDistanceForVolume(500, 40);
+    const dWide   = computeFitDistanceForVolume(500, 80);
+    expect(dWide).toBeLessThan(dNarrow);
+  });
+
+  it('padding scales linearly', () => {
+    const d1 = computeFitDistanceForVolume(500, 50, 1.0);
+    const d2 = computeFitDistanceForVolume(500, 50, 2.0);
+    expect(d2).toBeCloseTo(d1 * 2, 1);
   });
 });
 
