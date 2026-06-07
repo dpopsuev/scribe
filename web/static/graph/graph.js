@@ -115,9 +115,24 @@ const REPULSION_STRENGTH   = -(G_COHESION * NODE_SEPARATION ** 3 /
   Math.sqrt(NODE_SEPARATION ** 2 + COHESION_SOFTENING ** 2)); // balance at NODE_SEPARATION ≈ -115
 const REPULSION_DMAX       = NODE_SEPARATION * 2;              // wide ramp-down → less jitter ≈ 49
 
-// Physics keep-alive: d3 alpha decays to zero after ~300 ticks (5 s at 60 fps).
-// Reheat every 300 frames (5 s) keeps nodes settling; less frequent = less jitter.
-const PHYSICS_REHEAT_FRAMES = 300;
+// ── Post-settle node correction ────────────────────────────────────────────
+// After d3 alpha decays to zero (~7 s post-load), a frame-loop tick takes over.
+// It applies two position-based desired-state corrections at 15 fps — no forces,
+// no velocities, no oscillation; same pattern as tickZoomAdaptor's lerp-toward-target.
+//
+//   1. Drift toward cluster centre — mass-weighted: heavy nodes drift faster → sink to centre.
+//      drift_fraction = CLUSTER_DRIFT_RATE × ln(1 + val)
+//
+//   2. Separation — push pairs closer than NODE_SEPARATION apart by half the overlap.
+//      This is the d3 forceCollide approach: position correction, not force/velocity.
+//
+// CLUSTER_CORRECTION_START_MS: enough time for d3 alpha to decay (≈5 s) plus settling margin.
+const CLUSTER_DRIFT_RATE         = 0.0005; // fraction per call × ln(1+val) pulled toward centre
+const CLUSTER_SEPARATION_STRENGTH = 0.5;   // fraction of overlap resolved per correction call
+const CLUSTER_CORRECTION_START_MS = 7000;  // ms after loadMacro before correction activates
+
+// ── Zoom-out headroom ──────────────────────────────────────────────────────
+const ZOOM_OUT_HEADROOM  = 1.1;  // 10% extra margin so outermost node surfaces clear the frustum
 
 // Placement radius: nodes start on a fibonacciSphere at UNIVERSE_RADIUS.
 // NODE_SEPARATION × 3.2 ensures min pair distance on the sphere (= 0.22R) ≈ REPULSION_DMAX/2.
@@ -200,7 +215,7 @@ function computeMaxZoomOut(nodes, camera) {
   const fovHRad  = 2 * Math.atan(Math.tan(fovVRad / 2) * aspect);
   const fovEff   = Math.min(fovVRad, fovHRad);
 
-  return boundR / Math.tan(fovEff / 2);
+  return boundR / Math.tan(fovEff / 2) * ZOOM_OUT_HEADROOM;
 }
 
 let state = null;   // createGraphState() — one per initGraph call
@@ -220,8 +235,9 @@ let camAnim = null;
 // loadMacro is a module-scope async function; variables declared inside
 // initGraph() are not in its closure scope.
 let currentG    = GRAVITY_INIT;
-let cohesionForce   = null; // forceSelfGravity (uniform) — fast convergence from any radius
-let gravityForce    = null; // forceNBodyGravity — mass-proportional stratification
+let cohesionForce         = null;     // forceSelfGravity (uniform) — fast convergence from any radius
+let gravityForce          = null;     // forceNBodyGravity — mass-proportional stratification
+let correctionStartTime   = Infinity; // epoch ms — set in loadMacro; guards tickNodeCorrection
 let capForce      = null; // forceRadiusCap — prevents unbounded scatter
 
 function mergedGraphData() {
@@ -325,6 +341,8 @@ async function loadMacro() {
     setTimeout(() => aimAtCenterOfMass(SETTLE_ANIM_MS), PHYSICS_SETTLE_MS);
   }
   if (enableOrbitFn) enableOrbitFn();
+  // Activate post-settle correction after d3 alpha has fully decayed.
+  correctionStartTime = Date.now() + CLUSTER_CORRECTION_START_MS;
 }
 
 
@@ -898,7 +916,47 @@ export function initGraph(injectedDeps) {
     maxR += MIN_NODE_SCREEN_GAP;
     const fovVRad = cam.fov * Math.PI / 180;
     const fovHRad = 2 * Math.atan(Math.tan(fovVRad / 2) * (cam.aspect || 1));
-    ctrl.maxDistance = maxR / Math.tan(Math.min(fovVRad, fovHRad) / 2);
+    ctrl.maxDistance = maxR / Math.tan(Math.min(fovVRad, fovHRad) / 2) * ZOOM_OUT_HEADROOM;
+  }
+
+  // ── Post-settle node correction ───────────────────────────────────────────
+  // Runs at 15 fps after CLUSTER_CORRECTION_START_MS. Pure position math — no forces,
+  // no velocities, no oscillation. "Desired state → slowly correct" pattern.
+  //
+  //   Step 1: drift — pull each node toward cluster centre at a rate proportional to
+  //           ln(1+val). Heavier nodes drift faster → they accumulate at the centre.
+  //
+  //   Step 2: separation — for each overlapping pair (r < NODE_SEPARATION), push the
+  //           positions apart by half the overlap (d3 forceCollide style).
+  //           O(n²) but n ≤ 200 → ~0.1 ms per call.
+  function tickNodeCorrection() {
+    if (Date.now() < correctionStartTime) return;
+    if (frameCount % 4 !== 0) return; // 15 fps
+    const nodes = Graph.graphData().nodes;
+    if (!nodes.length) return;
+    const sep = NODE_SEPARATION;
+
+    for (const n of nodes) {
+      const drift = CLUSTER_DRIFT_RATE * Math.log1p(n.val || 1);
+      n.x = (n.x || 0) * (1 - drift);
+      n.y = (n.y || 0) * (1 - drift);
+      n.z = (n.z || 0) * (1 - drift);
+    }
+
+    for (let i = 0; i < nodes.length; i++) {
+      const ni = nodes[i];
+      for (let j = i + 1; j < nodes.length; j++) {
+        const nj = nodes[j];
+        const dx = (ni.x || 0) - (nj.x || 0);
+        const dy = (ni.y || 0) - (nj.y || 0);
+        const dz = (ni.z || 0) - (nj.z || 0);
+        const r  = Math.hypot(dx, dy, dz) || 1;
+        if (r >= sep) continue;
+        const push = (sep - r) / (2 * r) * CLUSTER_SEPARATION_STRENGTH;
+        ni.x += dx * push;  ni.y += dy * push;  ni.z += dz * push;
+        nj.x -= dx * push;  nj.y -= dy * push;  nj.z -= dz * push;
+      }
+    }
   }
 
   // ── Zoom momentum ─────────────────────────────────────────────────────────
@@ -979,9 +1037,8 @@ export function initGraph(injectedDeps) {
     // Zoom momentum runs every frame — moves camera along view ray, decays velocity.
     tickZoomMomentum();
 
-    // Periodic reheat — without zoom adaptor, physics alpha decays to zero after ~300 ticks.
-    // Reheating every PHYSICS_REHEAT_FRAMES keeps nodes settling toward the LJ equilibrium.
-    if (frameCount % PHYSICS_REHEAT_FRAMES === 0) Graph.d3ReheatSimulation();
+    // Post-settle correction: gentle drift + separation at 15 fps after d3 alpha decays.
+    tickNodeCorrection();
 
     // Label updates: every LABEL_INTERVAL frames, skip if last frame was expensive.
     if (frameCount % LABEL_INTERVAL === 0 && frameMs < FRAME_BUDGET_MS) {
