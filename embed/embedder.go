@@ -103,6 +103,10 @@ func (e *Embedder) Enqueue(id string) {
 func (e *Embedder) Stop() { close(e.stop) }
 
 func (e *Embedder) run(ctx context.Context) {
+	// Sweep immediately on startup — finds all artifacts without "encoded" label
+	// without waiting for the first ticker tick.
+	e.Sweep(ctx)
+
 	ticker := time.NewTicker(e.sweepDur)
 	defer ticker.Stop()
 
@@ -177,5 +181,3 @@ func embeddingText(art *parchment.Artifact) string {
 	}
 	return b.String()
 }
-
-
