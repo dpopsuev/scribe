@@ -1,4 +1,4 @@
-package web_test
+package ingest_test
 
 import (
 	"context"
