@@ -276,22 +276,17 @@ func (e *Embedder) Sweep(ctx context.Context) {
 const maxEmbedChars = 6000
 
 func embeddingText(art *parchment.Artifact) string {
-	var b strings.Builder
-	b.WriteString(art.Title)
+	parts := make([]string, 0, 2+len(art.Sections))
+	parts = append(parts, art.Title)
 	if art.Goal != "" {
-		b.WriteString("\n")
-		b.WriteString(art.Goal)
+		parts = append(parts, art.Goal)
 	}
 	for _, s := range art.Sections {
-		b.WriteString("\n")
-		b.WriteString(s.Text)
-		if b.Len() >= maxEmbedChars {
-			break
-		}
+		parts = append(parts, s.Text)
 	}
-	text := b.String()
+	text := strings.Join(parts, "\n")
 	if len(text) > maxEmbedChars {
-		text = text[:maxEmbedChars]
+		return text[:maxEmbedChars]
 	}
 	return text
 }
