@@ -160,7 +160,9 @@ const DOUBLE_CLICK_MAX_MS  = 300;   // max gap between two clicks to count as do
 // Pattern: tickCameraCorrection runs every frame, reads camDesiredDist, lerps toward it.
 // Same pattern as tickZoomAdaptor (desired state → slowly correct).
 const CAM_TARGET_DRIFT     = 0.008; // fraction/frame ctrl.target follows actual CoM (~1.2 s lag)
+const CAM_TARGET_DEAD_ZONE = 1.0;   // world units — no-op if CoM is this close to current target
 const CAM_DIST_CORRECTION  = 0.020; // fraction/frame camera distance follows camDesiredDist (~2.5 s)
+const CAM_DIST_DEAD_ZONE   = 3.0;   // world units — no-op if camera is this close to desired distance
 
 // ── Link curves ────────────────────────────────────────────────────────────
 const DEPENDS_ON_CURVATURE = 0.15;  // arc bend for depends_on edges — shows direction clearly
@@ -878,24 +880,35 @@ export function initGraph(injectedDeps) {
     if (!cam || !ctrl) return;
 
     // Target drift — track actual CoM so orbit pivot doesn't wander.
+    // Dead zone: no-op if CoM is within CAM_TARGET_DEAD_ZONE — prevents micro-corrections
+    // during orbit that wobble the pivot and cause visible bumps.
     if (frameCount % 4 === 0) {
       const nodes = Graph.graphData().nodes;
       if (nodes.length) {
         const com = centerOfMass(nodes);
-        ctrl.target.x += (com.x - ctrl.target.x) * CAM_TARGET_DRIFT;
-        ctrl.target.y += (com.y - ctrl.target.y) * CAM_TARGET_DRIFT;
-        ctrl.target.z += (com.z - ctrl.target.z) * CAM_TARGET_DRIFT;
+        const targetError = Math.hypot(
+          com.x - ctrl.target.x,
+          com.y - ctrl.target.y,
+          com.z - ctrl.target.z,
+        );
+        if (targetError > CAM_TARGET_DEAD_ZONE) {
+          ctrl.target.x += (com.x - ctrl.target.x) * CAM_TARGET_DRIFT;
+          ctrl.target.y += (com.y - ctrl.target.y) * CAM_TARGET_DRIFT;
+          ctrl.target.z += (com.z - ctrl.target.z) * CAM_TARGET_DRIFT;
+        }
       }
     }
 
     // Distance lerp — guides camera to desired distance when set.
+    // Dead zone: no-op if within CAM_DIST_DEAD_ZONE — prevents tiny ticks during orbit
+    // from producing visible micro-steps.
     if (camDesiredDist === null) return;
     const dx = cam.position.x - ctrl.target.x;
     const dy = cam.position.y - ctrl.target.y;
     const dz = cam.position.z - ctrl.target.z;
     const dist = Math.hypot(dx, dy, dz) || 1;
     const delta = camDesiredDist - dist;
-    if (Math.abs(delta) < 0.1) return; // close enough — skip tiny move but don't clear
+    if (Math.abs(delta) < CAM_DIST_DEAD_ZONE) return;
     const newDist = Math.max(ctrl.minDistance,
       Math.min(ctrl.maxDistance, dist + delta * CAM_DIST_CORRECTION));
     const f = newDist / dist;
