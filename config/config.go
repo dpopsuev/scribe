@@ -200,7 +200,7 @@ func generateFirstRun(cfg *Config) error {
 	}
 	dir := filepath.Join(xdgConfigHome, "scribe")
 	path := filepath.Join(dir, "scribe.yaml")
-	if _, err := os.Stat(path); err == nil {
+	if _, err := os.Stat(path); err == nil { //nolint:gosec // path is operator-supplied via XDG config, not user input
 		return nil
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // config dir; 0755 is intentional for user readability
