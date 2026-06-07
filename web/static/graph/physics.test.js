@@ -15,6 +15,8 @@ import {
   computeFitDistance,
   computeFitDistanceForCount,
   computeFitDistanceForVolume,
+  GRAVITY_MIN,
+  GRAVITY_MAX,
 } from './physics.js';
 
 // ── fibonacciSphere ───────────────────────────────────────────────────────────
@@ -578,5 +580,75 @@ describe('camera distance invariant — boot must equal idle settled state', () 
     const D_boot = computeFitDistanceForCount(NODE_COUNT);
     const D_idle = computeFitDistanceForCount(NODE_COUNT);
     expect(D_boot).toBeCloseTo(D_idle, 5);
+  });
+});
+
+// ── Force calibration invariant ───────────────────────────────────────────────
+//
+// The zoom adaptor varies G between GRAVITY_MIN and GRAVITY_MAX.
+// LJ repulsion (epsilon, sigma) is fixed regardless of zoom.
+// If LJ overwhelms gravity at GRAVITY_MIN, nodes scatter when the user zooms in.
+// If gravity overwhelms LJ at GRAVITY_MAX, nodes collapse when the user zooms out.
+// Either extreme causes nodes to leave the camera frustum and disappear.
+//
+// Invariant: at the equilibrium separation (r = sigma), the LJ-to-gravity
+// force ratio must stay below MAX_FORCE_IMBALANCE across the full G range.
+// Exceeding this → cluster destabilises → severe visual degradation.
+//
+// Production constants (must match graph.js):
+const CALIB = {
+  sigma:            20,    // equilibrium contact separation (world units)
+  repStrength:      70,    // |REPULSION_STRENGTH| — manyBody repulsion magnitude
+  repDmax:          30,    // REPULSION_DMAX — zero repulsion beyond this distance
+  G_cohesion:       0.3,   // G_COHESION — forceSelfGravity, uniform (mass=1)
+  cohesionSoft:     30,    // COHESION_SOFTENING
+  G_nbody:          0.30,  // GRAVITY_INIT — used for GRAVITY_MIN check
+  nbodySoft:        5,     // GRAVITY_SOFTENING
+  avgMass:          5,     // representative node val (for N-body component)
+};
+const MAX_FORCE_IMBALANCE = 20; // above this ratio: cluster destabilises and nodes disappear
+
+// Coulombic manyBody repulsion magnitude at r (d3's charge force is |strength|/r²).
+function repulsionForceMag(r) {
+  if (r > CALIB.repDmax) return 0; // zero beyond distanceMax
+  return CALIB.repStrength / (r * r);
+}
+
+// Total inward gravity at r: centripetal cohesion + N-body (one representative neighbour).
+// Centripetal formula: velocity change = G_cohesion × r / sqrt(r² + S²)
+// N-body formula:      velocity change = G_nbody × mass × r / (r² + S²)^(3/2)
+function gravityForceMag(G_nbody, r) {
+  const centripetal = CALIB.G_cohesion * r / Math.sqrt(r * r + CALIB.cohesionSoft ** 2);
+  const nbody       = G_nbody * CALIB.avgMass * r / Math.pow(r * r + CALIB.nbodySoft ** 2, 1.5);
+  return centripetal + nbody;
+}
+
+
+describe('force calibration — repulsion must stay balanced with gravity across zoom range', () => {
+  it('at GRAVITY_MIN, repulsion does not overwhelm gravity — cluster stable when zoomed in', () => {
+    const rep  = repulsionForceMag(CALIB.sigma);
+    const grav = gravityForceMag(GRAVITY_MIN, CALIB.sigma);
+    const ratio = rep / grav;
+    expect(ratio,
+      `repulsion/gravity at GRAVITY_MIN=${GRAVITY_MIN} is ${ratio.toFixed(2)}× — ` +
+      `nodes scatter when zoomed in (want < ${MAX_FORCE_IMBALANCE})`
+    ).toBeLessThan(MAX_FORCE_IMBALANCE);
+  });
+
+  it('at GRAVITY_MAX, repulsion still opposes gravity — cluster does not collapse when zoomed out', () => {
+    const rep  = repulsionForceMag(CALIB.sigma);
+    const grav = gravityForceMag(GRAVITY_MAX, CALIB.sigma);
+    const ratio = rep / grav;
+    expect(ratio,
+      `repulsion/gravity at GRAVITY_MAX=${GRAVITY_MAX} is ${ratio.toFixed(2)}× — ` +
+      `nodes collapse when zoomed out (want > ${1 / MAX_FORCE_IMBALANCE})`
+    ).toBeGreaterThan(1 / MAX_FORCE_IMBALANCE);
+  });
+
+  it('beyond repDmax gravity still pulls — cluster has an inward restoring force', () => {
+    const rep_out  = repulsionForceMag(CALIB.repDmax + 5); // just outside range
+    const grav_out = gravityForceMag(GRAVITY_MAX, CALIB.repDmax + 5);
+    expect(rep_out, 'repulsion must be zero beyond repDmax').toBe(0);
+    expect(grav_out, 'gravity must still act beyond repDmax').toBeGreaterThan(0);
   });
 });

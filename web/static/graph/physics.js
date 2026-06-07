@@ -37,8 +37,8 @@ export const ZOOM_MIN_DIST = 150;   // world units — closest expected camera d
 export const ZOOM_MAX_DIST = 3000;  // world units — farthest expected camera distance
 
 // Force parameter bounds — capped so physics never produces pathological states.
-export const GRAVITY_MIN   = 0.01;  // near-zero gravity → nodes float freely
-export const GRAVITY_MAX   = 0.41;  // strong gravity → tight cluster
+export const GRAVITY_MIN   = 0.30;  // minimum safe G with LJ sigma=20, epsilon=0.002, softening=5
+export const GRAVITY_MAX   = 0.80;  // maximum useful G — above this cluster over-compresses
 export const REPULSION_MIN = -250;  // strong repulsion → large spread radius
 export const REPULSION_MAX = -30;   // weak repulsion  → small spread radius
 export const DMAX_MIN      = 50;    // world units — repulsion only at very close range
@@ -180,6 +180,33 @@ export function forceRadiusCap(maxRadius, strength = 0.15) {
  * Plummer softening ε prevents the force from diverging when nodes overlap.
  */
 /**
+ * Centripetal cohesion — pulls every node toward the origin with force G/r.
+ *
+ * This is a 1/r force (not 1/r²), so it remains effective at the initial
+ * placement radius (UNIVERSE_RADIUS=180) and brings nodes into the cluster
+ * region within a few hundred simulation ticks.  Called with no massKey so
+ * every node gets the same pull (mass=1) — N-body gravity handles stratification.
+ */
+export function forceSelfGravity(initialG = 0.15, softening = 30, massKey) {
+  let G = initialG;
+  let nodes;
+  function force(alpha) {
+    for (const n of nodes) {
+      const mass = massKey ? Math.max(1, n[massKey] || 1) : 1;
+      const x = n.x || 0, y = n.y || 0, z = n.z || 0;
+      const r2 = x*x + y*y + z*z + softening*softening;
+      const k  = G * alpha * mass / Math.sqrt(r2);
+      n.vx = (n.vx || 0) - x * k;
+      n.vy = (n.vy || 0) - y * k;
+      n.vz = (n.vz || 0) - z * k;
+    }
+  }
+  force.initialize = ns => { nodes = ns; };
+  force.setG = newG => { G = newG; };
+  return force;
+}
+
+/**
  * Lennard-Jones repulsion — the r^-12 term of the LJ potential.
  *
  * Prior art: Lennard-Jones 12-6 potential (1931), canonical model for
@@ -287,6 +314,50 @@ export function fibonacciSphere(n, radius) {
   });
 }
 
+
+/**
+ * Energy minimization pre-pass — resolves node overlaps before the d3 simulation starts.
+ *
+ * Prior art: standard MD practice of "energy minimization before dynamics" (steepest
+ * descent position correction). Avoids the crash-through instability that occurs when
+ * nodes arrive at contact with kinetic energy > LJ potential barrier.
+ *
+ * Each iteration pushes overlapping pairs apart by half the overlap (position-based,
+ * no velocity). After `iterations` passes, all pairs are ≥ sigma apart.
+ * O(n²) per iteration but runs once synchronously — trivial for n ≤ 300.
+ *
+ * @param {Array} nodes      — graph nodes with x, y, z properties (modified in-place)
+ * @param {number} sigma     — minimum allowed separation (LJ_SIGMA)
+ * @param {number} iterations — number of correction passes (50 is sufficient for n ≤ 200)
+ */
+export function presettleNodes(nodes, sigma, iterations = 50) {
+  const n = nodes.length;
+  const cut2 = sigma * sigma;
+  for (let iter = 0; iter < iterations; iter++) {
+    let anyOverlap = false;
+    for (let i = 0; i < n; i++) {
+      const ni = nodes[i];
+      for (let j = i + 1; j < n; j++) {
+        const nj = nodes[j];
+        const dx = (nj.x || 0) - (ni.x || 0);
+        const dy = (nj.y || 0) - (ni.y || 0);
+        const dz = (nj.z || 0) - (ni.z || 0);
+        const r2 = dx*dx + dy*dy + dz*dz;
+        if (r2 >= cut2 || r2 === 0) continue;
+        anyOverlap = true;
+        const r  = Math.sqrt(r2);
+        const push = (sigma - r) / (2 * r); // half of overlap, normalised
+        ni.x = (ni.x || 0) - dx * push;
+        ni.y = (ni.y || 0) - dy * push;
+        ni.z = (ni.z || 0) - dz * push;
+        nj.x = (nj.x || 0) + dx * push;
+        nj.y = (nj.y || 0) + dy * push;
+        nj.z = (nj.z || 0) + dz * push;
+      }
+    }
+    if (!anyOverlap) break; // converged early
+  }
+}
 
 /**
  * Weighted centroid of a node array. Weight = node.val (sphere size).

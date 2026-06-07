@@ -177,23 +177,24 @@ test.describe('real server — current /graph', () => {
       const ctrl = g.controls();
       const tgt  = ctrl.target;
       const distFromCoM = Math.hypot(cam.x-tgt.x, cam.y-tgt.y, cam.z-tgt.z);
-      const n    = g.graphData().nodes.length;
-      // Mirror graph.js computeMaxZoomOut exactly.
-      const NODE_VAL_MIN    = 2, NODE_VAL_MAX = 40;
-      const VOLUME_BASE     = 21.5;
-      const SPHERE_SCALE    = 6;
-      const MIN_GAP         = 8;
+      const n     = g.graphData().nodes.length;
       const nodes = g.graphData().nodes;
+      // Mirror tickMaxZoomBoundary: expected = camera distance at which every
+      // node surface is inside the frustum, computed from ACTUAL positions.
+      const NODE_VAL_MIN = 2, NODE_VAL_MAX = 40, SPHERE_SCALE = 6, MIN_GAP = 8;
       const nv = (nd: any) => Math.max(NODE_VAL_MIN, Math.min(NODE_VAL_MAX, Math.cbrt(nd.val || 1) * 2));
-      const totalVol  = nodes.reduce((s: number, nd: any) => s + nv(nd), 0);
-      const capR      = VOLUME_BASE * Math.cbrt(Math.max(1, totalVol));
-      const nodeR     = nodes.reduce((max: number, nd: any) => Math.max(max, Math.cbrt(nv(nd)) * SPHERE_SCALE), 0);
-      const boundR    = capR + nodeR + MIN_GAP;
+      let maxR = 0;
+      for (const nd of nodes) {
+        const d = Math.hypot((nd.x||0)-tgt.x, (nd.y||0)-tgt.y, (nd.z||0)-tgt.z);
+        const r = Math.cbrt(nv(nd)) * SPHERE_SCALE;
+        if (d + r > maxR) maxR = d + r;
+      }
+      maxR += MIN_GAP;
       const camera    = g.camera();
       const fovVRad   = camera.fov * Math.PI / 180;
       const fovHRad   = 2 * Math.atan(Math.tan(fovVRad / 2) * (camera.aspect || 1));
       const fovEff    = Math.min(fovVRad, fovHRad);
-      const expected  = boundR / Math.tan(fovEff / 2);
+      const expected  = maxR / Math.tan(fovEff / 2);
       return { distFromCoM: Math.round(distFromCoM), expected: Math.round(expected), n };
     });
     console.log(`  boot camDistFromCoM=${result.distFromCoM} expected=${result.expected} n=${result.n}`);

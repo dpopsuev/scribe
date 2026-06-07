@@ -16,8 +16,8 @@ import { buildPalette }                         from './palette.js';
 import { centerOfMass, parentNodes,
          placeInMiniSphere,
          equatorPriorityPositions,
+         forceSelfGravity,
          forceNBodyGravity,
-         forceLennardJonesRepulsion,
          forcesForDist,
          clusterMaxRadius,
          clusterRadiusFromVolume,
@@ -38,7 +38,11 @@ import { createGraphState }                    from './graph-state.js';
 const log = createLogger('graph');
 
 const GRAPH_BG             = '#05050f';
-const UNIVERSE_RADIUS      = 180;   // world units — scope sphere initial placement radius
+// Initial placement radius — chosen so the MINIMUM nearest-neighbour pair (not average)
+// is above the LJ danger zone. fibonacciSphere(87) has min_d_nn ≈ R × 0.216.
+// For LJ force < 0.2 at min_d: need R ≥ 80 (min_d=17.3, force=0.082).
+// Old value 180 was for long-range manyBody which scattered nodes outward.
+const UNIVERSE_RADIUS      = 80;    // world units — scope sphere initial placement radius
 const KIND_SPHERE_RADIUS   = 55;    // world units — kind-group mini-sphere radius
 const ARTIFACT_SPHERE_RADIUS = 28;  // world units — artifact mini-sphere radius
 
@@ -66,22 +70,38 @@ const CAMERA_MIN_DIST      = 10;   // prevents camera passing through node spher
 const MIN_NODE_SCREEN_GAP  = 8;    // world units of breathing room inside the frustum edge
 const FALLBACK_COMFORT     = 1.05; // padding used when viewport dimensions are unavailable
 
-// ── Force initial state ────────────────────────────────────────────────────
-const GRAVITY_INIT         = 0.12;  // starting gravity strength (mid-range zoom)
-const GRAVITY_SOFTENING    = 40;    // Plummer softening radius — prevents singularity at origin
+// ── Centripetal cohesion (forceSelfGravity) ────────────────────────────────
+// 1/r force — effective at the initial sphere radius (180 world units) where
+// N-body 1/r² gravity is too weak to converge in a finite simulation window.
+// Uniform pull (no massKey) so all nodes reach the cluster at the same rate;
+// N-body gravity then sorts them by mass within the cluster.
+const G_COHESION           = 0.3;   // calibrated: terminal approach v at d_nn < LJ barrier
+const COHESION_SOFTENING   = 30;    // Plummer softening at origin
+
+// ── N-body gravity (forceNBodyGravity) ────────────────────────────────────
+// 1/r² force, mass-proportional: heavy nodes attract others more strongly →
+// they accumulate at the cluster centre.  Secondary to cohesion; provides
+// the mass stratification that cohesion cannot.
+const GRAVITY_INIT         = 0.30;  // calibrated with LJ_EPSILON at LJ_SIGMA
+const GRAVITY_SOFTENING    = 5;     // small — LJ already handles close-range singularity
 const GRAVITY_REHEAT_DELTA = 0.005; // minimum G change that warrants a physics reheat
 
-// ── Lennard-Jones repulsion ────────────────────────────────────────────────
-// Replaces manyBody (Coulombic r^-2) repulsion — which creates hollow shells
-// by exerting long-range pressure across the whole cluster.
-// LJ r^-12 is contact-only: zero beyond 2σ, so N-body gravity dominates at
-// medium range and nodes pile into a filled cluster instead of a shell.
+// ── Short-range manyBody repulsion ─────────────────────────────────────────
+// d3's forceManyBody (Coulombic r^-2) is used for repulsion because it is
+// numerically stable with d3's Verlet integrator — proven by decades of use.
+// LJ (r^-12) was tried but causes crash-through instability: nodes falling from
+// UNIVERSE_RADIUS arrive at contact with kinetic energy >> LJ barrier, and the
+// force diverges to infinity (no thermostat in d3 to rescale velocities).
 //
-// σ = equilibrium node separation ≈ 2 × avg sphere radius.
-//   avg nodeVal ≈ cbrt(10)×2 ≈ 4.3 → sphere_radius = cbrt(4.3)×6 ≈ 9.8 → σ ≈ 20.
-// ε = well depth — how hard nodes push apart when overlapping.
-const LJ_SIGMA             = 20;    // world units — equilibrium separation (~2 node diameters)
-const LJ_EPSILON           = 0.008; // energy scale — calibrated against N-body gravity at σ
+// Short distanceMax (30 world units ≈ 1.5σ) makes it effectively contact-only:
+// nodes beyond 30 feel zero repulsion and are pulled inward by cohesion, filling
+// the cluster instead of forming the hollow shell that long-range repulsion creates.
+// Strength calibrated so |F| at r_eq=20 ≈ cohesion force at same r.
+const REPULSION_STRENGTH   = -70;   // manyBody strength — negative = repulsive
+const REPULSION_DMAX       = 30;    // world units — zero repulsion beyond this distance
+
+// ── Physics keep-alive ─────────────────────────────────────────────────────
+const PHYSICS_REHEAT_FRAMES = 90;   // reheat every 1.5 s — keeps simulation running as nodes settle
 
 // ── Scroll zoom momentum ───────────────────────────────────────────────────
 // Each scroll tick adds an impulse; the impulse coasts to zero each frame.
@@ -179,8 +199,8 @@ let camAnim = null;
 // loadMacro is a module-scope async function; variables declared inside
 // initGraph() are not in its closure scope.
 let currentG    = GRAVITY_INIT;
-let gravityForce    = null; // forceNBodyGravity — long-range mass-proportional attraction
-let repulsionForce  = null; // forceLennardJonesRepulsion — contact-only, prevents overlap
+let cohesionForce   = null; // forceSelfGravity (uniform) — fast convergence from any radius
+let gravityForce    = null; // forceNBodyGravity — mass-proportional stratification
 let capForce      = null; // forceRadiusCap — prevents unbounded scatter
 
 function mergedGraphData() {
@@ -245,6 +265,8 @@ async function loadMacro() {
     state.scopeSpherePos.set(n.scope || n.name, positions[i]);
   });
 
+
+
   // N-body physics: gravity + repulsion + radius cap.
   // Radius scales with total node visual volume — larger/more nodes get more room.
   const vol  = totalNodeVolume(sorted);
@@ -252,12 +274,15 @@ async function loadMacro() {
   capForce.setMaxRadius(maxR);
   log.info('loadMacro cap radius=%d vol=%d nodes=%d', Math.round(maxR), Math.round(vol), sorted.length);
 
-  Graph.d3Force('center',    null);
-  Graph.d3Force('radial',    null);
-  Graph.d3Force('charge',    null);          // replaced by LJ contact repulsion
-  Graph.d3Force('gravity',   gravityForce);
-  Graph.d3Force('cap',       capForce);
-  Graph.d3Force('repulsion', repulsionForce);
+  Graph.d3Force('center',   null);
+  Graph.d3Force('radial',   null);
+  Graph.d3Force('cohesion', cohesionForce);  // fast convergence from any radius
+  Graph.d3Force('gravity',  gravityForce);   // mass stratification
+  Graph.d3Force('cap',      capForce);
+  // Short-range manyBody repulsion: proven stable with d3's integrator.
+  // distanceMax=30 makes it contact-only — no long-range pressure, no hollow shell.
+  Graph.d3Force('charge')?.strength?.(REPULSION_STRENGTH);
+  Graph.d3Force('charge')?.distanceMax?.(REPULSION_DMAX);
 
   // Give renderer the full node set so it can normalise sizes and pre-build textures.
   renderer.init(sorted);
@@ -741,9 +766,9 @@ export function initGraph(injectedDeps) {
   let lastForceDist = null;
 
   // gravityForce/currentG/Rep/Dmax are module-level — initialise forces now.
-  gravityForce   = forceNBodyGravity(currentG, GRAVITY_SOFTENING, 'val');
-  repulsionForce = forceLennardJonesRepulsion(LJ_SIGMA, LJ_EPSILON);
-  capForce       = forceRadiusCap(UNIVERSE_RADIUS); // placeholder radius; loadMacro sets real value
+  cohesionForce = forceSelfGravity(G_COHESION, COHESION_SOFTENING); // no massKey = uniform pull
+  gravityForce  = forceNBodyGravity(currentG, GRAVITY_SOFTENING, 'val');
+  capForce      = forceRadiusCap(UNIVERSE_RADIUS); // placeholder radius; loadMacro sets real value
 
   // ── Zoom adaptor (SRP: only touches forces) ───────────────────────────────
   // Runs every frame. Smooths camera distance (EMA), lerps current force
@@ -933,8 +958,9 @@ export function initGraph(injectedDeps) {
     // Zoom momentum runs every frame — moves camera along view ray, decays velocity.
     tickZoomMomentum();
 
-    // Zoom adaptation runs every frame — pure lerp + dead zone, O(1), ~0.1ms.
-    tickZoomAdaptor();
+    // Periodic reheat — without zoom adaptor, physics alpha decays to zero after ~300 ticks.
+    // Reheating every PHYSICS_REHEAT_FRAMES keeps nodes settling toward the LJ equilibrium.
+    if (frameCount % PHYSICS_REHEAT_FRAMES === 0) Graph.d3ReheatSimulation();
 
     // Label updates: every LABEL_INTERVAL frames, skip if last frame was expensive.
     if (frameCount % LABEL_INTERVAL === 0 && frameMs < FRAME_BUDGET_MS) {
