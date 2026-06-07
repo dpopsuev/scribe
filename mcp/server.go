@@ -255,8 +255,6 @@ type adminInput struct {
 
 // --- dispatchers ---
 
-// appendRelatedNotes searches FTS for existing knowledge notes related to
-// the given title+body and appends them to b as link candidates.
 func unmarshalInput[In any](raw []byte, in *In) *sdkmcp.CallToolResult {
 	if err := json.Unmarshal(raw, in); err != nil {
 		var typeErr *json.UnmarshalTypeError
@@ -275,10 +273,9 @@ func unmarshalInput[In any](raw []byte, in *In) *sdkmcp.CallToolResult {
 }
 
 // bindHandler bridges a typed Scribe handler directly to sdkmcp.ToolHandler,
-// bypassing Battery's mcpserver layer to allow full sdkmcp.Tool field control
-// (Title, Annotations, OutputSchema). Includes basic error recovery.
+// bypassing Battery's mcpserver layer to allow full sdkmcp.Tool field control.
 func bindHandler[In any](h func(context.Context, *sdkmcp.CallToolRequest, In) (*sdkmcp.CallToolResult, any, error)) sdkmcp.ToolHandler {
-	return func(ctx context.Context, req *sdkmcp.CallToolRequest) (res *sdkmcp.CallToolResult, retErr error) {
+	return func(ctx context.Context, req *sdkmcp.CallToolRequest) (res *sdkmcp.CallToolResult, err error) {
 		defer func() {
 			if r := recover(); r != nil {
 				errRes := text(fmt.Sprintf("panic: %v", r))
@@ -323,7 +320,6 @@ func schemaFor[T any]() json.RawMessage {
 	return data
 }
 
-// The typed handler takes a concrete input struct and returns
 // arrayTypeHints maps struct field names to their expected JSON wire format.
 // Used by unmarshalInput to produce actionable error messages when the caller
 // passes the wrong type (e.g. a comma-separated string where a JSON array is required).

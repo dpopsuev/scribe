@@ -498,7 +498,6 @@ func RegisterKnowledge(root *cobra.Command) {
 	root.AddCommand(SearchCmd(), SectionCmd(), VocabCmd())
 }
 
-// SearchCmd returns the search command.
 func SearchCmd() *cobra.Command {
 	var scope, kind, status, format string
 	cmd := &cobra.Command{
@@ -535,7 +534,6 @@ func SearchCmd() *cobra.Command {
 	return cmd
 }
 
-// SectionCmd returns the section command group.
 func SectionCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "section",
@@ -644,7 +642,6 @@ func SectionCmd() *cobra.Command {
 	return cmd
 }
 
-// VocabCmd returns the vocab command group.
 func VocabCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "vocab",
@@ -698,7 +695,7 @@ func VocabCmd() *cobra.Command {
 	return cmd
 }
 
-var idRe = regexp.MustCompile(`^([A-Z]+)-\d+-(\d+)$`)
+var artifactIDRegexp = regexp.MustCompile(`^([A-Z]+)-\d+-(\d+)$`)
 
 func ReseedCmd() *cobra.Command {
 	return &cobra.Command{
@@ -712,20 +709,20 @@ func ReseedCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			maxSeq := make(map[string]uint64)
+			maxSequenceByPrefix := make(map[string]uint64)
 			for _, a := range arts {
-				m := idRe.FindStringSubmatch(a.ID)
+				m := artifactIDRegexp.FindStringSubmatch(a.ID)
 				if m == nil {
 					continue
 				}
 				prefix := m[1]
 				seq, _ := strconv.ParseUint(m[2], 10, 64)
-				if seq > maxSeq[prefix] {
-					maxSeq[prefix] = seq
+				if seq > maxSequenceByPrefix[prefix] {
+					maxSequenceByPrefix[prefix] = seq
 				}
 			}
-			for prefix, mx := range maxSeq {
-				next := mx + 1
+			for prefix, maxSequence := range maxSequenceByPrefix {
+				next := maxSequence + 1
 				if err := s.SeedSequence(ctx, prefix, next, false); err != nil {
 					return fmt.Errorf("seed %s: %w", prefix, err)
 				}
@@ -932,7 +929,6 @@ func ExportMdCmd() *cobra.Command {
 	}
 }
 
-// GoalCmd returns the goal command group.
 func GoalCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "goal",
@@ -944,8 +940,8 @@ func GoalCmd() *cobra.Command {
 		Short: "Set the current goal (retires any previous, creates a root delivery artifact)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, close := MustService()
-			defer close()
+			svc, cleanup := MustService()
+			defer cleanup()
 			in.Title = args[0]
 			res, err := svc.SetGoal(context.Background(), in)
 			if err != nil {
@@ -966,8 +962,8 @@ func GoalCmd() *cobra.Command {
 		Use:   "show",
 		Short: "Show the current goal",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			svc, close := MustService()
-			defer close()
+			svc, cleanup := MustService()
+			defer cleanup()
 			m, _ := svc.Brief(context.Background())
 			if len(m.Goals) == 0 {
 				fmt.Println("no current goal set")

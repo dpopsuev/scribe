@@ -17,6 +17,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -38,7 +39,7 @@ const (
 	controlInterval = 10 * time.Second
 )
 
-var errEmptyEmbedding = fmt.Errorf("ollama returned empty embedding") //nolint:err113 // package-level sentinel
+var errEmptyEmbedding = errors.New("ollama returned empty embedding")
 
 const logKeyWorkers = "workers"
 const logKeyLatencyMs = "latency_ewma_ms"
@@ -54,16 +55,16 @@ type Embedder struct {
 	embedFunc  parchment.EmbeddingFunc
 
 	// concurrency control
-	sem        chan struct{} // semaphore: capacity = current worker limit
-	semMu      sync.Mutex    // guards sem replacement during resize
-	ewmaMs     float64       // exponential weighted moving average latency in ms
-	ewmaMu     sync.Mutex
-	workersCur int32 // atomic: number of workers currently holding a sem token
+	workerSemaphore   chan struct{} // semaphore: capacity = current worker limit
+	workerSemaphoreMu sync.Mutex    // guards workerSemaphore replacement during resize
+	ewmaLatencyMs     float64       // exponential weighted moving average latency in ms
+	ewmaLatencyMu     sync.Mutex
+	workersActive     int32 // atomic: number of workers currently holding a workerSemaphore token
 }
 
-// OllamaEmbedFunc returns a parchment.EmbeddingFunc that calls the Ollama
+// OllamaFunc returns a parchment.EmbeddingFunc that calls the Ollama
 // /api/embeddings endpoint. Constructed before the Protocol — no circular dep.
-func OllamaEmbedFunc(ollamaURL, model string) parchment.EmbeddingFunc {
+func OllamaFunc(ollamaURL, model string) parchment.EmbeddingFunc {
 	client := &http.Client{Timeout: 30 * time.Second}
 	base := strings.TrimRight(ollamaURL, "/")
 	return func(ctx context.Context, text string) ([]float32, error) {
@@ -102,15 +103,15 @@ func New(ctx context.Context, proto *parchment.Protocol, model string, sweepInte
 		maxWorkers = 1
 	}
 	e := &Embedder{
-		proto:      proto,
-		model:      model,
-		sweepDur:   sweepInterval,
-		maxWorkers: maxWorkers,
-		queue:      make(chan string, channelCap),
-		stop:       make(chan struct{}),
-		embedFunc:  embedFunc,
-		sem:        make(chan struct{}, 1), // start conservative: 1 worker
-		ewmaMs:     200,                    // assume 200ms until we have data
+		proto:           proto,
+		model:           model,
+		sweepDur:        sweepInterval,
+		maxWorkers:      maxWorkers,
+		queue:           make(chan string, channelCap),
+		stop:            make(chan struct{}),
+		embedFunc:       embedFunc,
+		workerSemaphore: make(chan struct{}, 1), // start conservative: 1 worker
+		ewmaLatencyMs:   200,                    // assume 200ms until we have data
 	}
 	go e.dispatcher(ctx)
 	go e.controller(ctx)
@@ -137,20 +138,20 @@ func (e *Embedder) dispatcher(ctx context.Context) {
 		case <-e.stop:
 			return
 		case id := <-e.queue:
-			e.semMu.Lock()
-			sem := e.sem
-			e.semMu.Unlock()
+			e.workerSemaphoreMu.Lock()
+			workerSemaphore := e.workerSemaphore
+			e.workerSemaphoreMu.Unlock()
 
 			select {
-			case sem <- struct{}{}:
-				atomic.AddInt32(&e.workersCur, 1)
+			case workerSemaphore <- struct{}{}:
+				atomic.AddInt32(&e.workersActive, 1)
 				go func(id string) {
 					defer func() {
-						e.semMu.Lock()
-						s := e.sem
-						e.semMu.Unlock()
+						e.workerSemaphoreMu.Lock()
+						s := e.workerSemaphore
+						e.workerSemaphoreMu.Unlock()
 						<-s
-						atomic.AddInt32(&e.workersCur, -1)
+						atomic.AddInt32(&e.workersActive, -1)
 					}()
 					start := time.Now()
 					e.ProcessOne(ctx, id)
@@ -173,12 +174,12 @@ func (e *Embedder) controller(ctx context.Context) {
 		case <-e.stop:
 			return
 		case <-ticker.C:
-			e.ewmaMu.Lock()
-			latency := e.ewmaMs
-			e.ewmaMu.Unlock()
+			e.ewmaLatencyMu.Lock()
+			latency := e.ewmaLatencyMs
+			e.ewmaLatencyMu.Unlock()
 
-			e.semMu.Lock()
-			cur := cap(e.sem)
+			e.workerSemaphoreMu.Lock()
+			cur := cap(e.workerSemaphore)
 			var next int
 			switch {
 			case latency < latencyLowMs && cur < e.maxWorkers:
@@ -191,17 +192,17 @@ func (e *Embedder) controller(ctx context.Context) {
 			if next != cur {
 				newSem := make(chan struct{}, next)
 				// Drain existing tokens into new semaphore up to new cap.
-				for len(e.sem) > 0 && len(newSem) < next {
-					<-e.sem
+				for len(e.workerSemaphore) > 0 && len(newSem) < next {
+					<-e.workerSemaphore
 					newSem <- struct{}{}
 				}
-				e.sem = newSem
+				e.workerSemaphore = newSem
 				slog.InfoContext(ctx, "embed: concurrency adjusted",
 					slog.Int(logKeyWorkers, next),
 					slog.Float64(logKeyLatencyMs, math.Round(latency)),
 				)
 			}
-			e.semMu.Unlock()
+			e.workerSemaphoreMu.Unlock()
 		}
 	}
 }
@@ -223,9 +224,9 @@ func (e *Embedder) sweeper(ctx context.Context) {
 
 func (e *Embedder) recordLatency(d time.Duration) {
 	ms := float64(d.Milliseconds())
-	e.ewmaMu.Lock()
-	e.ewmaMs = ewmaAlpha*ms + (1-ewmaAlpha)*e.ewmaMs
-	e.ewmaMu.Unlock()
+	e.ewmaLatencyMu.Lock()
+	e.ewmaLatencyMs = ewmaAlpha*ms + (1-ewmaAlpha)*e.ewmaLatencyMs
+	e.ewmaLatencyMu.Unlock()
 }
 
 // ProcessOne embeds a single artifact by ID. Exported for testing.
@@ -266,7 +267,7 @@ func (e *Embedder) Sweep(ctx context.Context) {
 	if len(arts) > 0 {
 		slog.InfoContext(ctx, "embed: sweep queued artifacts",
 			slog.Int(parchment.LogKeyCount, len(arts)),
-			slog.Int(logKeyWorkers, cap(e.sem)),
+			slog.Int(logKeyWorkers, cap(e.workerSemaphore)),
 		)
 	}
 }

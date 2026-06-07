@@ -68,10 +68,10 @@ func TestGraph_VirtualCenterTracksCoM(t *testing.T) {
 			t.Fatalf("%s measure: %v", label, err)
 		}
 		var m struct {
-			Error     string `json:"error"`
-			VcComDrift int   `json:"vcComDrift"`
-			TgtVcDist  int   `json:"tgtVcDist"`
-			NodeCount  int   `json:"nodeCount"`
+			Error      string `json:"error"`
+			VcComDrift int    `json:"vcComDrift"`
+			TgtVcDist  int    `json:"tgtVcDist"`
+			NodeCount  int    `json:"nodeCount"`
 		}
 		if err := json.Unmarshal([]byte(raw), &m); err != nil {
 			t.Fatalf("%s parse %q: %v", label, raw, err)

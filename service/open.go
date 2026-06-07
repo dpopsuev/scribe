@@ -28,14 +28,14 @@ func Open(cfg *config.Config, homeScopes ...[]string) (*Service, func(), error) 
 	}
 	idc := cfg.ProtocolIDConfig()
 
-	// Wire embedding if configured. OllamaEmbedFunc has no dependency on proto
+	// Wire embedding if configured. embed.OllamaFunc has no dependency on proto
 	// so it can be constructed before the Protocol and passed in at build time.
 	model := cfg.Embed.Model
 	if cfg.Embed.Enabled() && model == "" {
 		model = "nomic-embed-text"
 	}
 	if cfg.Embed.Enabled() {
-		idc.EmbedFunc = embed.OllamaEmbedFunc(cfg.Embed.URL, model)
+		idc.EmbedFunc = embed.OllamaFunc(cfg.Embed.URL, model)
 		idc.EmbedModel = model
 	}
 

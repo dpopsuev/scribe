@@ -10,7 +10,7 @@ import (
 	"github.com/dpopsuev/scribe/embed"
 )
 
-func TestOllamaEmbedFunc_HappyPath(t *testing.T) {
+func TestOllamaFunc_HappyPath(t *testing.T) {
 	// Given: Ollama returns a valid embedding vector
 	// When: OllamaEmbedFunc is called
 	// Then: the vector is returned with no error
@@ -25,7 +25,7 @@ func TestOllamaEmbedFunc_HappyPath(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	fn := embed.OllamaEmbedFunc(srv.URL, "nomic-embed-text")
+	fn := embed.OllamaFunc(srv.URL, "nomic-embed-text")
 	vec, err := fn(context.Background(), "test text")
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
@@ -35,7 +35,7 @@ func TestOllamaEmbedFunc_HappyPath(t *testing.T) {
 	}
 }
 
-func TestOllamaEmbedFunc_Non200(t *testing.T) {
+func TestOllamaFunc_Non200(t *testing.T) {
 	// Given: Ollama returns HTTP 500
 	// When: OllamaEmbedFunc is called
 	// Then: error contains the status code
@@ -45,7 +45,7 @@ func TestOllamaEmbedFunc_Non200(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	fn := embed.OllamaEmbedFunc(srv.URL, "nomic-embed-text")
+	fn := embed.OllamaFunc(srv.URL, "nomic-embed-text")
 	_, err := fn(context.Background(), "test text")
 	if err == nil {
 		t.Fatal("expected error for non-200 response")
@@ -55,7 +55,7 @@ func TestOllamaEmbedFunc_Non200(t *testing.T) {
 	}
 }
 
-func TestOllamaEmbedFunc_EmptyEmbedding(t *testing.T) {
+func TestOllamaFunc_EmptyEmbedding(t *testing.T) {
 	// Given: Ollama returns an empty embedding array
 	// When: OllamaEmbedFunc is called
 	// Then: error is returned (not a silent zero vector)
@@ -66,14 +66,14 @@ func TestOllamaEmbedFunc_EmptyEmbedding(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	fn := embed.OllamaEmbedFunc(srv.URL, "nomic-embed-text")
+	fn := embed.OllamaFunc(srv.URL, "nomic-embed-text")
 	_, err := fn(context.Background(), "test text")
 	if err == nil {
 		t.Fatal("expected error for empty embedding")
 	}
 }
 
-func TestOllamaEmbedFunc_InvalidJSON(t *testing.T) {
+func TestOllamaFunc_InvalidJSON(t *testing.T) {
 	// Given: Ollama returns malformed JSON
 	// When: OllamaEmbedFunc is called
 	// Then: decode error is returned
@@ -84,19 +84,19 @@ func TestOllamaEmbedFunc_InvalidJSON(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	fn := embed.OllamaEmbedFunc(srv.URL, "nomic-embed-text")
+	fn := embed.OllamaFunc(srv.URL, "nomic-embed-text")
 	_, err := fn(context.Background(), "test text")
 	if err == nil {
 		t.Fatal("expected error for invalid JSON response")
 	}
 }
 
-func TestOllamaEmbedFunc_ContextCanceled(t *testing.T) {
+func TestOllamaFunc_ContextCanceled(t *testing.T) {
 	// Given: context is already canceled before the call
 	// When: OllamaEmbedFunc is called
 	// Then: error is returned immediately without network activity
 	t.Parallel()
-	fn := embed.OllamaEmbedFunc("http://127.0.0.1:1", "nomic-embed-text")
+	fn := embed.OllamaFunc("http://127.0.0.1:1", "nomic-embed-text")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // already canceled
 	_, err := fn(ctx, "test text")

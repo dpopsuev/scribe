@@ -26,7 +26,7 @@ var staticFS embed.FS
 
 var errTemplateNotFound = errors.New("template not found")
 
-var md = goldmark.New(
+var markdownParser = goldmark.New(
 	goldmark.WithExtensions(extension.GFM),
 	goldmark.WithRendererOptions(html.WithUnsafe()),
 )
@@ -152,11 +152,11 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
+	queryParams := r.URL.Query()
 	in := parchment.ListInput{
-		Kind:   q.Get("kind"),
-		Scope:  q.Get("scope"),
-		Status: q.Get("status"),
+		Kind:   queryParams.Get("kind"),
+		Scope:  queryParams.Get("scope"),
+		Status: queryParams.Get("status"),
 	}
 	arts, err := s.proto.ListArtifacts(r.Context(), in)
 	if err != nil {
@@ -197,11 +197,11 @@ func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query().Get("q")
+	searchQuery := r.URL.Query().Get("q")
 	var results []*parchment.Artifact
-	if q != "" {
+	if searchQuery != "" {
 		var err error
-		results, err = s.proto.SearchArtifacts(r.Context(), q, parchment.ListInput{})
+		results, err = s.proto.SearchArtifacts(r.Context(), searchQuery, parchment.ListInput{})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -209,7 +209,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	s.render(w, "search.html", map[string]any{
 		"Title":   "Search",
-		"Query":   q,
+		"Query":   searchQuery,
 		"Results": results,
 	})
 }
@@ -253,7 +253,7 @@ func (s *Server) resolveTemplate(name string) (*template.Template, error) {
 
 func renderMarkdown(text string) template.HTML {
 	var buf bytes.Buffer
-	if err := md.Convert([]byte(text), &buf); err != nil {
+	if err := markdownParser.Convert([]byte(text), &buf); err != nil {
 		return template.HTML("<pre>" + template.HTMLEscapeString(text) + "</pre>") //nolint:gosec // G203: content is HTMLEscapeString-escaped; not raw user input
 	}
 	out := buf.String()

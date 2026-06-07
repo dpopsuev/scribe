@@ -169,8 +169,6 @@ func TestContextRead_KnowledgeInSameScope(t *testing.T) {
 	}
 }
 
-
-
 // --- Brief ---
 
 func TestBrief_EmptyStore(t *testing.T) {

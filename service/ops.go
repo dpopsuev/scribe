@@ -280,30 +280,30 @@ func getStash(_ context.Context, svc *Service, stashID string) (string, error) {
 }
 
 func getDiff(ctx context.Context, svc *Service, idA, idB string) (string, error) {
-	a, err := svc.Proto.GetArtifact(ctx, idA)
+	artifactA, err := svc.Proto.GetArtifact(ctx, idA)
 	if err != nil {
 		return "", err
 	}
-	b, err := svc.Proto.GetArtifact(ctx, idB)
+	artifactB, err := svc.Proto.GetArtifact(ctx, idB)
 	if err != nil {
 		return "", err
 	}
 	var lines []string
 	for _, f := range []struct{ name, va, vb string }{
-		{"kind", a.Kind, b.Kind}, {"scope", a.Scope, b.Scope},
-		{"status", a.Status, b.Status}, {"title", a.Title, b.Title},
-		{"parent", a.Parent, b.Parent}, {"priority", a.Priority, b.Priority},
+		{"kind", artifactA.Kind, artifactB.Kind}, {"scope", artifactA.Scope, artifactB.Scope},
+		{"status", artifactA.Status, artifactB.Status}, {"title", artifactA.Title, artifactB.Title},
+		{"parent", artifactA.Parent, artifactB.Parent}, {"priority", artifactA.Priority, artifactB.Priority},
 	} {
 		if f.va != f.vb {
 			lines = append(lines, fmt.Sprintf("  %s: %q → %q", f.name, f.va, f.vb))
 		}
 	}
-	secA := make(map[string]string, len(a.Sections))
-	for _, s := range a.Sections {
+	secA := make(map[string]string, len(artifactA.Sections))
+	for _, s := range artifactA.Sections {
 		secA[s.Name] = s.Text
 	}
-	secB := make(map[string]string, len(b.Sections))
-	for _, s := range b.Sections {
+	secB := make(map[string]string, len(artifactB.Sections))
+	for _, s := range artifactB.Sections {
 		secB[s.Name] = s.Text
 	}
 	for name, textA := range secA {
@@ -481,16 +481,16 @@ func renderTreeNode(node *parchment.TreeNode, prefix string, last, showScope boo
 		scopeLabel = fmt.Sprintf(" [%s]", node.Scope)
 	}
 	fmt.Fprintf(b, "%s%s%s%s%s [%s] %s\n", prefix, connector, edgeLabel, node.ID, scopeLabel, node.Status, node.Title)
-	cp := prefix
+	childPrefix := prefix
 	if prefix != "" {
 		if last {
-			cp += "    "
+			childPrefix += "    "
 		} else {
-			cp += "│   "
+			childPrefix += "│   "
 		}
 	}
 	for i, ch := range node.Children {
-		renderTreeNode(ch, cp, i == len(node.Children)-1, showScope, b)
+		renderTreeNode(ch, childPrefix, i == len(node.Children)-1, showScope, b)
 	}
 }
 
@@ -525,16 +525,16 @@ func renderBriefingNode(node *parchment.TreeNode, prefix string, last, showScope
 		kindStatus = node.Kind + "|" + node.Status
 	}
 	fmt.Fprintf(b, "%s%s%s%s%s [%s] %s\n", prefix, connector, edgeLabel, node.ID, scopeLabel, kindStatus, node.Title)
-	cp := prefix
+	childPrefix := prefix
 	if prefix != "" {
 		if last {
-			cp += "    "
+			childPrefix += "    "
 		} else {
-			cp += "│   "
+			childPrefix += "│   "
 		}
 	}
 	for i, ch := range node.Children {
-		renderBriefingNode(ch, cp, i == len(node.Children)-1, showScope, b)
+		renderBriefingNode(ch, childPrefix, i == len(node.Children)-1, showScope, b)
 	}
 }
 

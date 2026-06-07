@@ -141,13 +141,13 @@ func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, devU
 		}
 	}
 
-	t := cfg.Transport
+	activeTransport := cfg.Transport
 	if cmd.Flags().Changed("transport") {
-		t = transport
+		activeTransport = transport
 	}
-	a := cfg.Addr
+	activeAddr := cfg.Addr
 	if cmd.Flags().Changed("addr") {
-		a = addr
+		activeAddr = addr
 	}
 
 	srv, _ := mcp.NewServer(svc, nil, Version)
@@ -157,16 +157,16 @@ func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, devU
 	store := svc.Proto.Store()
 	idc := cfg.ProtocolIDConfig()
 	srvFactory := func(r *http.Request) *sdkmcp.Server {
-		scopes := homeScopes
+		requestScopes := homeScopes
 		if ws := r.URL.Query().Get("workspace"); ws != "" {
-			scopes = cfg.WorkspaceScopesFor(ws)
+			requestScopes = cfg.WorkspaceScopesFor(ws)
 		}
-		perConnSrv, _ := mcp.NewServerFromStore(store, scopes, idc, Version)
+		perConnSrv, _ := mcp.NewServerFromStore(store, requestScopes, idc, Version)
 		return perConnSrv
 	}
 
 	slog.InfoContext(ctx, "server configured",
-		slog.String(logKeyTransport, t),
+		slog.String(logKeyTransport, activeTransport),
 		slog.Any(logKeyScopes, homeScopes),
 	)
 
@@ -187,8 +187,8 @@ func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, devU
 	sigCtx, stop := signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	if t == "http" {
-		return runHTTP(sigCtx, ctx, cmd, srvFactory, a, pprofAddr, enablePprof)
+	if activeTransport == "http" {
+		return runHTTP(sigCtx, ctx, cmd, srvFactory, activeAddr, pprofAddr, enablePprof)
 	}
 	slog.InfoContext(ctx, "serving via stdio")
 	return srv.Run(sigCtx, &sdkmcp.StdioTransport{})
@@ -263,26 +263,26 @@ func ToolsCmd() *cobra.Command {
 				return nil
 			}
 
-			nameW, descW, kwW := 4, 11, 8
+			nameWidth, descWidth, keywordsWidth := 4, 11, 8
 			for _, t := range tools {
-				if len(t.Name) > nameW {
-					nameW = len(t.Name)
+				if len(t.Name) > nameWidth {
+					nameWidth = len(t.Name)
 				}
-				if len(t.Description) > descW {
-					descW = len(t.Description)
+				if len(t.Description) > descWidth {
+					descWidth = len(t.Description)
 				}
 				kw := strings.Join(t.Keywords, ", ")
-				if len(kw) > kwW {
-					kwW = len(kw)
+				if len(kw) > keywordsWidth {
+					keywordsWidth = len(kw)
 				}
 			}
 
-			fmtStr := fmt.Sprintf("%%-%ds  %%-%ds  %%-%ds  %%s\n", nameW, descW, kwW)
+			fmtStr := fmt.Sprintf("%%-%ds  %%-%ds  %%-%ds  %%s\n", nameWidth, descWidth, keywordsWidth)
 			fmt.Printf(fmtStr, "NAME", "DESCRIPTION", "KEYWORDS", "CATEGORIES")
 			fmt.Printf(fmtStr,
-				strings.Repeat("-", nameW),
-				strings.Repeat("-", descW),
-				strings.Repeat("-", kwW),
+				strings.Repeat("-", nameWidth),
+				strings.Repeat("-", descWidth),
+				strings.Repeat("-", keywordsWidth),
 				strings.Repeat("-", 10),
 			)
 			for _, t := range tools {

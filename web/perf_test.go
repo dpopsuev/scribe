@@ -40,15 +40,15 @@ import (
 // fpsThreshold defines the minimum acceptable FPS at a given node count when
 // driving the real /graph page. Tighten as optimizations land.
 type fpsThreshold struct {
-	nodes      int
-	minFPS     float64
-	desc       string
+	nodes  int
+	minFPS float64
+	desc   string
 }
 
 var thresholds = []fpsThreshold{
-	{nodes: 50,   minFPS: 55, desc: "50 nodes — trivial, must be near-native"},
-	{nodes: 200,  minFPS: 45, desc: "200 nodes — comfortable with default physics"},
-	{nodes: 500,  minFPS: 30, desc: "500 nodes — acceptable without optimisations"},
+	{nodes: 50, minFPS: 55, desc: "50 nodes — trivial, must be near-native"},
+	{nodes: 200, minFPS: 45, desc: "200 nodes — comfortable with default physics"},
+	{nodes: 500, minFPS: 30, desc: "500 nodes — acceptable without optimisations"},
 }
 
 // startServer spins up a real httptest.Server with a seeded parchment store.
@@ -548,12 +548,12 @@ func TestGraph_CameraAimsAtCenterOfMass(t *testing.T) {
 	}
 
 	var m struct {
-		Error        string `json:"error"`
-		ParentCount  int    `json:"parentCount"`
-		COM          struct{ X, Y, Z int }
-		CtrlTarget   struct{ X, Y, Z int }
+		Error         string `json:"error"`
+		ParentCount   int    `json:"parentCount"`
+		COM           struct{ X, Y, Z int }
+		CtrlTarget    struct{ X, Y, Z int }
 		TargetComDist int `json:"targetComDist"`
-		CamDist      int `json:"camDist"`
+		CamDist       int `json:"camDist"`
 	}
 	if err := json.Unmarshal([]byte(raw), &m); err != nil {
 		t.Fatalf("parse: %v — raw: %s", err, raw)
@@ -871,7 +871,6 @@ func TestGraph_CanvasHasNodePixels(t *testing.T) {
 		t.Logf("WARN: %.3f%% bright pixels — only links may be rendering, nodes absent", pct)
 	}
 }
-
 
 // TestGraph_RendererConfig asserts the active renderer produces visible,
 // non-black nodes with the correct material properties.
