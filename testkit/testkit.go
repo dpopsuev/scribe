@@ -179,7 +179,7 @@ var GitHubPRShape ShapeFunc = func(i int, source, sha string) ingest.NodeRecord 
 type ScriptedTurn struct {
 	User      string
 	Assistant string
-	Tools     []ingest.AgentToolCall
+	Tools     []AgentToolCall
 }
 
 // ScriptedLLM drives a fixed conversation — no network, no API key.
@@ -203,7 +203,7 @@ func (s *ScriptedLLM) Reset() { s.pos = 0 }
 
 // AgentLoop runs a ScriptedLLM and writes each turn to Scribe.
 type AgentLoop struct {
-	Session ingest.AgentSession
+	Session AgentSession
 	LLM     *ScriptedLLM
 	Client  *ingest.Client
 }
@@ -211,21 +211,21 @@ type AgentLoop struct {
 // Run drives the script to completion, streaming each turn to Scribe.
 func (a *AgentLoop) Run(ctx context.Context) error {
 	for i := 0; ; i++ {
-		turn, ok := a.LLM.Next()
+		scripted, ok := a.LLM.Next()
 		if !ok {
 			break
 		}
-		agentTurn := ingest.AgentTurn{
+		turn := AgentTurn{
 			ID:            fmt.Sprintf("%s:%s:%d", a.Session.Source, a.Session.ID, i),
 			SessionID:     a.Session.ID,
 			Index:         i,
-			UserText:      turn.User,
-			AssistantText: turn.Assistant,
-			ToolCalls:     turn.Tools,
+			UserText:      scripted.User,
+			AssistantText: scripted.Assistant,
+			ToolCalls:     scripted.Tools,
 			Extra:         map[string]any{"model": a.Session.Model},
 		}
-		node := ingest.TurnToNodeRecord(agentTurn)
-		edges := ingest.TurnToEdges(agentTurn)
+		node := TurnToNode(turn)
+		edges := TurnEdges(turn)
 		if _, err := a.Client.Stream(ctx, []ingest.NodeRecord{node}, edges); err != nil {
 			return fmt.Errorf("turn %d: %w", i, err)
 		}
@@ -234,6 +234,11 @@ func (a *AgentLoop) Run(ctx context.Context) error {
 }
 
 // ── Test server helper ────────────────────────────────────────────────────
+
+// NewIngestClient creates an ingest.Client pointed at the given server URL.
+func NewIngestClient(baseURL, source string) *ingest.Client {
+	return &ingest.Client{BaseURL: baseURL, Source: source}
+}
 
 // NewServer starts a real Scribe HTTP server backed by an isolated SQLite DB.
 // The server and DB are closed automatically when t ends.
@@ -266,4 +271,101 @@ func CountByLabels(t *testing.T, db parchment.Store, labels ...string) int {
 		t.Fatalf("list labels %v: %v", labels, err)
 	}
 	return len(arts)
+}
+
+// ── Agent session adapter ─────────────────────────────────────────────────
+// Mapping from agent-native turn data to the ingest wire protocol.
+// Lives in testkit because it is test scaffolding — each real agent owns
+// its own equivalent mapping.
+
+// AgentSession identifies one conversation between a user and an LLM.
+type AgentSession struct {
+	ID     string
+	Source string
+	CWD    string
+	Model  string
+}
+
+// AgentToolCall records one tool invocation within a turn.
+type AgentToolCall struct {
+	Name   string
+	Input  string
+	Output string
+}
+
+// AgentTurn is one complete user→(tool*)→assistant exchange.
+type AgentTurn struct {
+	ID            string
+	SessionID     string
+	Index         int
+	UserText      string
+	AssistantText string
+	ToolCalls     []AgentToolCall
+	Labels        []string
+	Extra         map[string]any
+}
+
+// TurnToNode maps a turn to an ingest.NodeRecord with a stable, idempotent ID.
+func TurnToNode(turn AgentTurn) ingest.NodeRecord {
+	toolNames := make([]string, len(turn.ToolCalls))
+	for i, tc := range turn.ToolCalls {
+		toolNames[i] = tc.Name
+	}
+	extra := map[string]any{
+		"turn_index": turn.Index,
+		"session_id": turn.SessionID,
+		"scanned_at": time.Now().UTC().Format(time.RFC3339),
+		"tools_used": toolNames,
+	}
+	for k, v := range turn.Extra {
+		extra[k] = v
+	}
+	labels := make([]string, 0, 3+len(turn.Labels))
+	labels = append(labels, "source:"+turnSource(turn.ID), "session:"+turn.SessionID, "kind:turn")
+	labels = append(labels, turn.Labels...)
+
+	sections := make([]ingest.Section, 0, 2+len(turn.ToolCalls))
+	sections = append(sections, ingest.Section{Name: "user", Text: turn.UserText}, ingest.Section{Name: "assistant", Text: turn.AssistantText})
+	for i, tc := range turn.ToolCalls {
+		sections = append(sections, ingest.Section{
+			Name: fmt.Sprintf("tool-%d-%s", i, tc.Name),
+			Text: fmt.Sprintf("input: %s\noutput: %s", tc.Input, tc.Output),
+		})
+	}
+	title := turn.UserText
+	if len(title) > 60 {
+		title = title[:60] + "…"
+	}
+	return ingest.NodeRecord{
+		Type: "node", ID: turn.ID, Kind: "note",
+		Title:  fmt.Sprintf("Turn %d: %s", turn.Index, title),
+		Status: "active", Labels: labels, Extra: extra, Sections: sections,
+	}
+}
+
+// TurnEdges derives graph edges from tool calls in a turn.
+func TurnEdges(turn AgentTurn) []ingest.EdgeRecord {
+	var edges []ingest.EdgeRecord
+	for _, tc := range turn.ToolCalls {
+		switch tc.Name {
+		case "file_read", "file_write", "fs.read", "fs.write":
+			if tc.Input != "" {
+				edges = append(edges, ingest.EdgeRecord{Type: "edge", From: turn.ID, To: "locus:symbol:" + tc.Input, Relation: "traces_to"})
+			}
+		case "scribe_create_artifact", "create_artifact":
+			if tc.Output != "" {
+				edges = append(edges, ingest.EdgeRecord{Type: "edge", From: turn.ID, To: tc.Output, Relation: "produces"})
+			}
+		}
+	}
+	return edges
+}
+
+func turnSource(id string) string {
+	for i, c := range id {
+		if c == ':' {
+			return id[:i]
+		}
+	}
+	return "agent"
 }

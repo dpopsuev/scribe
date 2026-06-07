@@ -5,7 +5,6 @@ import (
 
 	parchment "github.com/dpopsuev/parchment"
 
-	"github.com/dpopsuev/scribe/internal/ingest"
 	"github.com/dpopsuev/scribe/testkit"
 )
 
@@ -20,12 +19,12 @@ func TestAgentSession_E2E(t *testing.T) { //nolint:gocyclo // E2E: sequential as
 	source := "faux-agent"
 
 	loop := &testkit.AgentLoop{
-		Session: ingest.AgentSession{ID: sessionID, Source: source, CWD: "/workspace/scribe", Model: "faux-1.0"},
+		Session: testkit.AgentSession{ID: sessionID, Source: source, CWD: "/workspace/scribe", Model: "faux-1.0"},
 		LLM: &testkit.ScriptedLLM{Script: []testkit.ScriptedTurn{
 			{
 				User:      "what is in graph.js?",
 				Assistant: "Let me read that file.",
-				Tools:     []ingest.AgentToolCall{{Name: "file_read", Input: "graph.js", Output: "export function initGraph() { ... }"}},
+				Tools:     []testkit.AgentToolCall{{Name: "file_read", Input: "graph.js", Output: "export function initGraph() { ... }"}},
 			},
 			{
 				User:      "(tool result received)",
@@ -34,10 +33,10 @@ func TestAgentSession_E2E(t *testing.T) { //nolint:gocyclo // E2E: sequential as
 			{
 				User:      "create a task to refactor initGraph",
 				Assistant: "Task created.",
-				Tools:     []ingest.AgentToolCall{{Name: "scribe_create_artifact", Input: `{"kind":"task","title":"Refactor initGraph"}`, Output: "SCR-TSK-999"}},
+				Tools:     []testkit.AgentToolCall{{Name: "scribe_create_artifact", Input: `{"kind":"task","title":"Refactor initGraph"}`, Output: "SCR-TSK-999"}},
 			},
 		}},
-		Client: &ingest.Client{BaseURL: srv.URL, Source: source},
+		Client: testkit.NewIngestClient(srv.URL, source),
 	}
 
 	if err := loop.Run(t.Context()); err != nil {
