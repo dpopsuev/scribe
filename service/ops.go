@@ -354,6 +354,26 @@ func getSummary(ctx context.Context, svc *Service, ids []string) (string, error)
 	return string(data), nil
 }
 
+// renderScoredTable renders ScoredArtifact results with a SCORE column.
+func renderScoredTable(results []parchment.ScoredArtifact) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%-20s  %5s  %-40s  %-12s  %s\n", "ID", "SCORE", "TITLE", "KIND", "STATUS")
+	b.WriteString(strings.Repeat("-", 90) + "\n")
+	for _, r := range results {
+		title := r.Artifact.Title
+		if len(title) > 40 {
+			title = title[:37] + "..."
+		}
+		score := fmt.Sprintf("%.2f", r.Score)
+		if r.Score == 0 {
+			score = "fts"
+		}
+		fmt.Fprintf(&b, "%-20s  %5s  %-40s  %-12s  %s\n",
+			r.Artifact.ID, score, title, r.Artifact.ResolvedKind(), r.Artifact.ResolvedStatus())
+	}
+	return b.String()
+}
+
 // renderWithBriefing renders search results with an ArtifactTree chain attached to each.
 func renderWithBriefing(ctx context.Context, svc *Service, arts []*parchment.Artifact, depth int) string {
 	var b strings.Builder
@@ -1077,22 +1097,22 @@ var opList = Op{
 				return "", fmt.Errorf("query required for %s search", mode) //nolint:err113 // user-facing hint
 			}
 			li := parchment.ListInput{Scope: in.Scope, Kind: in.Kind, Limit: in.Limit, Labels: in.Labels}
-			var arts []*parchment.Artifact
+			var scored []parchment.ScoredArtifact
 			var semErr error
-			arts, semErr = svc.Proto.SearchSemantic(ctx, in.Query, li)
+			scored, semErr = svc.Proto.SearchSemantic(ctx, in.Query, li)
 			if semErr != nil && mode == modeSemantic {
 				return "", fmt.Errorf("semantic search requires an embedding backend: %w", semErr)
 			}
 			if mode == modeHybrid {
-				// Merge FTS results; deduplicate by ID; order by updated_at descending.
+				// Merge FTS results as unscored (score=0) — deduplicate by ID.
 				ftsResults, _ := svc.Proto.SearchArtifacts(ctx, in.Query, li)
-				seen := make(map[string]bool, len(arts))
-				for _, a := range arts {
-					seen[a.ID] = true
+				seen := make(map[string]bool, len(scored))
+				for _, s := range scored {
+					seen[s.Artifact.ID] = true
 				}
 				for _, a := range ftsResults {
 					if !seen[a.ID] {
-						arts = append(arts, a)
+						scored = append(scored, parchment.ScoredArtifact{Artifact: a})
 						seen[a.ID] = true
 					}
 				}
@@ -1103,18 +1123,22 @@ var opList = Op{
 				if ferr != nil {
 					return "", fmt.Errorf("hybrid search: FTS fallback failed: %w", ferr)
 				}
-				arts = make([]*parchment.Artifact, len(results))
+				scored = make([]parchment.ScoredArtifact, len(results))
 				for i, r := range results {
-					arts[i] = r.Art
+					scored[i] = parchment.ScoredArtifact{Artifact: r.Art}
 				}
 			}
-			if len(arts) == 0 {
+			if len(scored) == 0 {
 				return fmt.Sprintf("no results for %q", in.Query), nil
 			}
 			if in.Depth > 0 {
+				arts := make([]*parchment.Artifact, len(scored))
+				for i, s := range scored {
+					arts[i] = s.Artifact
+				}
 				return renderWithBriefing(ctx, svc, arts, in.Depth), nil
 			}
-			return parchment.RenderTable(arts), nil
+			return renderScoredTable(scored), nil
 		}
 		if in.Ranked {
 			if in.Query == "" {

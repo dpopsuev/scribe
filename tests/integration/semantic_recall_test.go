@@ -144,10 +144,24 @@ func TestSemanticRecall_FlagRankedFirst(t *testing.T) {
 	if len(arts) == 0 {
 		t.Fatal("SearchSemantic returned no results")
 	}
-	if arts[0].ID != flagID {
-		t.Errorf("flag not ranked first: got %s (%q), want %s", arts[0].ID, arts[0].Title, flagID)
+
+	// Flag must be ranked first with a score higher than all noise results.
+	if arts[0].Artifact.ID != flagID {
+		t.Errorf("flag not ranked first: got %s (%q) score=%.4f, want %s",
+			arts[0].Artifact.ID, arts[0].Artifact.Title, arts[0].Score, flagID)
 		for i, a := range arts {
-			t.Logf("  rank %d: %s — %s", i+1, a.ID, a.Title)
+			t.Logf("  rank %d  score=%.4f  %s — %s", i+1, a.Score, a.Artifact.ID, a.Artifact.Title)
+		}
+	}
+
+	// Score must be present and the flag score > any non-zero noise score.
+	if arts[0].Score == 0 {
+		t.Error("flag score should be non-zero")
+	}
+	for _, a := range arts[1:] {
+		if a.Score > arts[0].Score {
+			t.Errorf("noise artifact %s (score=%.4f) ranks above flag (score=%.4f)",
+				a.Artifact.ID, a.Score, arts[0].Score)
 		}
 	}
 }
