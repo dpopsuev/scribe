@@ -76,9 +76,9 @@ const FALLBACK_COMFORT     = 1.05; // padding used when viewport dimensions are 
 //   AVG_NODE_RADIUS = cbrt(nodeVal_avg) × SPHERE_SCALE = cbrt(4.31) × 6 ≈ 9.77
 //
 //   Personal-space volume ratio ρ = (separation/2 / r_node)³
-//     ρ=1 → separation = 2 × r_node           (touching)
-//     ρ=2 → separation = 2 × ∛2 × r_node ≈ 25 (2× volume each — target)
-//     ρ=3 → separation = 2 × ∛3 × r_node ≈ 28 (3× volume each — maximum)
+//     ρ=2 → separation = 2 × ∛2 × r_node ≈ 25 (old minimum — was too tight)
+//     ρ=4 → separation = 2 × ∛4 × r_node ≈ 31 (new target — 4× volume each)
+//     ρ=6 → separation = 2 × ∛6 × r_node ≈ 36 (new maximum)
 //
 //   NODE_SEPARATION = 2 × ∛SPACING_RATIO × AVG_NODE_RADIUS
 //
@@ -95,7 +95,7 @@ const FALLBACK_COMFORT     = 1.05; // padding used when viewport dimensions are 
 // ═══════════════════════════════════════════════════════════════════════════
 
 const AVG_NODE_RADIUS    = Math.cbrt(Math.max(NODE_SIZE_MIN, Math.min(NODE_SIZE_MAX, Math.cbrt(10) * 2))) * SPHERE_SCALE; // ≈ 9.8
-const SPACING_RATIO      = 2.0;  // personal-space volume = 2× node volume — comfortable, not crowded
+const SPACING_RATIO      = 4.0;  // personal-space volume = 4× node volume — range [2×–6×] as requested
 const NODE_SEPARATION    = 2 * Math.cbrt(SPACING_RATIO) * AVG_NODE_RADIUS;  // ≈ 24.6 world units
 
 // Cohesion: centripetal 1/r force — uniform pull so all nodes converge at the same rate.
@@ -155,9 +155,12 @@ const FRAME_BUDGET_MS      = 8;    // JS budget per frame — headroom for Three
 
 // ── Interaction timing ─────────────────────────────────────────────────────
 const DOUBLE_CLICK_MAX_MS  = 300;   // max gap between two clicks to count as double-click
-const RECENTER_ANIM_MS     = 1000;  // camera fly to centre on background double-click
-const SETTLE_ANIM_MS       = 1800;  // camera re-aim after physics settle
-const HOME_ANIM_MS         = 2500;  // camera fly-home on idle timeout
+// ── Camera desired-state correction ────────────────────────────────────────
+// Two per-frame lerp rates replace all discrete camera animations.
+// Pattern: tickCameraCorrection runs every frame, reads camDesiredDist, lerps toward it.
+// Same pattern as tickZoomAdaptor (desired state → slowly correct).
+const CAM_TARGET_DRIFT     = 0.008; // fraction/frame ctrl.target follows actual CoM (~1.2 s lag)
+const CAM_DIST_CORRECTION  = 0.020; // fraction/frame camera distance follows camDesiredDist (~2.5 s)
 
 // ── Link curves ────────────────────────────────────────────────────────────
 const DEPENDS_ON_CURVATURE = 0.15;  // arc bend for depends_on edges — shows direction clearly
@@ -170,7 +173,7 @@ const IDLE_ORBIT_MS        = 4000;  // idle before spin begins
 const IDLE_HOME_MS         = 20000; // idle before camera flies home
 
 // ── Physics settle delay ───────────────────────────────────────────────────
-const PHYSICS_SETTLE_MS    = 3000;  // wait this long after data load before re-aiming camera
+
 
 
 const DEFAULT_STATUSES = 'active,draft,current,proposed,in_progress,in_review,fleeting';
@@ -226,10 +229,10 @@ let Graph = null;
 let fitAllNodesFn  = null; // set by initGraph; called from loadMacro after data is loaded
 let enableOrbitFn  = null; // set by initGraph; called from loadMacro to start spinning on boot
 
-// Active camera animation — null when idle.
-// tickCamAnim() reads this each frame and clears it when done.
-// Only distance + target are animated; autoRotate owns the direction.
-let camAnim = null;
+// Desired camera distance — set by fitAllNodes/aimAtCenterOfMass, cleared by onInteraction.
+// tickCameraCorrection lerps the actual distance toward this each frame.
+// null = user controls distance (no correction active).
+let camDesiredDist = null;
 
 // Zoom-adaptive force state — module-level so loadMacro() can reference them.
 // loadMacro is a module-scope async function; variables declared inside
@@ -332,16 +335,20 @@ async function loadMacro() {
   updateModeBadge();
 
   // Camera: FOV-accurate fit immediately, then smooth re-fit after physics settles.
-  // fitAllNodesFn is set by initGraph; null-guard for the case loadMacro races before init.
+  // Boot placement: aimAtCenterOfMass centres the camera, fitAllNodes computes the
+  // actual-position-based fit distance and sets camDesiredDist. Then snap immediately.
+  aimAtCenterOfMass();
   if (fitAllNodesFn) {
-    fitAllNodesFn(0);
-    setTimeout(() => fitAllNodesFn(SETTLE_ANIM_MS), PHYSICS_SETTLE_MS);
-  } else {
-    aimAtCenterOfMass(0);
-    setTimeout(() => aimAtCenterOfMass(SETTLE_ANIM_MS), PHYSICS_SETTLE_MS);
+    fitAllNodesFn(); // sets camDesiredDist = actualFitDist()
+    if (camDesiredDist) {
+      const cam = Graph.camera(), ctrl = Graph.controls();
+      const dx = cam.position.x-ctrl.target.x, dy=cam.position.y-ctrl.target.y, dz=cam.position.z-ctrl.target.z;
+      const f = camDesiredDist / (Math.hypot(dx,dy,dz)||1);
+      cam.position.set(ctrl.target.x+dx*f, ctrl.target.y+dy*f, ctrl.target.z+dz*f);
+      ctrl.update();
+    }
   }
   if (enableOrbitFn) enableOrbitFn();
-  // Activate post-settle correction after d3 alpha has fully decayed.
   correctionStartTime = Date.now() + CLUSTER_CORRECTION_START_MS;
 }
 
@@ -443,8 +450,9 @@ function removeMacroNode(nodeId) {
 }
 
 
-// distOverride: when set by fitAllNodes(), uses FOV-computed distance instead of radius*mult.
-function aimAtCenterOfMass(animMs = 0, distOverride = null) {
+// Place camera at the cluster centre. Called once at boot (animMs=0) for initial placement;
+// all subsequent corrections happen via tickCameraCorrection (desired-state lerp).
+function aimAtCenterOfMass(distOverride = null) {
   const controls = Graph.controls();
   if (!controls?.target) return;
 
@@ -462,31 +470,15 @@ function aimAtCenterOfMass(animMs = 0, distOverride = null) {
   const dx = cam.x-com.x, dy = cam.y-com.y, dz = cam.z-com.z;
   const len = Math.hypot(dx, dy, dz) || 1;
   const scale = camDist / len;
-  const targetPos = { x: com.x+dx*scale, y: com.y+dy*scale, z: com.z+dz*scale };
 
-  if (animMs <= 0) {
-    controls.object.position.set(targetPos.x, targetPos.y, targetPos.z);
-    controls.target.set(com.x, com.y, com.z);
-    controls.update();
-    log.info('aimCamera com=(%d,%d,%d) radius=%d camDist=%d cam=(%d,%d,%d)',
-      Math.round(com.x), Math.round(com.y), Math.round(com.z),
-      Math.round(radius), Math.round(camDist),
-      Math.round(targetPos.x), Math.round(targetPos.y), Math.round(targetPos.z));
-    return;
-  }
-
-  // Animated: record start/end state for tickCamAnim() to step each frame.
-  // Only distance and target are animated — autoRotate keeps driving the direction,
-  // so orbit continues uninterrupted while the camera glides to its new position.
-  const startDist = Math.hypot(cam.x - controls.target.x, cam.y - controls.target.y, cam.z - controls.target.z);
-  camAnim = {
-    startDist,
-    targetDist: camDist,
-    startTarget: { x: controls.target.x, y: controls.target.y, z: controls.target.z },
-    endTarget:   { x: com.x, y: com.y, z: com.z },
-    t0:          performance.now(),
-    duration:    animMs,
-  };
+  controls.object.position.set(com.x+dx*scale, com.y+dy*scale, com.z+dz*scale);
+  controls.target.set(com.x, com.y, com.z);
+  controls.update();
+  camDesiredDist = camDist; // tickCameraCorrection keeps it there as nodes settle
+  log.info('aimCamera com=(%d,%d,%d) radius=%d camDist=%d cam=(%d,%d,%d)',
+    Math.round(com.x), Math.round(com.y), Math.round(com.z),
+    Math.round(radius), Math.round(camDist),
+    Math.round(controls.object.position.x), Math.round(controls.object.position.y), Math.round(controls.object.position.z));
 }
 
 
@@ -710,7 +702,7 @@ export function initGraph(injectedDeps) {
       return () => {
         closeSidebar(state.els.sidebar);
         const now = Date.now();
-        if (now - lastBgClick < DOUBLE_CLICK_MAX_MS) aimAtCenterOfMass(RECENTER_ANIM_MS);
+        if (now - lastBgClick < DOUBLE_CLICK_MAX_MS) { if (fitAllNodesFn) fitAllNodesFn(); }
         lastBgClick = now;
       };
     })())
@@ -736,14 +728,34 @@ export function initGraph(injectedDeps) {
   // ── Fit all nodes ──────────────────────────────────────────────────────
   // Positions camera so the entire node cluster fills the viewport.
   // Uses the camera's actual FOV to compute exact distance — guarantees
-  // every node is visible with FIT_ALL_PADDING breathing room.
-  function fitAllNodes(animMs = 800) {
-    const nodes = Graph.graphData().nodes;
-    if (!nodes.length) return;
-    const fitDist = computeMaxZoomOut(nodes, Graph.camera());
-    Graph.controls().maxDistance = fitDist;
-    aimAtCenterOfMass(animMs, fitDist);
-  }
+   // Computes the camera distance from ACTUAL node positions (same formula as tickMaxZoomBoundary).
+   // Using estimated clusterRadiusFromVolume caused camDesiredDist > ctrl.maxDistance, which
+   // made tickCameraCorrection clamp and jump when tickMaxZoomBoundary shrank the boundary.
+   function actualFitDist() {
+     const nodes = Graph.graphData().nodes;
+     if (!nodes.length) return null;
+     const cam  = Graph.camera();
+     const ctrl = Graph.controls();
+     const tgt  = ctrl.target;
+     let maxR = 0;
+     for (const n of nodes) {
+       const d = Math.hypot((n.x||0)-tgt.x, (n.y||0)-tgt.y, (n.z||0)-tgt.z);
+       maxR = Math.max(maxR, d + Math.cbrt(nodeVisualVolume(n)) * SPHERE_SCALE);
+     }
+     maxR += MIN_NODE_SCREEN_GAP;
+     const fovVRad = cam.fov * Math.PI / 180;
+     const fovHRad = 2 * Math.atan(Math.tan(fovVRad / 2) * (cam.aspect || 1));
+     return maxR / Math.tan(Math.min(fovVRad, fovHRad) / 2) * ZOOM_OUT_HEADROOM;
+   }
+
+   // Sets camDesiredDist so tickCameraCorrection smoothly guides the camera.
+   // No animMs — all movement happens via the per-frame lerp, never as discrete animations.
+   function fitAllNodes() {
+     const d = actualFitDist();
+     if (!d) return;
+     Graph.controls().maxDistance = d;
+     camDesiredDist = d;
+   }
   fitAllNodesFn  = fitAllNodes;
   enableOrbitFn  = enableOrbit;
 
@@ -761,7 +773,7 @@ export function initGraph(injectedDeps) {
   }
 
   function goHome() {
-    fitAllNodes(HOME_ANIM_MS);
+    fitAllNodes();  // sets camDesiredDist — tickCameraCorrection handles smooth fly
     enableOrbit();
   }
 
@@ -773,7 +785,8 @@ export function initGraph(injectedDeps) {
   }
 
   function onInteraction() {
-    orbitTarget = 0; // ramp-down starts in tickOrbitRamp
+    orbitTarget    = 0;    // ramp-down starts in tickOrbitRamp
+    camDesiredDist = null; // user controls distance — don't fight the scroll
     resetIdleTimers();
   }
 
@@ -848,37 +861,45 @@ export function initGraph(injectedDeps) {
     }
   }
 
-  // ── Camera position animation ─────────────────────────────────────────────
-  // Steps camAnim each frame — animates only radial distance + target point.
-  // Direction is left to OrbitControls so autoRotate keeps running during fly.
-  const ease = t => (1 - Math.cos(Math.PI * t)) / 2; // easeInOutSine
-  const lerp = (a, b, t) => a + (b - a) * t;
-
-  function tickCamAnim() {
-    if (!camAnim) return;
+  // ── Camera desired-state correction ──────────────────────────────────────
+  // Replaces all discrete camera animations. Two per-frame lerps — same pattern
+  // as tickZoomAdaptor: desired state → slowly correct, never overshoot.
+  //
+  //   target drift:     ctrl.target follows actual CoM at CAM_TARGET_DRIFT/frame.
+  //                     Runs every 4 frames (O(n) CoM). Prevents off-centre orbit
+  //                     when tickNodeCorrection shifts node positions.
+  //
+  //   distance lerp:    when camDesiredDist is set, camera distance lerps toward it
+  //                     at CAM_DIST_CORRECTION/frame. Cleared by onInteraction so
+  //                     user scroll is never fought.
+  function tickCameraCorrection() {
     const cam  = Graph.camera();
     const ctrl = Graph.controls();
     if (!cam || !ctrl) return;
 
-    const t = ease(Math.min((performance.now() - camAnim.t0) / camAnim.duration, 1));
+    // Target drift — track actual CoM so orbit pivot doesn't wander.
+    if (frameCount % 4 === 0) {
+      const nodes = Graph.graphData().nodes;
+      if (nodes.length) {
+        const com = centerOfMass(nodes);
+        ctrl.target.x += (com.x - ctrl.target.x) * CAM_TARGET_DRIFT;
+        ctrl.target.y += (com.y - ctrl.target.y) * CAM_TARGET_DRIFT;
+        ctrl.target.z += (com.z - ctrl.target.z) * CAM_TARGET_DRIFT;
+      }
+    }
 
-    // Step target point.
-    ctrl.target.set(
-      lerp(camAnim.startTarget.x, camAnim.endTarget.x, t),
-      lerp(camAnim.startTarget.y, camAnim.endTarget.y, t),
-      lerp(camAnim.startTarget.z, camAnim.endTarget.z, t),
-    );
-
-    // Step distance along whatever direction autoRotate has landed the camera.
+    // Distance lerp — guides camera to desired distance when set.
+    if (camDesiredDist === null) return;
     const dx = cam.position.x - ctrl.target.x;
     const dy = cam.position.y - ctrl.target.y;
     const dz = cam.position.z - ctrl.target.z;
-    const currentDist = Math.hypot(dx, dy, dz) || 1;
-    const newDist = lerp(camAnim.startDist, camAnim.targetDist, t);
-    const f = newDist / currentDist;
-    cam.position.set(ctrl.target.x + dx * f, ctrl.target.y + dy * f, ctrl.target.z + dz * f);
-
-    if (t >= 1) camAnim = null;
+    const dist = Math.hypot(dx, dy, dz) || 1;
+    const delta = camDesiredDist - dist;
+    if (Math.abs(delta) < 0.1) return; // close enough — skip tiny move but don't clear
+    const newDist = Math.max(ctrl.minDistance,
+      Math.min(ctrl.maxDistance, dist + delta * CAM_DIST_CORRECTION));
+    const f = newDist / dist;
+    cam.position.set(ctrl.target.x + dx*f, ctrl.target.y + dy*f, ctrl.target.z + dz*f);
   }
 
   // ── Orbit speed ramp ──────────────────────────────────────────────────────
@@ -901,23 +922,15 @@ export function initGraph(injectedDeps) {
   // ctrl.maxDistance = camera distance at which all node surfaces are inside the frustum.
   // Recomputed from ACTUAL positions every 60 frames — adjusts as physics settles and
   // as the user resizes the window (aspect ratio changes the constraining FOV).
-  function tickMaxZoomBoundary() {
-    if (frameCount % 60 !== 0) return;
-    const nodes = Graph.graphData().nodes;
-    if (!nodes.length) return;
-    const cam  = Graph.camera();
-    const ctrl = Graph.controls();
-    const tgt  = ctrl.target;
-    let maxR = 0;
-    for (const n of nodes) {
-      const d = Math.hypot((n.x || 0) - tgt.x, (n.y || 0) - tgt.y, (n.z || 0) - tgt.z);
-      maxR = Math.max(maxR, d + Math.cbrt(nodeVisualVolume(n)) * SPHERE_SCALE);
-    }
-    maxR += MIN_NODE_SCREEN_GAP;
-    const fovVRad = cam.fov * Math.PI / 180;
-    const fovHRad = 2 * Math.atan(Math.tan(fovVRad / 2) * (cam.aspect || 1));
-    ctrl.maxDistance = maxR / Math.tan(Math.min(fovVRad, fovHRad) / 2) * ZOOM_OUT_HEADROOM;
-  }
+   function tickMaxZoomBoundary() {
+     if (frameCount % 60 !== 0) return;
+     const d = actualFitDist();
+     if (!d) return;
+     Graph.controls().maxDistance = d;
+     // Keep camDesiredDist in sync so camera follows the cluster as nodes settle.
+     // Only when correction is active (null = user is controlling distance — don't override).
+     if (camDesiredDist !== null) camDesiredDist = d;
+   }
 
   // ── Post-settle node correction ───────────────────────────────────────────
   // Runs at 15 fps after CLUSTER_CORRECTION_START_MS. Pure position math — no forces,
@@ -1025,8 +1038,8 @@ export function initGraph(injectedDeps) {
     const t0 = performance.now();
     frameCount++;
 
-    // Camera animation runs every frame — steps distance + target, preserves orbit direction.
-    tickCamAnim();
+    // Camera correction runs every frame — desired-state lerp toward CoM and fit distance.
+    tickCameraCorrection();
 
     // Zoom boundary recomputed from actual positions every ~1 s — stays accurate as physics settles.
     tickMaxZoomBoundary();

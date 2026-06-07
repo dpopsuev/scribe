@@ -600,7 +600,7 @@ describe('camera distance invariant — boot must equal idle settled state', () 
 // If SPACING_RATIO or G_COHESION change in graph.js, update these constants to match.
 const SPHERE_SCALE_TEST = 6, NODE_SIZE_MIN_TEST = 2, NODE_SIZE_MAX_TEST = 40;
 const AVG_NODE_RADIUS_TEST = Math.cbrt(Math.max(NODE_SIZE_MIN_TEST, Math.min(NODE_SIZE_MAX_TEST, Math.cbrt(10)*2))) * SPHERE_SCALE_TEST; // ≈ 9.76
-const SPACING_RATIO_TEST = 2.0;
+const SPACING_RATIO_TEST = 4.0;
 const NODE_SEPARATION_TEST = 2 * Math.cbrt(SPACING_RATIO_TEST) * AVG_NODE_RADIUS_TEST; // ≈ 24.6
 const G_COHESION_TEST = 0.3, COHESION_SOFT_TEST = 30;
 const REPULSION_STRENGTH_TEST = G_COHESION_TEST * NODE_SEPARATION_TEST**3 / Math.sqrt(NODE_SEPARATION_TEST**2 + COHESION_SOFT_TEST**2); // ≈ 115
