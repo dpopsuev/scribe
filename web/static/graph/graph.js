@@ -95,7 +95,7 @@ const FALLBACK_COMFORT     = 1.05; // padding used when viewport dimensions are 
 // ═══════════════════════════════════════════════════════════════════════════
 
 const AVG_NODE_RADIUS    = Math.cbrt(Math.max(NODE_SIZE_MIN, Math.min(NODE_SIZE_MAX, Math.cbrt(10) * 2))) * SPHERE_SCALE; // ≈ 9.8
-const SPACING_RATIO      = 4.0;  // personal-space volume = 4× node volume — range [2×–6×] as requested
+const SPACING_RATIO      = 8.0;  // personal-space volume = 8× node volume (was 4, bumped 2×)
 const NODE_SEPARATION    = 2 * Math.cbrt(SPACING_RATIO) * AVG_NODE_RADIUS;  // ≈ 24.6 world units
 
 // Cohesion: centripetal 1/r force — uniform pull so all nodes converge at the same rate.
@@ -940,9 +940,13 @@ export function initGraph(injectedDeps) {
      const d = actualFitDist();
      if (!d) return;
      Graph.controls().maxDistance = d;
-     // Keep camDesiredDist in sync so camera follows the cluster as nodes settle.
-     // Only when correction is active (null = user is controlling distance — don't override).
-     if (camDesiredDist !== null) camDesiredDist = d;
+      // Keep camDesiredDist in sync so camera follows the cluster as nodes settle.
+      // Lerp toward the new value instead of snapping — prevents the bump that occurs
+      // when a 60-frame boundary coincides with orbit, causing tickCameraCorrection
+      // to exceed CAM_DIST_DEAD_ZONE and move the camera mid-orbit.
+      if (camDesiredDist !== null) {
+        camDesiredDist += (d - camDesiredDist) * 0.1; // smooth 10% approach per boundary tick
+      }
    }
 
   // ── Post-settle node correction ───────────────────────────────────────────
