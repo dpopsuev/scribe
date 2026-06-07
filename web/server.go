@@ -108,6 +108,7 @@ func NewServer(proto *parchment.Protocol, version, devPath string) *Server {
 	s.mux.HandleFunc("GET /api/v1/scopes", s.handleAPIScopes)
 
 	// JSON API v1 — write
+	s.mux.HandleFunc("POST /api/v1/ingest", s.handleAPIIngest)
 	s.mux.HandleFunc("POST /api/v1/artifacts", s.handleAPICreateArtifact)
 	s.mux.HandleFunc("PATCH /api/v1/artifacts/{id}", s.handleAPIPatchArtifact)
 	s.mux.HandleFunc("POST /api/v1/edges", s.handleAPICreateEdge)

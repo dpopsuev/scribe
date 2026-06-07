@@ -15,22 +15,20 @@ require (
 
 require (
 	github.com/chromedp/sysutil v1.1.0 // indirect
-	github.com/deckarep/golang-set/v2 v2.8.0 // indirect
-	github.com/go-jose/go-jose/v3 v3.0.4 // indirect
 	github.com/go-json-experiment/json v0.0.0-20260214004413-d219187c3433 // indirect
-	github.com/go-stack/stack v1.8.1 // indirect
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/gobwas/ws v1.4.0 // indirect
-	github.com/kr/text v0.2.0 // indirect
-	github.com/playwright-community/playwright-go v0.5700.1 // indirect
+	github.com/kr/pretty v0.3.1 // indirect
+	github.com/orisano/pixelmatch v0.0.0-20230914042517-fa304d1dc785 // indirect
+	github.com/rogpeppe/go-internal v1.11.0 // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	modernc.org/sqlite v1.48.1 // indirect
 )
 
 require (
 	github.com/dominikbraun/graph v0.23.0 // indirect
-	github.com/dpopsuev/parchment v0.22.1
+	github.com/dpopsuev/parchment v0.22.2
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/jsonschema-go v0.4.3
 	github.com/google/uuid v1.6.0 // indirect
