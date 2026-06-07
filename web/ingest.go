@@ -8,58 +8,11 @@ import (
 	"time"
 
 	parchment "github.com/dpopsuev/parchment"
+
+	"github.com/dpopsuev/scribe/internal/ingest"
 )
 
-// ── NDJSON wire types ─────────────────────────────────────────────────────
-// Each line in the stream is one of these three record types, discriminated
-// by the "type" field. Producers (e.g. locus scan --format ndjson) emit
-// nodes and edges interleaved; the meta record marks end-of-stream.
-
-// IngestNodeRecord is a node to upsert into parchment.
-// Maps 1:1 to parchment.Artifact — extra fields are stored in Artifact.Extra.
-type IngestNodeRecord struct {
-	Type     string          `json:"type"` // "node"
-	ID       string          `json:"id"`
-	Kind     string          `json:"kind"`
-	Title    string          `json:"title"`
-	Labels   []string        `json:"labels,omitempty"`
-	Extra    map[string]any  `json:"extra,omitempty"`
-	Sections []ingestSection `json:"sections,omitempty"`
-	Status   string          `json:"status,omitempty"`
-}
-
-type ingestSection struct {
-	Name string `json:"name"`
-	Text string `json:"text"`
-}
-
-// IngestEdgeRecord is a directed edge to create between two nodes.
-type IngestEdgeRecord struct {
-	Type     string  `json:"type"` // "edge"
-	From     string  `json:"from"`
-	To       string  `json:"to"`
-	Relation string  `json:"relation"`
-	Weight   float64 `json:"weight,omitempty"`
-}
-
-// IngestMetaRecord closes the stream and carries provenance for stale detection.
-type IngestMetaRecord struct {
-	Type       string `json:"type"`   // "meta"
-	Source     string `json:"source"` // e.g. "locus"
-	ScanSHA    string `json:"scan_sha,omitempty"`
-	ScannedAt  string `json:"scanned_at,omitempty"`
-	TotalNodes int    `json:"total_nodes,omitempty"`
-	TotalEdges int    `json:"total_edges,omitempty"`
-}
-
-// IngestResult is returned as JSON once the stream is fully consumed.
-type IngestResult struct {
-	Inserted    int      `json:"inserted"`
-	Updated     int      `json:"updated"`
-	EdgesFailed int      `json:"edges_failed,omitempty"`
-	Errors      []string `json:"errors,omitempty"`
-	Duration    string   `json:"duration"`
-}
+// Wire types live in internal/ingest — shared by this handler, the client, and tests.
 
 const ingestBatchSize = 200 // records per BulkPut transaction
 
@@ -154,7 +107,7 @@ func (s *Server) handleAPIIngest(w http.ResponseWriter, r *http.Request) { //nol
 
 		switch typed.Type {
 		case "node":
-			var rec IngestNodeRecord
+			var rec ingest.NodeRecord
 			if err := json.Unmarshal(raw, &rec); err != nil {
 				errs = append(errs, fmt.Sprintf("bad node record: %v", err))
 				continue
@@ -166,7 +119,7 @@ func (s *Server) handleAPIIngest(w http.ResponseWriter, r *http.Request) { //nol
 			}
 
 		case "edge":
-			var rec IngestEdgeRecord
+			var rec ingest.EdgeRecord
 			if err := json.Unmarshal(raw, &rec); err != nil {
 				errs = append(errs, fmt.Sprintf("bad edge record: %v", err))
 				continue
@@ -193,7 +146,7 @@ func (s *Server) handleAPIIngest(w http.ResponseWriter, r *http.Request) { //nol
 
 	_ = updated // reserved for future diff-based upsert counting
 
-	result := IngestResult{
+	result := ingest.Result{
 		Inserted:    inserted,
 		EdgesFailed: edgesFailed,
 		Errors:      errs,
@@ -206,8 +159,8 @@ func (s *Server) handleAPIIngest(w http.ResponseWriter, r *http.Request) { //nol
 	_ = json.NewEncoder(w).Encode(result)
 }
 
-// nodeToArtifact maps an IngestNodeRecord to a parchment.Artifact.
-func nodeToArtifact(rec *IngestNodeRecord) *parchment.Artifact {
+// nodeToArtifact maps an ingest.NodeRecord to a parchment.Artifact.
+func nodeToArtifact(rec *ingest.NodeRecord) *parchment.Artifact {
 	status := rec.Status
 	if status == "" {
 		status = "active"
