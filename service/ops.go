@@ -375,12 +375,18 @@ func renderScoredTable(results []parchment.ScoredArtifact) string {
 }
 
 // renderWithBriefing renders search results with an ArtifactTree chain attached to each.
-func renderWithBriefing(ctx context.Context, svc *Service, arts []*parchment.Artifact, depth int) string {
+func renderWithBriefing(ctx context.Context, svc *Service, arts []*parchment.Artifact, depth int, relation, direction string) string {
+	if relation == "" {
+		relation = "*"
+	}
+	if direction == "" {
+		direction = "both"
+	}
 	var b strings.Builder
 	for _, art := range arts {
 		b.WriteString(art.ID + " " + art.Title + "\n")
 		tree, err := svc.Proto.ArtifactTree(ctx, parchment.TreeInput{
-			ID: art.ID, Relation: "*", Direction: "both", Depth: depth,
+			ID: art.ID, Relation: relation, Direction: direction, Depth: depth,
 		})
 		if err == nil && tree != nil && len(tree.Children) > 0 {
 			b.WriteString(renderBriefing(tree))
@@ -1002,7 +1008,9 @@ type listInput struct {
 	Semantic       bool     `json:"semantic,omitempty"` // deprecated: use Mode=semantic
 	Mode           string   `json:"mode,omitempty"`     // fts (default) | semantic | hybrid
 	Session        string   `json:"session,omitempty"`  // shorthand for labels=["session:<value>"]
-	Depth          int      `json:"depth,omitempty"`    // if >0, attach ArtifactTree to each result
+	Depth          int      `json:"depth,omitempty"`     // if >0, attach ArtifactTree to each result
+	Relation       string   `json:"relation,omitempty"`  // edge relation to traverse with depth; default "*" (all)
+	Direction      string   `json:"direction,omitempty"` // inbound | outbound | both (default)
 	Family         string   `json:"family,omitempty"`
 	CreatedAfter   string   `json:"created_after,omitempty"`
 	CreatedBefore  string   `json:"created_before,omitempty"`
@@ -1136,7 +1144,7 @@ var opList = Op{
 				for i, s := range scored {
 					arts[i] = s.Artifact
 				}
-				return renderWithBriefing(ctx, svc, arts, in.Depth), nil
+				return renderWithBriefing(ctx, svc, arts, in.Depth, in.Relation, in.Direction), nil
 			}
 			return renderScoredTable(scored), nil
 		}
@@ -1252,6 +1260,10 @@ var opList = Op{
 
 		if in.GroupBy != "" {
 			return parchment.RenderGroupedTable(arts, in.GroupBy), nil
+		}
+
+		if in.Depth > 0 {
+			return renderWithBriefing(ctx, svc, arts, in.Depth, in.Relation, in.Direction), nil
 		}
 
 		out := parchment.RenderTable(arts)

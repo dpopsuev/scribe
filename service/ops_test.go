@@ -414,6 +414,48 @@ func TestOpList_Semantic_WithEmbeddings_ReturnsResults(t *testing.T) {
 	}
 }
 
+func TestOpList_DepthWithRelationAndDirection(t *testing.T) {
+	// Given: campaign →[parent_of]→ goal →[parent_of]→ task
+	// When: list(ranked=true, query=task, depth=2, relation=parent_of, direction=inbound)
+	// Then: result includes task title and its parent chain (goal, campaign)
+	t.Parallel()
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	campaign, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Kind: "campaign", Title: "Q3 campaign", Scope: "test",
+		Sections: []parchment.Section{{Name: "mission", Text: "ship it"}},
+	})
+	goal, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Kind: "goal", Title: "core goal", Scope: "test",
+	})
+	task, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Kind: "task", Title: "write the embedder", Scope: "test",
+		Sections: []parchment.Section{{Name: "context", Text: "embed artifacts"}},
+	})
+	svc.Proto.LinkArtifacts(ctx, campaign.ID, "parent_of", []string{goal.ID}, 0) //nolint:errcheck // test setup
+	svc.Proto.LinkArtifacts(ctx, goal.ID, "parent_of", []string{task.ID}, 0)     //nolint:errcheck // test setup
+
+	op := service.Find("list")
+	// Use the task ID directly via list — depth traversal is the subject, not search ranking.
+	raw, _ := json.Marshal(map[string]any{
+		"id_prefix": task.ID,
+		"depth":     2,
+		"relation":  "parent_of",
+		"direction": "inbound",
+		"scope":     "test",
+	})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatalf("list with depth+relation+direction: %v", err)
+	}
+	for _, want := range []string{"write the embedder", "core goal", "Q3 campaign"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in depth output, got:\n%s", want, out)
+		}
+	}
+}
+
 // --- diff (RED) ---
 
 func TestOpReplace_SwapsEdgeTarget(t *testing.T) {
