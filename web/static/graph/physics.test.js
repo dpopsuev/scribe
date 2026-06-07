@@ -7,6 +7,7 @@ import {
   equatorPriorityPositions,
   placeInMiniSphere,
   forceNBodyGravity,
+  forceLennardJonesRepulsion,
   forcesForDist,
   clusterMaxRadius,
   clusterRadiusFromVolume,
@@ -192,6 +193,71 @@ describe('placeInMiniSphere', () => {
 });
 
 
+
+describe('forceLennardJonesRepulsion', () => {
+  function makeNode(x, y, z) { return { x, y, z, vx: 0, vy: 0, vz: 0 }; }
+  const SIGMA = 20;
+
+  it('repels two nodes closer than sigma', () => {
+    const force = forceLennardJonesRepulsion(SIGMA, 1);
+    const a = makeNode(-5, 0, 0);
+    const b = makeNode( 5, 0, 0); // separation 10 < sigma=20
+    force.initialize([a, b]);
+    force(1);
+    expect(a.vx).toBeLessThan(0);  // a pushed left (away from b)
+    expect(b.vx).toBeGreaterThan(0); // b pushed right
+  });
+
+  it('applies no force beyond 2σ cutoff', () => {
+    const force = forceLennardJonesRepulsion(SIGMA, 1);
+    const a = makeNode(-25, 0, 0);
+    const b = makeNode( 25, 0, 0); // separation 50 = 2.5σ > cutoff 2σ
+    force.initialize([a, b]);
+    force(1);
+    expect(a.vx).toBe(0);
+    expect(b.vx).toBe(0);
+  });
+
+  it('force is much stronger at σ/2 than at σ — steeply repulsive', () => {
+    const force = forceLennardJonesRepulsion(SIGMA, 1);
+    const close = [makeNode(-5, 0, 0),  makeNode( 5, 0, 0)]; // r = 10 = σ/2
+    const apart = [makeNode(-10, 0, 0), makeNode(10, 0, 0)]; // r = 20 = σ
+    force.initialize(close); force(1);
+    const fClose = Math.abs(close[0].vx);
+    close[0].vx = 0; close[1].vx = 0;
+    force.initialize(apart); force(1);
+    const fApart = Math.abs(apart[0].vx);
+    // (σ/r)^12: (20/10)^12 = 4096 vs (20/20)^12 = 1 → close force ≫ apart force
+    expect(fClose).toBeGreaterThan(fApart * 100);
+  });
+
+  it('momentum is conserved — equal and opposite', () => {
+    const force = forceLennardJonesRepulsion(SIGMA, 1);
+    const a = makeNode(-5, 3, 0);
+    const b = makeNode( 5, 0, 0);
+    force.initialize([a, b]);
+    force(1);
+    expect(a.vx + b.vx).toBeCloseTo(0, 10);
+    expect(a.vy + b.vy).toBeCloseTo(0, 10);
+  });
+
+  it('alpha=0 applies no force', () => {
+    const force = forceLennardJonesRepulsion(SIGMA, 1);
+    const a = makeNode(-5, 0, 0), b = makeNode(5, 0, 0);
+    force.initialize([a, b]);
+    force(0);
+    expect(a.vx).toBe(0); expect(b.vx).toBe(0);
+  });
+
+  it('setSigma changes the cutoff — nodes beyond new 2σ feel no force', () => {
+    const force = forceLennardJonesRepulsion(SIGMA, 1);
+    const a = makeNode(-12, 0, 0), b = makeNode(12, 0, 0); // r=24 > 2*10=20 after setSigma
+    force.initialize([a, b]);
+    force.setSigma(10); // new σ=10, cutoff=20
+    force(1);
+    expect(a.vx).toBe(0); // r=24 > cutoff=20 → no force
+  });
+});
 
 describe('forceNBodyGravity', () => {
   function makeNode(x, y, z, val = 1) {

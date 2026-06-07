@@ -17,6 +17,7 @@ import { centerOfMass, parentNodes,
          placeInMiniSphere,
          equatorPriorityPositions,
          forceNBodyGravity,
+         forceLennardJonesRepulsion,
          forcesForDist,
          clusterMaxRadius,
          clusterRadiusFromVolume,
@@ -67,10 +68,20 @@ const FALLBACK_COMFORT     = 1.05; // padding used when viewport dimensions are 
 
 // ── Force initial state ────────────────────────────────────────────────────
 const GRAVITY_INIT         = 0.12;  // starting gravity strength (mid-range zoom)
-const REPULSION_INIT       = -80;   // starting repulsion strength (mid-range zoom)
-const DMAX_INIT            = 180;   // starting repulsion reach in world units (mid-range zoom)
 const GRAVITY_SOFTENING    = 40;    // Plummer softening radius — prevents singularity at origin
 const GRAVITY_REHEAT_DELTA = 0.005; // minimum G change that warrants a physics reheat
+
+// ── Lennard-Jones repulsion ────────────────────────────────────────────────
+// Replaces manyBody (Coulombic r^-2) repulsion — which creates hollow shells
+// by exerting long-range pressure across the whole cluster.
+// LJ r^-12 is contact-only: zero beyond 2σ, so N-body gravity dominates at
+// medium range and nodes pile into a filled cluster instead of a shell.
+//
+// σ = equilibrium node separation ≈ 2 × avg sphere radius.
+//   avg nodeVal ≈ cbrt(10)×2 ≈ 4.3 → sphere_radius = cbrt(4.3)×6 ≈ 9.8 → σ ≈ 20.
+// ε = well depth — how hard nodes push apart when overlapping.
+const LJ_SIGMA             = 20;    // world units — equilibrium separation (~2 node diameters)
+const LJ_EPSILON           = 0.008; // energy scale — calibrated against N-body gravity at σ
 
 // ── Scroll zoom momentum ───────────────────────────────────────────────────
 // Each scroll tick adds an impulse; the impulse coasts to zero each frame.
@@ -168,9 +179,8 @@ let camAnim = null;
 // loadMacro is a module-scope async function; variables declared inside
 // initGraph() are not in its closure scope.
 let currentG    = GRAVITY_INIT;
-let currentRep  = REPULSION_INIT;
-let currentDmax = DMAX_INIT;
-let gravityForce  = null; // created inside initGraph; forceNBodyGravity instance
+let gravityForce    = null; // forceNBodyGravity — long-range mass-proportional attraction
+let repulsionForce  = null; // forceLennardJonesRepulsion — contact-only, prevents overlap
 let capForce      = null; // forceRadiusCap — prevents unbounded scatter
 
 function mergedGraphData() {
@@ -242,12 +252,12 @@ async function loadMacro() {
   capForce.setMaxRadius(maxR);
   log.info('loadMacro cap radius=%d vol=%d nodes=%d', Math.round(maxR), Math.round(vol), sorted.length);
 
-  Graph.d3Force('center',  null);
-  Graph.d3Force('radial',  null);
-  Graph.d3Force('gravity', gravityForce);
-  Graph.d3Force('cap',     capForce);
-  Graph.d3Force('charge')?.strength?.(currentRep);
-  Graph.d3Force('charge')?.distanceMax?.(currentDmax);
+  Graph.d3Force('center',    null);
+  Graph.d3Force('radial',    null);
+  Graph.d3Force('charge',    null);          // replaced by LJ contact repulsion
+  Graph.d3Force('gravity',   gravityForce);
+  Graph.d3Force('cap',       capForce);
+  Graph.d3Force('repulsion', repulsionForce);
 
   // Give renderer the full node set so it can normalise sizes and pre-build textures.
   renderer.init(sorted);
@@ -710,10 +720,12 @@ export function initGraph(injectedDeps) {
   if (graphRoot) {
     graphRoot.addEventListener('pointerdown', onInteraction);
     // Native zoom is disabled (ctrl.enableZoom=false); we drive it with momentum.
-    // positive deltaY = scroll down = zoom out (increase distance).
+    // deltaY > 0 = wheel backward = zoom out (camera moves further away).
+    // Positive velocity → Math.exp(-velocity) < 1 → distance shrinks → zoom in.
+    // So we negate deltaY sign: scroll out → negative velocity → distance grows.
     graphRoot.addEventListener('wheel', (e) => {
       e.preventDefault();
-      zoomVelocity += (e.deltaY > 0 ? 1 : -1) * SCROLL_ZOOM_IMPULSE;
+      zoomVelocity += (e.deltaY > 0 ? -1 : 1) * SCROLL_ZOOM_IMPULSE;
       onInteraction();
     }, { passive: false });
   }
@@ -729,8 +741,9 @@ export function initGraph(injectedDeps) {
   let lastForceDist = null;
 
   // gravityForce/currentG/Rep/Dmax are module-level — initialise forces now.
-  gravityForce = forceNBodyGravity(currentG, GRAVITY_SOFTENING, 'val');
-  capForce     = forceRadiusCap(UNIVERSE_RADIUS); // placeholder radius; loadMacro sets real value
+  gravityForce   = forceNBodyGravity(currentG, GRAVITY_SOFTENING, 'val');
+  repulsionForce = forceLennardJonesRepulsion(LJ_SIGMA, LJ_EPSILON);
+  capForce       = forceRadiusCap(UNIVERSE_RADIUS); // placeholder radius; loadMacro sets real value
 
   // ── Zoom adaptor (SRP: only touches forces) ───────────────────────────────
   // Runs every frame. Smooths camera distance (EMA), lerps current force
@@ -756,28 +769,16 @@ export function initGraph(injectedDeps) {
     // EMA smoothing — α=0.08 ≈ 12 frames lag, filters per-frame scroll jitter.
     smoothDist = smoothDist == null ? rawDist : smoothDist * (1 - CAMERA_DIST_SMOOTHING) + rawDist * CAMERA_DIST_SMOOTHING;
 
-    // Compute desired state. Returns null if within dead zone (< 5% change).
+    // Adapt only gravity with zoom — LJ repulsion is fixed (contact-only, zoom-invariant).
+    // Returns null when camera hasn't moved enough to warrant a force update.
     const desired = forcesForDist(smoothDist, ZOOM_MIN_DIST, ZOOM_MAX_DIST, SENSITIVITY, lastForceDist);
     if (desired !== null) lastForceDist = smoothDist;
 
-    // Lerp current toward desired (or hold if in dead zone — target unchanged).
-    const targetG    = desired ? desired.G    : currentG;
-    const targetRep  = desired ? desired.rep  : currentRep;
-    const targetDmax = desired ? desired.dmax : currentDmax;
-
-    const prevG = currentG;
-    currentG    += (targetG    - currentG)    * LERP;
-    currentRep  += (targetRep  - currentRep)  * LERP;
-    currentDmax += (targetDmax - currentDmax) * LERP;
-
-    // Update forces in-place — no re-registration, no allocation.
+    const targetG = desired ? desired.G : currentG;
+    const prevG   = currentG;
+    currentG += (targetG - currentG) * LERP;
     gravityForce.setG(currentG);
-    Graph.d3Force('charge')?.strength?.(currentRep);
-    Graph.d3Force('charge')?.distanceMax?.(currentDmax);
 
-    // Physics must be running for force changes to move nodes.
-    // Without d3AlphaTarget (not in 3d-force-graph 1.80.0), reheat when
-    // G changes meaningfully so nodes drift to the new equilibrium.
     if (Math.abs(currentG - prevG) > GRAVITY_REHEAT_DELTA) {
       Graph.d3ReheatSimulation();
     }
@@ -830,6 +831,28 @@ export function initGraph(injectedDeps) {
       ctrl.autoRotate      = true;
       ctrl.autoRotateSpeed = orbitCurrent;
     }
+  }
+
+  // ── Dynamic zoom boundary ─────────────────────────────────────────────────
+  // ctrl.maxDistance = camera distance at which all node surfaces are inside the frustum.
+  // Recomputed from ACTUAL positions every 60 frames — adjusts as physics settles and
+  // as the user resizes the window (aspect ratio changes the constraining FOV).
+  function tickMaxZoomBoundary() {
+    if (frameCount % 60 !== 0) return;
+    const nodes = Graph.graphData().nodes;
+    if (!nodes.length) return;
+    const cam  = Graph.camera();
+    const ctrl = Graph.controls();
+    const tgt  = ctrl.target;
+    let maxR = 0;
+    for (const n of nodes) {
+      const d = Math.hypot((n.x || 0) - tgt.x, (n.y || 0) - tgt.y, (n.z || 0) - tgt.z);
+      maxR = Math.max(maxR, d + Math.cbrt(nodeVisualVolume(n)) * SPHERE_SCALE);
+    }
+    maxR += MIN_NODE_SCREEN_GAP;
+    const fovVRad = cam.fov * Math.PI / 180;
+    const fovHRad = 2 * Math.atan(Math.tan(fovVRad / 2) * (cam.aspect || 1));
+    ctrl.maxDistance = maxR / Math.tan(Math.min(fovVRad, fovHRad) / 2);
   }
 
   // ── Zoom momentum ─────────────────────────────────────────────────────────
@@ -900,6 +923,9 @@ export function initGraph(injectedDeps) {
 
     // Camera animation runs every frame — steps distance + target, preserves orbit direction.
     tickCamAnim();
+
+    // Zoom boundary recomputed from actual positions every ~1 s — stays accurate as physics settles.
+    tickMaxZoomBoundary();
 
     // Orbit ramp runs every frame — lerps autoRotateSpeed toward target (flywheel feel).
     tickOrbitRamp();

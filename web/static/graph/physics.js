@@ -179,6 +179,58 @@ export function forceRadiusCap(maxRadius, strength = 0.15) {
  * O(n²) pairs per tick — fine for the graphs this codebase handles (≤ 300 nodes).
  * Plummer softening ε prevents the force from diverging when nodes overlap.
  */
+/**
+ * Lennard-Jones repulsion — the r^-12 term of the LJ potential.
+ *
+ * Prior art: Lennard-Jones 12-6 potential (1931), canonical model for
+ * intermolecular repulsion due to Pauli exclusion at close range.
+ * Unlike Coulombic r^-2 repulsion (our old manyBody charge), this is
+ * effectively ZERO beyond ~2σ — no long-range pressure, no hollow shell.
+ *
+ *   F_rep = 48·ε·(σ^12/r^13)   [repulsive, pointing away]
+ *
+ * σ (sigma): equilibrium separation — nodes settle ~σ apart.
+ *            Set to ≈ 2× average node sphere radius.
+ * ε (epsilon): well depth — controls how hard nodes push apart at contact.
+ *
+ * Cutoff at r = 2σ: beyond that (σ/r)^12 < 0.00024, negligible.
+ */
+export function forceLennardJonesRepulsion(sigma = 20, epsilon = 0.008) {
+  let nodes = [];
+  let sig = sigma, eps = epsilon;
+  function force(alpha) {
+    const n    = nodes.length;
+    const cut2 = (2 * sig) * (2 * sig); // skip pairs beyond 2σ
+    const s6   = Math.pow(sig, 6);
+    const s12  = s6 * s6;
+    for (let i = 0; i < n; i++) {
+      const ni = nodes[i];
+      for (let j = i + 1; j < n; j++) {
+        const nj = nodes[j];
+        const dx = (nj.x || 0) - (ni.x || 0);
+        const dy = (nj.y || 0) - (ni.y || 0);
+        const dz = (nj.z || 0) - (ni.z || 0);
+        const r2 = dx*dx + dy*dy + dz*dz;
+        if (r2 === 0 || r2 > cut2) continue;
+        // F = 48·ε·σ^12/r^14 × r_vec   (from -dV/dr, repulsive direction)
+        const r2_inv = 1 / (r2 || 1e-6);
+        const r6_inv = r2_inv * r2_inv * r2_inv;
+        const f = 48 * eps * s12 * r6_inv * r6_inv * r2_inv * alpha;
+        ni.vx = (ni.vx || 0) - dx * f;
+        ni.vy = (ni.vy || 0) - dy * f;
+        ni.vz = (ni.vz || 0) - dz * f;
+        nj.vx = (nj.vx || 0) + dx * f;
+        nj.vy = (nj.vy || 0) + dy * f;
+        nj.vz = (nj.vz || 0) + dz * f;
+      }
+    }
+  }
+  force.initialize    = ns  => { nodes = ns; };
+  force.setSigma      = s   => { sig = s; };
+  force.setEpsilon    = e   => { eps = e; };
+  return force;
+}
+
 export function forceNBodyGravity(initialG = 0.15, softening = 40, massKey = 'val') {
   let G = initialG;
   let nodes = [];
