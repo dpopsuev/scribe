@@ -326,9 +326,28 @@ func TestOpList_RankedEmptyQueryReturnsError(t *testing.T) {
 	}
 }
 
-func TestOpList_SemanticFallsBackToFTS_WhenNoEmbeddings(t *testing.T) {
-	// Given: no EmbedFunc configured (no embeddings in store)
-	// When: list(semantic=true, query=authentication)
+func TestOpList_SemanticReturnsErrorWhenNoEmbeddings(t *testing.T) {
+	// Given: no EmbedFunc configured
+	// When: list(mode=semantic, query=authentication)
+	// Then: clear error — semantic requires an embedding backend
+	t.Parallel()
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	op := service.Find("list")
+	raw, _ := json.Marshal(map[string]any{"mode": "semantic", "query": "authentication", "scope": "test"})
+	_, err := op.Run(ctx, svc, raw)
+	if err == nil {
+		t.Fatal("expected error when mode=semantic and no embedding backend configured")
+	}
+	if !strings.Contains(err.Error(), "embedding backend") {
+		t.Errorf("expected 'embedding backend' in error message, got: %v", err)
+	}
+}
+
+func TestOpList_HybridFallsBackToFTS_WhenNoEmbeddings(t *testing.T) {
+	// Given: no EmbedFunc configured
+	// When: list(mode=hybrid, query=authentication)
 	// Then: falls back to FTS ranked recall — no error, returns results
 	t.Parallel()
 	svc := newTestService(t)
@@ -339,13 +358,13 @@ func TestOpList_SemanticFallsBackToFTS_WhenNoEmbeddings(t *testing.T) {
 	})
 
 	op := service.Find("list")
-	raw, _ := json.Marshal(map[string]any{"semantic": true, "query": "authentication", "scope": "test"})
+	raw, _ := json.Marshal(map[string]any{"mode": "hybrid", "query": "authentication", "scope": "test"})
 	out, err := op.Run(ctx, svc, raw)
 	if err != nil {
-		t.Fatalf("semantic list with no embeddings should fall back to FTS, got error: %v", err)
+		t.Fatalf("hybrid with no embeddings should fall back to FTS, got error: %v", err)
 	}
 	if !strings.Contains(out, "authentication") {
-		t.Errorf("expected 'authentication' in semantic list output, got: %s", out)
+		t.Errorf("expected 'authentication' in hybrid output, got: %s", out)
 	}
 }
 

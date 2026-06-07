@@ -153,7 +153,9 @@ type artifactInput struct {
 	Cursor   string   `json:"cursor,omitempty" jsonschema:"pagination cursor from previous list response"`
 	Count    bool     `json:"count,omitempty"`
 	Ranked   bool     `json:"ranked,omitempty" jsonschema:"scored FTS with kind and recency weighting"`
-	Semantic bool     `json:"semantic,omitempty" jsonschema:"vector similarity search (requires embeddings in store)"`
+	Semantic bool     `json:"semantic,omitempty" jsonschema:"deprecated: use mode=semantic"`
+	Mode     string   `json:"mode,omitempty" jsonschema:"fts (default) | semantic | hybrid"`
+	Session  string   `json:"session,omitempty" jsonschema:"scope results to a single agent session ID"`
 	Top      int      `json:"top,omitempty" jsonschema:"N most relevant by status+priority+recency"`
 	Fields   []string `json:"fields,omitempty" jsonschema:"id, kind, scope, status, title, parent, priority"`
 	Query    string   `json:"query,omitempty" jsonschema:"substring search across title, goal, sections"`

@@ -354,6 +354,22 @@ func getSummary(ctx context.Context, svc *Service, ids []string) (string, error)
 	return string(data), nil
 }
 
+// renderWithBriefing renders search results with an ArtifactTree chain attached to each.
+func renderWithBriefing(ctx context.Context, svc *Service, arts []*parchment.Artifact, depth int) string {
+	var b strings.Builder
+	for _, art := range arts {
+		b.WriteString(art.ID + " " + art.Title + "\n")
+		tree, err := svc.Proto.ArtifactTree(ctx, parchment.TreeInput{
+			ID: art.ID, Relation: "*", Direction: "both", Depth: depth,
+		})
+		if err == nil && tree != nil && len(tree.Children) > 0 {
+			b.WriteString(renderBriefing(tree))
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
 func getBriefing(ctx context.Context, svc *Service, id string, depth int) (string, error) {
 	tree, err := svc.Proto.ArtifactTree(ctx, parchment.TreeInput{
 		ID: id, Relation: "*", Direction: "both", Depth: depth,
@@ -963,7 +979,10 @@ type listInput struct {
 	Fields         []string `json:"fields,omitempty"`
 	Format         string   `json:"format,omitempty"`
 	Ranked         bool     `json:"ranked,omitempty"`
-	Semantic       bool     `json:"semantic,omitempty"`
+	Semantic       bool     `json:"semantic,omitempty"` // deprecated: use Mode=semantic
+	Mode           string   `json:"mode,omitempty"`     // fts (default) | semantic | hybrid
+	Session        string   `json:"session,omitempty"`  // shorthand for labels=["session:<value>"]
+	Depth          int      `json:"depth,omitempty"`    // if >0, attach ArtifactTree to each result
 	Family         string   `json:"family,omitempty"`
 	CreatedAfter   string   `json:"created_after,omitempty"`
 	CreatedBefore  string   `json:"created_before,omitempty"`
@@ -1041,20 +1060,48 @@ var opList = Op{
 		if err := json.Unmarshal(raw, &in); err != nil {
 			return "", err
 		}
-		if in.Semantic {
+		const modeSemantic = "semantic"
+		const modeHybrid = "hybrid"
+		// Normalize mode: legacy Semantic bool → mode=semantic.
+		mode := in.Mode
+		if mode == "" && in.Semantic {
+			mode = modeSemantic
+		}
+		// Session shorthand: prepend "session:<value>" to labels filter.
+		if in.Session != "" {
+			in.Labels = append([]string{"session:" + in.Session}, in.Labels...)
+		}
+
+		if mode == modeSemantic || mode == modeHybrid {
 			if in.Query == "" {
-				return "", fmt.Errorf("query required for semantic list") //nolint:err113 // user-facing hint
+				return "", fmt.Errorf("query required for %s search", mode) //nolint:err113 // user-facing hint
 			}
-			li := parchment.ListInput{Scope: in.Scope, Kind: in.Kind, Limit: in.Limit}
-			arts, err := svc.Proto.SearchSemantic(ctx, in.Query, li)
-			if err != nil {
-				// No embeddings configured or store empty — fall back to FTS ranked recall.
+			li := parchment.ListInput{Scope: in.Scope, Kind: in.Kind, Limit: in.Limit, Labels: in.Labels}
+			var arts []*parchment.Artifact
+			var semErr error
+			arts, semErr = svc.Proto.SearchSemantic(ctx, in.Query, li)
+			if semErr != nil && mode == modeSemantic {
+				return "", fmt.Errorf("semantic search requires an embedding backend: %w", semErr)
+			}
+			if mode == modeHybrid {
+				// Merge FTS results; deduplicate by ID; order by updated_at descending.
+				ftsResults, _ := svc.Proto.SearchArtifacts(ctx, in.Query, li)
+				seen := make(map[string]bool, len(arts))
+				for _, a := range arts {
+					seen[a.ID] = true
+				}
+				for _, a := range ftsResults {
+					if !seen[a.ID] {
+						arts = append(arts, a)
+						seen[a.ID] = true
+					}
+				}
+			}
+			if semErr != nil {
+				// Semantic unavailable in hybrid mode — fell back to FTS only.
 				results, ferr := svc.Recall(ctx, in.Query, in.Scope, in.Top)
 				if ferr != nil {
-					return "", fmt.Errorf("semantic unavailable and FTS fallback failed: %w", ferr)
-				}
-				if len(results) == 0 {
-					return fmt.Sprintf("no results for %q", in.Query), nil
+					return "", fmt.Errorf("hybrid search: FTS fallback failed: %w", ferr)
 				}
 				arts = make([]*parchment.Artifact, len(results))
 				for i, r := range results {
@@ -1063,6 +1110,9 @@ var opList = Op{
 			}
 			if len(arts) == 0 {
 				return fmt.Sprintf("no results for %q", in.Query), nil
+			}
+			if in.Depth > 0 {
+				return renderWithBriefing(ctx, svc, arts, in.Depth), nil
 			}
 			return parchment.RenderTable(arts), nil
 		}
