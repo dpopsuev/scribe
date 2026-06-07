@@ -41,7 +41,6 @@ func TestOpen_WithEmbedConfig_StartsEmbedder(t *testing.T) {
 	cfg.DB.SQLite.Path = filepath.Join(t.TempDir(), "test.sqlite")
 	cfg.Embed.URL = ollama.URL
 	cfg.Embed.Model = "nomic-embed-text"
-	cfg.Embed.DelayMs = 0
 	cfg.Embed.SweepIntervalSec = 1
 
 	svc, cleanup, err := service.Open(cfg, []string{"test"})
@@ -82,7 +81,6 @@ func TestOpen_WithEmbedConfig_CleanupStopsEmbedder(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.DB.SQLite.Path = filepath.Join(t.TempDir(), "test.sqlite")
 	cfg.Embed.URL = ollama.URL
-	cfg.Embed.DelayMs = 0
 	cfg.Embed.SweepIntervalSec = 60
 
 	_, cleanup, err := service.Open(cfg, []string{"test"})

@@ -26,7 +26,7 @@ func newTestProto(t *testing.T) *parchment.Protocol {
 }
 
 func newEmbedder(proto *parchment.Protocol) *embed.Embedder {
-	return embed.New(context.Background(), proto, "test-model", 0, time.Hour, stubEmbedFunc)
+	return embed.New(context.Background(), proto, "test-model", time.Hour, 4, stubEmbedFunc)
 }
 
 func isEncoded(art *parchment.Artifact) bool {

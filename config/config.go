@@ -63,19 +63,19 @@ type ScopeConfig struct {
 type EmbedConfig struct {
 	URL              string `yaml:"url,omitempty"`                // e.g. http://localhost:11434
 	Model            string `yaml:"model,omitempty"`              // e.g. nomic-embed-text
-	DelayMs          int    `yaml:"delay_ms,omitempty"`           // ms between embed calls (default 200)
+	MaxWorkers       int    `yaml:"max_workers,omitempty"`        // adaptive pool ceiling (default 8)
 	SweepIntervalSec int    `yaml:"sweep_interval_sec,omitempty"` // sweep period (default 300)
 }
 
 // Enabled reports whether embedding is configured.
 func (e EmbedConfig) Enabled() bool { return e.URL != "" }
 
-// EmbedDelay returns the inter-call delay, defaulting to 200ms.
-func (e EmbedConfig) EmbedDelay() int {
-	if e.DelayMs <= 0 {
-		return 200
+// Workers returns the adaptive pool ceiling, defaulting to 8.
+func (e EmbedConfig) Workers() int {
+	if e.MaxWorkers <= 0 {
+		return 8
 	}
-	return e.DelayMs
+	return e.MaxWorkers
 }
 
 // SweepInterval returns the sweep period in seconds, defaulting to 300.
@@ -487,9 +487,9 @@ func (c *Config) applyEnvOverrides() {
 	if v := os.Getenv("SCRIBE_EMBED_MODEL"); v != "" {
 		c.Embed.Model = v
 	}
-	if v := os.Getenv("SCRIBE_EMBED_DELAY_MS"); v != "" {
+	if v := os.Getenv("SCRIBE_EMBED_MAX_WORKERS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
-			c.Embed.DelayMs = n
+			c.Embed.MaxWorkers = n
 		}
 	}
 	if v := os.Getenv("SCRIBE_EMBED_SWEEP_INTERVAL_SEC"); v != "" {

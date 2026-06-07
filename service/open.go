@@ -44,9 +44,8 @@ func Open(cfg *config.Config, homeScopes ...[]string) (*Service, func(), error) 
 
 	cleanup := func() { _ = s.Close() }
 	if cfg.Embed.Enabled() {
-		delay := time.Duration(cfg.Embed.EmbedDelay()) * time.Millisecond
 		sweep := time.Duration(cfg.Embed.SweepInterval()) * time.Second
-		embedder := embed.New(context.Background(), proto, model, delay, sweep, idc.EmbedFunc)
+		embedder := embed.New(context.Background(), proto, model, sweep, cfg.Embed.Workers(), idc.EmbedFunc)
 		cleanup = func() {
 			embedder.Stop()
 			_ = s.Close()
