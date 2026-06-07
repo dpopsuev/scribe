@@ -37,12 +37,12 @@ export const ZOOM_MIN_DIST = 150;   // world units — closest expected camera d
 export const ZOOM_MAX_DIST = 3000;  // world units — farthest expected camera distance
 
 // Force parameter bounds — capped so physics never produces pathological states.
-export const GRAVITY_MIN   = 0.30;  // minimum safe G with LJ sigma=20, epsilon=0.002, softening=5
-export const GRAVITY_MAX   = 0.80;  // maximum useful G — above this cluster over-compresses
-export const REPULSION_MIN = -250;  // strong repulsion → large spread radius
-export const REPULSION_MAX = -30;   // weak repulsion  → small spread radius
-export const DMAX_MIN      = 50;    // world units — repulsion only at very close range
-export const DMAX_MAX      = 600;   // world units — repulsion acts across full cluster
+const GRAVITY_MIN   = 0.30;  // minimum safe G with LJ sigma=20, epsilon=0.002, softening=5
+const GRAVITY_MAX   = 0.80;  // maximum useful G — above this cluster over-compresses
+const REPULSION_MIN = -250;  // strong repulsion → large spread radius
+const REPULSION_MAX = -30;   // weak repulsion  → small spread radius
+const DMAX_MIN      = 50;    // world units — repulsion only at very close range
+const DMAX_MAX      = 600;   // world units — repulsion acts across full cluster
 
 export function forcesForDist(dist, minDist = ZOOM_MIN_DIST, maxDist = ZOOM_MAX_DIST, sensitivity = 0.05, lastDist = undefined) {
   // Dead zone: if change is below sensitivity, caller should skip the update.
@@ -72,41 +72,6 @@ export function forcesForDist(dist, minDist = ZOOM_MIN_DIST, maxDist = ZOOM_MAX_
   };
 }
 
-// ── Camera fit distance ───────────────────────────────────────────────────
-
-/**
- * Camera distance required to show a cluster of radius R inside the FOV
- * with the given padding factor.
- *
- * Derived from: fill = 2·atan(R/D) / FOV
- * Rearranged:   D = R / tan(FOV/2) · padding
- *
- * @param {number} R          cluster bounding radius (world units)
- * @param {number} fovDeg     camera vertical FOV in degrees
- * @param {number} padding    breathing-room multiplier (1.0 = exactly fits)
- */
-export function computeFitDistance(R, fovDeg = 75, padding = 1.25) {
-  const halfFovRad = fovDeg / 2 * Math.PI / 180;
-  return (R / Math.tan(halfFovRad)) * padding;
-}
-
-/**
- * Camera distance using clusterMaxRadius(n) as the reference — not actual
- * node positions. Ensures boot and idle produce the same camera placement
- * regardless of transient physics state.
- */
-export function computeFitDistanceForCount(n, fovDeg = 75, padding = 1.25) {
-  return computeFitDistance(clusterMaxRadius(n), fovDeg, padding);
-}
-
-/**
- * Camera distance using clusterRadiusFromVolume(totalNodeVolume).
- * totalNodeVolume = sum(nodeVal for all nodes); same formula as renderer.
- */
-export function computeFitDistanceForVolume(totalNodeVolume, fovDeg = 75, padding = 1.25) {
-  return computeFitDistance(clusterRadiusFromVolume(totalNodeVolume), fovDeg, padding);
-}
-
 // ── Cluster radius cap ────────────────────────────────────────────────────
 
 const COUNT_RADIUS_SCALE = 80; // world units at baseline of 10 nodes
@@ -118,6 +83,8 @@ const COUNT_RADIUS_SCALE = 80; // world units at baseline of 10 nodes
  *   n=100 → 160  (10× nodes → 2× radius)
  *   n=1000→ 240  (100× nodes → 3× radius)
  */
+// TODO: clusterMaxRadius is still exported because physics.test.js uses it as a calibration
+// reference in the clusterRadiusFromVolume describe block. Unexport once those tests are updated.
 export function clusterMaxRadius(n) {
   return COUNT_RADIUS_SCALE * Math.max(1, Math.log10(Math.max(n, 10) / 10) + 1);
 }
@@ -187,7 +154,7 @@ export function forceRadiusCap(maxRadius, strength = 0.15) {
  * region within a few hundred simulation ticks.  Called with no massKey so
  * every node gets the same pull (mass=1) — N-body gravity handles stratification.
  */
-export function forceSelfGravity(initialG = 0.15, softening = 30, massKey) {
+export function forceCentripetal(initialG = 0.15, softening = 30, massKey) {
   let G = initialG;
   let nodes;
   function force(alpha) {
@@ -203,58 +170,6 @@ export function forceSelfGravity(initialG = 0.15, softening = 30, massKey) {
   }
   force.initialize = ns => { nodes = ns; };
   force.setG = newG => { G = newG; };
-  return force;
-}
-
-/**
- * Lennard-Jones repulsion — the r^-12 term of the LJ potential.
- *
- * Prior art: Lennard-Jones 12-6 potential (1931), canonical model for
- * intermolecular repulsion due to Pauli exclusion at close range.
- * Unlike Coulombic r^-2 repulsion (our old manyBody charge), this is
- * effectively ZERO beyond ~2σ — no long-range pressure, no hollow shell.
- *
- *   F_rep = 48·ε·(σ^12/r^13)   [repulsive, pointing away]
- *
- * σ (sigma): equilibrium separation — nodes settle ~σ apart.
- *            Set to ≈ 2× average node sphere radius.
- * ε (epsilon): well depth — controls how hard nodes push apart at contact.
- *
- * Cutoff at r = 2σ: beyond that (σ/r)^12 < 0.00024, negligible.
- */
-export function forceLennardJonesRepulsion(sigma = 20, epsilon = 0.008) {
-  let nodes = [];
-  let sig = sigma, eps = epsilon;
-  function force(alpha) {
-    const n    = nodes.length;
-    const cut2 = (2 * sig) * (2 * sig); // skip pairs beyond 2σ
-    const s6   = Math.pow(sig, 6);
-    const s12  = s6 * s6;
-    for (let i = 0; i < n; i++) {
-      const ni = nodes[i];
-      for (let j = i + 1; j < n; j++) {
-        const nj = nodes[j];
-        const dx = (nj.x || 0) - (ni.x || 0);
-        const dy = (nj.y || 0) - (ni.y || 0);
-        const dz = (nj.z || 0) - (ni.z || 0);
-        const r2 = dx*dx + dy*dy + dz*dz;
-        if (r2 === 0 || r2 > cut2) continue;
-        // F = 48·ε·σ^12/r^14 × r_vec   (from -dV/dr, repulsive direction)
-        const r2_inv = 1 / (r2 || 1e-6);
-        const r6_inv = r2_inv * r2_inv * r2_inv;
-        const f = 48 * eps * s12 * r6_inv * r6_inv * r2_inv * alpha;
-        ni.vx = (ni.vx || 0) - dx * f;
-        ni.vy = (ni.vy || 0) - dy * f;
-        ni.vz = (ni.vz || 0) - dz * f;
-        nj.vx = (nj.vx || 0) + dx * f;
-        nj.vy = (nj.vy || 0) + dy * f;
-        nj.vz = (nj.vz || 0) + dz * f;
-      }
-    }
-  }
-  force.initialize    = ns  => { nodes = ns; };
-  force.setSigma      = s   => { sig = s; };
-  force.setEpsilon    = e   => { eps = e; };
   return force;
 }
 
@@ -286,7 +201,7 @@ export function forceNBodyGravity(initialG = 0.15, softening = 40, massKey = 'va
     }
   }
   force.initialize = ns => { nodes = ns; };
-  // Same interface as forceSelfGravity — zoom adaptor calls setG in-place.
+  // Same interface as forceCentripetal — zoom adaptor calls setG in-place.
   force.setG = newG => { G = newG; };
   return force;
 }
@@ -299,6 +214,8 @@ export function forceNBodyGravity(initialG = 0.15, softening = 40, massKey = 'va
  *
  * Returns an array of { x, y, z } objects.
  */
+// TODO: fibonacciSphere is still exported because physics.test.js has a describe block for it.
+// Unexport once those tests are removed or moved to internal-only test helpers.
 export function fibonacciSphere(n, radius) {
   if (n <= 0) return [];
   const goldenAngle = Math.PI * (3 - Math.sqrt(5)); // ≈ 2.399 rad
@@ -316,50 +233,6 @@ export function fibonacciSphere(n, radius) {
 
 
 /**
- * Energy minimization pre-pass — resolves node overlaps before the d3 simulation starts.
- *
- * Prior art: standard MD practice of "energy minimization before dynamics" (steepest
- * descent position correction). Avoids the crash-through instability that occurs when
- * nodes arrive at contact with kinetic energy > LJ potential barrier.
- *
- * Each iteration pushes overlapping pairs apart by half the overlap (position-based,
- * no velocity). After `iterations` passes, all pairs are ≥ sigma apart.
- * O(n²) per iteration but runs once synchronously — trivial for n ≤ 300.
- *
- * @param {Array} nodes      — graph nodes with x, y, z properties (modified in-place)
- * @param {number} sigma     — minimum allowed separation (LJ_SIGMA)
- * @param {number} iterations — number of correction passes (50 is sufficient for n ≤ 200)
- */
-export function presettleNodes(nodes, sigma, iterations = 50) {
-  const n = nodes.length;
-  const cut2 = sigma * sigma;
-  for (let iter = 0; iter < iterations; iter++) {
-    let anyOverlap = false;
-    for (let i = 0; i < n; i++) {
-      const ni = nodes[i];
-      for (let j = i + 1; j < n; j++) {
-        const nj = nodes[j];
-        const dx = (nj.x || 0) - (ni.x || 0);
-        const dy = (nj.y || 0) - (ni.y || 0);
-        const dz = (nj.z || 0) - (ni.z || 0);
-        const r2 = dx*dx + dy*dy + dz*dz;
-        if (r2 >= cut2 || r2 === 0) continue;
-        anyOverlap = true;
-        const r  = Math.sqrt(r2);
-        const push = (sigma - r) / (2 * r); // half of overlap, normalised
-        ni.x = (ni.x || 0) - dx * push;
-        ni.y = (ni.y || 0) - dy * push;
-        ni.z = (ni.z || 0) - dz * push;
-        nj.x = (nj.x || 0) + dx * push;
-        nj.y = (nj.y || 0) + dy * push;
-        nj.z = (nj.z || 0) + dz * push;
-      }
-    }
-    if (!anyOverlap) break; // converged early
-  }
-}
-
-/**
  * Weighted centroid of a node array. Weight = node.val (sphere size).
  * Nodes with kind 'scope' or 'kind-group' are the structural parents;
  * passing them as `pool` ensures leaf nodes don't influence the camera target.
@@ -367,8 +240,10 @@ export function presettleNodes(nodes, sigma, iterations = 50) {
  * @param {Array<{x?,y?,z?,val?}>} nodes
  * @returns {{ x: number, y: number, z: number }}
  */
+// TODO: weightedCentroid is still exported because physics.test.js has a describe block for it.
+// Unexport once those tests are removed or moved to internal-only test helpers.
 export function weightedCentroid(nodes) {
-  if (!nodes || !nodes.length) return { x: 0, y: 0, z: 0 };
+  if (!nodes?.length) return { x: 0, y: 0, z: 0 };
   let cx = 0, cy = 0, cz = 0, totalW = 0;
   for (const n of nodes) {
     const w = n.val || 1;

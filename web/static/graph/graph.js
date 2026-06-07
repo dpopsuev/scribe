@@ -16,22 +16,21 @@ import { buildPalette }                         from './palette.js';
 import { centerOfMass, parentNodes,
          placeInMiniSphere,
          equatorPriorityPositions,
-         forceSelfGravity,
+         forceCentripetal,
          forceNBodyGravity,
          forcesForDist,
-         clusterMaxRadius,
          clusterRadiusFromVolume,
          forceRadiusCap,
          ZOOM_MIN_DIST,
          ZOOM_MAX_DIST }                         from './physics.js';
-import { glowColor, glowConfig }               from './glow.js';
+import { glowColor, glowConfig, glowOpacity }  from './glow.js';
 import { fetchScopeGraph, fetchKindGraph,
          fetchArtifactGraph,
          patchArtifact }                        from './api.js';
 import { setModeBadge, depthFromExpanded, setStats,
          renderExpandedTags, openSidebar, closeSidebar,
          showContextMenu }                       from './ui.js';
-import { KindColorRenderer, NODE_SIZE_MIN, NODE_SIZE_MAX, SPHERE_SCALE } from './renderer.js';
+import { KindColorRenderer, NODE_SIZE_MIN, NODE_SIZE_MAX, SPHERE_SCALE, nodeVal } from './renderer.js';
 import { createLogger }                        from './logger.js';
 import { createGraphState }                    from './graph-state.js';
 
@@ -68,19 +67,19 @@ const FALLBACK_COMFORT     = 1.05; // padding used when viewport dimensions are 
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Cluster physics — all constants derived from two roots:
-//   AVG_NODE_RADIUS   average rendered sphere radius in world units
-//   SPACING_RATIO     personal-space volume target (1× = touching, 3× = spacious)
+//   BASELINE_NODE_RADIUS   average rendered sphere radius in world units
+//   SPACING_RATIO          personal-space volume target (1× = touching, 3× = spacious)
 //
 // Derivation chain:
 //   nodeVal_avg  = clamp(cbrt(val_avg=10)×2, NODE_SIZE_MIN=2, NODE_SIZE_MAX=40) ≈ 4.31
-//   AVG_NODE_RADIUS = cbrt(nodeVal_avg) × SPHERE_SCALE = cbrt(4.31) × 6 ≈ 9.77
+//   BASELINE_NODE_RADIUS = cbrt(nodeVal_avg) × SPHERE_SCALE = cbrt(4.31) × 6 ≈ 9.77
 //
 //   Personal-space volume ratio ρ = (separation/2 / r_node)³
 //     ρ=2 → separation = 2 × ∛2 × r_node ≈ 25 (old minimum — was too tight)
 //     ρ=4 → separation = 2 × ∛4 × r_node ≈ 31 (new target — 4× volume each)
 //     ρ=6 → separation = 2 × ∛6 × r_node ≈ 36 (new maximum)
 //
-//   NODE_SEPARATION = 2 × ∛SPACING_RATIO × AVG_NODE_RADIUS
+//   NODE_SEPARATION = 2 × ∛SPACING_RATIO × BASELINE_NODE_RADIUS
 //
 //   Balance condition (cohesion = repulsion at r = NODE_SEPARATION):
 //     G_COHESION × r / √(r² + S²) = |REPULSION_STRENGTH| / r²
@@ -94,9 +93,9 @@ const FALLBACK_COMFORT     = 1.05; // padding used when viewport dimensions are 
 //     Chosen so fibonacciSphere(87) minimum pair distance (= 0.22×R) > REPULSION_DMAX/3.
 // ═══════════════════════════════════════════════════════════════════════════
 
-const AVG_NODE_RADIUS    = Math.cbrt(Math.max(NODE_SIZE_MIN, Math.min(NODE_SIZE_MAX, Math.cbrt(10) * 2))) * SPHERE_SCALE; // ≈ 9.8
+const BASELINE_NODE_RADIUS = Math.cbrt(Math.max(NODE_SIZE_MIN, Math.min(NODE_SIZE_MAX, Math.cbrt(10) * 2))) * SPHERE_SCALE; // ≈ 9.8
 const SPACING_RATIO      = 8.0;  // personal-space volume = 8× node volume (was 4, bumped 2×)
-const NODE_SEPARATION    = 2 * Math.cbrt(SPACING_RATIO) * AVG_NODE_RADIUS;  // ≈ 24.6 world units
+const NODE_SEPARATION    = 2 * Math.cbrt(SPACING_RATIO) * BASELINE_NODE_RADIUS;  // ≈ 24.6 world units
 
 // Cohesion: centripetal 1/r force — uniform pull so all nodes converge at the same rate.
 // N-body gravity handles mass stratification (heavy nodes to centre).
@@ -180,22 +179,15 @@ const IDLE_HOME_MS         = 20000; // idle before camera flies home
 
 const DEFAULT_STATUSES = 'active,draft,current,proposed,in_progress,in_review,fleeting';
 
-// Computes the visual nodeVal for one node — identical to renderer.js nodeVal lambda.
-// Used to derive cluster radius and camera distance from actual node sizes, not just count.
-// NODE_SIZE_MIN / NODE_SIZE_MAX imported from renderer.js — single source of truth.
-function nodeVisualVolume(node) {
-  return Math.max(NODE_SIZE_MIN, Math.min(NODE_SIZE_MAX, Math.cbrt(node.val || 1) * 2));
-}
-
-// Sum of nodeVisualVolume across all nodes — the shared input for radius and camera distance.
+// Sum of nodeVal across all nodes — the shared input for radius and camera distance.
 function totalNodeVolume(nodes) {
-  return nodes.reduce((s, n) => s + nodeVisualVolume(n), 0);
+  return nodes.reduce((s, n) => s + nodeVal(n), 0);
 }
 
 // World-space radius of the largest rendered sphere.
 // ForceGraph3D: sphere_world_radius = cbrt(nodeVal) * nodeRelSize (= SPHERE_SCALE).
 function maxNodeWorldRadius(nodes) {
-  return nodes.reduce((max, n) => Math.max(max, Math.cbrt(nodeVisualVolume(n)) * SPHERE_SCALE), 0);
+  return nodes.reduce((max, n) => Math.max(max, Math.cbrt(nodeVal(n)) * SPHERE_SCALE), 0);
 }
 
 /**
@@ -240,7 +232,7 @@ let camDesiredDist = null;
 // loadMacro is a module-scope async function; variables declared inside
 // initGraph() are not in its closure scope.
 let currentG    = GRAVITY_INIT;
-let cohesionForce         = null;     // forceSelfGravity (uniform) — fast convergence from any radius
+let cohesionForce         = null;     // forceCentripetal (uniform) — fast convergence from any radius
 let gravityForce          = null;     // forceNBodyGravity — mass-proportional stratification
 let correctionStartTime   = Infinity; // epoch ms — set in loadMacro; guards tickNodeCorrection
 let capForce      = null; // forceRadiusCap — prevents unbounded scatter
@@ -262,12 +254,12 @@ function applyGraphData() {
   setStats(state.els.stats, nodes.length, links.length);
   renderExpandedTags(state.els.expandedWrap, state.els.expandedList, state.expandedScopes, state.expandedKinds,
     collapseScope, (sc, kind) => {
-      state.expandedKinds.delete(sc + ':' + kind);
-      removeBubble('kind:' + sc + ':' + kind);
+      state.expandedKinds.delete(`${sc}:${kind}`);
+      removeBubble(`kind:${sc}:${kind}`);
       applyGraphData();
       updateModeBadge();
     });
-  setTimeout(rebuildGlows, 50);
+  setTimeout(recreateGlows, 50);
 }
 
 function updateModeBadge() {
@@ -369,12 +361,12 @@ async function expandScope(scopeName) {
     return;
   }
   log.info('expandScope scope=%s kinds=%d', scopeName, kindData.nodes.length);
-  removeMacroNode('scope:' + scopeName);
+  removeMacroNode(`scope:${scopeName}`);
 
   const anchor = state.scopeSpherePos.get(scopeName) || { x: 0, y: 0, z: 0 };
   kindData.nodes = placeInMiniSphere(kindData.nodes, kindData.links, anchor, KIND_SPHERE_RADIUS);
   for (const n of kindData.nodes) {
-    state.scopeSpherePos.set('kind:' + scopeName + ':' + (n.group || n.kind), { x: n.x, y: n.y, z: n.z });
+    state.scopeSpherePos.set(`kind:${scopeName}:${n.group || n.kind}`, { x: n.x, y: n.y, z: n.z });
   }
 
   state.expandedScopes.set(scopeName, kindData);
@@ -385,7 +377,7 @@ async function expandScope(scopeName) {
 
 
 async function expandKind(scopeName, kindName) {
-  const key = scopeName + ':' + kindName;
+  const key = `${scopeName}:${kindName}`;
   if (state.expandedKinds.has(key)) return;
   const status    = document.getElementById('status-select')?.value || DEFAULT_STATUSES;
   const relations = activeRelations();
@@ -403,7 +395,7 @@ async function expandKind(scopeName, kindName) {
   const nodeIds = new Set(artData.nodes.map(n => n.id));
   artData.links = artData.links.filter(l => nodeIds.has(l.source) && nodeIds.has(l.target));
 
-  const kindNodeId = 'kind:' + key;
+  const kindNodeId = `kind:${key}`;
   if (state.expandedScopes.has(scopeName)) {
     const sd = state.expandedScopes.get(scopeName);
     sd.nodes = sd.nodes.filter(n => n.id !== kindNodeId);
@@ -415,7 +407,7 @@ async function expandKind(scopeName, kindName) {
   artData.nodes = placeInMiniSphere(artData.nodes, artData.links, anchor, ARTIFACT_SPHERE_RADIUS);
 
   state.expandedKinds.set(key, artData);
-  createBubble('kind:' + key, ARTIFACT_SPHERE_RADIUS + 10);
+  createBubble(`kind:${key}`, ARTIFACT_SPHERE_RADIUS + 10);
   applyGraphData();
   updateModeBadge();
 }
@@ -424,9 +416,9 @@ async function expandKind(scopeName, kindName) {
 async function collapseScope(scopeName) {
   log.info('collapseScope scope=%s', scopeName);
   for (const key of [...state.expandedKinds.keys()]) {
-    if (key.startsWith(scopeName + ':')) {
+    if (key.startsWith(`${scopeName}:`)) {
       state.expandedKinds.delete(key);
-      removeBubble('kind:' + key);
+      removeBubble(`kind:${key}`);
     }
   }
   state.expandedScopes.delete(scopeName);
@@ -488,7 +480,7 @@ function createBubble(key, initialRadius = 100) {
   if (!deps.THREE) return;
   const scene = Graph.scene();
   const color = new deps.THREE.Color(palette?.kinds?.scope?.hex || '#6366f1');
-  for (const [bkey, cfg] of [[key, { opacity: 0.04, side: deps.THREE.BackSide }], [key+'_wire', { opacity: 0.1, wireframe: true }]]) {
+  for (const [bkey, cfg] of [[key, { opacity: 0.04, side: deps.THREE.BackSide }], [`${key}_wire`, { opacity: 0.1, wireframe: true }]]) {
     const geo  = new deps.THREE.SphereGeometry(1, 32, 32);
     const mat  = new deps.THREE.MeshBasicMaterial({ color, transparent: true, ...cfg, depthWrite: false });
     const mesh = new deps.THREE.Mesh(geo, mat);
@@ -500,7 +492,7 @@ function createBubble(key, initialRadius = 100) {
 
 function removeBubble(key) {
   const scene = Graph.scene();
-  for (const k of [key, key+'_wire']) {
+  for (const k of [key, `${key}_wire`]) {
     const m = state.scopeBubbles.get(k);
     if (m) { scene.remove(m); state.scopeBubbles.delete(k); }
   }
@@ -520,7 +512,7 @@ function fitBubble(key, memberNodes, padding) {
   let r = 20;
   for (const n of memberNodes) { const d=Math.hypot((n.x||0)-cx,(n.y||0)-cy,(n.z||0)-cz); if(d>r) r=d; }
   r += padding;
-  for (const k of [key, key+'_wire']) {
+  for (const k of [key, `${key}_wire`]) {
     const m = state.scopeBubbles.get(k);
     if (m) { m.position.set(cx,cy,cz); m.scale.setScalar(r); }
   }
@@ -529,7 +521,7 @@ function fitBubble(key, memberNodes, padding) {
 
 
 
-function rebuildGlows() {
+function recreateGlows() {
   if (!deps.THREE) return;
   const scene = Graph.scene();
   for (const { inner, outer } of state.glowMeshes.values()) {
@@ -552,8 +544,8 @@ function rebuildGlows() {
     const cfg   = glowConfig(node.violations || 0);
     const inner = makeSphere(nodeR * 1.6, 0);
     const outer = makeSphere(nodeR * 2.8, 0);
-    inner.userData = { cfg, amp: cfg.innerAmp };
-    outer.userData = { cfg, amp: cfg.outerAmp };
+    inner.userData = { cfg };
+    outer.userData = { cfg };
     scene.add(inner); scene.add(outer);
     state.glowMeshes.set(node.id, { node, inner, outer });
   }
@@ -564,9 +556,9 @@ function tickGlows() {
   for (const { node, inner, outer } of state.glowMeshes.values()) {
     const nx=node.x||0, ny=node.y||0, nz=node.z||0;
     inner.position.set(nx,ny,nz); outer.position.set(nx,ny,nz);
-    const phase = Math.sin(t * inner.userData.cfg.freq * Math.PI * 2) * 0.5 + 0.5;
-    inner.material.opacity = inner.userData.amp * phase;
-    outer.material.opacity = outer.userData.amp * phase * 0.6;
+    const { inner: iOp, outer: oOp } = glowOpacity(inner.userData.cfg, t);
+    inner.material.opacity = iOp;
+    outer.material.opacity = oOp;
   }
 }
 
@@ -579,7 +571,7 @@ function onTick() {
   }
   for (const [key] of state.expandedKinds) {
     const [sc, kind] = key.split(':');
-    fitBubble('kind:'+key, Graph.graphData().nodes.filter(n => n.scope===sc && n.kind===kind), 25);
+    fitBubble(`kind:${key}`, Graph.graphData().nodes.filter(n => n.scope===sc && n.kind===kind), 25);
   }
   // Lerp state.virtualCenter toward weighted CoM — informational only, no camera side-effects.
   const com = centerOfMass(Graph.graphData().nodes);
@@ -679,7 +671,7 @@ export function initGraph(injectedDeps) {
     .backgroundColor(GRAPH_BG);
 
   // Renderer owns only node appearance — one call, no side effects.
-  renderer.apply(graphBuilder);
+  renderer.apply(graphBuilder, GRAPH_BG);
 
   Graph = window._Graph = graphBuilder
     .nodeLabel(n => {
@@ -742,7 +734,7 @@ export function initGraph(injectedDeps) {
      let maxR = 0;
      for (const n of nodes) {
        const d = Math.hypot((n.x||0)-tgt.x, (n.y||0)-tgt.y, (n.z||0)-tgt.z);
-       maxR = Math.max(maxR, d + Math.cbrt(nodeVisualVolume(n)) * SPHERE_SCALE);
+       maxR = Math.max(maxR, d + Math.cbrt(nodeVal(n)) * SPHERE_SCALE);
      }
      maxR += MIN_NODE_SCREEN_GAP;
      const fovVRad = cam.fov * Math.PI / 180;
@@ -815,12 +807,12 @@ export function initGraph(injectedDeps) {
   setTimeout(resetIdleTimers, 600);
 
   // ── Per-frame adaptive systems ────────────────────────────────────────────
-  let smoothDist = null;
+  let smoothedCamDist = null;
   let frameCount = 0;
-  let lastForceDist = null;
+  let lastAppliedCamDist = null;
 
   // gravityForce/currentG/Rep/Dmax are module-level — initialise forces now.
-  cohesionForce = forceSelfGravity(G_COHESION, COHESION_SOFTENING); // no massKey = uniform pull
+  cohesionForce = forceCentripetal(G_COHESION, COHESION_SOFTENING); // no massKey = uniform pull
   gravityForce  = forceNBodyGravity(currentG, GRAVITY_SOFTENING, 'val');
   capForce      = forceRadiusCap(UNIVERSE_RADIUS); // placeholder radius; loadMacro sets real value
 
@@ -834,7 +826,7 @@ export function initGraph(injectedDeps) {
   const LERP = FORCE_ADAPT_RATE;
   const SENSITIVITY = FORCE_DEAD_ZONE;
 
-  function tickZoomAdaptor() {
+  function _tickZoomAdaptor() {
     const cam  = Graph.camera();
     const ctrl = Graph.controls();
     if (!cam || !ctrl) return;
@@ -846,12 +838,12 @@ export function initGraph(injectedDeps) {
     );
 
     // EMA smoothing — α=0.08 ≈ 12 frames lag, filters per-frame scroll jitter.
-    smoothDist = smoothDist == null ? rawDist : smoothDist * (1 - CAMERA_DIST_SMOOTHING) + rawDist * CAMERA_DIST_SMOOTHING;
+    smoothedCamDist = smoothedCamDist == null ? rawDist : smoothedCamDist * (1 - CAMERA_DIST_SMOOTHING) + rawDist * CAMERA_DIST_SMOOTHING;
 
     // Adapt only gravity with zoom — LJ repulsion is fixed (contact-only, zoom-invariant).
     // Returns null when camera hasn't moved enough to warrant a force update.
-    const desired = forcesForDist(smoothDist, ZOOM_MIN_DIST, ZOOM_MAX_DIST, SENSITIVITY, lastForceDist);
-    if (desired !== null) lastForceDist = smoothDist;
+    const desired = forcesForDist(smoothedCamDist, ZOOM_MIN_DIST, ZOOM_MAX_DIST, SENSITIVITY, lastAppliedCamDist);
+    if (desired !== null) lastAppliedCamDist = smoothedCamDist;
 
     const targetG = desired ? desired.G : currentG;
     const prevG   = currentG;
@@ -1021,10 +1013,8 @@ export function initGraph(injectedDeps) {
   }
 
   // ── Label manager — lazy, throttled, threshold-gated ─────────────────────
-  // Runs every LABEL_INTERVAL frames. Skips individual nodes when opacity
-  // delta < OPACITY_EPSILON — avoids GPU state changes for imperceptible diffs.
-  const LABEL_INTERVAL  = LABEL_UPDATE_EVERY_N_FRAMES;
-  const OPACITY_EPSILON = LABEL_OPACITY_EPSILON;
+  // Runs every LABEL_UPDATE_EVERY_N_FRAMES frames. Skips individual nodes when opacity
+  // delta < LABEL_OPACITY_EPSILON — avoids GPU state changes for imperceptible diffs.
   const lastOpacity = new Map(); // nodeId → last written opacity
 
   function tickLabelManager() {
@@ -1041,7 +1031,7 @@ export function initGraph(injectedDeps) {
       );
       const opacity = Math.max(0, Math.min(1, (FADE_END - d) / (FADE_END - FADE_START)));
       const prev = lastOpacity.get(node.id) ?? -1;
-      if (Math.abs(opacity - prev) < OPACITY_EPSILON) continue; // skip imperceptible change
+      if (Math.abs(opacity - prev) < LABEL_OPACITY_EPSILON) continue; // skip imperceptible change
       sprite.material.opacity = opacity;
       sprite.renderOrder = Math.round(100000 / Math.max(d, 1));
       lastOpacity.set(node.id, opacity);
@@ -1076,8 +1066,8 @@ export function initGraph(injectedDeps) {
     // Post-settle correction: gentle drift + separation at 15 fps after d3 alpha decays.
     tickNodeCorrection();
 
-    // Label updates: every LABEL_INTERVAL frames, skip if last frame was expensive.
-    if (frameCount % LABEL_INTERVAL === 0 && frameMs < FRAME_BUDGET_MS) {
+    // Label updates: every LABEL_UPDATE_EVERY_N_FRAMES frames, skip if last frame was expensive.
+    if (frameCount % LABEL_UPDATE_EVERY_N_FRAMES === 0 && frameMs < FRAME_BUDGET_MS) {
       tickLabelManager();
     }
 
@@ -1088,4 +1078,4 @@ export function initGraph(injectedDeps) {
 }
 
 // Expose virtualCenter accessor for browser tests.
-export function getVirtualCenter() { return state?.virtualCenter; }
+export function getOrbitPivot() { return state?.virtualCenter; }

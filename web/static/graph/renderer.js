@@ -12,7 +12,7 @@
  * Renderer owns: nodeColor, nodeVal, nodeRelSize, nodeOpacity, linkColor, linkWidth, linkOpacity.
  */
 
-import { KIND_HUES, buildPalette } from './palette.js';
+import { buildPalette } from './palette.js';
 
 // ── Node appearance ────────────────────────────────────────────────────────
 export const SPHERE_SCALE  = 6;    // ForceGraph3D nodeRelSize — world radius = cbrt(nodeVal) × this
@@ -21,6 +21,10 @@ const SPHERE_SEGMENTS      = 12;   // longitude/latitude divisions — 8 blocky,
 const ARROW_HEAD_SIZE      = 4;    // world units — depends_on arrow head length
 export const NODE_SIZE_MIN = 2;    // nodeVal floor — prevents invisible micro-nodes
 export const NODE_SIZE_MAX = 40;   // nodeVal ceiling — prevents nodes swallowing links
+
+export function nodeVal(node) {
+  return Math.max(NODE_SIZE_MIN, Math.min(NODE_SIZE_MAX, Math.cbrt(node.val || 1) * 2));
+}
 const ARTIFACT_COUNT_DIVISOR = 20; // tooltip val = raw artifact count ÷ this
 
 // ── Link appearance ────────────────────────────────────────────────────────
@@ -129,6 +133,7 @@ export class KindColorRenderer extends BaseRenderer {
   constructor() {
     super();
     this._palette  = null;
+    this._bg       = '#05050f';
     this._minCbrt  = 1;
     this._maxCbrt  = 1;
     // Canvas texture cache: nodeId → { key, canvas }
@@ -143,21 +148,21 @@ export class KindColorRenderer extends BaseRenderer {
     this._maxCbrt = Math.cbrt(Math.max(...vals));
   }
 
-  _buildPalette() {
+  _buildPalette(bg) {
     if (this._palette) return;
     const culori = typeof window !== 'undefined' && window.culori;
-    if (culori) this._palette = buildPalette(culori, '#05050f');
+    if (culori) this._palette = buildPalette(culori, bg);
   }
 
   _kindColor(kind) {
-    this._buildPalette();
+    this._buildPalette(this._bg);
     return this._palette?.kinds?.[kind]?.hex ?? FALLBACK_KIND_COLORS[kind] ?? '#94a3b8';
   }
 
   _nodeColor(node) {
     const hue = healthHue(node.violations);
     if (hue !== null) {
-      this._buildPalette();
+      this._buildPalette(this._bg);
       const culori = typeof window !== 'undefined' && window.culori;
       if (culori) return culori.formatHex({ mode: 'oklch', l: 0.75, c: 0.2, h: hue });
       return hue === HEALTH_HUES.warn ? '#f59e0b' : '#ef4444';
@@ -192,16 +197,17 @@ export class KindColorRenderer extends BaseRenderer {
     const sprite = new THREE.Sprite(material);
     sprite.scale.set(LABEL_SPRITE_SIZE, LABEL_SPRITE_SIZE * CANVAS_H / CANVAS_W, 1);
     // Position above node — offset by the node's rendered radius
-    const radius = Math.cbrt(this._nodeVal(node.val)) * 6;
-    sprite.position.set(0, radius + scale * 0.3, 0);
+    const radius = Math.cbrt(this._nodeVal(node.val)) * SPHERE_SCALE;
+    sprite.position.set(0, radius + LABEL_SPRITE_SIZE * 0.3, 0);
     return sprite;
   }
 
-  apply(g) {
+  apply(g, bg) {
+    if (bg) this._bg = bg;
     return g
       .nodeColor(n => this._nodeColor(n))
       .nodeRelSize(SPHERE_SCALE)
-      .nodeVal(n => Math.max(NODE_SIZE_MIN, Math.min(NODE_SIZE_MAX, Math.cbrt(n.val || 1) * 2)))
+      .nodeVal(n => nodeVal(n))
       .nodeOpacity(NODE_OPACITY)
       .nodeThreeObject(n => this._labelSprite(n))
       .nodeThreeObjectExtend(true)
@@ -251,7 +257,7 @@ export class CSSVarRenderer extends BaseRenderer {
         return v || FALLBACK_KIND_COLORS[n.kind] || '#94a3b8';
       })
       .nodeRelSize(6)
-      .nodeVal(n => Math.max(1, Math.cbrt(n.val || 1) * 2))
+      .nodeVal(n => nodeVal(n))
       .nodeOpacity(0.95)
       .linkColor(l => LINK_COLORS[l.relation] || DEFAULT_LINK_COLOR)
       .linkOpacity(1)

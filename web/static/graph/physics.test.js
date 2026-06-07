@@ -7,16 +7,10 @@ import {
   equatorPriorityPositions,
   placeInMiniSphere,
   forceNBodyGravity,
-  forceLennardJonesRepulsion,
   forcesForDist,
   clusterMaxRadius,
   clusterRadiusFromVolume,
   forceRadiusCap,
-  computeFitDistance,
-  computeFitDistanceForCount,
-  computeFitDistanceForVolume,
-  GRAVITY_MIN,
-  GRAVITY_MAX,
 } from './physics.js';
 
 // ── fibonacciSphere ───────────────────────────────────────────────────────────
@@ -196,71 +190,6 @@ describe('placeInMiniSphere', () => {
 
 
 
-describe('forceLennardJonesRepulsion', () => {
-  function makeNode(x, y, z) { return { x, y, z, vx: 0, vy: 0, vz: 0 }; }
-  const SIGMA = 20;
-
-  it('repels two nodes closer than sigma', () => {
-    const force = forceLennardJonesRepulsion(SIGMA, 1);
-    const a = makeNode(-5, 0, 0);
-    const b = makeNode( 5, 0, 0); // separation 10 < sigma=20
-    force.initialize([a, b]);
-    force(1);
-    expect(a.vx).toBeLessThan(0);  // a pushed left (away from b)
-    expect(b.vx).toBeGreaterThan(0); // b pushed right
-  });
-
-  it('applies no force beyond 2σ cutoff', () => {
-    const force = forceLennardJonesRepulsion(SIGMA, 1);
-    const a = makeNode(-25, 0, 0);
-    const b = makeNode( 25, 0, 0); // separation 50 = 2.5σ > cutoff 2σ
-    force.initialize([a, b]);
-    force(1);
-    expect(a.vx).toBe(0);
-    expect(b.vx).toBe(0);
-  });
-
-  it('force is much stronger at σ/2 than at σ — steeply repulsive', () => {
-    const force = forceLennardJonesRepulsion(SIGMA, 1);
-    const close = [makeNode(-5, 0, 0),  makeNode( 5, 0, 0)]; // r = 10 = σ/2
-    const apart = [makeNode(-10, 0, 0), makeNode(10, 0, 0)]; // r = 20 = σ
-    force.initialize(close); force(1);
-    const fClose = Math.abs(close[0].vx);
-    close[0].vx = 0; close[1].vx = 0;
-    force.initialize(apart); force(1);
-    const fApart = Math.abs(apart[0].vx);
-    // (σ/r)^12: (20/10)^12 = 4096 vs (20/20)^12 = 1 → close force ≫ apart force
-    expect(fClose).toBeGreaterThan(fApart * 100);
-  });
-
-  it('momentum is conserved — equal and opposite', () => {
-    const force = forceLennardJonesRepulsion(SIGMA, 1);
-    const a = makeNode(-5, 3, 0);
-    const b = makeNode( 5, 0, 0);
-    force.initialize([a, b]);
-    force(1);
-    expect(a.vx + b.vx).toBeCloseTo(0, 10);
-    expect(a.vy + b.vy).toBeCloseTo(0, 10);
-  });
-
-  it('alpha=0 applies no force', () => {
-    const force = forceLennardJonesRepulsion(SIGMA, 1);
-    const a = makeNode(-5, 0, 0), b = makeNode(5, 0, 0);
-    force.initialize([a, b]);
-    force(0);
-    expect(a.vx).toBe(0); expect(b.vx).toBe(0);
-  });
-
-  it('setSigma changes the cutoff — nodes beyond new 2σ feel no force', () => {
-    const force = forceLennardJonesRepulsion(SIGMA, 1);
-    const a = makeNode(-12, 0, 0), b = makeNode(12, 0, 0); // r=24 > 2*10=20 after setSigma
-    force.initialize([a, b]);
-    force.setSigma(10); // new σ=10, cutoff=20
-    force(1);
-    expect(a.vx).toBe(0); // r=24 > cutoff=20 → no force
-  });
-});
-
 describe('forceNBodyGravity', () => {
   function makeNode(x, y, z, val = 1) {
     return { x, y, z, val, vx: 0, vy: 0, vz: 0 };
@@ -438,26 +367,6 @@ describe('clusterRadiusFromVolume', () => {
   });
 });
 
-describe('computeFitDistanceForVolume', () => {
-  it('larger volume → greater camera distance', () => {
-    const d1 = computeFitDistanceForVolume(100);
-    const d2 = computeFitDistanceForVolume(1000);
-    expect(d2).toBeGreaterThan(d1);
-  });
-
-  it('wider FOV → closer camera for same volume', () => {
-    const dNarrow = computeFitDistanceForVolume(500, 40);
-    const dWide   = computeFitDistanceForVolume(500, 80);
-    expect(dWide).toBeLessThan(dNarrow);
-  });
-
-  it('padding scales linearly', () => {
-    const d1 = computeFitDistanceForVolume(500, 50, 1.0);
-    const d2 = computeFitDistanceForVolume(500, 50, 2.0);
-    expect(d2).toBeCloseTo(d1 * 2, 1);
-  });
-});
-
 describe('clusterMaxRadius', () => {
   it('10 nodes → base radius', () => {
     expect(clusterMaxRadius(10)).toBeCloseTo(80, 0);
@@ -537,52 +446,6 @@ describe('forceRadiusCap', () => {
   });
 });
 
-// ── Boot vs idle camera distance invariant ────────────────────────────────
-
-describe('camera distance invariant — boot must equal idle settled state', () => {
-  const NODE_COUNT      = 85;            // production scope nodes
-  const UNIVERSE_RADIUS = 180;           // equatorPriorityPositions initial radius
-  const R_settled       = clusterMaxRadius(NODE_COUNT); // 154 — settled cap
-
-  it('settled cap radius < initial transient radius', () => {
-    expect(R_settled).toBeLessThan(UNIVERSE_RADIUS);
-  });
-
-  it('computeFitDistance is monotonically increasing in R', () => {
-    expect(computeFitDistance(UNIVERSE_RADIUS)).toBeGreaterThan(computeFitDistance(R_settled));
-  });
-
-  it('computeFitDistanceForCount always uses cap — boot equals idle', () => {
-    // GREEN with fix: both use clusterMaxRadius(n), not actual positions.
-    const D_boot = computeFitDistanceForCount(NODE_COUNT);
-    const D_idle = computeFitDistanceForCount(NODE_COUNT);
-    expect(D_boot).toBeCloseTo(D_idle, 5);
-  });
-
-  it('FOV fill with computeFitDistanceForCount is comfortable — below 85%', () => {
-    const D = computeFitDistanceForCount(NODE_COUNT);
-    const fillRad = 2 * Math.atan(R_settled / D);
-    const fillPct = fillRad / (75 * Math.PI / 180) * 100;
-    expect(fillPct, `fills ${fillPct.toFixed(1)}% of FOV — want < 85%`).toBeLessThan(85);
-  });
-
-  it('using actual transient positions at boot produces a different distance than the settled cap', () => {
-    // Documents why boot felt inconsistent with idle:
-    // max(cap=154, actual=180) → D=293 at boot, but cap=154 → D=251 at idle.
-    const D_with_actual = computeFitDistance(Math.max(R_settled, UNIVERSE_RADIUS));
-    const D_cap_based   = computeFitDistanceForCount(NODE_COUNT);
-    expect(D_with_actual).not.toBeCloseTo(D_cap_based, 0);
-  });
-
-  it('computeFitDistanceForCount produces the same distance regardless of transient positions', () => {
-    // The fix: fitAllNodes always calls computeFitDistanceForCount(n)
-    // so boot and idle are identical — camera leads physics.
-    const D_boot = computeFitDistanceForCount(NODE_COUNT);
-    const D_idle = computeFitDistanceForCount(NODE_COUNT);
-    expect(D_boot).toBeCloseTo(D_idle, 5);
-  });
-});
-
 // ── Force calibration invariant ───────────────────────────────────────────────
 //
 // The zoom adaptor varies G between GRAVITY_MIN and GRAVITY_MAX.
@@ -637,27 +500,27 @@ function gravityForceMag(G_nbody, r) {
 describe('force calibration — repulsion must stay balanced with gravity across zoom range', () => {
   it('at GRAVITY_MIN, repulsion does not overwhelm gravity — cluster stable when zoomed in', () => {
     const rep  = repulsionForceMag(CALIB.sigma);
-    const grav = gravityForceMag(GRAVITY_MIN, CALIB.sigma);
+    const grav = gravityForceMag(0.30, CALIB.sigma);
     const ratio = rep / grav;
     expect(ratio,
-      `repulsion/gravity at GRAVITY_MIN=${GRAVITY_MIN} is ${ratio.toFixed(2)}× — ` +
+      `repulsion/gravity at GRAVITY_MIN=0.30 is ${ratio.toFixed(2)}× — ` +
       `nodes scatter when zoomed in (want < ${MAX_FORCE_IMBALANCE})`
     ).toBeLessThan(MAX_FORCE_IMBALANCE);
   });
 
   it('at GRAVITY_MAX, repulsion still opposes gravity — cluster does not collapse when zoomed out', () => {
     const rep  = repulsionForceMag(CALIB.sigma);
-    const grav = gravityForceMag(GRAVITY_MAX, CALIB.sigma);
+    const grav = gravityForceMag(0.80, CALIB.sigma);
     const ratio = rep / grav;
     expect(ratio,
-      `repulsion/gravity at GRAVITY_MAX=${GRAVITY_MAX} is ${ratio.toFixed(2)}× — ` +
+      `repulsion/gravity at GRAVITY_MAX=0.80 is ${ratio.toFixed(2)}× — ` +
       `nodes collapse when zoomed out (want > ${1 / MAX_FORCE_IMBALANCE})`
     ).toBeGreaterThan(1 / MAX_FORCE_IMBALANCE);
   });
 
   it('beyond repDmax gravity still pulls — cluster has an inward restoring force', () => {
     const rep_out  = repulsionForceMag(CALIB.repDmax + 5); // just outside range
-    const grav_out = gravityForceMag(GRAVITY_MAX, CALIB.repDmax + 5);
+    const grav_out = gravityForceMag(0.80, CALIB.repDmax + 5);
     expect(rep_out, 'repulsion must be zero beyond repDmax').toBe(0);
     expect(grav_out, 'gravity must still act beyond repDmax').toBeGreaterThan(0);
   });
