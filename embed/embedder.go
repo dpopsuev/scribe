@@ -271,6 +271,10 @@ func (e *Embedder) Sweep(ctx context.Context) {
 	}
 }
 
+// maxEmbedChars is a conservative character limit for nomic-embed-text (2048 tokens ≈ 8192 chars).
+// We use 6000 to stay safely under the limit across all tokenizers.
+const maxEmbedChars = 6000
+
 func embeddingText(art *parchment.Artifact) string {
 	var b strings.Builder
 	b.WriteString(art.Title)
@@ -281,6 +285,13 @@ func embeddingText(art *parchment.Artifact) string {
 	for _, s := range art.Sections {
 		b.WriteString("\n")
 		b.WriteString(s.Text)
+		if b.Len() >= maxEmbedChars {
+			break
+		}
 	}
-	return b.String()
+	text := b.String()
+	if len(text) > maxEmbedChars {
+		text = text[:maxEmbedChars]
+	}
+	return text
 }
