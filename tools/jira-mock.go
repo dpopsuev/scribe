@@ -8,7 +8,10 @@
 //
 //	jira-mock --tickets 50 --project MYPROJ
 //
+//go:build ignore
+
 //nolint:gosec,funlen,goconst,gocritic // mock tool — weak rand, repeated literals, and unnamed returns are fine for synthetic data generation
+
 //nolint:gosec,funlen,staticcheck // mock/test tool — weak rand and length are intentional
 package main
 

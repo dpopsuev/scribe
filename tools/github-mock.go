@@ -8,7 +8,10 @@
 //
 //	github-mock --prs 20 --repo myorg/myrepo
 //
+//go:build ignore
+
 //nolint:gosec,funlen,goconst // mock tool — weak rand and repeated literals are fine for synthetic data generation
+
 //nolint:gosec,funlen,staticcheck // mock/test tool — weak rand and length are intentional
 package main
 

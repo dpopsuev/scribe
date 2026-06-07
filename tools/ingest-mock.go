@@ -8,6 +8,8 @@
 //
 //	ingest-mock --components 50 --symbols 20 --rate 1000
 //
+//go:build ignore
+
 //nolint:gosec // mock/test tool — weak rand is intentional for synthetic data generation
 package main
 
