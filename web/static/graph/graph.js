@@ -875,13 +875,19 @@ export function initGraph(injectedDeps) {
   //                     at CAM_DIST_CORRECTION/frame. Cleared by onInteraction so
   //                     user scroll is never fought.
   function tickCameraCorrection() {
+    // Root cause of orbit bumps: OrbitControls owns cam.position via its spherical coordinate
+    // model; we also write cam.position and ctrl.target. Two writers in the same RAF = jerk.
+    // Fix: yield entirely to OrbitControls while orbit is spinning. Corrections only apply
+    // when the camera is stationary (orbitCurrent at or near zero).
+    if (Math.abs(orbitCurrent) > 0.01) return;
+
     const cam  = Graph.camera();
     const ctrl = Graph.controls();
     if (!cam || !ctrl) return;
 
     // Target drift — track actual CoM so orbit pivot doesn't wander.
     // Dead zone: no-op if CoM is within CAM_TARGET_DEAD_ZONE — prevents micro-corrections
-    // during orbit that wobble the pivot and cause visible bumps.
+    // when the cluster is stable.
     if (frameCount % 4 === 0) {
       const nodes = Graph.graphData().nodes;
       if (nodes.length) {
