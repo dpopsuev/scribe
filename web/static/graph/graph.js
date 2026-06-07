@@ -38,11 +38,7 @@ import { createGraphState }                    from './graph-state.js';
 const log = createLogger('graph');
 
 const GRAPH_BG             = '#05050f';
-// Initial placement radius — chosen so the MINIMUM nearest-neighbour pair (not average)
-// is above the LJ danger zone. fibonacciSphere(87) has min_d_nn ≈ R × 0.216.
-// For LJ force < 0.2 at min_d: need R ≥ 80 (min_d=17.3, force=0.082).
-// Old value 180 was for long-range manyBody which scattered nodes outward.
-const UNIVERSE_RADIUS      = 80;    // world units — scope sphere initial placement radius
+
 const KIND_SPHERE_RADIUS   = 55;    // world units — kind-group mini-sphere radius
 const ARTIFACT_SPHERE_RADIUS = 28;  // world units — artifact mini-sphere radius
 
@@ -57,7 +53,7 @@ const ORBIT_PIVOT_DRIFT_RATE = 0.015; // slow drift keeps the orbit pivot stable
 const FORCE_ADAPT_RATE    = 0.06;  // fraction of force gap closed per frame (~0.8 s to settle)
 const FORCE_DEAD_ZONE     = 0.05;  // camera must move >5% before forces re-tune
 const CAMERA_PULLBACK_MULT = 2.0;  // fallback: camera placed at cluster_radius × this
-const CAMERA_DIST_MAX      = UNIVERSE_RADIUS * 3; // fallback cap before data is loaded
+
 const CAMERA_MIN_DIST      = 10;   // prevents camera passing through node spheres
 
 // ── Viewport-aware zoom-out boundary ──────────────────────────────────────
@@ -70,38 +66,63 @@ const CAMERA_MIN_DIST      = 10;   // prevents camera passing through node spher
 const MIN_NODE_SCREEN_GAP  = 8;    // world units of breathing room inside the frustum edge
 const FALLBACK_COMFORT     = 1.05; // padding used when viewport dimensions are unavailable
 
-// ── Centripetal cohesion (forceSelfGravity) ────────────────────────────────
-// 1/r force — effective at the initial sphere radius (180 world units) where
-// N-body 1/r² gravity is too weak to converge in a finite simulation window.
-// Uniform pull (no massKey) so all nodes reach the cluster at the same rate;
-// N-body gravity then sorts them by mass within the cluster.
-const G_COHESION           = 0.3;   // calibrated: terminal approach v at d_nn < LJ barrier
-const COHESION_SOFTENING   = 30;    // Plummer softening at origin
+// ═══════════════════════════════════════════════════════════════════════════
+// Cluster physics — all constants derived from two roots:
+//   AVG_NODE_RADIUS   average rendered sphere radius in world units
+//   SPACING_RATIO     personal-space volume target (1× = touching, 3× = spacious)
+//
+// Derivation chain:
+//   nodeVal_avg  = clamp(cbrt(val_avg=10)×2, NODE_SIZE_MIN=2, NODE_SIZE_MAX=40) ≈ 4.31
+//   AVG_NODE_RADIUS = cbrt(nodeVal_avg) × SPHERE_SCALE = cbrt(4.31) × 6 ≈ 9.77
+//
+//   Personal-space volume ratio ρ = (separation/2 / r_node)³
+//     ρ=1 → separation = 2 × r_node           (touching)
+//     ρ=2 → separation = 2 × ∛2 × r_node ≈ 25 (2× volume each — target)
+//     ρ=3 → separation = 2 × ∛3 × r_node ≈ 28 (3× volume each — maximum)
+//
+//   NODE_SEPARATION = 2 × ∛SPACING_RATIO × AVG_NODE_RADIUS
+//
+//   Balance condition (cohesion = repulsion at r = NODE_SEPARATION):
+//     G_COHESION × r / √(r² + S²) = |REPULSION_STRENGTH| / r²
+//     → REPULSION_STRENGTH = −G_COHESION × r³ / √(r² + COHESION_SOFTENING²)
+//
+//   REPULSION_DMAX = NODE_SEPARATION × 2
+//     Wide ramp-down zone softens the repulsion onset → reduces jitter.
+//     At REPULSION_DMAX, cohesion force still exceeds repulsion — inward restoring force exists.
+//
+//   UNIVERSE_RADIUS = NODE_SEPARATION × 3.2
+//     Chosen so fibonacciSphere(87) minimum pair distance (= 0.22×R) > REPULSION_DMAX/3.
+// ═══════════════════════════════════════════════════════════════════════════
 
-// ── N-body gravity (forceNBodyGravity) ────────────────────────────────────
-// 1/r² force, mass-proportional: heavy nodes attract others more strongly →
-// they accumulate at the cluster centre.  Secondary to cohesion; provides
-// the mass stratification that cohesion cannot.
-const GRAVITY_INIT         = 0.30;  // calibrated with LJ_EPSILON at LJ_SIGMA
-const GRAVITY_SOFTENING    = 5;     // small — LJ already handles close-range singularity
+const AVG_NODE_RADIUS    = Math.cbrt(Math.max(NODE_SIZE_MIN, Math.min(NODE_SIZE_MAX, Math.cbrt(10) * 2))) * SPHERE_SCALE; // ≈ 9.8
+const SPACING_RATIO      = 2.0;  // personal-space volume = 2× node volume — comfortable, not crowded
+const NODE_SEPARATION    = 2 * Math.cbrt(SPACING_RATIO) * AVG_NODE_RADIUS;  // ≈ 24.6 world units
+
+// Cohesion: centripetal 1/r force — uniform pull so all nodes converge at the same rate.
+// N-body gravity handles mass stratification (heavy nodes to centre).
+const G_COHESION           = 0.3;   // root constant — drives all repulsion/universe derivations
+const COHESION_SOFTENING   = 30;    // Plummer softening radius — prevents singularity at origin
+
+// N-body gravity: 1/r² force, mass-proportional — secondary, provides mass stratification.
+const GRAVITY_INIT         = 0.30;  // fixed (zoom adaptor disabled); equals G_COHESION by design
+const GRAVITY_SOFTENING    = 5;     // small — manyBody repulsion handles close-range separation
 const GRAVITY_REHEAT_DELTA = 0.005; // minimum G change that warrants a physics reheat
 
-// ── Short-range manyBody repulsion ─────────────────────────────────────────
-// d3's forceManyBody (Coulombic r^-2) is used for repulsion because it is
-// numerically stable with d3's Verlet integrator — proven by decades of use.
-// LJ (r^-12) was tried but causes crash-through instability: nodes falling from
-// UNIVERSE_RADIUS arrive at contact with kinetic energy >> LJ barrier, and the
-// force diverges to infinity (no thermostat in d3 to rescale velocities).
-//
-// Short distanceMax (30 world units ≈ 1.5σ) makes it effectively contact-only:
-// nodes beyond 30 feel zero repulsion and are pulled inward by cohesion, filling
-// the cluster instead of forming the hollow shell that long-range repulsion creates.
-// Strength calibrated so |F| at r_eq=20 ≈ cohesion force at same r.
-const REPULSION_STRENGTH   = -70;   // manyBody strength — negative = repulsive
-const REPULSION_DMAX       = 30;    // world units — zero repulsion beyond this distance
+// Short-range manyBody repulsion: d3's forceManyBody is numerically stable with d3's Verlet
+// integrator (proven stable; LJ r^-12 caused crash-through without a thermostat).
+// REPULSION_STRENGTH and REPULSION_DMAX are derived — do not edit them directly.
+const REPULSION_STRENGTH   = -(G_COHESION * NODE_SEPARATION ** 3 /
+  Math.sqrt(NODE_SEPARATION ** 2 + COHESION_SOFTENING ** 2)); // balance at NODE_SEPARATION ≈ -115
+const REPULSION_DMAX       = NODE_SEPARATION * 2;              // wide ramp-down → less jitter ≈ 49
 
-// ── Physics keep-alive ─────────────────────────────────────────────────────
-const PHYSICS_REHEAT_FRAMES = 90;   // reheat every 1.5 s — keeps simulation running as nodes settle
+// Physics keep-alive: d3 alpha decays to zero after ~300 ticks (5 s at 60 fps).
+// Reheat every 300 frames (5 s) keeps nodes settling; less frequent = less jitter.
+const PHYSICS_REHEAT_FRAMES = 300;
+
+// Placement radius: nodes start on a fibonacciSphere at UNIVERSE_RADIUS.
+// NODE_SEPARATION × 3.2 ensures min pair distance on the sphere (= 0.22R) ≈ REPULSION_DMAX/2.
+const UNIVERSE_RADIUS      = Math.ceil(NODE_SEPARATION * 3.2); // ≈ 79 world units
+const CAMERA_DIST_MAX      = UNIVERSE_RADIUS * 3;              // fallback before data is loaded ≈ 237
 
 // ── Scroll zoom momentum ───────────────────────────────────────────────────
 // Each scroll tick adds an impulse; the impulse coasts to zero each frame.

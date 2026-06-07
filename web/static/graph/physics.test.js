@@ -596,13 +596,23 @@ describe('camera distance invariant — boot must equal idle settled state', () 
 // Exceeding this → cluster destabilises → severe visual degradation.
 //
 // Production constants (must match graph.js):
+// Mirror graph.js derivation chain so the test stays in sync with the physics constants.
+// If SPACING_RATIO or G_COHESION change in graph.js, update these constants to match.
+const SPHERE_SCALE_TEST = 6, NODE_SIZE_MIN_TEST = 2, NODE_SIZE_MAX_TEST = 40;
+const AVG_NODE_RADIUS_TEST = Math.cbrt(Math.max(NODE_SIZE_MIN_TEST, Math.min(NODE_SIZE_MAX_TEST, Math.cbrt(10)*2))) * SPHERE_SCALE_TEST; // ≈ 9.76
+const SPACING_RATIO_TEST = 2.0;
+const NODE_SEPARATION_TEST = 2 * Math.cbrt(SPACING_RATIO_TEST) * AVG_NODE_RADIUS_TEST; // ≈ 24.6
+const G_COHESION_TEST = 0.3, COHESION_SOFT_TEST = 30;
+const REPULSION_STRENGTH_TEST = G_COHESION_TEST * NODE_SEPARATION_TEST**3 / Math.sqrt(NODE_SEPARATION_TEST**2 + COHESION_SOFT_TEST**2); // ≈ 115
+const REPULSION_DMAX_TEST = NODE_SEPARATION_TEST * 2; // ≈ 49.2
+
 const CALIB = {
-  sigma:            20,    // equilibrium contact separation (world units)
-  repStrength:      70,    // |REPULSION_STRENGTH| — manyBody repulsion magnitude
-  repDmax:          30,    // REPULSION_DMAX — zero repulsion beyond this distance
-  G_cohesion:       0.3,   // G_COHESION — forceSelfGravity, uniform (mass=1)
-  cohesionSoft:     30,    // COHESION_SOFTENING
-  G_nbody:          0.30,  // GRAVITY_INIT — used for GRAVITY_MIN check
+  sigma:            NODE_SEPARATION_TEST,   // equilibrium separation ≈ 24.6 world units
+  repStrength:      REPULSION_STRENGTH_TEST, // |REPULSION_STRENGTH| ≈ 115
+  repDmax:          REPULSION_DMAX_TEST,     // zero repulsion beyond ≈ 49.2 world units
+  G_cohesion:       G_COHESION_TEST,
+  cohesionSoft:     COHESION_SOFT_TEST,
+  G_nbody:          0.30,  // GRAVITY_INIT
   nbodySoft:        5,     // GRAVITY_SOFTENING
   avgMass:          5,     // representative node val (for N-body component)
 };
