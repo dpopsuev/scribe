@@ -1,10 +1,13 @@
 package service
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/config"
+	"github.com/dpopsuev/scribe/embed"
 )
 
 // Open is the single construction path for a Service instance.
@@ -24,7 +27,33 @@ func Open(cfg *config.Config, homeScopes ...[]string) (*Service, func(), error) 
 		scopes = homeScopes[0]
 	}
 	idc := cfg.ProtocolIDConfig()
+
+	// Wire embedding if configured.
+	var embedder *embed.Embedder
+	if cfg.Embed.Enabled() {
+		model := cfg.Embed.Model
+		if model == "" {
+			model = "nomic-embed-text"
+		}
+		delay := time.Duration(cfg.Embed.EmbedDelay()) * time.Millisecond
+		sweep := time.Duration(cfg.Embed.SweepInterval()) * time.Second
+		embedder = embed.New(nil, model, cfg.Embed.URL, delay, sweep) // proto set below
+		idc.EmbedFunc = embedder.EmbedFunc()
+		idc.EmbedModel = model
+	}
+
 	proto := parchment.New(s, nil, scopes, nil, idc)
 	svc := New(proto, nil, scopes)
-	return svc, func() { _ = s.Close() }, nil
+
+	cleanup := func() { _ = s.Close() }
+	if embedder != nil {
+		embedder.SetProto(proto) //nolint:errcheck // fluent return ignored here; proto is set
+		embedder.Start(context.Background())
+		cleanup = func() {
+			embedder.Stop()
+			_ = s.Close()
+		}
+	}
+
+	return svc, cleanup, nil
 }

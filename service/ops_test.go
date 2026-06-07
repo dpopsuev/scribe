@@ -382,7 +382,7 @@ func TestOpList_Semantic_WithEmbeddings_ReturnsResults(t *testing.T) {
 	})
 	// Librarian manually puts embeddings
 	authVec, _ := embedFn(ctx, "authentication jwt token")
-	_ = store.PutEmbedding(ctx, art.ID, parchment.DefaultEmbedModel, authVec)
+	_ = store.PutEmbedding(ctx, art.ID, parchment.DefaultEmbedModel, "", authVec)
 
 	op := service.Find("list")
 	raw, _ := json.Marshal(map[string]any{"semantic": true, "query": "security token validation", "scope": "test"})

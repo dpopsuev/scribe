@@ -57,6 +57,34 @@ type ScopeConfig struct {
 }
 
 // Config is the top-level configuration loaded from scribe.yaml.
+// EmbedConfig controls the background embedding worker.
+// All fields are optional; zero value disables embeddings.
+type EmbedConfig struct {
+	URL              string `yaml:"url,omitempty"`                // e.g. http://localhost:11434
+	Model            string `yaml:"model,omitempty"`              // e.g. nomic-embed-text
+	DelayMs          int    `yaml:"delay_ms,omitempty"`           // ms between embed calls (default 200)
+	SweepIntervalSec int    `yaml:"sweep_interval_sec,omitempty"` // sweep period (default 300)
+}
+
+// Enabled reports whether embedding is configured.
+func (e EmbedConfig) Enabled() bool { return e.URL != "" }
+
+// EmbedDelay returns the inter-call delay, defaulting to 200ms.
+func (e EmbedConfig) EmbedDelay() int {
+	if e.DelayMs <= 0 {
+		return 200
+	}
+	return e.DelayMs
+}
+
+// SweepInterval returns the sweep period in seconds, defaulting to 300.
+func (e EmbedConfig) SweepInterval() int {
+	if e.SweepIntervalSec <= 0 {
+		return 300
+	}
+	return e.SweepIntervalSec
+}
+
 type Config struct {
 	DB               DBConfig               `yaml:"db"`
 	LogLevel         string                 `yaml:"log_level,omitempty"`
@@ -71,6 +99,7 @@ type Config struct {
 	MutableCreatedAt *bool                  `yaml:"mutable_created_at"`
 	SeedDir          string                 `yaml:"seed_dir,omitempty"`
 	Defaults         Defaults               `yaml:"defaults,omitempty"`
+	Embed            EmbedConfig            `yaml:"embed,omitempty"`
 }
 
 // DBPath returns the resolved database path.
