@@ -47,15 +47,15 @@ func embeddingFuncContractPublic(t *testing.T, fn parchment.EmbeddingFunc) {
 			t.Errorf("inconsistent dims: %d != %d", len(v1), len(v2))
 		}
 	})
-	t.Run("approximately_normalized", func(t *testing.T) {
+	t.Run("non_zero_magnitude", func(t *testing.T) {
 		v, _ := fn(ctx, "normalize test")
 		var sum float64
 		for _, x := range v {
 			sum += float64(x) * float64(x)
 		}
 		mag := math.Sqrt(sum)
-		if math.Abs(mag-1.0) > 0.1 {
-			t.Errorf("magnitude=%.4f, want ~1.0", mag)
+		if mag == 0 {
+			t.Error("magnitude must be non-zero; CosineSimilarity requires a non-zero vector")
 		}
 	})
 }

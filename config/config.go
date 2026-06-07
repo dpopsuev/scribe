@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	parchment "github.com/dpopsuev/parchment"
@@ -479,5 +480,21 @@ func (c *Config) applyEnvOverrides() {
 	}
 	if v := os.Getenv("SCRIBE_ID_FORMAT"); v != "" {
 		c.IDFormat = v
+	}
+	if v := os.Getenv("SCRIBE_EMBED_URL"); v != "" {
+		c.Embed.URL = v
+	}
+	if v := os.Getenv("SCRIBE_EMBED_MODEL"); v != "" {
+		c.Embed.Model = v
+	}
+	if v := os.Getenv("SCRIBE_EMBED_DELAY_MS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			c.Embed.DelayMs = n
+		}
+	}
+	if v := os.Getenv("SCRIBE_EMBED_SWEEP_INTERVAL_SEC"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			c.Embed.SweepIntervalSec = n
+		}
 	}
 }
