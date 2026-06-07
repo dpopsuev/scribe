@@ -30,7 +30,7 @@ func newEmbedder(proto *parchment.Protocol) *embed.Embedder {
 }
 
 func isEncoded(art *parchment.Artifact) bool {
-	return slices.Contains(art.Labels, parchment.LabelEncoded)
+	return slices.Contains(art.Labels, parchment.LabelEncoded("test-model"))
 }
 
 // TestEmbedder_EncodedLabelAdded verifies that processOne adds the "encoded" label.

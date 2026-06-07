@@ -64,11 +64,19 @@ type Embedder struct {
 
 // OllamaFunc returns a parchment.EmbeddingFunc that calls the Ollama
 // /api/embeddings endpoint. Constructed before the Protocol — no circular dep.
+// keep_alive: -1 pins the model in memory so Ollama never unloads it between
+// calls; without this, competing models cause multi-second cold-start timeouts.
 func OllamaFunc(ollamaURL, model string) parchment.EmbeddingFunc {
-	client := &http.Client{Timeout: 30 * time.Second}
+	// 120s covers the initial model load (~15-30s on SSD) plus inference headroom.
+	// Once the model is pinned via keep_alive, subsequent calls complete in <500ms.
+	client := &http.Client{Timeout: 120 * time.Second}
 	base := strings.TrimRight(ollamaURL, "/")
 	return func(ctx context.Context, text string) ([]float32, error) {
-		body, _ := json.Marshal(map[string]string{"model": model, "prompt": text})
+		body, _ := json.Marshal(map[string]any{
+			"model":      model,
+			"prompt":     text,
+			"keep_alive": -1, // pin model in memory; never unload between calls
+		})
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/api/embeddings", bytes.NewReader(body))
 		if err != nil {
 			return nil, err
@@ -248,13 +256,13 @@ func (e *Embedder) ProcessOne(ctx context.Context, id string) {
 			slog.String(parchment.LogKeyID, id), slog.Any(parchment.LogKeyError, err))
 		return
 	}
-	_, _ = e.proto.SetField(ctx, []string{id}, "labels", parchment.LabelEncoded)
+	_, _ = e.proto.SetField(ctx, []string{id}, "labels", parchment.LabelEncoded(e.model))
 }
 
 // Sweep finds artifacts without the "encoded" label and queues them.
 func (e *Embedder) Sweep(ctx context.Context) {
 	arts, err := e.proto.ListArtifacts(ctx, parchment.ListInput{
-		ExcludeLabels: []string{parchment.LabelEncoded},
+		ExcludeLabels: []string{parchment.LabelEncoded(e.model)},
 		ExcludeKind:   "edge_type_definition",
 	})
 	if err != nil {
@@ -272,9 +280,10 @@ func (e *Embedder) Sweep(ctx context.Context) {
 	}
 }
 
-// maxEmbedChars is a conservative character limit for nomic-embed-text (2048 tokens ≈ 8192 chars).
-// We use 6000 to stay safely under the limit across all tokenizers.
-const maxEmbedChars = 6000
+// maxEmbedChars is a safe character limit for nomic-embed-text's 2048 token context.
+// Dense technical content (IDs, code paths) tokenises at ~3 chars/token, so
+// 2000 chars ≈ 667 tokens — well clear of the 2048 limit in all cases.
+const maxEmbedChars = 2000
 
 func embeddingText(art *parchment.Artifact) string {
 	parts := make([]string, 0, 2+len(art.Sections))

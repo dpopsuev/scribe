@@ -61,7 +61,7 @@ func TestOpen_WithEmbedConfig_StartsEmbedder(t *testing.T) {
 	deadline := time.Now().Add(4 * time.Second)
 	for time.Now().Before(deadline) {
 		updated, _ := svc.Proto.GetArtifact(ctx, art.ID)
-		if updated != nil && slices.Contains(updated.Labels, parchment.LabelEncoded) {
+		if updated != nil && slices.Contains(updated.Labels, parchment.LabelEncoded("nomic-embed-text")) {
 			return // pass
 		}
 		time.Sleep(200 * time.Millisecond)
