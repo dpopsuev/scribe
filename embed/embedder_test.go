@@ -26,9 +26,7 @@ func newTestProto(t *testing.T) *parchment.Protocol {
 }
 
 func newEmbedder(proto *parchment.Protocol) *embed.Embedder {
-	return embed.New(nil, "test-model", "http://unused", 0, time.Hour).
-		WithEmbedFunc(stubEmbedFunc).
-		SetProto(proto)
+	return embed.New(context.Background(), proto, "test-model", 0, time.Hour, stubEmbedFunc)
 }
 
 func isEncoded(art *parchment.Artifact) bool {

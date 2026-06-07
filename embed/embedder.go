@@ -31,38 +31,62 @@ var errEmptyEmbedding = fmt.Errorf("ollama returned empty embedding") //nolint:e
 type Embedder struct {
 	proto     *parchment.Protocol
 	model     string
-	url       string
 	delay     time.Duration
 	sweepDur  time.Duration
 	queue     chan string
 	stop      chan struct{}
-	client    *http.Client
-	embedFunc parchment.EmbeddingFunc // non-nil overrides the Ollama HTTP call (used in tests)
+	embedFunc parchment.EmbeddingFunc
 }
 
-// New constructs an Embedder. Call Start to begin the background goroutine.
-func New(proto *parchment.Protocol, model, ollamaURL string, delay, sweepInterval time.Duration) *Embedder {
-	return &Embedder{
-		proto:    proto,
-		model:    model,
-		url:      strings.TrimRight(ollamaURL, "/"),
-		delay:    delay,
-		sweepDur: sweepInterval,
-		queue:    make(chan string, channelCap),
-		stop:     make(chan struct{}),
-		client:   &http.Client{Timeout: 30 * time.Second},
+// OllamaEmbedFunc returns a parchment.EmbeddingFunc that calls the Ollama
+// /api/embeddings endpoint. It has no dependency on the Embedder or Protocol
+// and can be constructed before the Protocol is built.
+func OllamaEmbedFunc(ollamaURL, model string) parchment.EmbeddingFunc {
+	client := &http.Client{Timeout: 30 * time.Second}
+	base := strings.TrimRight(ollamaURL, "/")
+	return func(ctx context.Context, text string) ([]float32, error) {
+		body, _ := json.Marshal(map[string]string{"model": model, "prompt": text})
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/api/embeddings", bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close() //nolint:errcheck // deferred close on read-only response body
+		if resp.StatusCode != http.StatusOK {
+			raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+			return nil, fmt.Errorf("ollama HTTP %d: %s", resp.StatusCode, raw) //nolint:err113 // status+body are runtime values
+		}
+		var result struct {
+			Embedding []float32 `json:"embedding"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return nil, fmt.Errorf("decode: %w", err)
+		}
+		if len(result.Embedding) == 0 {
+			return nil, errEmptyEmbedding
+		}
+		return result.Embedding, nil
 	}
 }
 
-// WithEmbedFunc overrides the Ollama HTTP call with a custom function. Used in tests.
-func (e *Embedder) WithEmbedFunc(fn parchment.EmbeddingFunc) *Embedder {
-	e.embedFunc = fn
-	return e
-}
-
-// SetProto wires the Protocol after construction. Must be called before Start.
-func (e *Embedder) SetProto(proto *parchment.Protocol) *Embedder {
-	e.proto = proto
+// New constructs an Embedder and starts the background goroutine immediately.
+// proto must be non-nil. embedFunc overrides the embed call (nil = use the
+// Protocol's own EmbedFunc, which was wired from OllamaEmbedFunc at construction).
+func New(ctx context.Context, proto *parchment.Protocol, model string, delay, sweepInterval time.Duration, embedFunc parchment.EmbeddingFunc) *Embedder {
+	e := &Embedder{
+		proto:     proto,
+		model:     model,
+		delay:     delay,
+		sweepDur:  sweepInterval,
+		queue:     make(chan string, channelCap),
+		stop:      make(chan struct{}),
+		embedFunc: embedFunc,
+	}
+	go e.run(ctx)
 	return e
 }
 
@@ -75,20 +99,8 @@ func (e *Embedder) Enqueue(id string) {
 	}
 }
 
-// Start launches the background goroutine. Call Stop to shut it down.
-func (e *Embedder) Start(ctx context.Context) {
-	go e.run(ctx)
-}
-
 // Stop signals the background goroutine to exit.
 func (e *Embedder) Stop() { close(e.stop) }
-
-// EmbedFunc returns a parchment.EmbeddingFunc backed by the Ollama endpoint.
-func (e *Embedder) EmbedFunc() parchment.EmbeddingFunc {
-	return func(ctx context.Context, text string) ([]float32, error) {
-		return e.embed(ctx, text)
-	}
-}
 
 func (e *Embedder) run(ctx context.Context) {
 	ticker := time.NewTicker(e.sweepDur)
@@ -115,13 +127,7 @@ func (e *Embedder) ProcessOne(ctx context.Context, id string) {
 	}
 
 	text := embeddingText(art)
-	// Use the embedFunc field if set (tests); fall back to the Ollama HTTP call.
-	var vec []float32
-	if e.embedFunc != nil {
-		vec, err = e.embedFunc(ctx, text)
-	} else {
-		vec, err = e.embed(ctx, text)
-	}
+	vec, err := e.embedFunc(ctx, text)
 	if err != nil {
 		slog.WarnContext(ctx, "embed: call failed",
 			slog.String(parchment.LogKeyID, id), slog.Any(parchment.LogKeyError, err))
@@ -172,34 +178,4 @@ func embeddingText(art *parchment.Artifact) string {
 	return b.String()
 }
 
-// embed calls the Ollama /api/embeddings endpoint and returns the vector.
-func (e *Embedder) embed(ctx context.Context, text string) ([]float32, error) {
-	body, _ := json.Marshal(map[string]string{"model": e.model, "prompt": text})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.url+"/api/embeddings", bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := e.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close() //nolint:errcheck // deferred close on read-only response body
-
-	if resp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return nil, fmt.Errorf("ollama HTTP %d: %s", resp.StatusCode, raw) //nolint:err113 // status + body are runtime values; no static sentinel fits
-	}
-
-	var result struct {
-		Embedding []float32 `json:"embedding"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode: %w", err)
-	}
-	if len(result.Embedding) == 0 {
-		return nil, errEmptyEmbedding
-	}
-	return result.Embedding, nil
-}

@@ -28,17 +28,14 @@ func Open(cfg *config.Config, homeScopes ...[]string) (*Service, func(), error) 
 	}
 	idc := cfg.ProtocolIDConfig()
 
-	// Wire embedding if configured.
-	var embedder *embed.Embedder
+	// Wire embedding if configured. OllamaEmbedFunc has no dependency on proto
+	// so it can be constructed before the Protocol and passed in at build time.
+	model := cfg.Embed.Model
+	if cfg.Embed.Enabled() && model == "" {
+		model = "nomic-embed-text"
+	}
 	if cfg.Embed.Enabled() {
-		model := cfg.Embed.Model
-		if model == "" {
-			model = "nomic-embed-text"
-		}
-		delay := time.Duration(cfg.Embed.EmbedDelay()) * time.Millisecond
-		sweep := time.Duration(cfg.Embed.SweepInterval()) * time.Second
-		embedder = embed.New(nil, model, cfg.Embed.URL, delay, sweep) // proto set below
-		idc.EmbedFunc = embedder.EmbedFunc()
+		idc.EmbedFunc = embed.OllamaEmbedFunc(cfg.Embed.URL, model)
 		idc.EmbedModel = model
 	}
 
@@ -46,9 +43,10 @@ func Open(cfg *config.Config, homeScopes ...[]string) (*Service, func(), error) 
 	svc := New(proto, nil, scopes)
 
 	cleanup := func() { _ = s.Close() }
-	if embedder != nil {
-		embedder.SetProto(proto) //nolint:errcheck // fluent return ignored here; proto is set
-		embedder.Start(context.Background())
+	if cfg.Embed.Enabled() {
+		delay := time.Duration(cfg.Embed.EmbedDelay()) * time.Millisecond
+		sweep := time.Duration(cfg.Embed.SweepInterval()) * time.Second
+		embedder := embed.New(context.Background(), proto, model, delay, sweep, nil)
 		cleanup = func() {
 			embedder.Stop()
 			_ = s.Close()
