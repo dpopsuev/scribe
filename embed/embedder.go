@@ -280,12 +280,6 @@ func (e *Embedder) Sweep(ctx context.Context) {
 	}
 }
 
-// maxEmbedChars caps the text sent to the embedding model per artifact.
-// qwen3-embedding:0.6b has a 32K token context window; 8000 chars ≈ 2000 tokens
-// (dense technical content at ~4 chars/token) — well within the limit and covers
-// the full meaningful content of any Scribe artifact.
-const maxEmbedChars = 8000
-
 func embeddingText(art *parchment.Artifact) string {
 	parts := make([]string, 0, 2+len(art.Sections))
 	parts = append(parts, art.Title)
@@ -295,9 +289,5 @@ func embeddingText(art *parchment.Artifact) string {
 	for _, s := range art.Sections {
 		parts = append(parts, s.Text)
 	}
-	text := strings.Join(parts, "\n")
-	if len(text) > maxEmbedChars {
-		return text[:maxEmbedChars]
-	}
-	return text
+	return strings.Join(parts, "\n")
 }
