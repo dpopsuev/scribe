@@ -20,6 +20,8 @@ github.com/dpopsuev/parchment v1.1.1 h1:F0yWJCP5d+dcvRtQe+67L/G/nA22AUeCOHrQG6re
 github.com/dpopsuev/parchment v1.1.1/go.mod h1:38NJEgAQFUeHj1ouUqaV0zbOybT6g5NwJ16eI9jgVRY=
 github.com/dpopsuev/parchment v1.2.0 h1:Brks6giRG7R9f170lpFBr8prV+8nycKFLFSZ3rxIJto=
 github.com/dpopsuev/parchment v1.2.0/go.mod h1:38NJEgAQFUeHj1ouUqaV0zbOybT6g5NwJ16eI9jgVRY=
+github.com/dpopsuev/parchment v1.3.0 h1:znmE0Bx4xH4e2Cg257E6O1wKDg9dFZDLX2w5b5TGXQc=
+github.com/dpopsuev/parchment v1.3.0/go.mod h1:38NJEgAQFUeHj1ouUqaV0zbOybT6g5NwJ16eI9jgVRY=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
 github.com/fsnotify/fsnotify v1.10.1 h1:b0/UzAf9yR5rhf3RPm9gf3ehBPpf0oZKIjtpKrx59Ho=
