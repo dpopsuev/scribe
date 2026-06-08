@@ -13,7 +13,7 @@ import (
 	"github.com/dpopsuev/scribe/web"
 )
 
-func seedDataset(t *testing.T, s *parchment.SQLiteStore) *parchment.Protocol {
+func seedDataset(t *testing.T, s parchment.Store) *parchment.Protocol {
 	t.Helper()
 	ctx := context.Background()
 	arts := []*parchment.Artifact{

@@ -18,7 +18,7 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func openStore(t *testing.T) *parchment.SQLiteStore {
+func openStore(t *testing.T) parchment.Store {
 	t.Helper()
 	s, err := parchment.OpenSQLite(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {

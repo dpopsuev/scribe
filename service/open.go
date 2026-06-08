@@ -18,7 +18,7 @@ import (
 // Pass nil or omit to use the config-derived scopes (correct for CLI commands).
 // Pass an explicit slice for the serve command which derives scopes from CWD and flags.
 func Open(cfg *config.Config, homeScopes ...[]string) (*Service, func(), error) {
-	s, err := parchment.OpenSQLiteConfig(cfg.SQLiteConfig())
+	backend, err := parchment.NewSQLiteBackend(cfg.SQLiteConfig())
 	if err != nil {
 		return nil, nil, fmt.Errorf("open store: %w", err)
 	}
@@ -28,8 +28,6 @@ func Open(cfg *config.Config, homeScopes ...[]string) (*Service, func(), error) 
 	}
 	idc := cfg.ProtocolIDConfig()
 
-	// Wire embedding if configured. embed.OllamaFunc has no dependency on proto
-	// so it can be constructed before the Protocol and passed in at build time.
 	model := cfg.Embed.Model
 	if cfg.Embed.Enabled() && model == "" {
 		model = "nomic-embed-text"
@@ -39,16 +37,16 @@ func Open(cfg *config.Config, homeScopes ...[]string) (*Service, func(), error) 
 		idc.EmbedModel = model
 	}
 
-	proto := parchment.New(s, nil, scopes, nil, idc)
-	svc := New(proto, nil, scopes)
+	proto := parchment.New(backend.Store(), nil, scopes, nil, idc)
+	svc := New(proto, backend.Snapshotter(), scopes)
 
-	cleanup := func() { _ = s.Close() }
+	cleanup := func() { _ = backend.Close() }
 	if cfg.Embed.Enabled() {
 		sweep := time.Duration(cfg.Embed.SweepInterval()) * time.Second
 		embedder := embed.New(context.Background(), proto, model, sweep, cfg.Embed.Workers(), idc.EmbedFunc)
 		cleanup = func() {
 			embedder.Stop()
-			_ = s.Close()
+			_ = backend.Close()
 		}
 	}
 

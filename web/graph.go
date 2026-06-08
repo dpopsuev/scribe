@@ -208,21 +208,16 @@ func buildArtifactGraph(ctx context.Context, proto *parchment.Protocol, scope st
 	return graphData{Nodes: nodes, Links: links}, nil
 }
 
-// fetchArtifacts fetches artifacts for a scope across multiple statuses.
-// Each status is queried separately because ListArtifacts only accepts one.
+// fetchArtifacts fetches artifacts for a scope matching any of the given statuses.
 func fetchArtifacts(ctx context.Context, proto *parchment.Protocol, scope string, statuses []string) ([]*parchment.Artifact, error) {
-	var all []*parchment.Artifact
+	labelsOr := make([]string, 0, len(statuses))
 	for _, st := range statuses {
-		batch, err := proto.ListArtifacts(ctx, parchment.ListInput{
-			Scope:  scope,
-			Labels: []string{parchment.LabelPrefixStatus + strings.TrimSpace(st)},
-		})
-		if err != nil {
-			return nil, err
-		}
-		all = append(all, batch...)
+		labelsOr = append(labelsOr, parchment.LabelPrefixStatus+strings.TrimSpace(st))
 	}
-	return all, nil
+	return proto.ListArtifacts(ctx, parchment.ListInput{
+		Scope:    scope,
+		LabelsOr: labelsOr,
+	})
 }
 
 // Handlers are thin: parse request → call builder → write JSON.

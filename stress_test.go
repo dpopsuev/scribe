@@ -54,7 +54,7 @@ func mb(b uint64) float64 {
 	return float64(b) / (1024 * 1024)
 }
 
-func openStore(t *testing.T) *parchment.SQLiteStore {
+func openStore(t *testing.T) parchment.Store {
 	t.Helper()
 	s, err := parchment.OpenSQLite(filepath.Join(t.TempDir(), "stress.db"))
 	if err != nil {

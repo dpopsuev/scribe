@@ -96,9 +96,7 @@ func RunOp(name string, input any) error {
 	return nil
 }
 
-// MustStore opens a raw SQLiteStore — used by commands that need direct store
-// access (migrate-ids, etc.).
-func MustStore() *parchment.SQLiteStore {
+func MustStore() parchment.Store {
 	cfg := MustConfig()
 	s, err := parchment.OpenSQLiteConfig(cfg.SQLiteConfig())
 	if err != nil {
