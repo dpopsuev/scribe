@@ -13,7 +13,6 @@ import (
 	"github.com/dpopsuev/scribe/web"
 )
 
-// ── fixtures ─────────────────────────────────────────────────────────────
 
 func seedDataset(t *testing.T, s *parchment.SQLiteStore) *parchment.Protocol {
 	t.Helper()
@@ -78,7 +77,6 @@ func getJSONL(t *testing.T, srv *httptest.Server, format string) []map[string]an
 	return rows
 }
 
-// ── SFT ─────────────────────────────────────────────────────────────────
 
 func TestDatasetExport_SFT_OnlyExportableArtifacts(t *testing.T) {
 	srv := datasetServer(t)
@@ -131,7 +129,6 @@ func TestDatasetExport_SFT_AssistantContentIsValidJSON(t *testing.T) {
 	}
 }
 
-// ── KG ───────────────────────────────────────────────────────────────────
 
 func TestDatasetExport_KG_ContainsNodesAndEdges(t *testing.T) {
 	srv := datasetServer(t)
@@ -186,7 +183,6 @@ func TestDatasetExport_KG_EdgeHasRequiredFields(t *testing.T) {
 	}
 }
 
-// ── DPO ─────────────────────────────────────────────────────────────────
 
 func TestDatasetExport_DPO_OnlyDecisionArtifacts(t *testing.T) {
 	srv := datasetServer(t)
@@ -214,7 +210,6 @@ func TestDatasetExport_DPO_RejectedfromAlternatives(t *testing.T) {
 	}
 }
 
-// ── Card ─────────────────────────────────────────────────────────────────
 
 func TestDatasetExport_Card_ValidMetadata(t *testing.T) {
 	srv := datasetServer(t)
@@ -234,7 +229,6 @@ func TestDatasetExport_Card_ValidMetadata(t *testing.T) {
 	}
 }
 
-// ── Bad format ────────────────────────────────────────────────────────────
 
 func TestDatasetExport_UnknownFormat_Returns400(t *testing.T) {
 	srv := datasetServer(t)
@@ -249,7 +243,6 @@ func TestDatasetExport_UnknownFormat_Returns400(t *testing.T) {
 	}
 }
 
-// ── Content-Type and headers ───────────────────────────────────────────────
 
 func TestDatasetExport_Headers(t *testing.T) {
 	srv := datasetServer(t)
@@ -268,7 +261,6 @@ func TestDatasetExport_Headers(t *testing.T) {
 	}
 }
 
-// ── Quality filter contract ───────────────────────────────────────────────
 
 func TestDatasetExport_QualityFilter_ExcludesDraft(t *testing.T) {
 	srv := datasetServer(t)

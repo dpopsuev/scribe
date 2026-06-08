@@ -10,7 +10,6 @@ import (
 	parchment "github.com/dpopsuev/parchment"
 )
 
-// ── Dataset export types ─────────────────────────────────────────────────
 
 // sftExample is one supervised fine-tuning training example (OpenAI chat format).
 type sftExample struct {
@@ -57,7 +56,6 @@ type datasetCard struct {
 	TotalRows   int      `json:"total_rows"`
 }
 
-// ── Quality filter ────────────────────────────────────────────────────────
 
 // exportable returns true when an artifact meets the quality bar for training.
 // Only complete, active, or evergreen artifacts with no compliance violations.
@@ -87,7 +85,6 @@ func sectionText(a *parchment.Artifact) string {
 	return buf
 }
 
-// ── Serialisers ───────────────────────────────────────────────────────────
 
 // writeSFT streams SFT examples: one per artifact, using the artifact's
 // structured fields as an assistant response to a synthetic user prompt.
@@ -225,7 +222,6 @@ func writeCard(ctx context.Context, w http.ResponseWriter, proto *parchment.Prot
 	return 1, err
 }
 
-// ── HTTP handler ──────────────────────────────────────────────────────────
 
 // handleExportDataset streams a JSONL training dataset.
 // GET /api/v1/export/dataset?format=sft|kg|dpo|card

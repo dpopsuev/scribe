@@ -12,7 +12,6 @@ import (
 	"github.com/dpopsuev/scribe/web"
 )
 
-// ── builder tests (pure functions via HTTP harness) ────────────────────────
 
 func setupGraph(t *testing.T) *web.Server {
 	t.Helper()
@@ -52,7 +51,6 @@ func setupGraph(t *testing.T) *web.Server {
 	return web.NewServer(proto, "dev", "")
 }
 
-// ── /api/v1/graph/scopes ─────────────────────────────────────────────────────
 
 func TestAPIGraphScopes_ReturnsScopeNodes(t *testing.T) {
 	srv := setupGraph(t)
@@ -111,7 +109,6 @@ func TestAPIGraphScopes_ExcludesSchemaScope(t *testing.T) {
 	}
 }
 
-// ── /api/graph/kinds ──────────────────────────────────────────────────────
 
 func TestAPIGraphKinds_ReturnsKindNodes(t *testing.T) {
 	srv := setupGraph(t)
@@ -161,7 +158,6 @@ func TestAPIGraphKinds_CrossKindLinks(t *testing.T) {
 	}
 }
 
-// ── /api/graph ────────────────────────────────────────────────────────────
 
 func TestAPIGraph_ReturnsArtifactNodes(t *testing.T) {
 	srv := setupGraph(t)
@@ -228,7 +224,6 @@ func TestAPIGraph_RelationFilter(t *testing.T) {
 	}
 }
 
-// ── /api/scopes ───────────────────────────────────────────────────────────
 
 func TestAPIScopes_ReturnsScopeList(t *testing.T) {
 	srv := setupGraph(t)
@@ -250,7 +245,6 @@ func TestAPIScopes_ReturnsScopeList(t *testing.T) {
 	}
 }
 
-// ── write API ─────────────────────────────────────────────────────────────
 
 func TestAPICreateArtifact_CreatesAndReturns(t *testing.T) {
 	srv := setupGraph(t)
@@ -323,7 +317,6 @@ func TestAPIDeleteEdge_DeletesEdge(t *testing.T) {
 	}
 }
 
-// ── /fragments/artifacts/{id} ─────────────────────────────────────────────
 
 func TestFragmentArtifact_ReturnsHTML(t *testing.T) {
 	srv := setupGraph(t)

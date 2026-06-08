@@ -18,7 +18,6 @@ import (
 	"github.com/dpopsuev/scribe/web"
 )
 
-// ── Layer 1: ViolationCount unit tests ───────────────────────────────────
 
 func TestViolationCount_NoLabels(t *testing.T) {
 	a := &parchment.Artifact{ID: "T-1", Kind: "task"}
@@ -77,7 +76,6 @@ func TestViolationCount_EmptyViolationsSlice(t *testing.T) {
 	}
 }
 
-// ── Layer 2: /api/graph returns violations field ──────────────────────────
 
 func complianceServer(t *testing.T) *httptest.Server {
 	t.Helper()

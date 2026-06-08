@@ -24,7 +24,6 @@ import (
 	"github.com/dpopsuev/scribe/web"
 )
 
-// ── NDJSON generator ──────────────────────────────────────────────────────
 
 // ShapeFunc produces one NodeRecord for index i.
 type ShapeFunc func(i int, source, scanSHA string) ingest.NodeRecord
@@ -121,7 +120,6 @@ func ParseGenerated(t *testing.T, gen *Generator) ([]ingest.NodeRecord, []ingest
 	return nodes, edges
 }
 
-// ── Built-in shape functions ──────────────────────────────────────────────
 
 // LocusComponentShape produces a node shaped like a Locus ArchService.
 var LocusComponentShape ShapeFunc = func(i int, source, sha string) ingest.NodeRecord {
@@ -173,7 +171,6 @@ var GitHubPRShape ShapeFunc = func(i int, source, sha string) ingest.NodeRecord 
 	}
 }
 
-// ── Faux agent ────────────────────────────────────────────────────────────
 
 // ScriptedTurn is one exchange in a scripted conversation.
 type ScriptedTurn struct {
@@ -233,7 +230,6 @@ func (a *AgentLoop) Run(ctx context.Context) error {
 	return nil
 }
 
-// ── Test server helper ────────────────────────────────────────────────────
 
 // NewIngestClient creates an ingest.Client pointed at the given server URL.
 func NewIngestClient(baseURL, source string) *ingest.Client {
@@ -273,7 +269,6 @@ func CountByLabels(t *testing.T, db parchment.Store, labels ...string) int {
 	return len(arts)
 }
 
-// ── Agent session adapter ─────────────────────────────────────────────────
 // Mapping from agent-native turn data to the ingest wire protocol.
 // Lives in testkit because it is test scaffolding — each real agent owns
 // its own equivalent mapping.

@@ -16,7 +16,6 @@ import (
 	"github.com/dpopsuev/scribe/embed"
 )
 
-// ── helpers ───────────────────────────────────────────────────────────────────
 
 // countingEmbedFunc returns an EmbeddingFunc that counts calls and sleeps
 // for the given duration to simulate Ollama latency.
@@ -62,7 +61,6 @@ func newStressProto(t *testing.T, artifactCount int, embedFn parchment.Embedding
 	return proto
 }
 
-// ── 1. THROUGHPUT ─────────────────────────────────────────────────────────────
 
 func TestEmbedder_Stress_Throughput(t *testing.T) {
 	// Given: 500 artifacts, embedFunc completes instantly, 8 workers.
@@ -98,7 +96,6 @@ func TestEmbedder_Stress_Throughput(t *testing.T) {
 	}
 }
 
-// ── 2. BACKPRESSURE ───────────────────────────────────────────────────────────
 
 func TestEmbedder_Stress_Backpressure(t *testing.T) {
 	// Given: channel capacity 4096, enqueue 8000 IDs at once.
@@ -126,7 +123,6 @@ func TestEmbedder_Stress_Backpressure(t *testing.T) {
 	t.Logf("8000 Enqueue calls took %v (non-blocking confirmed)", elapsed)
 }
 
-// ── 3. AIMD SCALING ───────────────────────────────────────────────────────────
 
 func TestEmbedder_Stress_AIMDScaling(t *testing.T) {
 	// Given: embedFunc is fast (5ms) for first 50 calls, then slow (600ms).
@@ -166,7 +162,6 @@ func TestEmbedder_Stress_AIMDScaling(t *testing.T) {
 	}
 }
 
-// ── 4. RACE DETECTION ─────────────────────────────────────────────────────────
 
 func TestEmbedder_Stress_RaceDetection(t *testing.T) {
 	// Concurrent Enqueue + Sweep + ProcessOne + Stop under the race detector.
@@ -205,7 +200,6 @@ func TestEmbedder_Stress_RaceDetection(t *testing.T) {
 	t.Logf("race test: %d embed calls completed without data race", atomic.LoadInt64(&calls))
 }
 
-// ── 5. LONG TEXT ──────────────────────────────────────────────────────────────
 
 func TestEmbedder_Stress_LongText(t *testing.T) {
 	// Given: an artifact with 8000-char content.

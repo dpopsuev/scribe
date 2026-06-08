@@ -42,7 +42,6 @@ func newConsolidatedServer(t *testing.T) (proto *parchment.Protocol, callArtifac
 	return
 }
 
-// ─── artifact(action=recall) ──────────────────────────────────────────────────
 
 // TestConsolidation_ArtifactRecall verifies that recall moved from the knowledge
 // tool to the artifact tool. artifact(action=recall) must find knowledge artifacts.
@@ -119,7 +118,6 @@ func TestConsolidation_ArtifactListKnowledgeFamily(t *testing.T) {
 	}
 }
 
-// ─── admin(action=ingest_session) ────────────────────────────────────────────
 
 // TestConsolidation_AdminIngestSession verifies that ingest_session moved from
 // the knowledge tool to the admin tool.
@@ -144,7 +142,6 @@ func TestConsolidation_AdminIngestSession(t *testing.T) {
 	}
 }
 
-// ─── knowledge tool → redirect hints ─────────────────────────────────────────
 
 // // TestConsolidation_BatchCreate_Folded verifies that batch_create is folded
 // into create with an artifacts[] parameter.

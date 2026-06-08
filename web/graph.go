@@ -9,7 +9,6 @@ import (
 	parchment "github.com/dpopsuev/parchment"
 )
 
-// ── graph wire types ────────────────────────────────────────────────────────
 // These are the JSON types consumed by 3d-force-graph on the client.
 
 // graphNode is a node in the 3d-force-graph payload.
@@ -38,7 +37,6 @@ type graphData struct {
 	Links []graphLink `json:"links"`
 }
 
-// ── graph builders ──────────────────────────────────────────────────────────
 // Pure functions: no HTTP, no global state. Each receives a Protocol and
 // returns graphData. Handlers are thin dispatchers over these builders.
 
@@ -227,7 +225,6 @@ func fetchArtifacts(ctx context.Context, proto *parchment.Protocol, scope string
 	return all, nil
 }
 
-// ── HTTP handlers ───────────────────────────────────────────────────────────
 // Handlers are thin: parse request → call builder → write JSON.
 
 // handleAPIGraphScopes serves the scope-level graph (universe view).
@@ -392,7 +389,6 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "graph.html", map[string]any{"Title": "Graph", "Version": s.version})
 }
 
-// ── helpers ─────────────────────────────────────────────────────────────────
 
 const defaultStatuses = "active,draft,current,proposed,in_progress,in_review,fleeting"
 
