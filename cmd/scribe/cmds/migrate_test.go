@@ -3,6 +3,7 @@ package cmds_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/cmd/scribe/cmds"
 	"github.com/spf13/cobra"
+	_ "modernc.org/sqlite"
 )
 
 // runMigrate builds a root command that includes MigrateCmd and executes args.
@@ -148,26 +150,40 @@ func TestMigrateLabelsCLI_PostMigration_ScribeBoots(t *testing.T) {
 	}
 }
 
-// setupPreMigrationDB creates a temp SQLite with 3 artifacts seeded via direct
-// Put (bypassing Protocol, so no system labels are stamped) — simulating
-// the pre-ECS state of a real database.
+// setupPreMigrationDB creates a temp SQLite simulating a pre-ECS database:
+// artifacts have Kind/Scope/Status columns populated but no rows in
+// artifact_labels. Uses raw SQL to bypass syncSystemFields in Store.Put.
 func setupPreMigrationDB(t *testing.T) string {
 	t.Helper()
-	db := filepath.Join(t.TempDir(), "pre-ecs.sqlite")
-	s, err := parchment.OpenSQLite(db)
+	dbPath := filepath.Join(t.TempDir(), "pre-ecs.sqlite")
+
+	// Open via Store first so the schema (DDL) is initialized.
+	s, err := parchment.OpenSQLite(dbPath)
 	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	ctx := context.Background()
-	for _, art := range []*parchment.Artifact{
-		{ID: "TST-TSK-1", Kind: "task", Scope: "test", Status: "draft", Title: "old task 1"},
-		{ID: "TST-TSK-2", Kind: "task", Scope: "test", Status: "active", Title: "old task 2"},
-		{ID: "TST-SPC-1", Kind: "spec", Scope: "test", Status: "draft", Title: "old spec"},
-	} {
-		if err := s.Put(ctx, art); err != nil {
-			t.Fatalf("seed %s: %v", art.ID, err)
-		}
+		t.Fatalf("open store: %v", err)
 	}
 	_ = s.Close()
-	return db
+
+	// Write directly via database/sql — no syncSystemFields, no artifact_labels rows.
+	conn, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open raw: %v", err)
+	}
+	defer conn.Close() //nolint:errcheck // test teardown
+	rows := []struct{ id, kind, scope, status, title string }{
+		{"TST-TSK-1", "task", "test", "draft", "old task 1"},
+		{"TST-TSK-2", "task", "test", "active", "old task 2"},
+		{"TST-SPC-1", "spec", "test", "draft", "old spec"},
+	}
+	for _, r := range rows {
+		_, err := conn.Exec(
+			`INSERT INTO artifacts (uid, id, kind, scope, status, title, labels, created_at, updated_at, inserted_at)
+			 VALUES (?, ?, ?, ?, ?, ?, '[]', datetime('now'), datetime('now'), datetime('now'))`,
+			r.id, r.id, r.kind, r.scope, r.status, r.title,
+		)
+		if err != nil {
+			t.Fatalf("raw insert %s: %v", r.id, err)
+		}
+	}
+	return dbPath
 }

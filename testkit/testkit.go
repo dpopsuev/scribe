@@ -332,7 +332,7 @@ func TurnToNode(turn AgentTurn) ingest.NodeRecord {
 		title = title[:60] + "…"
 	}
 	return ingest.NodeRecord{
-		Type: "node", ID: turn.ID, Kind: "note",
+		Type: "node", ID: turn.ID, Kind: "turn",
 		Title:  fmt.Sprintf("Turn %d: %s", turn.Index, title),
 		Status: "active", Labels: labels, Extra: extra, Sections: sections,
 	}
