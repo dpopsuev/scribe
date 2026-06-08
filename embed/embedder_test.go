@@ -39,9 +39,7 @@ func TestEmbedder_EncodedLabelAdded(t *testing.T) {
 	ctx := context.Background()
 	proto := newTestProto(t)
 
-	art, err := proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind: "note", Title: "graph physics notes", Scope: "test",
-	})
+	art, err := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Title: "graph physics notes", Scope: "test"})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -62,9 +60,7 @@ func TestEmbedder_EncodedLabelStrippedOnContentChange(t *testing.T) {
 	ctx := context.Background()
 	proto := newTestProto(t)
 
-	art, _ := proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind: "note", Title: "original title", Scope: "test",
-	})
+	art, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Title: "original title", Scope: "test"})
 
 	e := newEmbedder(proto)
 	e.ProcessOne(ctx, art.ID)
@@ -93,9 +89,7 @@ func TestEmbedder_StatusChangeDoesNotStripEncoded(t *testing.T) {
 	ctx := context.Background()
 	proto := newTestProto(t)
 
-	art, _ := proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind: "note", Title: "stable title", Scope: "test",
-	})
+	art, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Title: "stable title", Scope: "test"})
 
 	e := newEmbedder(proto)
 	e.ProcessOne(ctx, art.ID)
@@ -122,8 +116,8 @@ func TestEmbedder_SweepQueuesUnencodedArtifacts(t *testing.T) {
 	proto := newTestProto(t)
 
 	// Create two artifacts — neither has "encoded".
-	a1, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "note", Title: "note one", Scope: "test"})
-	a2, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "note", Title: "note two", Scope: "test"})
+	a1, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Title: "note one", Scope: "test"})
+	a2, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Title: "note two", Scope: "test"})
 
 	e := newEmbedder(proto)
 	e.Sweep(ctx)

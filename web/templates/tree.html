@@ -8,7 +8,7 @@
 <details open>
   <summary>
     <a href="/artifacts/{{.ID}}">{{.ID}}</a>
-    <span class="badge badge-{{.Status}}">{{.Status}}</span>
+    <span class="badge badge-{{labelValue .Labels "status:"}}">{{labelValue .Labels "status:"}}</span>
     {{.Title}}
   </summary>
   {{if .Children}}

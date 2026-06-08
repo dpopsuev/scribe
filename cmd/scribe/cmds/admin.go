@@ -92,7 +92,7 @@ func DfCmd() *cobra.Command {
 			if len(report.StaleArts) > 0 {
 				fmt.Println("\nTop stale artifacts (by updated_at):")
 				for _, a := range report.StaleArts {
-					fmt.Printf("  %s [%s] %s\n", a.ID, a.Status, a.Title)
+					fmt.Printf("  %s [%s] %s\n", a.ID, a.ResolvedStatus(), a.Title)
 				}
 			}
 			return nil

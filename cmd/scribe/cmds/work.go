@@ -23,7 +23,7 @@ import (
 
 func CreateCmd() *cobra.Command {
 	var in parchment.CreateInput
-	var explicitID string
+	var kind, explicitID string
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create an artifact",
@@ -33,6 +33,9 @@ func CreateCmd() *cobra.Command {
 			if explicitID != "" {
 				in.ExplicitID = explicitID
 			}
+			if kind != "" {
+				in.Labels = append([]string{parchment.LabelPrefixKind + kind}, in.Labels...)
+			}
 			art, err := svc.Proto.CreateArtifact(context.Background(), in)
 			if err != nil {
 				return err
@@ -41,7 +44,7 @@ func CreateCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&in.Kind, "kind", "task", "artifact kind")
+	cmd.Flags().StringVar(&kind, "kind", "task", "artifact kind")
 	cmd.Flags().StringVar(&in.Title, "title", "", "artifact title")
 	cmd.Flags().StringVar(&in.Scope, "scope", "", "owning repository")
 	cmd.Flags().StringVar(&in.Goal, "goal", "", "goal statement")
@@ -168,9 +171,19 @@ func ArchiveCmd() *cobra.Command {
 			defer cleanup()
 			hasFilter := scope != "" || kind != "" || status != "" || idPrefix != "" || excludeKind != ""
 			if hasFilter && len(args) == 0 {
+				var bulkLabels, bulkExclude []string
+				if kind != "" {
+					bulkLabels = append(bulkLabels, parchment.LabelPrefixKind+kind)
+				}
+				if status != "" {
+					bulkLabels = append(bulkLabels, parchment.LabelPrefixStatus+status)
+				}
+				if excludeKind != "" {
+					bulkExclude = append(bulkExclude, parchment.LabelPrefixKind+excludeKind)
+				}
 				in := parchment.BulkMutationInput{
-					Scope: scope, Kind: kind, Status: status,
-					IDPrefix: idPrefix, ExcludeKind: excludeKind, DryRun: dryRun,
+					Scope: scope, IDPrefix: idPrefix,
+					Labels: bulkLabels, ExcludeLabels: bulkExclude, DryRun: dryRun,
 				}
 				res, err := svc.Proto.BulkArchive(context.Background(), in)
 				if err != nil {
@@ -249,7 +262,8 @@ func printTree(node *parchment.TreeNode, prefix string, last bool, b *strings.Bu
 	if prefix == "" {
 		connector = ""
 	}
-	fmt.Fprintf(b, "%s%s%s [%s] %s\n", prefix, connector, node.ID, node.Status, node.Title)
+	nodeStatus := labelVal(node.Labels, parchment.LabelPrefixStatus)
+	fmt.Fprintf(b, "%s%s%s [%s] %s\n", prefix, connector, node.ID, nodeStatus, node.Title)
 	cp := prefix
 	if prefix != "" {
 		if last {
@@ -311,9 +325,11 @@ func printBriefing(node *parchment.TreeNode, prefix string, last bool, b *string
 		}
 		edgeLabel = node.Edge + arrow
 	}
-	kindStatus := node.Status
-	if node.Kind != "" {
-		kindStatus = node.Kind + "|" + node.Status
+	nodeKind := labelVal(node.Labels, parchment.LabelPrefixKind)
+	nodeStatus := labelVal(node.Labels, parchment.LabelPrefixStatus)
+	kindStatus := nodeStatus
+	if nodeKind != "" {
+		kindStatus = nodeKind + "|" + nodeStatus
 	}
 	fmt.Fprintf(b, "%s%s%s%s [%s] %s\n", prefix, connector, edgeLabel, node.ID, kindStatus, node.Title)
 	cp := prefix
@@ -386,7 +402,14 @@ func OverlapsCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, cleanup := MustService()
 			defer cleanup()
-			in := parchment.OverlapInput{Kind: kind, Status: status, Project: project}
+			var overlapLabels []string
+			if kind != "" {
+				overlapLabels = append(overlapLabels, parchment.LabelPrefixKind+kind)
+			}
+			if status != "" {
+				overlapLabels = append(overlapLabels, parchment.LabelPrefixStatus+status)
+			}
+			in := parchment.OverlapInput{Labels: overlapLabels, Project: project}
 			report, err := svc.Proto.DetectOverlaps(context.Background(), in)
 			if err != nil {
 				return err
@@ -419,14 +442,14 @@ func OverlapsCmd() *cobra.Command {
 }
 
 func OrphansCmd() *cobra.Command {
-	var scope, status, format string
+	var scope, format string
 	cmd := &cobra.Command{
 		Use:   "orphans",
 		Short: "Detect tasks without specs/bugs, and specs/bugs without tasks",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, cleanup := MustService()
 			defer cleanup()
-			in := parchment.OrphanInput{Scope: scope, Status: status}
+			in := parchment.OrphanInput{Scope: scope}
 			report, err := svc.Proto.DetectOrphans(context.Background(), in)
 			if err != nil {
 				return err
@@ -441,14 +464,15 @@ func OrphansCmd() *cobra.Command {
 				return nil
 			}
 			for _, o := range report.Orphans {
-				fmt.Printf("%-16s %-5s [%s] %s\n  → %s\n\n", o.ID, o.Kind, o.Status, o.Title, o.Reason)
+				oKind := labelVal(o.Labels, parchment.LabelPrefixKind)
+				oStatus := labelVal(o.Labels, parchment.LabelPrefixStatus)
+				fmt.Printf("%-16s %-5s [%s] %s\n  → %s\n\n", o.ID, oKind, oStatus, o.Title, o.Reason)
 			}
 			fmt.Printf("%d orphan(s) across %d artifacts\n", report.TotalOrphans, report.TotalScanned)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&scope, "scope", "", "filter by scope")
-	cmd.Flags().StringVar(&status, "status", "", "filter by status (default: non-terminal)")
 	cmd.Flags().StringVar(&format, "format", "text", "output format (text, json)")
 	return cmd
 }
@@ -507,7 +531,14 @@ func SearchCmd() *cobra.Command {
 		RunE: func(_ *cobra.Command, args []string) error {
 			svc, cleanup := MustService()
 			defer cleanup()
-			li := parchment.ListInput{Kind: kind, Scope: scope, Status: status}
+			var searchLabels []string
+			if kind != "" {
+				searchLabels = append(searchLabels, parchment.LabelPrefixKind+kind)
+			}
+			if status != "" {
+				searchLabels = append(searchLabels, parchment.LabelPrefixStatus+status)
+			}
+			li := parchment.ListInput{Labels: searchLabels, Scope: scope}
 			matched, err := svc.Proto.SearchArtifacts(context.Background(), args[0], li)
 			if err != nil {
 				return err

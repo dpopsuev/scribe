@@ -16,7 +16,6 @@ import (
 	"github.com/dpopsuev/scribe/embed"
 )
 
-
 // countingEmbedFunc returns an EmbeddingFunc that counts calls and sleeps
 // for the given duration to simulate Ollama latency.
 func countingEmbedFunc(calls *int64, latency time.Duration) parchment.EmbeddingFunc {
@@ -50,17 +49,14 @@ func newStressProto(t *testing.T, artifactCount int, embedFn parchment.Embedding
 		parchment.ProtocolConfig{EmbedFunc: embedFn, EmbedModel: "stress-model"})
 	ctx := context.Background()
 	for i := range artifactCount {
-		_, err := proto.CreateArtifact(ctx, parchment.CreateInput{
-			Kind: "note", Scope: "test",
-			Title: strings.Repeat("stress test artifact content ", 10),
-		})
+		_, err := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Scope: "test",
+			Title: strings.Repeat("stress test artifact content ", 10)})
 		if err != nil {
 			t.Fatalf("create artifact %d: %v", i, err)
 		}
 	}
 	return proto
 }
-
 
 func TestEmbedder_Stress_Throughput(t *testing.T) {
 	// Given: 500 artifacts, embedFunc completes instantly, 8 workers.
@@ -96,7 +92,6 @@ func TestEmbedder_Stress_Throughput(t *testing.T) {
 	}
 }
 
-
 func TestEmbedder_Stress_Backpressure(t *testing.T) {
 	// Given: channel capacity 4096, enqueue 8000 IDs at once.
 	// When: Enqueue is called for all 8000.
@@ -122,7 +117,6 @@ func TestEmbedder_Stress_Backpressure(t *testing.T) {
 	}
 	t.Logf("8000 Enqueue calls took %v (non-blocking confirmed)", elapsed)
 }
-
 
 func TestEmbedder_Stress_AIMDScaling(t *testing.T) {
 	// Given: embedFunc is fast (5ms) for first 50 calls, then slow (600ms).
@@ -162,7 +156,6 @@ func TestEmbedder_Stress_AIMDScaling(t *testing.T) {
 	}
 }
 
-
 func TestEmbedder_Stress_RaceDetection(t *testing.T) {
 	// Concurrent Enqueue + Sweep + ProcessOne + Stop under the race detector.
 	// Run with: go test ./embed/... -race -run TestEmbedder_Stress_RaceDetection
@@ -200,7 +193,6 @@ func TestEmbedder_Stress_RaceDetection(t *testing.T) {
 	t.Logf("race test: %d embed calls completed without data race", atomic.LoadInt64(&calls))
 }
 
-
 func TestEmbedder_Stress_LongText(t *testing.T) {
 	// Given: an artifact with 8000-char content.
 	// When: ProcessOne is called.
@@ -231,8 +223,7 @@ func TestEmbedder_Stress_LongText(t *testing.T) {
 
 	// Create an artifact with a long section.
 	ctx := context.Background()
-	art, err := proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind: "note", Scope: "test", Title: "long text stress test",
+	art, err := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Scope: "test", Title: "long text stress test",
 		Sections: []parchment.Section{{Name: "body", Text: longText}},
 	})
 	if err != nil {

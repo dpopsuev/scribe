@@ -123,7 +123,7 @@ func TestIngestSession_PiFormat(t *testing.T) {
 	}
 
 	// A source artifact for the session must have been created.
-	sources, err := proto.ListArtifacts(ctx, parchment.ListInput{Kind: parchment.KindSource, Scope: "test"})
+	sources, err := proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindSource}, Scope: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestIngestSession_ClaudeFormat(t *testing.T) {
 		t.Fatalf("ingest_session action not implemented: %s", out)
 	}
 
-	sources, _ := proto.ListArtifacts(ctx, parchment.ListInput{Kind: parchment.KindSource, Scope: "test"})
+	sources, _ := proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindSource}, Scope: "test"})
 	if len(sources) == 0 {
 		t.Fatal("expected source artifact for Claude session")
 	}
@@ -186,7 +186,7 @@ func TestIngestSession_ExtractsCompactionSummary(t *testing.T) {
 	all, _ := proto.ListArtifacts(ctx, parchment.ListInput{Scope: "test"})
 	hasCompactionNote := false
 	for _, a := range all {
-		if a.Kind == parchment.KindContext || a.Kind == parchment.KindNote {
+		if a.ResolvedKind() == parchment.KindContext || a.ResolvedKind() == parchment.KindNote {
 			for _, sec := range a.Sections {
 				if strings.Contains(sec.Text, "retry") || strings.Contains(sec.Text, "backoff") {
 					hasCompactionNote = true
@@ -210,7 +210,7 @@ func TestIngestSession_Idempotent(t *testing.T) {
 	call(map[string]any{"action": "ingest_session", "path": path, "scope": "test"})
 	call(map[string]any{"action": "ingest_session", "path": path, "scope": "test"})
 
-	sources, _ := proto.ListArtifacts(ctx, parchment.ListInput{Kind: parchment.KindSource, Scope: "test"})
+	sources, _ := proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindSource}, Scope: "test"})
 	// Should have exactly one source for this session, not two.
 	sessionSources := 0
 	for _, s := range sources {
@@ -244,7 +244,7 @@ func TestIngestSession_Directory(t *testing.T) {
 		t.Fatalf("directory ingest failed: %s", out)
 	}
 
-	sources, _ := proto.ListArtifacts(ctx, parchment.ListInput{Kind: parchment.KindSource, Scope: "test"})
+	sources, _ := proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindSource}, Scope: "test"})
 	if len(sources) < 2 {
 		t.Errorf("directory ingest should create one source per session file, got %d", len(sources))
 	}

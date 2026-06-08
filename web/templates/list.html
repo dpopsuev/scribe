@@ -2,9 +2,9 @@
 <h1>Artifacts</h1>
 
 <form method="get" action="/artifacts" role="group">
-  <input type="text" name="kind" placeholder="kind" value="{{.Filter.Kind}}">
+  <input type="text" name="kind" placeholder="kind" value="">
   <input type="text" name="scope" placeholder="scope" value="{{.Filter.Scope}}">
-  <input type="text" name="status" placeholder="status" value="{{.Filter.Status}}">
+  <input type="text" name="status" placeholder="status" value="">
   <button type="submit">Filter</button>
 </form>
 
@@ -18,10 +18,10 @@
     <tr>
       <td><a href="/artifacts/{{.ID}}">{{.ID}}</a></td>
       <td>
-        <span class="kind-dot" style="background:var(--color-kind-{{.Kind}},#94a3b8)"></span>{{.Kind}}
+        <span class="kind-dot" style="background:var(--color-kind-{{.ResolvedKind}},#94a3b8)"></span>{{.ResolvedKind}}
       </td>
       <td>{{.Scope}}</td>
-      <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
+      <td><span class="badge badge-{{.ResolvedStatus}}">{{.ResolvedStatus}}</span></td>
       <td>{{.Title}}</td>
       <td><a href="/tree/{{.ID}}">tree</a></td>
     </tr>

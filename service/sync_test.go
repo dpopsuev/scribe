@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -54,14 +55,14 @@ Given expired token, returns 401.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if art.Kind != "task" {
-		t.Errorf("kind = %q, want task", art.Kind)
+	if art.ResolvedKind() != "task" {
+		t.Errorf("kind = %q, want task", art.ResolvedKind())
 	}
 	if art.Priority != "high" {
 		t.Errorf("priority = %q, want high", art.Priority)
 	}
-	if len(art.Labels) == 0 || art.Labels[0] != "go" {
-		t.Errorf("labels = %v, want [go security]", art.Labels)
+	if !slices.Contains(art.Labels, "go") || !slices.Contains(art.Labels, "security") {
+		t.Errorf("labels = %v, want to contain go and security", art.Labels)
 	}
 	var ctxText, acceptText string
 	for _, sec := range art.Sections {
@@ -115,8 +116,8 @@ func TestExportScope_WritesFiles(t *testing.T) {
 	svc := newTestService(t, "scribe")
 
 	_, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind: "note", Title: "Design notes", Scope: "scribe",
-		Labels:   []string{"architecture"},
+		Labels: []string{"kind:note", "architecture"},
+		Title:  "Design notes", Scope: "scribe",
 		Sections: []parchment.Section{{Name: "body", Text: "Key insight here."}},
 	})
 	if err != nil {
@@ -157,7 +158,8 @@ func TestRoundTrip_ExportThenSync(t *testing.T) {
 	// Create two artifacts
 	for _, title := range []string{"Alpha note", "Beta note"} {
 		_, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-			Kind: "note", Title: title, Scope: "test",
+			Labels: []string{"kind:note"},
+			Title:  title, Scope: "test",
 			Sections: []parchment.Section{{Name: "body", Text: title + " body."}},
 		})
 		if err != nil {
@@ -185,7 +187,7 @@ func TestRoundTrip_ExportThenSync(t *testing.T) {
 	}
 
 	// Both artifacts should be retrievable by ID
-	arts, _ := svc2.Proto.Store().List(ctx, parchment.Filter{Kind: "note"})
+	arts, _ := svc2.Proto.Store().List(ctx, parchment.Filter{Labels: []string{"kind:note"}})
 	if len(arts) != 2 {
 		t.Errorf("expected 2 notes after round-trip, got %d", len(arts))
 	}
@@ -208,7 +210,7 @@ func TestSyncDir_DerivedIDWhenNoFrontmatter(t *testing.T) {
 	}
 
 	// List via store directly (SyncDir sets scope=global, outside homeScopes)
-	arts, _ := svc.Proto.Store().List(ctx, parchment.Filter{Kind: "note"})
+	arts, _ := svc.Proto.Store().List(ctx, parchment.Filter{Labels: []string{"kind:note"}})
 	if len(arts) == 0 {
 		t.Fatal("no artifacts after sync")
 	}

@@ -262,8 +262,7 @@ func (e *Embedder) ProcessOne(ctx context.Context, id string) {
 // Sweep finds artifacts without the "encoded" label and queues them.
 func (e *Embedder) Sweep(ctx context.Context) {
 	arts, err := e.proto.ListArtifacts(ctx, parchment.ListInput{
-		ExcludeLabels: []string{parchment.LabelEncoded(e.model)},
-		ExcludeKind:   "edge_type_definition",
+		ExcludeLabels: []string{parchment.LabelEncoded(e.model), parchment.LabelPrefixKind + "edge_type_definition"},
 	})
 	if err != nil {
 		slog.WarnContext(ctx, "embed: sweep list failed", slog.Any(parchment.LogKeyError, err))

@@ -117,7 +117,7 @@ func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, devU
 
 	// Seed once on first run; skip if templates already exist.
 	if cfg.SeedDir != "" {
-		templates, _ := svc.Proto.ListArtifacts(context.Background(), parchment.ListInput{Kind: "template"})
+		templates, _ := svc.Proto.ListArtifacts(context.Background(), parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + "template"}})
 		if len(templates) == 0 {
 			result, seedErr := svc.Proto.Seed(context.Background(), cfg.SeedDir)
 			if seedErr != nil {

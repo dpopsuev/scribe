@@ -16,7 +16,8 @@ func (s *Service) BriefMemoryLines(ctx context.Context, scope string, n int) []s
 	var knowledge []*parchment.Artifact
 	for _, kind := range []string{parchment.KindNote, parchment.KindConcept} {
 		arts, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{
-			Kind: kind, Status: parchment.StatusEvergreen, Scope: scope,
+			Labels: []string{parchment.LabelPrefixKind + kind, parchment.LabelPrefixStatus + parchment.StatusEvergreen},
+			Scope:  scope,
 		})
 		knowledge = append(knowledge, arts...)
 	}
@@ -43,7 +44,7 @@ func (s *Service) BriefMemoryLines(ctx context.Context, scope string, n int) []s
 				age = fmt.Sprintf("%dd ago", days)
 			}
 		}
-		line := fmt.Sprintf("  [%s] %s", a.Kind, a.Title)
+		line := fmt.Sprintf("  [%s] %s", a.ResolvedKind(), a.Title)
 		if age != "" {
 			line += "  (" + age + ")"
 		}
@@ -55,7 +56,8 @@ func (s *Service) BriefMemoryLines(ctx context.Context, scope string, n int) []s
 // OrientSessionLines returns formatted lines describing recently ingested sessions.
 func (s *Service) OrientSessionLines(ctx context.Context, scope string, n int) []string {
 	sources, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{
-		Kind: parchment.KindSource, Scope: scope,
+		Labels: []string{parchment.LabelPrefixKind + parchment.KindSource},
+		Scope:  scope,
 	})
 	type sessionSource struct {
 		art        *parchment.Artifact

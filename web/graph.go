@@ -215,7 +215,7 @@ func fetchArtifacts(ctx context.Context, proto *parchment.Protocol, scope string
 	for _, st := range statuses {
 		batch, err := proto.ListArtifacts(ctx, parchment.ListInput{
 			Scope:  scope,
-			Status: strings.TrimSpace(st),
+			Labels: []string{parchment.LabelPrefixStatus + strings.TrimSpace(st)},
 		})
 		if err != nil {
 			return nil, err
@@ -287,10 +287,21 @@ func (s *Server) handleAPIScopes(w http.ResponseWriter, r *http.Request) {
 
 // handleAPICreateArtifact handles POST /api/artifacts.
 func (s *Server) handleAPICreateArtifact(w http.ResponseWriter, r *http.Request) {
-	var in parchment.CreateInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+	var raw struct {
+		parchment.CreateInput
+		Kind   string `json:"kind,omitempty"`
+		Status string `json:"status,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
 		http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
 		return
+	}
+	in := raw.CreateInput
+	if raw.Kind != "" {
+		in.Labels = append([]string{parchment.LabelPrefixKind + raw.Kind}, in.Labels...)
+	}
+	if raw.Status != "" {
+		in.Labels = append(in.Labels, parchment.LabelPrefixStatus+raw.Status)
 	}
 	art, err := s.proto.CreateArtifact(r.Context(), in)
 	if err != nil {

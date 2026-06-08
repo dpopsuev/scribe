@@ -84,8 +84,7 @@ func TestSemanticRecall_FlagRankedFirst(t *testing.T) {
 
 	var flagID string
 	for _, entry := range corpus {
-		art, err := proto.CreateArtifact(ctx, parchment.CreateInput{
-			Kind:  "note",
+		art, err := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"},
 			Title: entry.title,
 			Scope: "test",
 			Sections: []parchment.Section{

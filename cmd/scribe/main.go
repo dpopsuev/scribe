@@ -61,7 +61,6 @@ func main() {
 		cmds.CapsuleCmd(),
 		cmds.SyncCmd(),
 		cmds.DaemonCmd(),
-		cmds.MigrateCmd(),
 	)
 
 	if err := root.Execute(); err != nil {

@@ -51,14 +51,14 @@ func (s *Service) ContextRead(ctx context.Context, taskID string) (*ContextPacke
 			Labels: userLabels,
 		})
 		for _, art := range all {
-			if art.Kind == parchment.KindNote || art.Kind == parchment.KindConcept {
+			if art.ResolvedKind() == parchment.KindNote || art.ResolvedKind() == parchment.KindConcept {
 				know = append(know, art)
 			}
 		}
 	}
 
 	rules := s.resolveRules(ctx, task.Labels)
-	kindHints := s.resolveKindHints(ctx, task.Kind)
+	kindHints := s.resolveKindHints(ctx, task.ResolvedKind())
 
 	return &ContextPacket{
 		Task:      task,

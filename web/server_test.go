@@ -22,25 +22,15 @@ func setup(t *testing.T) *web.Server {
 
 	ctx := context.Background()
 	s.Put(ctx, &parchment.Artifact{
-		ID: "TASK-2026-001", Kind: "task", Scope: "test",
-		Status: "active", Title: "Test Task",
+		Labels: []string{"kind:task", "status:active"}, ID: "TASK-2026-001", Scope: "test", Title: "Test Task",
 		Sections: []parchment.Section{
 			{Name: "design", Text: "## Overview\n\nThis is a **test** design."},
 		},
 	})
-	s.Put(ctx, &parchment.Artifact{
-		ID: "CMP-2026-001", Kind: "campaign", Scope: "test",
-		Status: "active", Title: "Test Campaign",
-	})
-	s.Put(ctx, &parchment.Artifact{
-		ID: "GOL-2026-001", Kind: "goal", Scope: "test",
-		Status: "current", Title: "Test Goal",
-	})
-	s.Put(ctx, &parchment.Artifact{
-		ID: "TASK-2026-002", Kind: "task", Scope: "test",
-		Status: "active", Title: "Child Task",
-		Parent: "GOL-2026-001",
-	})
+	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:campaign", "status:active"}, ID: "CMP-2026-001", Scope: "test", Title: "Test Campaign"})
+	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:goal", "status:current"}, ID: "GOL-2026-001", Scope: "test", Title: "Test Goal"})
+	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "status:active"}, ID: "TASK-2026-002", Scope: "test", Title: "Child Task",
+		Parent: "GOL-2026-001"})
 
 	proto := parchment.New(s, nil, []string{"test"}, nil, parchment.ProtocolConfig{})
 	return web.NewServer(proto, "dev", "")
@@ -176,9 +166,7 @@ func TestEventFeed_EmitsSSE(t *testing.T) {
 	proto := parchment.New(s, nil, []string{"test"}, nil, parchment.ProtocolConfig{})
 	before := "1970-01-01T00:00:00Z"
 
-	art, err := proto.CreateArtifact(context.Background(), parchment.CreateInput{
-		Kind: parchment.KindTask, Title: "SSE test artifact", Scope: "test",
-	})
+	art, err := proto.CreateArtifact(context.Background(), parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "SSE test artifact", Scope: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}

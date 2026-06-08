@@ -42,16 +42,14 @@ func newConsolidatedServer(t *testing.T) (proto *parchment.Protocol, callArtifac
 	return
 }
 
-
 // TestConsolidation_ArtifactRecall verifies that recall moved from the knowledge
 // tool to the artifact tool. artifact(action=recall) must find knowledge artifacts.
 func TestConsolidation_ArtifactRecall(t *testing.T) {
 	proto, callArtifact, _ := newConsolidatedServer(t)
 	ctx := context.Background()
 
-	_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind: parchment.KindNote, Title: "template conformance deferred",
-		Scope: "test", Status: parchment.StatusEvergreen,
+	_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindNote, parchment.LabelPrefixStatus + parchment.StatusEvergreen}, Title: "template conformance deferred",
+		Scope:    "test",
 		Sections: []parchment.Section{{Name: "body", Text: "conformance fires on promote not create"}},
 	})
 
@@ -96,12 +94,8 @@ func TestConsolidation_ArtifactListKnowledgeFamily(t *testing.T) {
 	proto, callArtifact, _ := newConsolidatedServer(t)
 	ctx := context.Background()
 
-	_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind: parchment.KindNote, Title: "a fleeting note", Scope: "test",
-	})
-	_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind: parchment.KindTask, Title: "a task", Scope: "test",
-	})
+	_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindNote}, Title: "a fleeting note", Scope: "test"})
+	_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "a task", Scope: "test"})
 
 	out := callArtifact(map[string]any{
 		"action": "list",
@@ -117,7 +111,6 @@ func TestConsolidation_ArtifactListKnowledgeFamily(t *testing.T) {
 		t.Errorf("artifact(list, family=knowledge) must show knowledge artifacts\nGot: %s", out)
 	}
 }
-
 
 // TestConsolidation_AdminIngestSession verifies that ingest_session moved from
 // the knowledge tool to the admin tool.
@@ -141,7 +134,6 @@ func TestConsolidation_AdminIngestSession(t *testing.T) {
 		t.Error("admin(action=ingest_session) must return output")
 	}
 }
-
 
 // // TestConsolidation_BatchCreate_Folded verifies that batch_create is folded
 // into create with an artifacts[] parameter.

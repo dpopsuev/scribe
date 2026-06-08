@@ -1,8 +1,8 @@
 <div class="fragment-header">
   <h3><a href="/artifacts/{{.Artifact.ID}}" target="_blank">{{.Artifact.Title}}</a></h3>
   <div class="fragment-meta">
-    <span class="badge badge-{{.Artifact.Status}}">{{.Artifact.Status}}</span>
-    <span class="badge">{{.Artifact.Kind}}</span>
+    <span class="badge badge-{{labelValue .Artifact.Labels "status:"}}">{{labelValue .Artifact.Labels "status:"}}</span>
+    <span class="badge">{{labelValue .Artifact.Labels "kind:"}}</span>
     {{if .Artifact.Scope}}<span class="badge-scope">{{.Artifact.Scope}}</span>{{end}}
   </div>
 </div>

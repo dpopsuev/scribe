@@ -26,24 +26,25 @@ func (s *Service) DetectKnowledge(ctx context.Context, in DetectKnowledgeInput) 
 	var issues []string
 
 	fleetingNotes, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{
-		Kind: parchment.KindNote, Status: parchment.StatusFleeting,
-		Scope: in.Scope, CreatedBefore: threshold,
+		Labels:        []string{parchment.LabelPrefixKind + parchment.KindNote, parchment.LabelPrefixStatus + parchment.StatusFleeting},
+		Scope:         in.Scope,
+		CreatedBefore: threshold,
 	})
 	for _, art := range fleetingNotes {
 		issues = append(issues, fmt.Sprintf("%-20s %-8s [fleeting >%dd] %s",
-			art.ID, art.Kind, staleDays, art.Title))
+			art.ID, art.ResolvedKind(), staleDays, art.Title))
 	}
 
-	sources, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Kind: parchment.KindSource, Scope: in.Scope})
+	sources, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindSource}, Scope: in.Scope})
 	for _, art := range sources {
 		backlinks, _ := s.Proto.Backlinks(ctx, art.ID, parchment.RelCites)
 		if len(backlinks) == 0 {
 			issues = append(issues, fmt.Sprintf("%-20s %-8s [no cites] %s",
-				art.ID, art.Kind, art.Title))
+				art.ID, art.ResolvedKind(), art.Title))
 		}
 	}
 
-	contexts, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Kind: parchment.KindContext, Scope: in.Scope})
+	contexts, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindContext}, Scope: in.Scope})
 	for _, art := range contexts {
 		neighbors, _ := s.Proto.GetArtifactEdges(ctx, art.ID)
 		remembersCount := 0
@@ -54,7 +55,7 @@ func (s *Service) DetectKnowledge(ctx context.Context, in DetectKnowledgeInput) 
 		}
 		if remembersCount == 0 {
 			issues = append(issues, fmt.Sprintf("%-20s %-8s [no remembers] %s",
-				art.ID, art.Kind, art.Title))
+				art.ID, art.ResolvedKind(), art.Title))
 		}
 	}
 
@@ -79,7 +80,7 @@ func (s *Service) LintUnresolvedWikilinks(ctx context.Context, scope string) []s
 	kinds := []string{parchment.KindNote, parchment.KindJournal, parchment.KindConcept}
 	var issues []string
 	for _, kind := range kinds {
-		arts, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Kind: kind, Scope: scope})
+		arts, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + kind}, Scope: scope})
 		for _, art := range arts {
 			body := ""
 			for _, sec := range art.Sections {
@@ -105,7 +106,7 @@ func (s *Service) LintOrphanedNotes(ctx context.Context, scope string) []string 
 	kinds := []string{parchment.KindNote, parchment.KindConcept, parchment.KindSource}
 	var issues []string
 	for _, kind := range kinds {
-		arts, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Kind: kind, Scope: scope})
+		arts, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + kind}, Scope: scope})
 		for _, art := range arts {
 			edges, _ := s.Proto.GetArtifactEdges(ctx, art.ID)
 			connected := false
@@ -117,7 +118,7 @@ func (s *Service) LintOrphanedNotes(ctx context.Context, scope string) []string 
 			}
 			if !connected {
 				issues = append(issues, fmt.Sprintf("%s [%s|%s] %s — no knowledge edges",
-					art.ID, art.Kind, art.Status, art.Title))
+					art.ID, art.ResolvedKind(), art.ResolvedStatus(), art.Title))
 			}
 		}
 	}
@@ -126,7 +127,7 @@ func (s *Service) LintOrphanedNotes(ctx context.Context, scope string) []string 
 
 // LintClusterGaps finds source clusters with 3+ citing notes but no synthesis.
 func (s *Service) LintClusterGaps(ctx context.Context, scope string) []string {
-	sources, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Kind: parchment.KindSource, Scope: scope})
+	sources, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindSource}, Scope: scope})
 	var issues []string
 	for _, src := range sources {
 		backlinks, _ := s.Proto.Backlinks(ctx, src.ID, parchment.RelCites)
@@ -184,13 +185,13 @@ func (s *Service) KnowledgeCatalog(ctx context.Context, scope string) (*Knowledg
 		parchment.StatusFleeting:  2,
 	}
 	for _, g := range groups {
-		arts, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Kind: g.kind, Scope: scope})
+		arts, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + g.kind}, Scope: scope})
 		if len(arts) == 0 {
 			continue
 		}
 		for i := 1; i < len(arts); i++ {
 			for j := i; j > 0; j-- {
-				ai, aj := statusOrder[arts[j].Status], statusOrder[arts[j-1].Status]
+				ai, aj := statusOrder[arts[j].ResolvedStatus()], statusOrder[arts[j-1].ResolvedStatus()]
 				if ai == 0 && aj == 0 {
 					ai, aj = 99, 99
 				}
@@ -219,7 +220,7 @@ func (s *Service) KnowledgeCatalog(ctx context.Context, scope string) (*Knowledg
 				}
 			}
 			fmt.Fprintf(&b, "  %-22s [%s|%s]%s  %d edges\n",
-				art.ID, art.Kind, art.Status, labelStr, len(edges))
+				art.ID, art.ResolvedKind(), art.ResolvedStatus(), labelStr, len(edges))
 			if summary != "" {
 				fmt.Fprintf(&b, "  %s\n", summary)
 			}
@@ -262,11 +263,11 @@ func (s *Service) KnowledgeOrient(ctx context.Context, scope string) (string, er
 	fleeting, evergreen := 0, 0
 	var all []*parchment.Artifact
 	for _, kind := range knowledgeKinds {
-		arts, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Kind: kind, Scope: scope})
+		arts, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + kind}, Scope: scope})
 		totalByKind[kind] = len(arts)
 		all = append(all, arts...)
 		for _, a := range arts {
-			switch a.Status {
+			switch a.ResolvedStatus() {
 			case parchment.StatusFleeting:
 				fleeting++
 			case parchment.StatusEvergreen:

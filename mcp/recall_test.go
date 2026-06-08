@@ -36,8 +36,7 @@ func TestRecall_FindsRelevantNote(t *testing.T) {
 	proto, call := newRecallServer(t)
 	ctx := context.Background()
 
-	_, err := proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind:  parchment.KindNote,
+	_, err := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindNote},
 		Title: "SetField rejects unknown fields",
 		Scope: "test",
 		Sections: []parchment.Section{
@@ -70,12 +69,9 @@ func TestRecall_ActiveWorkExcluded(t *testing.T) {
 	ctx := context.Background()
 
 	// Active task — should NOT appear in recall
-	activeTask, _ := proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind: parchment.KindTask, Title: "implement retry logic", Scope: "test",
-	})
+	activeTask, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "implement retry logic", Scope: "test"})
 	// Knowledge note — SHOULD appear
-	note, _ := proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind: parchment.KindNote, Title: "retry logic pattern", Scope: "test",
+	note, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindNote}, Title: "retry logic pattern", Scope: "test",
 		Sections: []parchment.Section{{Name: "body", Text: "exponential backoff with jitter, cap at 5 retries"}},
 	})
 
@@ -100,12 +96,9 @@ func TestRecall_CompletedTaskIsMemory(t *testing.T) {
 	ctx := context.Background()
 
 	// Create and complete a task
-	task, _ := proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind:  parchment.KindTask,
-		Title: "Remove SetField Extra fallback — error on unknown fields",
+	task, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "Remove SetField Extra fallback — error on unknown fields",
 		Scope: "test",
-		Goal:  "SetField must reject unknown fields instead of writing silently to Extra",
-	})
+		Goal:  "SetField must reject unknown fields instead of writing silently to Extra"})
 	_, _ = proto.SetField(ctx, []string{task.ID}, parchment.FieldStatus, parchment.StatusComplete, parchment.SetFieldOptions{Force: true})
 
 	out := call(map[string]any{
@@ -125,12 +118,9 @@ func TestRecall_CompletedDecisionIsMemory(t *testing.T) {
 	proto, call := newRecallServer(t)
 	ctx := context.Background()
 
-	decision, _ := proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind:  parchment.KindDecision,
-		Title: "Template conformance fires on promote not create",
+	decision, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindDecision}, Title: "Template conformance fires on promote not create",
 		Scope: "test",
-		Goal:  "Partial drafts accepted at create time, full validation deferred to promote",
-	})
+		Goal:  "Partial drafts accepted at create time, full validation deferred to promote"})
 	_, _ = proto.SetField(ctx, []string{decision.ID}, parchment.FieldStatus, "accepted", parchment.SetFieldOptions{Force: true})
 
 	out := call(map[string]any{
@@ -150,14 +140,12 @@ func TestRecall_EvergreenRanksHigher(t *testing.T) {
 	proto, call := newRecallServer(t)
 	ctx := context.Background()
 
-	fleeting, _ := proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind: parchment.KindNote, Title: "template conformance fleeting",
-		Scope: "test", Status: parchment.StatusFleeting,
+	fleeting, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindNote, parchment.LabelPrefixStatus + parchment.StatusFleeting}, Title: "template conformance fleeting",
+		Scope:    "test",
 		Sections: []parchment.Section{{Name: "body", Text: "template conformance check fires on promote"}},
 	})
-	evergreen, _ := proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind: parchment.KindNote, Title: "template conformance evergreen",
-		Scope: "test", Status: parchment.StatusEvergreen,
+	evergreen, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindNote, parchment.LabelPrefixStatus + parchment.StatusEvergreen}, Title: "template conformance evergreen",
+		Scope:    "test",
 		Sections: []parchment.Section{{Name: "body", Text: "template conformance check fires on promote not create"}},
 	})
 
@@ -186,8 +174,7 @@ func TestRecall_RecentRanksHigher(t *testing.T) {
 	proto, call := newRecallServer(t)
 	ctx := context.Background()
 
-	older, _ := proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind: parchment.KindNote, Title: "wikilink resolution old",
+	older, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindNote}, Title: "wikilink resolution old",
 		Scope:    "test",
 		Sections: []parchment.Section{{Name: "body", Text: "wikilinks are resolved on attach_section"}},
 	})
@@ -195,8 +182,7 @@ func TestRecall_RecentRanksHigher(t *testing.T) {
 	_, _ = proto.SetField(ctx, []string{older.ID}, "created_at",
 		time.Now().Add(-30*24*time.Hour).Format(time.RFC3339))
 
-	newer, _ := proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind: parchment.KindNote, Title: "wikilink resolution new",
+	newer, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindNote}, Title: "wikilink resolution new",
 		Scope:    "test",
 		Sections: []parchment.Section{{Name: "body", Text: "wikilinks are resolved on attach_section eagerly"}},
 	})
@@ -248,8 +234,7 @@ func TestRecall_LimitTopN(t *testing.T) {
 	ctx := context.Background()
 
 	for i := range 8 {
-		_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{
-			Kind:  parchment.KindNote,
+		_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindNote},
 			Title: "parchment protocol change",
 			Scope: "test",
 			Sections: []parchment.Section{

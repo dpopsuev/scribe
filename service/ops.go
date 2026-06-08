@@ -51,7 +51,7 @@ var opTopoSort = Op{
 			schema := svc.Proto.Schema()
 			var ready []parchment.TopoEntry
 			for _, e := range entries {
-				if schema.IsTerminal(e.Status) {
+				if schema.IsTerminal(labelVal(e.Labels, parchment.LabelPrefixStatus)) {
 					continue
 				}
 				art, _ := svc.Proto.GetArtifact(ctx, e.ID)
@@ -61,7 +61,7 @@ var opTopoSort = Op{
 				blocked := false
 				for _, depID := range art.DependsOn {
 					dep, _ := svc.Proto.GetArtifact(ctx, depID)
-					if dep != nil && !schema.IsTerminal(dep.Status) {
+					if dep != nil && !schema.IsTerminal(dep.ResolvedStatus()) {
 						blocked = true
 						break
 					}
@@ -84,7 +84,7 @@ var opTopoSort = Op{
 		}
 		var b strings.Builder
 		for i, e := range entries {
-			fmt.Fprintf(&b, "%d. %s [%s] %s", i+1, e.ID, e.Status, e.Title)
+			fmt.Fprintf(&b, "%d. %s [%s] %s", i+1, e.ID, labelVal(e.Labels, parchment.LabelPrefixStatus), e.Title)
 			if e.Priority != "" && e.Priority != "none" {
 				fmt.Fprintf(&b, " (%s)", e.Priority)
 			}
@@ -290,8 +290,8 @@ func getDiff(ctx context.Context, svc *Service, idA, idB string) (string, error)
 	}
 	var lines []string
 	for _, f := range []struct{ name, va, vb string }{
-		{"kind", artifactA.Kind, artifactB.Kind}, {"scope", artifactA.Scope, artifactB.Scope},
-		{"status", artifactA.Status, artifactB.Status}, {"title", artifactA.Title, artifactB.Title},
+		{"kind", artifactA.ResolvedKind(), artifactB.ResolvedKind()}, {"scope", artifactA.Scope, artifactB.Scope},
+		{"status", artifactA.ResolvedStatus(), artifactB.ResolvedStatus()}, {"title", artifactA.Title, artifactB.Title},
 		{"parent", artifactA.Parent, artifactB.Parent}, {"priority", artifactA.Priority, artifactB.Priority},
 	} {
 		if f.va != f.vb {
@@ -342,8 +342,8 @@ func getSummary(ctx context.Context, svc *Service, ids []string) (string, error)
 			return "", fmt.Errorf("get %s: %w", id, err)
 		}
 		results = append(results, summary{
-			ID: art.ID, Title: art.Title, Kind: art.Kind, Scope: art.Scope,
-			Status: art.Status, Priority: art.Priority, Parent: art.Parent, Sprint: art.Sprint,
+			ID: art.ID, Title: art.Title, Kind: art.ResolvedKind(), Scope: art.Scope,
+			Status: art.ResolvedStatus(), Priority: art.Priority, Parent: art.Parent, Sprint: art.Sprint,
 		})
 	}
 	if len(results) == 1 {
@@ -412,12 +412,12 @@ func getImpact(ctx context.Context, svc *Service, id string) (string, error) {
 		return "", err
 	}
 	var lines []string
-	lines = append(lines, fmt.Sprintf("Impact analysis for %s [%s] %s:", id, art.Status, art.Title))
+	lines = append(lines, fmt.Sprintf("Impact analysis for %s [%s] %s:", id, art.ResolvedStatus(), art.Title))
 	children, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{Parent: id})
 	if len(children) > 0 {
 		lines = append(lines, fmt.Sprintf("\nChildren (%d):", len(children)))
 		for _, ch := range children {
-			lines = append(lines, fmt.Sprintf("  %s [%s] %s", ch.ID, ch.Status, ch.Title))
+			lines = append(lines, fmt.Sprintf("  %s [%s] %s", ch.ID, ch.ResolvedStatus(), ch.Title))
 		}
 	}
 	depEdges, _ := svc.Proto.GetArtifactEdges(ctx, id)
@@ -426,9 +426,9 @@ func getImpact(ctx context.Context, svc *Service, id string) (string, error) {
 		if e.Direction == "incoming" { //nolint:goconst // "incoming" is a domain constant defined in parchment
 			switch e.Relation {
 			case "depends_on":
-				dependents = append(dependents, fmt.Sprintf("  %s [%s] %s", e.Target.ID, e.Target.Status, e.Target.Title))
+				dependents = append(dependents, fmt.Sprintf("  %s [%s] %s", e.Target.ID, labelVal(e.Target.Labels, parchment.LabelPrefixStatus), e.Target.Title))
 			case "implements":
-				implementors = append(implementors, fmt.Sprintf("  %s [%s] %s", e.Target.ID, e.Target.Status, e.Target.Title))
+				implementors = append(implementors, fmt.Sprintf("  %s [%s] %s", e.Target.ID, labelVal(e.Target.Labels, parchment.LabelPrefixStatus), e.Target.Title))
 			}
 		}
 	}
@@ -486,7 +486,7 @@ func renderTreeNode(node *parchment.TreeNode, prefix string, last, showScope boo
 	if showScope && node.Scope != "" {
 		scopeLabel = fmt.Sprintf(" [%s]", node.Scope)
 	}
-	fmt.Fprintf(b, "%s%s%s%s%s [%s] %s\n", prefix, connector, edgeLabel, node.ID, scopeLabel, node.Status, node.Title)
+	fmt.Fprintf(b, "%s%s%s%s%s [%s] %s\n", prefix, connector, edgeLabel, node.ID, scopeLabel, labelVal(node.Labels, parchment.LabelPrefixStatus), node.Title)
 	childPrefix := prefix
 	if prefix != "" {
 		if last {
@@ -526,9 +526,11 @@ func renderBriefingNode(node *parchment.TreeNode, prefix string, last, showScope
 	if showScope && node.Scope != "" {
 		scopeLabel = fmt.Sprintf(" [%s]", node.Scope)
 	}
-	kindStatus := node.Status
-	if node.Kind != "" {
-		kindStatus = node.Kind + "|" + node.Status
+	nodeKind := labelVal(node.Labels, parchment.LabelPrefixKind)
+	nodeStatus := labelVal(node.Labels, parchment.LabelPrefixStatus)
+	kindStatus := nodeStatus
+	if nodeKind != "" {
+		kindStatus = nodeKind + "|" + nodeStatus
 	}
 	fmt.Fprintf(b, "%s%s%s%s%s [%s] %s\n", prefix, connector, edgeLabel, node.ID, scopeLabel, kindStatus, node.Title)
 	childPrefix := prefix
@@ -624,11 +626,18 @@ func createSingle(ctx context.Context, svc *Service, in *createInput) (string, e
 	if in.Title == "" {
 		return "", fmt.Errorf("title is required") //nolint:err113 // user-facing hint
 	}
+	labels := in.Labels
+	if in.Kind != "" {
+		labels = append([]string{parchment.LabelPrefixKind + in.Kind}, labels...)
+	}
+	if in.Status != "" {
+		labels = append(labels, parchment.LabelPrefixStatus+in.Status)
+	}
 	art, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind: in.Kind, Title: in.Title, Scope: in.Scope,
+		Title: in.Title, Scope: in.Scope,
 		Goal: in.Goal, Parent: in.Parent, Prefix: in.Prefix,
-		ExplicitID: in.ID, Status: in.Status, Priority: in.Priority,
-		Labels: in.Labels, DependsOn: in.DependsOn, Sections: parseSections(in.Sections),
+		ExplicitID: in.ID, Priority: in.Priority,
+		Labels: labels, DependsOn: in.DependsOn, Sections: parseSections(in.Sections),
 		Links: in.Links, Extra: in.Extra, Patch: in.Patch, SkipHooks: in.SkipHooks,
 		CreatedAt: in.CreatedAt,
 	})
@@ -640,14 +649,14 @@ func createSingle(ctx context.Context, svc *Service, in *createInput) (string, e
 		return "", err
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "created %s [%s|%s] %s", art.ID, art.Kind, art.Status, art.Title)
+	fmt.Fprintf(&b, "created %s [%s|%s] %s", art.ID, art.ResolvedKind(), art.ResolvedStatus(), art.Title)
 	if art.Parent != "" {
 		fmt.Fprintf(&b, " (parent: %s)", art.Parent)
 	}
 	schema := svc.Proto.Schema()
-	if expected := schema.GetExpectedSections(art.Kind); len(expected) > 0 {
-		must := schema.GetMustSections(art.Kind)
-		should := schema.GetShouldSections(art.Kind)
+	if expected := schema.GetExpectedSections(art.ResolvedKind()); len(expected) > 0 {
+		must := schema.GetMustSections(art.ResolvedKind())
+		should := schema.GetShouldSections(art.ResolvedKind())
 		var hints []string
 		for _, s := range must {
 			hints = append(hints, s+" (must)")
@@ -663,16 +672,23 @@ func createSingle(ctx context.Context, svc *Service, in *createInput) (string, e
 }
 
 func createFromStash(ctx context.Context, svc *Service, in *createInput) (string, error) {
+	stashLabels := in.Labels
+	if in.Kind != "" {
+		stashLabels = append([]string{parchment.LabelPrefixKind + in.Kind}, stashLabels...)
+	}
+	if in.Status != "" {
+		stashLabels = append(stashLabels, parchment.LabelPrefixStatus+in.Status)
+	}
 	art, err := svc.Proto.PromoteStash(ctx, in.StashID, parchment.CreateInput{
-		Kind: in.Kind, Title: in.Title, Scope: in.Scope,
-		Goal: in.Goal, Parent: in.Parent, Status: in.Status,
-		Priority: in.Priority, Labels: in.Labels,
+		Title: in.Title, Scope: in.Scope,
+		Goal: in.Goal, Parent: in.Parent,
+		Priority: in.Priority, Labels: stashLabels,
 		Links: in.Links, Sections: parseSections(in.Sections), Patch: in.Patch,
 	})
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("promoted stash to %s: %s [%s|%s]", art.ID, art.Title, art.Kind, art.Status), nil
+	return fmt.Sprintf("promoted stash to %s: %s [%s|%s]", art.ID, art.Title, art.ResolvedKind(), art.ResolvedStatus()), nil
 }
 
 func createClone(ctx context.Context, svc *Service, in *createInput) (string, error) {
@@ -680,7 +696,7 @@ func createClone(ctx context.Context, svc *Service, in *createInput) (string, er
 	if err != nil {
 		return "", fmt.Errorf("source %s: %w", in.CloneFrom, err)
 	}
-	kind := source.Kind
+	kind := source.ResolvedKind()
 	if in.Kind != "" {
 		kind = in.Kind
 	}
@@ -692,18 +708,34 @@ func createClone(ctx context.Context, svc *Service, in *createInput) (string, er
 	if in.Title != "" {
 		title = in.Title
 	}
-	labels := source.Labels
+	// Strip system labels (kind:, status:) from source — clone starts fresh with kind and draft status.
+	var baseLabels []string
+	for _, l := range source.Labels {
+		if !strings.HasPrefix(l, parchment.LabelPrefixKind) && !strings.HasPrefix(l, parchment.LabelPrefixStatus) {
+			baseLabels = append(baseLabels, l)
+		}
+	}
 	if len(in.Labels) > 0 {
-		labels = in.Labels
+		baseLabels = in.Labels
 	}
 	sections := make([]parchment.Section, 0, len(source.Sections))
 	for _, s := range source.Sections {
 		sections = append(sections, parchment.Section{Name: s.Name, Text: s.Text})
 	}
+	cloneLabels := make([]string, 0, len(baseLabels)+2)
+	if kind != "" {
+		cloneLabels = append(cloneLabels, parchment.LabelPrefixKind+kind)
+	}
+	cloneStatus := in.Status
+	if cloneStatus == "" {
+		cloneStatus = parchment.StatusDraft
+	}
+	cloneLabels = append(cloneLabels, parchment.LabelPrefixStatus+cloneStatus)
+	cloneLabels = append(cloneLabels, baseLabels...)
 	art, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind: kind, Title: title, Scope: scope, Goal: source.Goal,
-		Parent: in.Parent, Status: in.Status, Priority: in.Priority,
-		Labels: labels, Sections: sections,
+		Title: title, Scope: scope, Goal: source.Goal,
+		Parent: in.Parent, Priority: in.Priority,
+		Labels: cloneLabels, Sections: sections,
 	})
 	if err != nil {
 		return "", fmt.Errorf("clone: %w", err)
@@ -732,17 +764,24 @@ func createBatch(ctx context.Context, svc *Service, in *createInput) (string, er
 				return "", fmt.Errorf("artifact[%d]: unresolved parent reference %q", i, parent) //nolint:err113 // batch parent resolution error contains dynamic context
 			}
 		}
+		batchLabels := ci.Labels
+		if ci.Kind != "" {
+			batchLabels = append([]string{parchment.LabelPrefixKind + ci.Kind}, batchLabels...)
+		}
+		if ci.Status != "" {
+			batchLabels = append(batchLabels, parchment.LabelPrefixStatus+ci.Status)
+		}
 		art, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-			Kind: ci.Kind, Title: ci.Title, Scope: ci.Scope,
-			Goal: ci.Goal, Parent: ci.Parent, Status: ci.Status,
-			Priority: ci.Priority, Labels: ci.Labels, Prefix: ci.Prefix,
+			Title: ci.Title, Scope: ci.Scope,
+			Goal: ci.Goal, Parent: ci.Parent,
+			Priority: ci.Priority, Labels: batchLabels, Prefix: ci.Prefix,
 			Links: ci.Links, Extra: ci.Extra, Sections: parseSections(ci.Sections),
 		})
 		if err != nil {
 			return "", fmt.Errorf("artifact[%d] %q: %w", i, ci.Title, err)
 		}
 		idRefs[fmt.Sprintf("$%d", i)] = art.ID
-		fmt.Fprintf(&b, "%s [%s] %s", art.ID, art.Kind, art.Title)
+		fmt.Fprintf(&b, "%s [%s] %s", art.ID, art.ResolvedKind(), art.Title)
 		if art.Parent != "" {
 			fmt.Fprintf(&b, " (parent: %s)", art.Parent)
 		}
@@ -916,9 +955,19 @@ var opSet = Op{
 		ids := resolveIDs(in.IDs, in.ID)
 		hasBulkFilter := in.Scope != "" || in.Kind != "" || in.Status != "" || in.IDPrefix != "" || in.ExcludeKind != ""
 		if hasBulkFilter && len(ids) == 0 {
+			var bulkLabels, bulkExclude []string
+			if in.Kind != "" {
+				bulkLabels = append(bulkLabels, parchment.LabelPrefixKind+in.Kind)
+			}
+			if in.Status != "" {
+				bulkLabels = append(bulkLabels, parchment.LabelPrefixStatus+in.Status)
+			}
+			if in.ExcludeKind != "" {
+				bulkExclude = append(bulkExclude, parchment.LabelPrefixKind+in.ExcludeKind)
+			}
 			arts, err := svc.Proto.ListArtifacts(ctx, parchment.ListInput{
-				Scope: in.Scope, Kind: in.Kind, Status: in.Status,
-				IDPrefix: in.IDPrefix, ExcludeKind: in.ExcludeKind,
+				Scope: in.Scope, IDPrefix: in.IDPrefix,
+				Labels: bulkLabels, ExcludeLabels: bulkExclude,
 			})
 			if err != nil {
 				return "", err
@@ -943,7 +992,7 @@ var opSet = Op{
 		if in.Field == parchment.FieldStatus && in.Value == parchment.StatusActive && !in.Force {
 			for _, id := range ids {
 				art, err := svc.Proto.GetArtifact(ctx, id)
-				if err != nil || art.Kind != parchment.KindTask {
+				if err != nil || art.ResolvedKind() != parchment.KindTask {
 					continue
 				}
 				if targets, ok := art.Links[parchment.RelImplements]; ok {
@@ -1005,9 +1054,9 @@ type listInput struct {
 	Fields         []string `json:"fields,omitempty"`
 	Format         string   `json:"format,omitempty"`
 	Ranked         bool     `json:"ranked,omitempty"`
-	Semantic       bool     `json:"semantic,omitempty"` // deprecated: use Mode=semantic
-	Mode           string   `json:"mode,omitempty"`     // fts (default) | semantic | hybrid
-	Session        string   `json:"session,omitempty"`  // shorthand for labels=["session:<value>"]
+	Semantic       bool     `json:"semantic,omitempty"`  // deprecated: use Mode=semantic
+	Mode           string   `json:"mode,omitempty"`      // fts (default) | semantic | hybrid
+	Session        string   `json:"session,omitempty"`   // shorthand for labels=["session:<value>"]
 	Depth          int      `json:"depth,omitempty"`     // if >0, attach ArtifactTree to each result
 	Relation       string   `json:"relation,omitempty"`  // edge relation to traverse with depth; default "*" (all)
 	Direction      string   `json:"direction,omitempty"` // inbound | outbound | both (default)
@@ -1032,9 +1081,9 @@ func resolveIDs(ids []string, id string) []string {
 
 var listValidFields = map[string]func(*parchment.Artifact) string{
 	"id":         func(a *parchment.Artifact) string { return a.ID },
-	"kind":       func(a *parchment.Artifact) string { return a.Kind },
+	"kind":       func(a *parchment.Artifact) string { return a.ResolvedKind() },
 	"scope":      func(a *parchment.Artifact) string { return a.Scope },
-	"status":     func(a *parchment.Artifact) string { return a.Status },
+	"status":     func(a *parchment.Artifact) string { return a.ResolvedStatus() },
 	"title":      func(a *parchment.Artifact) string { return a.Title },
 	"parent":     func(a *parchment.Artifact) string { return a.Parent },
 	"priority":   func(a *parchment.Artifact) string { return a.Priority },
@@ -1104,7 +1153,11 @@ var opList = Op{
 			if in.Query == "" {
 				return "", fmt.Errorf("query required for %s search", mode) //nolint:err113 // user-facing hint
 			}
-			li := parchment.ListInput{Scope: in.Scope, Kind: in.Kind, Limit: in.Limit, Labels: in.Labels}
+			semLabels := in.Labels
+			if in.Kind != "" {
+				semLabels = append([]string{parchment.LabelPrefixKind + in.Kind}, semLabels...)
+			}
+			li := parchment.ListInput{Scope: in.Scope, Limit: in.Limit, Labels: semLabels}
 			var scored []parchment.ScoredArtifact
 			var semErr error
 			scored, semErr = svc.Proto.SearchSemantic(ctx, in.Query, li)
@@ -1166,11 +1219,24 @@ var opList = Op{
 			return parchment.RenderTable(arts), nil
 		}
 
+		listLabels := in.Labels
+		if in.Kind != "" {
+			listLabels = append([]string{parchment.LabelPrefixKind + in.Kind}, listLabels...)
+		}
+		if in.Status != "" {
+			listLabels = append(listLabels, parchment.LabelPrefixStatus+in.Status)
+		}
+		listExclude := in.ExcludeLabels
+		if in.ExcludeKind != "" {
+			listExclude = append(listExclude, parchment.LabelPrefixKind+in.ExcludeKind)
+		}
+		if in.ExcludeStatus != "" {
+			listExclude = append(listExclude, parchment.LabelPrefixStatus+in.ExcludeStatus)
+		}
 		li := parchment.ListInput{
-			Kind: in.Kind, Scope: in.Scope, Status: in.Status,
+			Scope:  in.Scope,
 			Parent: in.Parent, Sprint: in.Sprint, IDPrefix: in.IDPrefix,
-			ExcludeKind: in.ExcludeKind, ExcludeStatus: in.ExcludeStatus,
-			Labels: in.Labels, LabelsOr: in.LabelsOr, ExcludeLabels: in.ExcludeLabels,
+			Labels: listLabels, LabelsOr: in.LabelsOr, ExcludeLabels: listExclude,
 			GroupBy: in.GroupBy, Sort: in.Sort, Limit: in.Limit, Cursor: in.Cursor, Query: in.Query,
 			TitleContains: in.TitleContains, Family: in.Family,
 			CreatedAfter: in.CreatedAfter, CreatedBefore: in.CreatedBefore,
@@ -1209,11 +1275,11 @@ var opList = Op{
 					var key string
 					switch in.GroupBy {
 					case "status":
-						key = a.Status
+						key = a.ResolvedStatus()
 					case "scope":
 						key = a.Scope
 					case "kind":
-						key = a.Kind
+						key = a.ResolvedKind()
 					case "sprint":
 						key = a.Sprint
 					default:
@@ -1270,10 +1336,9 @@ var opList = Op{
 		if li.Limit > 0 && li.Limit < total {
 			out += fmt.Sprintf("\n(showing %d of %d total)", len(arts), total)
 		}
-		isUnfiltered := li.Kind == "" && li.Scope == "" && li.Status == "" &&
-			li.Query == "" && li.TitleContains == "" && len(li.Labels) == 0 &&
-			len(li.LabelsOr) == 0 && li.Parent == "" && li.IDPrefix == "" &&
-			li.ExcludeKind == "" && li.ExcludeStatus == "" && li.Limit == 0
+		isUnfiltered := li.Scope == "" && li.Query == "" && li.TitleContains == "" &&
+			len(li.Labels) == 0 && len(li.LabelsOr) == 0 && len(li.ExcludeLabels) == 0 &&
+			li.Parent == "" && li.IDPrefix == "" && li.Limit == 0
 		if isUnfiltered && total > 0 {
 			out += fmt.Sprintf("\n(%d artifacts — use top=10 for relevance ranking or add scope/kind/status filters to narrow)", total)
 		}

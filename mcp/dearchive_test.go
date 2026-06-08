@@ -34,9 +34,7 @@ func TestDeArchive_RoundTrip(t *testing.T) {
 	proto, call := newDeArchiveServer(t)
 	ctx := context.Background()
 
-	art, err := proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind: parchment.KindTask, Title: "to be archived and restored", Scope: "test",
-	})
+	art, err := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "to be archived and restored", Scope: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,8 +50,8 @@ func TestDeArchive_RoundTrip(t *testing.T) {
 
 	// Verify it's archived.
 	got, _ := proto.GetArtifact(ctx, art.ID)
-	if !proto.Schema().IsReadonly(got.Status) {
-		t.Fatalf("expected archived status after archive, got: %s", got.Status)
+	if !proto.Schema().IsReadonly(got.ResolvedStatus()) {
+		t.Fatalf("expected archived status after archive, got: %s", got.ResolvedStatus())
 	}
 
 	// Restore via de-archive.
@@ -70,8 +68,8 @@ func TestDeArchive_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if restored.Status != parchment.StatusDraft {
-		t.Errorf("de-archive should restore to draft, got: %s", restored.Status)
+	if restored.ResolvedStatus() != parchment.StatusDraft {
+		t.Errorf("de-archive should restore to draft, got: %s", restored.ResolvedStatus())
 	}
 }
 
@@ -81,9 +79,7 @@ func TestDeArchive_RestoredArtifactIsWritable(t *testing.T) {
 	proto, call := newDeArchiveServer(t)
 	ctx := context.Background()
 
-	art, _ := proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind: parchment.KindTask, Title: "writable after restore", Scope: "test",
-	})
+	art, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "writable after restore", Scope: "test"})
 
 	call("artifact", map[string]any{"action": "set", "field": "status", "value": "archived", "bypass_guards": true, "id": art.ID})
 	call("artifact", map[string]any{"action": "set", "field": "status", "value": "draft", "bypass_guards": true, "force": true, "id": art.ID})
@@ -113,12 +109,8 @@ func TestDeArchive_Cascade(t *testing.T) {
 	proto, call := newDeArchiveServer(t)
 	ctx := context.Background()
 
-	parent, _ := proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind: parchment.KindGoal, Title: "parent", Scope: "test",
-	})
-	child, _ := proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind: parchment.KindTask, Title: "child", Scope: "test", Parent: parent.ID,
-	})
+	parent, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindGoal}, Title: "parent", Scope: "test"})
+	child, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "child", Scope: "test", Parent: parent.ID})
 	// Retire child first so parent can be archived (archive requires terminal children).
 	_, _ = proto.RetireArtifact(ctx, []string{child.ID}, false)
 
@@ -139,7 +131,7 @@ func TestDeArchive_Cascade(t *testing.T) {
 	}
 
 	got, _ := proto.GetArtifact(ctx, parent.ID)
-	if got.Status == parchment.StatusArchived {
+	if got.ResolvedStatus() == parchment.StatusArchived {
 		t.Error("parent still archived after de-archive")
 	}
 }
@@ -150,9 +142,7 @@ func TestDeArchive_NonArchivedReturnsError(t *testing.T) {
 	proto, call := newDeArchiveServer(t)
 	ctx := context.Background()
 
-	art, _ := proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind: parchment.KindTask, Title: "not archived", Scope: "test",
-	})
+	art, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "not archived", Scope: "test"})
 
 	out := call("artifact", map[string]any{
 		"action": "set", "field": "status", "value": "draft", "bypass_guards": true, "force": true,
@@ -167,7 +157,7 @@ func TestDeArchive_NonArchivedReturnsError(t *testing.T) {
 	}
 	// The key invariant: artifact must NOT be in archived status afterward.
 	got, _ := proto.GetArtifact(ctx, art.ID)
-	if got.Status == parchment.StatusArchived {
-		t.Errorf("de-archive of non-archived artifact must not archive it, got: %s", got.Status)
+	if got.ResolvedStatus() == parchment.StatusArchived {
+		t.Errorf("de-archive of non-archived artifact must not archive it, got: %s", got.ResolvedStatus())
 	}
 }

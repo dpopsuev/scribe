@@ -23,6 +23,15 @@ import (
 
 const formatJSON = "json"
 
+func labelVal(labels []string, prefix string) string {
+	for _, l := range labels {
+		if strings.HasPrefix(l, prefix) {
+			return strings.TrimPrefix(l, prefix)
+		}
+	}
+	return ""
+}
+
 // ConfigPath and DBPath are set by main via persistent root flags.
 // All commands read through MustConfig() which consults these vars.
 var (
@@ -131,11 +140,11 @@ func SortArts(arts []*parchment.Artifact, field string) {
 		case "title":
 			return arts[i].Title < arts[j].Title
 		case "status":
-			return arts[i].Status < arts[j].Status
+			return arts[i].ResolvedStatus() < arts[j].ResolvedStatus()
 		case "scope":
 			return arts[i].Scope < arts[j].Scope
 		case "kind":
-			return arts[i].Kind < arts[j].Kind
+			return arts[i].ResolvedKind() < arts[j].ResolvedKind()
 		case "sprint":
 			return arts[i].Sprint < arts[j].Sprint
 		default:

@@ -79,7 +79,7 @@ func (s *Service) Brief(ctx context.Context) (*BriefResult, error) { //nolint:cy
 
 	for kind, def := range schema.BriefKinds() { //nolint:gocritic // rangeValCopy: acceptable
 		arts, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{
-			Kind: kind, Status: def.ActiveStatus,
+			Labels: []string{parchment.LabelPrefixKind + kind, parchment.LabelPrefixStatus + def.ActiveStatus},
 		})
 		if def.IsGoalKind {
 			result.Goals = append(result.Goals, arts...)
@@ -93,16 +93,16 @@ func (s *Service) Brief(ctx context.Context) (*BriefResult, error) { //nolint:cy
 	unknownCounts := make(map[string]int)
 	completable, unimplemented := 0, 0
 	for _, art := range all {
-		if schema.UnknownKind(art.Kind) {
-			unknownCounts[art.Kind]++
+		if schema.UnknownKind(art.ResolvedKind()) {
+			unknownCounts[art.ResolvedKind()]++
 		}
-		isEffortKind := art.Kind == parchment.KindCampaign || art.Kind == parchment.KindGoal
-		if !schema.IsTerminal(art.Status) && isEffortKind { //nolint:nestif // brief check is inherently nested
+		isEffortKind := art.ResolvedKind() == parchment.KindCampaign || art.ResolvedKind() == parchment.KindGoal
+		if !schema.IsTerminal(art.ResolvedStatus()) && isEffortKind { //nolint:nestif // brief check is inherently nested
 			children, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Parent: art.ID})
 			if len(children) > 0 {
 				allDone := true
 				for _, ch := range children {
-					if !schema.IsTerminal(ch.Status) {
+					if !schema.IsTerminal(ch.ResolvedStatus()) {
 						allDone = false
 						break
 					}
@@ -112,7 +112,7 @@ func (s *Service) Brief(ctx context.Context) (*BriefResult, error) { //nolint:cy
 				}
 			}
 		}
-		if !schema.IsTerminal(art.Status) && (art.Kind == parchment.KindSpec || art.Kind == parchment.KindBug) {
+		if !schema.IsTerminal(art.ResolvedStatus()) && (art.ResolvedKind() == parchment.KindSpec || art.ResolvedKind() == parchment.KindBug) {
 			backlinks, _ := s.Proto.Backlinks(ctx, art.ID, parchment.RelImplements)
 			if len(backlinks) == 0 {
 				unimplemented++
@@ -169,9 +169,9 @@ func (s *Service) Dashboard(ctx context.Context, staleDays int) (*DashboardResul
 			scopeMap[sc] = ds
 		}
 		ds.Total++
-		if schema.IsReadonly(art.Status) {
+		if schema.IsReadonly(art.ResolvedStatus()) {
 			ds.Archived++
-		} else if !schema.IsTerminal(art.Status) {
+		} else if !schema.IsTerminal(art.ResolvedStatus()) {
 			ds.Active++
 			if art.UpdatedAt.Before(cutoff) {
 				ds.Stale++
@@ -218,10 +218,10 @@ func (s *Service) Inventory(ctx context.Context) (*InventoryResult, error) {
 		Tracked:  make(map[string][]*parchment.Artifact),
 	}
 	for _, art := range all {
-		r.ByKind[art.Kind]++
-		r.ByStatus[art.Status]++
-		if def, ok := briefKinds[art.Kind]; ok && art.Status == def.ActiveStatus {
-			r.Tracked[art.Kind] = append(r.Tracked[art.Kind], art)
+		r.ByKind[art.ResolvedKind()]++
+		r.ByStatus[art.ResolvedStatus()]++
+		if def, ok := briefKinds[art.ResolvedKind()]; ok && art.ResolvedStatus() == def.ActiveStatus {
+			r.Tracked[art.ResolvedKind()] = append(r.Tracked[art.ResolvedKind()], art)
 		}
 	}
 	return r, nil
@@ -239,7 +239,8 @@ func (s *Service) SetGoal(ctx context.Context, in SetGoalInput) (*SetGoalResult,
 	}
 
 	existing, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{
-		Kind: goalKind, Status: goalDef.ActiveStatus, Scope: in.Scope,
+		Labels: []string{parchment.LabelPrefixKind + goalKind, parchment.LabelPrefixStatus + goalDef.ActiveStatus},
+		Scope:  in.Scope,
 	})
 
 	archived := make([]*parchment.Artifact, 0, len(existing))
@@ -255,7 +256,8 @@ func (s *Service) SetGoal(ctx context.Context, in SetGoalInput) (*SetGoalResult,
 	}
 
 	goal, err := s.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind: goalKind, Title: in.Title, Scope: in.Scope, Status: goalDef.ActiveStatus,
+		Labels: []string{parchment.LabelPrefixKind + goalKind, parchment.LabelPrefixStatus + goalDef.ActiveStatus},
+		Title:  in.Title, Scope: in.Scope,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create goal: %w", err)
@@ -266,7 +268,8 @@ func (s *Service) SetGoal(ctx context.Context, in SetGoalInput) (*SetGoalResult,
 		rootKind = goalKind
 	}
 	root, err := s.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind: rootKind, Title: in.Title, Scope: in.Scope,
+		Labels: []string{parchment.LabelPrefixKind + rootKind},
+		Title:  in.Title, Scope: in.Scope,
 		Links: map[string][]string{parchment.RelJustifies: {goal.ID}},
 	})
 	if err != nil {
@@ -288,11 +291,11 @@ func SortArtifacts(arts []*parchment.Artifact, field string) {
 		case "title":
 			return arts[i].Title < arts[j].Title
 		case "status":
-			return arts[i].Status < arts[j].Status
+			return arts[i].ResolvedStatus() < arts[j].ResolvedStatus()
 		case "scope":
 			return arts[i].Scope < arts[j].Scope
 		case "kind":
-			return arts[i].Kind < arts[j].Kind
+			return arts[i].ResolvedKind() < arts[j].ResolvedKind()
 		case "sprint":
 			return arts[i].Sprint < arts[j].Sprint
 		default:
@@ -315,7 +318,7 @@ func (s *Service) RenderBrief(ctx context.Context, since, version string, homeSc
 	}
 	sections = append(sections, fmt.Sprintf("Scribe %s | Scope: %s", version, scopeStr))
 
-	bugs, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Kind: parchment.KindBug, Status: parchment.StatusOpen})
+	bugs, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindBug, parchment.LabelPrefixStatus + parchment.StatusOpen}})
 	if len(bugs) > 0 {
 		var lines []string
 		for _, b := range bugs {
@@ -349,18 +352,18 @@ func (s *Service) RenderBrief(ctx context.Context, since, version string, homeSc
 		}
 		sections = append(sections, "Goal:\n"+strings.Join(lines, "\n"))
 	}
-	active, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Status: parchment.StatusActive})
-	draft, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Status: parchment.StatusDraft})
+	active, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixStatus + parchment.StatusActive}})
+	draft, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixStatus + parchment.StatusDraft}})
 	if len(active) > 0 || len(draft) > 0 {
 		sections = append(sections, fmt.Sprintf("Active Work: %d active, %d draft", len(active), len(draft)))
 	}
 	staleThreshold := time.Now().UTC().Add(-7 * 24 * time.Hour).Format(time.RFC3339)
-	stale, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Status: parchment.StatusDraft, UpdatedBefore: staleThreshold})
+	stale, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixStatus + parchment.StatusDraft}, UpdatedBefore: staleThreshold})
 	if len(stale) > 0 {
 		m.Warnings = append(m.Warnings, fmt.Sprintf("%d draft(s) stale >7 days — run dashboard for details", len(stale)))
 	}
 	if since != "" { //nolint:nestif // session delta block is inherently nested
-		changed, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{UpdatedAfter: since, ExcludeStatus: parchment.StatusArchived})
+		changed, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{UpdatedAfter: since, ExcludeLabels: []string{parchment.LabelPrefixStatus + parchment.StatusArchived}})
 		if len(changed) > 0 {
 			limit := len(changed)
 			if limit > 15 {
@@ -368,7 +371,7 @@ func (s *Service) RenderBrief(ctx context.Context, since, version string, homeSc
 			}
 			var lines []string
 			for _, c := range changed[:limit] {
-				lines = append(lines, fmt.Sprintf("  %s %-8s [%s] %s", c.ID, c.Status, c.Kind, c.Title))
+				lines = append(lines, fmt.Sprintf("  %s %-8s [%s] %s", c.ID, c.ResolvedStatus(), c.ResolvedKind(), c.Title))
 			}
 			header := fmt.Sprintf("Changed Since %s (%d):", since[:10], len(changed))
 			if len(changed) > 15 {
@@ -426,8 +429,15 @@ func (s *Service) RenderDetect(ctx context.Context, check, scope, kind, project,
 	var parts []string
 
 	if check == DetectCheckOverlaps || check == DetectCheckAll {
+		var overlapLabels []string
+		if kind != "" {
+			overlapLabels = append(overlapLabels, parchment.LabelPrefixKind+kind)
+		}
+		if status != "" {
+			overlapLabels = append(overlapLabels, parchment.LabelPrefixStatus+status)
+		}
 		report, err := s.Proto.DetectOverlaps(ctx, parchment.OverlapInput{
-			Kind: kind, Status: status, Project: project,
+			Labels: overlapLabels, Project: project,
 		})
 		if err != nil {
 			return "", err
@@ -450,7 +460,7 @@ func (s *Service) RenderDetect(ctx context.Context, check, scope, kind, project,
 
 	if check == DetectCheckOrphans || check == DetectCheckAll {
 		report, err := s.Proto.DetectOrphans(ctx, parchment.OrphanInput{
-			Scope: scope, Status: status,
+			Scope: scope,
 		})
 		if err != nil {
 			return "", err
@@ -460,7 +470,9 @@ func (s *Service) RenderDetect(ctx context.Context, check, scope, kind, project,
 		} else {
 			var b strings.Builder
 			for _, o := range report.Orphans {
-				fmt.Fprintf(&b, "%-16s %-5s [%s] %s\n  → %s\n\n", o.ID, o.Kind, o.Status, o.Title, o.Reason)
+				oKind := labelVal(o.Labels, parchment.LabelPrefixKind)
+				oStatus := labelVal(o.Labels, parchment.LabelPrefixStatus)
+				fmt.Fprintf(&b, "%-16s %-5s [%s] %s\n  → %s\n\n", o.ID, oKind, oStatus, o.Title, o.Reason)
 			}
 			fmt.Fprintf(&b, "%d orphan(s) across %d artifacts", report.TotalOrphans, report.TotalScanned)
 			parts = append(parts, b.String())
@@ -517,7 +529,7 @@ func (s *Service) renderEviction(ctx context.Context, scope string) (string, err
 	fmt.Fprintf(&b, "%d eviction candidate(s):\n\n", len(candidates))
 	for _, c := range candidates {
 		fmt.Fprintf(&b, "%-16s %-10s [%s] %s\n  reason: %s\n  tensor: access=%.2f structural=%.2f quality=%.2f recency=%.2f\n\n",
-			c.Artifact.ID, string(c.Label), c.Artifact.Status, c.Artifact.Title,
+			c.Artifact.ID, string(c.Label), c.Artifact.ResolvedStatus(), c.Artifact.Title,
 			c.Reason,
 			c.Tensor.AccessHeat, c.Tensor.StructuralHeat, c.Tensor.QualityScore, c.Tensor.Recency,
 		)
@@ -611,7 +623,7 @@ func (s *Service) RenderChangelog(ctx context.Context, since, scope string) (str
 		if sc == "" {
 			sc = scopeNone
 		}
-		byScope[sc] = append(byScope[sc], fmt.Sprintf("  %-16s %-8s %-8s %s", art.ID, art.Kind, art.Status, art.Title))
+		byScope[sc] = append(byScope[sc], fmt.Sprintf("  %-16s %-8s %-8s %s", art.ID, art.ResolvedKind(), art.ResolvedStatus(), art.Title))
 	}
 
 	scopes := make([]string, 0, len(byScope))
@@ -628,9 +640,9 @@ func (s *Service) RenderChangelog(ctx context.Context, since, scope string) (str
 }
 
 func (s *Service) RenderBriefCompact(ctx context.Context, version string) (string, error) {
-	active, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Status: parchment.StatusActive})
-	draft, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Status: parchment.StatusDraft})
-	bugs, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Kind: parchment.KindBug, Status: parchment.StatusOpen})
+	active, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixStatus + parchment.StatusActive}})
+	draft, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixStatus + parchment.StatusDraft}})
+	bugs, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindBug, parchment.LabelPrefixStatus + parchment.StatusOpen}})
 	return fmt.Sprintf("Scribe %s | %d active, %d draft, %d open bugs",
 		version, len(active), len(draft), len(bugs)), nil
 }

@@ -54,7 +54,10 @@ func NewServer(proto *parchment.Protocol, version, devPath string) *Server {
 	}
 
 	if devPath == "" {
-		funcMap := template.FuncMap{"renderMarkdown": renderMarkdown}
+		funcMap := template.FuncMap{
+			"renderMarkdown": renderMarkdown,
+			"labelValue":     labelValue,
+		}
 		layoutTmpl := template.Must(
 			template.New("layout.html").Funcs(funcMap).ParseFS(templateFS, "templates/layout.html"),
 		)
@@ -153,10 +156,16 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	queryParams := r.URL.Query()
+	var listLabels []string
+	if kind := queryParams.Get("kind"); kind != "" {
+		listLabels = append(listLabels, parchment.LabelPrefixKind+kind)
+	}
+	if status := queryParams.Get("status"); status != "" {
+		listLabels = append(listLabels, parchment.LabelPrefixStatus+status)
+	}
 	in := parchment.ListInput{
-		Kind:   queryParams.Get("kind"),
+		Labels: listLabels,
 		Scope:  queryParams.Get("scope"),
-		Status: queryParams.Get("status"),
 	}
 	arts, err := s.proto.ListArtifacts(r.Context(), in)
 	if err != nil {
@@ -216,7 +225,10 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 // devTemplate parses layout + named template fresh from disk on each call.
 func (s *Server) devTemplate(name string) (*template.Template, error) {
-	funcMap := template.FuncMap{"renderMarkdown": renderMarkdown}
+	funcMap := template.FuncMap{
+		"renderMarkdown": renderMarkdown,
+		"labelValue":     labelValue,
+	}
 	layout, err := template.New("layout.html").Funcs(funcMap).ParseFiles(s.devPath + "/templates/layout.html")
 	if err != nil {
 		return nil, fmt.Errorf("parse layout: %w", err)
@@ -249,6 +261,15 @@ func (s *Server) resolveTemplate(name string) (*template.Template, error) {
 		return nil, fmt.Errorf("%w: %s", errTemplateNotFound, name)
 	}
 	return tmpl, nil
+}
+
+func labelValue(labels []string, prefix string) string {
+	for _, l := range labels {
+		if strings.HasPrefix(l, prefix) {
+			return strings.TrimPrefix(l, prefix)
+		}
+	}
+	return ""
 }
 
 func renderMarkdown(text string) template.HTML {

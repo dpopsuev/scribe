@@ -28,11 +28,10 @@ func TestContextRead_ReturnsTask(t *testing.T) {
 	svc := newTestService(t)
 
 	task, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind:     "task",
+		Labels:   []string{"kind:task", "go", "security"},
 		Title:    "fix auth bug",
 		Scope:    "test",
 		Priority: "high",
-		Labels:   []string{"go", "security"},
 		Sections: []parchment.Section{{Name: "context", Text: "JWT expiry not checked"}},
 	})
 	if err != nil {
@@ -58,11 +57,10 @@ func TestContextRead_RulesExpandedByLabelHierarchy(t *testing.T) {
 
 	// Create a note with labels "rule" and "lang.go" (PRC-ADR-6: rule is a label, not a kind)
 	_, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind:     "note",
 		Title:    "Go conventions",
 		Scope:    "global",
 		Priority: "none",
-		Labels:   []string{"rule", "lang.go"},
+		Labels:   []string{"kind:note", "rule", "lang.go"},
 		Sections: []parchment.Section{{Name: "content", Text: "Use gofmt."}},
 	})
 	if err != nil {
@@ -71,11 +69,10 @@ func TestContextRead_RulesExpandedByLabelHierarchy(t *testing.T) {
 
 	// Create a task with label "lang.go" — rule should appear in context
 	task, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind:     "task",
 		Title:    "write Go service",
 		Scope:    "test",
 		Priority: "medium",
-		Labels:   []string{"lang.go"},
+		Labels:   []string{"kind:task", "lang.go"},
 		Sections: []parchment.Section{{Name: "context", Text: "build a Go HTTP service"}},
 	})
 	if err != nil {
@@ -100,11 +97,10 @@ func TestContextRead_AlwaysRulesAlwaysIncluded(t *testing.T) {
 	svc := newTestService(t)
 
 	_, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind:     "note",
 		Title:    "KISS directives",
 		Scope:    "global",
 		Priority: "none",
-		Labels:   []string{"rule", "always"},
+		Labels:   []string{"kind:note", "rule", "always"},
 		Sections: []parchment.Section{{Name: "content", Text: "Keep it simple."}},
 	})
 	if err != nil {
@@ -113,11 +109,10 @@ func TestContextRead_AlwaysRulesAlwaysIncluded(t *testing.T) {
 
 	// Task with no matching labels — always rule should still appear
 	task, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind:     "task",
 		Title:    "unrelated task",
 		Scope:    "test",
 		Priority: "low",
-		Labels:   []string{"rust"},
+		Labels:   []string{"kind:task", "rust"},
 		Sections: []parchment.Section{{Name: "context", Text: "Rust stuff"}},
 	})
 	if err != nil {
@@ -139,21 +134,19 @@ func TestContextRead_KnowledgeInSameScope(t *testing.T) {
 	svc := newTestService(t)
 
 	_, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind:   "note",
 		Title:  "auth note",
 		Scope:  "test",
-		Labels: []string{"security"},
+		Labels: []string{"kind:note", "security"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	task, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind:     "task",
 		Title:    "auth task",
 		Scope:    "test",
 		Priority: "high",
-		Labels:   []string{"security"},
+		Labels:   []string{"kind:task", "security"},
 		Sections: []parchment.Section{{Name: "context", Text: "fix auth"}},
 	})
 	if err != nil {
@@ -190,8 +183,7 @@ func TestBrief_ReturnsCurrentGoals(t *testing.T) {
 	ctx := context.Background()
 	svc := newTestService(t, "test")
 
-	_, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind:  "goal",
+	_, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:goal"},
 		Title: "ship labeldef",
 		Scope: "test",
 	})
@@ -230,7 +222,7 @@ func TestRenderChangelog_ShowsChangedArtifacts(t *testing.T) {
 	ctx := context.Background()
 
 	past := "2020-01-01T00:00:00Z"
-	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "recent", Scope: "test"})
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "recent", Scope: "test"})
 
 	out, err := svc.RenderChangelog(ctx, past, "test")
 	if err != nil {
@@ -298,9 +290,7 @@ func TestRenderBrief_ShowsOpenBugs(t *testing.T) {
 	svc := newTestService(t, "test")
 	ctx := context.Background()
 
-	bug, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind: "bug", Title: "bad crash", Scope: "test", Status: "open",
-	})
+	bug, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:bug", "status:open"}, Title: "bad crash", Scope: "test"})
 
 	out, err := svc.RenderBrief(ctx, "", "v1", []string{"test"})
 	if err != nil {
@@ -389,9 +379,7 @@ func TestRenderBriefCompact_ContainsVersionAndCounts(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{ //nolint:errcheck // test setup
-		Kind: "task", Title: "active task", Scope: "test", Status: "active",
-	})
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task", "status:active"}}) //nolint:errcheck // test setup, Title: "active task", Scope: "test",
 
 	out, err := svc.RenderBriefCompact(ctx, "v2.19.0")
 	if err != nil {
@@ -460,8 +448,8 @@ func TestSetGoal_CreatesGoalAndRoot(t *testing.T) {
 	if result.Root == nil {
 		t.Fatal("SetGoal should return a root artifact")
 	}
-	if result.Goal.Kind != "goal" {
-		t.Errorf("goal kind = %q, want %q", result.Goal.Kind, "goal")
+	if result.Goal.ResolvedKind() != "goal" {
+		t.Errorf("goal kind = %q, want %q", result.Goal.ResolvedKind(), "goal")
 	}
 	// Root should justify the goal
 	found := false
@@ -547,16 +535,16 @@ func TestFilterSections_EmptyFilterKeepsAll(t *testing.T) {
 // --- RelevanceScore ---
 
 func TestRelevanceScore_ActiveHigherThanDraft(t *testing.T) {
-	active := &parchment.Artifact{Status: "active", Priority: "high"}
-	draft := &parchment.Artifact{Status: "draft", Priority: "high"}
+	active := &parchment.Artifact{Labels: []string{"status:active"}, Priority: "high"}
+	draft := &parchment.Artifact{Labels: []string{"status:draft"}, Priority: "high"}
 	if service.RelevanceScore(active) <= service.RelevanceScore(draft) {
 		t.Error("active artifact should score higher than draft")
 	}
 }
 
 func TestRelevanceScore_CriticalHigherThanLow(t *testing.T) {
-	crit := &parchment.Artifact{Status: "active", Priority: "critical"}
-	low := &parchment.Artifact{Status: "active", Priority: "low"}
+	crit := &parchment.Artifact{Labels: []string{"status:active"}, Priority: "critical"}
+	low := &parchment.Artifact{Labels: []string{"status:active"}, Priority: "low"}
 	if service.RelevanceScore(crit) <= service.RelevanceScore(low) {
 		t.Error("critical priority should score higher than low")
 	}
@@ -647,9 +635,9 @@ func TestInventory_CountsByKindAndStatus(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "t1", Scope: "test"}) //nolint:errcheck // test setup
-	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "t2", Scope: "test"}) //nolint:errcheck // test setup
-	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "note", Title: "n1", Scope: "test"}) //nolint:errcheck // test setup
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "t1", Scope: "test"}) //nolint:errcheck // test setup
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "t2", Scope: "test"}) //nolint:errcheck // test setup
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Title: "n1", Scope: "test"}) //nolint:errcheck // test setup
 
 	result, err := svc.Inventory(ctx)
 	if err != nil {
@@ -670,11 +658,11 @@ func TestBulkSetField_UpdatesMatchingArtifacts(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "alpha", Scope: "test"}) //nolint:errcheck // test setup
-	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Kind: "task", Title: "beta", Scope: "test"})  //nolint:errcheck // test setup
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "alpha", Scope: "test"}) //nolint:errcheck // test setup
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "beta", Scope: "test"})  //nolint:errcheck // test setup
 
 	result, err := svc.Proto.BulkSetField(ctx, parchment.BulkMutationInput{
-		Kind: "task", Scope: "test",
+		Labels: []string{"kind:task"}, Scope: "test",
 	}, "title", "bulk-updated")
 	if err != nil {
 		t.Fatal(err)
@@ -734,13 +722,13 @@ func TestRenderCheck_ReturnsJSON(t *testing.T) {
 
 func TestSortArtifacts_ByStatus(t *testing.T) {
 	arts := []*parchment.Artifact{
-		{ID: "C", Status: "complete"},
-		{ID: "A", Status: "active"},
-		{ID: "D", Status: "draft"},
+		{ID: "C", Labels: []string{"status:complete"}},
+		{ID: "A", Labels: []string{"status:active"}},
+		{ID: "D", Labels: []string{"status:draft"}},
 	}
 	service.SortArtifacts(arts, "status")
-	if arts[0].Status != "active" {
-		t.Errorf("SortArtifacts(status)[0] = %q, want active", arts[0].Status)
+	if arts[0].ResolvedStatus() != "active" {
+		t.Errorf("SortArtifacts(status)[0] = %q, want active", arts[0].ResolvedStatus())
 	}
 }
 

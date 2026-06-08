@@ -50,9 +50,7 @@ func TestOpen_WithEmbedConfig_StartsEmbedder(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	art, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind: "note", Title: "embedding integration test", Scope: "test",
-	})
+	art, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Title: "embedding integration test", Scope: "test"})
 	if err != nil {
 		t.Fatalf("CreateArtifact: %v", err)
 	}

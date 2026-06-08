@@ -188,7 +188,7 @@ func TestArtifact_Create_TemplatePartialDraft_Accepted(t *testing.T) {
 		// Try to find ID in text
 		_ = ctx
 		arts, _ := parchment.New(s, nil, []string{"test"}, nil, parchment.ProtocolConfig{}).
-			ListArtifacts(ctx, parchment.ListInput{Kind: parchment.KindTemplate})
+			ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTemplate}})
 		if len(arts) > 0 {
 			tplID = arts[0].ID
 		}
@@ -230,8 +230,7 @@ func TestArtifact_Promote_TemplateConformanceEnforced(t *testing.T) {
 	proto := parchment.New(s, nil, []string{"test"}, nil, parchment.ProtocolConfig{})
 
 	// Create a template with a required section
-	tpl, err := proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind:  parchment.KindTemplate,
+	tpl, err := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTemplate},
 		Title: "need-tpl",
 		Scope: "test",
 		Sections: []parchment.Section{
@@ -261,7 +260,7 @@ func TestArtifact_Promote_TemplateConformanceEnforced(t *testing.T) {
 		}
 	}
 	if artID == "" {
-		arts, _ := proto.ListArtifacts(ctx, parchment.ListInput{Kind: "need"})
+		arts, _ := proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{"kind:need"}})
 		if len(arts) > 0 {
 			artID = arts[0].ID
 		}

@@ -13,21 +13,20 @@ import (
 	"github.com/dpopsuev/scribe/web"
 )
 
-
 func seedDataset(t *testing.T, s *parchment.SQLiteStore) *parchment.Protocol {
 	t.Helper()
 	ctx := context.Background()
 	arts := []*parchment.Artifact{
-		{ID: "TASK-001", Kind: "task", Scope: "alpha", Status: "active", Title: "Build export"},
-		{ID: "TASK-002", Kind: "task", Scope: "alpha", Status: "draft", Title: "Draft task — excluded"},
-		{ID: "ADR-001", Kind: "decision", Scope: "alpha", Status: "accepted", Title: "Use JSONL",
+		{ID: "TASK-001", Labels: []string{"kind:task", "status:active"}, Scope: "alpha", Title: "Build export"},
+		{ID: "TASK-002", Labels: []string{"kind:task", "status:draft"}, Scope: "alpha", Title: "Draft task — excluded"},
+		{ID: "ADR-001", Labels: []string{"kind:decision", "status:accepted"}, Scope: "alpha", Title: "Use JSONL",
 			Sections: []parchment.Section{
 				{Name: "problem", Text: "Which format for training data?"},
 				{Name: "decision", Text: "JSONL — streamable, one example per line."},
 				{Name: "alternatives", Text: "CSV — not suitable for nested data."},
 			},
 		},
-		{ID: "SPEC-001", Kind: "spec", Scope: "alpha", Status: "active", Title: "Dataset API",
+		{ID: "SPEC-001", Labels: []string{"kind:spec", "status:active"}, Scope: "alpha", Title: "Dataset API",
 			Sections: []parchment.Section{
 				{Name: "problem", Text: "Need a dataset export endpoint."},
 			},
@@ -76,7 +75,6 @@ func getJSONL(t *testing.T, srv *httptest.Server, format string) []map[string]an
 	}
 	return rows
 }
-
 
 func TestDatasetExport_SFT_OnlyExportableArtifacts(t *testing.T) {
 	srv := datasetServer(t)
@@ -128,7 +126,6 @@ func TestDatasetExport_SFT_AssistantContentIsValidJSON(t *testing.T) {
 		}
 	}
 }
-
 
 func TestDatasetExport_KG_ContainsNodesAndEdges(t *testing.T) {
 	srv := datasetServer(t)
@@ -183,7 +180,6 @@ func TestDatasetExport_KG_EdgeHasRequiredFields(t *testing.T) {
 	}
 }
 
-
 func TestDatasetExport_DPO_OnlyDecisionArtifacts(t *testing.T) {
 	srv := datasetServer(t)
 	defer srv.Close()
@@ -210,7 +206,6 @@ func TestDatasetExport_DPO_RejectedfromAlternatives(t *testing.T) {
 	}
 }
 
-
 func TestDatasetExport_Card_ValidMetadata(t *testing.T) {
 	srv := datasetServer(t)
 	defer srv.Close()
@@ -229,7 +224,6 @@ func TestDatasetExport_Card_ValidMetadata(t *testing.T) {
 	}
 }
 
-
 func TestDatasetExport_UnknownFormat_Returns400(t *testing.T) {
 	srv := datasetServer(t)
 	defer srv.Close()
@@ -242,7 +236,6 @@ func TestDatasetExport_UnknownFormat_Returns400(t *testing.T) {
 		t.Errorf("want 400, got %d", resp.StatusCode)
 	}
 }
-
 
 func TestDatasetExport_Headers(t *testing.T) {
 	srv := datasetServer(t)
@@ -260,7 +253,6 @@ func TestDatasetExport_Headers(t *testing.T) {
 		t.Error("missing Content-Disposition header")
 	}
 }
-
 
 func TestDatasetExport_QualityFilter_ExcludesDraft(t *testing.T) {
 	srv := datasetServer(t)
@@ -284,12 +276,10 @@ func TestDatasetExport_QualityFilter_ExcludesViolation(t *testing.T) {
 	ctx := context.Background()
 	// Artifact with compliance violation label
 	_ = s.Put(ctx, &parchment.Artifact{
-		ID: "BAD-001", Kind: "task", Scope: "x", Status: "active", Title: "Bad",
-		Labels: []string{"compliance:violation"},
+		ID: "BAD-001", Scope: "x", Title: "Bad",
+		Labels: []string{"kind:task", "status:active", "compliance:violation"},
 	})
-	_ = s.Put(ctx, &parchment.Artifact{
-		ID: "GOOD-001", Kind: "task", Scope: "x", Status: "active", Title: "Good",
-	})
+	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "status:active"}, ID: "GOOD-001", Scope: "x", Title: "Good"})
 	proto := parchment.New(s, nil, []string{"x"}, nil, parchment.ProtocolConfig{})
 	srv := httptest.NewServer(web.NewServer(proto, "test", ""))
 	defer srv.Close()

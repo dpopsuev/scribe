@@ -62,10 +62,16 @@ func (s *Service) SyncDir(ctx context.Context, path string) (int, error) {
 		if art.Scope == "" {
 			art.Scope = "global"
 		}
-		switch art.Kind {
+		switch art.ResolvedKind() {
 		case "rule", "skill":
-			art.Labels = appendIfMissing(art.Labels, art.Kind)
-			art.Kind = "note"
+			k := art.ResolvedKind()
+			art.Labels = appendIfMissing(art.Labels, k)
+			for i, l := range art.Labels {
+				if l == parchment.LabelPrefixKind+k {
+					art.Labels[i] = parchment.LabelPrefixKind + parchment.KindNote
+					break
+				}
+			}
 		}
 		if art.Extra == nil {
 			art.Extra = make(map[string]any)
@@ -168,15 +174,15 @@ func (s *Service) ExportScope(ctx context.Context, scope, outDir string) (int, e
 }
 
 func serializeArtifact(art *parchment.Artifact) ([]byte, error) {
-	fm := map[string]any{"id": art.ID, "kind": art.Kind}
+	fm := map[string]any{"id": art.ID, "kind": art.ResolvedKind()}
 	if art.Title != "" {
 		fm["title"] = art.Title
 	}
 	if art.Scope != "" {
 		fm["scope"] = art.Scope
 	}
-	if art.Status != "" {
-		fm["status"] = art.Status
+	if s := art.ResolvedStatus(); s != "" {
+		fm["status"] = s
 	}
 	if art.Priority != "" && art.Priority != "none" {
 		fm["priority"] = art.Priority

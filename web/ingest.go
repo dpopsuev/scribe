@@ -165,16 +165,20 @@ func nodeToArtifact(rec *ingest.NodeRecord) *parchment.Artifact {
 	if status == "" {
 		status = "active"
 	}
+	labels := make([]string, 0, len(rec.Labels)+2)
+	if rec.Kind != "" {
+		labels = append(labels, parchment.LabelPrefixKind+rec.Kind)
+	}
+	labels = append(labels, parchment.LabelPrefixStatus+status)
+	labels = append(labels, rec.Labels...)
 	sections := make([]parchment.Section, 0, len(rec.Sections))
 	for _, s := range rec.Sections {
 		sections = append(sections, parchment.Section{Name: s.Name, Text: s.Text})
 	}
 	return &parchment.Artifact{
 		ID:       rec.ID,
-		Kind:     rec.Kind,
 		Title:    rec.Title,
-		Status:   status,
-		Labels:   rec.Labels,
+		Labels:   labels,
 		Extra:    rec.Extra,
 		Sections: sections,
 	}

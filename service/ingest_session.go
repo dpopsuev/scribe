@@ -64,7 +64,7 @@ func (s *Service) IngestSession(ctx context.Context, path, scope string) (*Inges
 }
 
 func (s *Service) ingestSessionFile(ctx context.Context, path, scope string) (created, skipped int, err error) {
-	existing, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Kind: parchment.KindSource, Scope: scope})
+	existing, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindSource}, Scope: scope})
 	for _, src := range existing {
 		for _, sec := range src.Sections {
 			if sec.Name == "provenance" && strings.Contains(sec.Text, path) {
@@ -83,7 +83,8 @@ func (s *Service) ingestSessionFile(ctx context.Context, path, scope string) (cr
 		title = fmt.Sprintf("Session: %s (%s)", filepath.Base(path), filepath.Base(sess.cwd))
 	}
 	source, err := s.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Kind: parchment.KindSource, Title: title, Scope: scope,
+		Labels: []string{parchment.LabelPrefixKind + parchment.KindSource},
+		Title:  title, Scope: scope,
 		Sections: []parchment.Section{
 			{Name: "provenance", Text: path},
 			{Name: "summary", Text: sess.summary()},
@@ -99,7 +100,8 @@ func (s *Service) ingestSessionFile(ctx context.Context, path, scope string) (cr
 			continue
 		}
 		art, err := s.Proto.CreateArtifact(ctx, parchment.CreateInput{
-			Kind: parchment.KindContext, Title: ExtractTitle(c), Scope: scope,
+			Labels: []string{parchment.LabelPrefixKind + parchment.KindContext},
+			Title:  ExtractTitle(c), Scope: scope,
 			Sections: []parchment.Section{{Name: "summary", Text: c}},
 		})
 		if err != nil {

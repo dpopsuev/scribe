@@ -9,6 +9,16 @@ import (
 	parchment "github.com/dpopsuev/parchment"
 )
 
+// labelVal extracts the value after prefix from the first matching label in labels.
+func labelVal(labels []string, prefix string) string {
+	for _, l := range labels {
+		if strings.HasPrefix(l, prefix) {
+			return strings.TrimPrefix(l, prefix)
+		}
+	}
+	return ""
+}
+
 // FilterSections removes sections not in the filter list (in-place).
 func FilterSections(art *parchment.Artifact, filter []string) {
 	if len(filter) == 0 {
@@ -30,7 +40,7 @@ func FilterSections(art *parchment.Artifact, filter []string) {
 // RelevanceScore returns a numeric relevance score for top-N ranking.
 func RelevanceScore(art *parchment.Artifact) float64 {
 	score := 0.0
-	switch art.Status {
+	switch art.ResolvedStatus() {
 	case "active", "current", "open", "in_progress", "in_review":
 		score += 3.0
 	case "draft", "proposed", "fleeting":
@@ -79,10 +89,9 @@ func (s *Service) PersistReadLog(ctx context.Context, sessionID string, readLog 
 	if _, err := s.Proto.GetArtifact(ctx, artID); err != nil {
 		_, _ = s.Proto.CreateArtifact(ctx, parchment.CreateInput{
 			ExplicitID: artID,
-			Kind:       parchment.KindConfig,
+			Labels:     []string{parchment.LabelPrefixKind + parchment.KindConfig, parchment.LabelPrefixStatus + "active"},
 			Scope:      readLogScope,
 			Title:      readLogTitle,
-			Status:     "active",
 			Extra:      map[string]any{"read_ids": ids, "session_id": sessionID},
 		})
 		return
