@@ -49,10 +49,11 @@ func (s *Server) handleAPIIngest(w http.ResponseWriter, r *http.Request) { //nol
 		source = "unknown"
 	}
 	idPrefix := source + ":"
-	existingUID := make(map[string]string) // id → uid
+	// Warm a set of existing IDs under this prefix so we can track inserts vs updates.
+	existingIDs := make(map[string]bool)
 	if existing, err := store.List(r.Context(), parchment.Filter{IDPrefix: idPrefix}); err == nil {
 		for _, art := range existing {
-			existingUID[art.ID] = art.UID
+			existingIDs[art.ID] = true
 		}
 	}
 
@@ -71,11 +72,7 @@ func (s *Server) handleAPIIngest(w http.ResponseWriter, r *http.Request) { //nol
 		if len(batch) == 0 {
 			return
 		}
-		for _, art := range batch {
-			if art.UID == "" {
-				art.UID = existingUID[art.ID] // empty string → new insert; non-empty → update
-			}
-		}
+		_ = existingIDs // BulkPut handles uid resolution internally
 		results := store.BulkPut(r.Context(), batch)
 		for i, err := range results {
 			if err != nil {

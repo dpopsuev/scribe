@@ -3,13 +3,17 @@ package cmds_test
 import (
 	"strings"
 	"testing"
+
+	parchment "github.com/dpopsuev/parchment"
 )
 
 func TestCreate_PrintsID(t *testing.T) {
 	db := newDB(t)
 	out := run(t, db, "create", "--kind", "task", "--scope", "test", "--title", "write tests")
-	if !strings.Contains(out, "TSK") {
-		t.Errorf("expected task ID in output, got: %q", out)
+	// IDs are now UUIDs; verify the output contains a valid UUID.
+	id := strings.TrimSpace(out)
+	if !parchment.IsUUIDShaped(id) {
+		t.Errorf("expected UUID ID in output, got: %q", out)
 	}
 }
 

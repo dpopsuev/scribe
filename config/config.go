@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -93,10 +92,6 @@ type Config struct {
 	Addr             string                 `yaml:"addr"`
 	ScopeConfigs     map[string]ScopeConfig `yaml:"scope_configs,omitempty"`
 	Schema           *parchment.Schema      `yaml:"schema"`
-	IDFormat         string                 `yaml:"id_format"`
-	IDTemplate       *parchment.IDTemplate  `yaml:"id_template,omitempty"`
-	ScopeKeys        map[string]string      `yaml:"scope_keys"`
-	KindCodes        map[string]string      `yaml:"kind_codes"`
 	MutableCreatedAt *bool                  `yaml:"mutable_created_at"`
 	SeedDir          string                 `yaml:"seed_dir,omitempty"`
 	Defaults         Defaults               `yaml:"defaults,omitempty"`
@@ -227,76 +222,23 @@ func (c *Config) IsMutableCreatedAt() bool {
 	if c.MutableCreatedAt != nil {
 		return *c.MutableCreatedAt
 	}
-	return c.IDFormat == "scoped"
+	return false
 }
 
 func (c *Config) ProtocolIDConfig() parchment.ProtocolConfig {
-	mc := c.ModelIDConfig()
 	return parchment.ProtocolConfig{
-		IDFormat:         mc.IDFormat,
-		IDTemplate:       mc.IDTemplate,
-		ScopeKeys:        mc.ScopeKeys,
-		KindCodes:        mc.KindCodes,
-		MutableCreatedAt: mc.MutableCreatedAt,
+		MutableCreatedAt: c.IsMutableCreatedAt(),
 		Defaults:         c.Defaults,
 		ScopePolicies:    c.ScopePolicies(),
 	}
 }
 
-func (c *Config) ModelIDConfig() parchment.IDConfig {
-	mc := parchment.IDConfig{
-		IDFormat:         c.IDFormat,
-		ScopeKeys:        c.ScopeKeys,
-		KindCodes:        c.KindCodes,
-		MutableCreatedAt: c.IsMutableCreatedAt(),
-	}
-	if c.IDTemplate != nil {
-		mc.IDTemplate = c.IDTemplate
-	} else {
-		t := parchment.PresetScoped()
-		mc.IDTemplate = &t
-	}
-	return mc
-}
-
-// ErrInvalidIDFormat is returned when the config specifies an unknown id_format.
-var ErrInvalidIDFormat = errors.New("id_format must be \"scoped\", \"uuid\", or empty")
-
 // ErrNestedScopePath is returned when one scope's path is a prefix of another's.
 var ErrNestedScopePath = errors.New("scope_configs: nested scope paths")
 
 func (c *Config) ValidateIDConfig() error {
-	if c.IDFormat != "" && c.IDFormat != "scoped" && c.IDFormat != "uuid" {
-		return fmt.Errorf("%w (got %q)", ErrInvalidIDFormat, c.IDFormat)
-	}
-
-	keyPattern := regexp.MustCompile(`^[A-Z0-9]{2,6}$`)
-
-	if err := validateUniqueKeys(c.ScopeKeys, "scope_keys", keyPattern); err != nil {
-		return err
-	}
-	if err := validateUniqueKeys(c.KindCodes, "kind_codes", keyPattern); err != nil {
-		return err
-	}
 	if err := c.validateScopePaths(); err != nil {
 		return err
-	}
-	return nil
-}
-
-func validateUniqueKeys(m map[string]string, label string, pattern *regexp.Regexp) error {
-	if len(m) == 0 {
-		return nil
-	}
-	seen := make(map[string]string, len(m))
-	for name, code := range m {
-		if !pattern.MatchString(code) {
-			return fmt.Errorf("%s: %q has invalid code %q (must match [A-Z0-9]{2,6})", label, name, code) //nolint:err113 // runtime values in config validation; static sentinel would lose the detail
-		}
-		if prev, dup := seen[code]; dup {
-			return fmt.Errorf("%s collision: %s=%s, %s=%s", label, prev, code, name, code) //nolint:err113 // runtime values in config validation
-		}
-		seen[code] = name
 	}
 	return nil
 }
@@ -477,9 +419,6 @@ func (c *Config) applyEnvOverrides() {
 	}
 	if v := os.Getenv("SCRIBE_ADDR"); v != "" {
 		c.Addr = v
-	}
-	if v := os.Getenv("SCRIBE_ID_FORMAT"); v != "" {
-		c.IDFormat = v
 	}
 	if v := os.Getenv("SCRIBE_EMBED_URL"); v != "" {
 		c.Embed.URL = v

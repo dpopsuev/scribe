@@ -34,7 +34,6 @@ const (
 	// slog key constants for serve logging — sloglint no-raw-keys.
 	logKeyVersion     = "version"
 	logKeyDB          = "db"
-	logKeyIDFormat    = "id_format"
 	logKeyTransport   = "transport"
 	logKeyScopes      = "scopes"
 	logKeyDir         = "dir"
@@ -94,7 +93,6 @@ func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, devU
 	slog.InfoContext(ctx, "starting scribe",
 		slog.String(logKeyVersion, Version),
 		slog.String(logKeyDB, cfg.DBPath()),
-		slog.String(logKeyIDFormat, cfg.IDFormat),
 	)
 
 	// Resolve homeScopes: flag > CWD detection > config-derived.
@@ -145,13 +143,10 @@ func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, devU
 		}
 	}
 
-	// Apply scope config (key + labels).
+	// Apply scope labels from config.
 	if len(cfg.ScopeConfigs) > 0 {
 		store := svc.Proto.Store()
 		for name, sc := range cfg.ScopeConfigs {
-			if sc.Key != "" {
-				_ = store.SetScopeKey(context.Background(), name, sc.Key, false)
-			}
 			if len(sc.Labels) > 0 {
 				_ = store.SetScopeLabels(context.Background(), name, sc.Labels)
 			}

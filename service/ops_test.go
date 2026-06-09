@@ -808,8 +808,10 @@ func TestOpCreate_ReturnsID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "TASK") && !strings.Contains(out, "TSK") {
-		t.Errorf("expected task ID in output, got: %s", out)
+	// IDs are UUIDs — find the second token (first is "created").
+	tokens := strings.Fields(out)
+	if len(tokens) < 2 || !parchment.IsUUIDShaped(tokens[1]) {
+		t.Errorf("expected UUID ID in output, got: %s", out)
 	}
 	if !strings.Contains(out, "my task") {
 		t.Errorf("expected title in output, got: %s", out)

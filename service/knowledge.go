@@ -189,12 +189,12 @@ func (s *Service) KnowledgeCatalog(ctx context.Context, scope string) (*Knowledg
 		if len(arts) == 0 {
 			continue
 		}
+		// Sort by statusOrder ascending (evergreen=0 first, fleeting=2 last).
+		// Stable: equal-status entries keep their original relative order.
 		for i := 1; i < len(arts); i++ {
 			for j := i; j > 0; j-- {
-				ai, aj := statusOrder[arts[j].Label(parchment.LabelPrefixStatus)], statusOrder[arts[j-1].Label(parchment.LabelPrefixStatus)]
-				if ai == 0 && aj == 0 {
-					ai, aj = 99, 99
-				}
+				ai := statusOrder[arts[j].Label(parchment.LabelPrefixStatus)]
+				aj := statusOrder[arts[j-1].Label(parchment.LabelPrefixStatus)]
 				if ai < aj {
 					arts[j], arts[j-1] = arts[j-1], arts[j]
 				}

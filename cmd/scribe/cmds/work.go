@@ -9,8 +9,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"regexp"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -49,7 +47,7 @@ func CreateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&in.Scope, "scope", "", "owning repository")
 	cmd.Flags().StringVar(&in.Goal, "goal", "", "goal statement")
 	cmd.Flags().StringVar(&in.Parent, "parent", "", "parent artifact ID")
-	cmd.Flags().StringVar(&in.Prefix, "prefix", "", "ID prefix override")
+
 	cmd.Flags().StringVar(&explicitID, "id", "", "explicit ID (skips auto-generation)")
 	cmd.Flags().StringSliceVar(&in.Labels, "label", nil, "labels (repeatable)")
 	cmd.Flags().StringSliceVar(&in.DependsOn, "depends-on", nil, "dependency IDs (repeatable)")
@@ -479,8 +477,8 @@ func OrphansCmd() *cobra.Command {
 
 func ScopeKeysCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "scope-keys [set SCOPE KEY | set-labels SCOPE LABEL,...]",
-		Short: "List or manage scope key mappings and labels",
+		Use:   "scope-keys [set-labels SCOPE LABEL,...]",
+		Short: "List scope info or set scope labels",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, cleanup := MustService()
 			defer cleanup()
@@ -490,7 +488,7 @@ func ScopeKeysCmd() *cobra.Command {
 					return err
 				}
 				if len(infos) == 0 {
-					fmt.Println("no scope keys registered")
+					fmt.Println("no scope info registered")
 					return nil
 				}
 				for _, info := range infos {
@@ -498,12 +496,9 @@ func ScopeKeysCmd() *cobra.Command {
 					if len(info.Labels) > 0 {
 						labels = " [" + strings.Join(info.Labels, ",") + "]"
 					}
-					fmt.Printf("%s → %s%s\n", info.Scope, info.Key, labels)
+					fmt.Printf("%s%s\n", info.Scope, labels)
 				}
 				return nil
-			}
-			if len(args) == 3 && args[0] == "set" {
-				return svc.Proto.SetScopeKey(context.Background(), args[1], args[2])
 			}
 			if len(args) == 3 && args[0] == "set-labels" {
 				labels := strings.Split(args[2], ",")
@@ -512,7 +507,7 @@ func ScopeKeysCmd() *cobra.Command {
 				}
 				return svc.Proto.SetScopeLabels(context.Background(), args[1], labels)
 			}
-			return fmt.Errorf("usage: scope-keys [set SCOPE KEY | set-labels SCOPE LABEL,...]") //nolint:err113 // user-facing hint
+			return fmt.Errorf("usage: scope-keys [set-labels SCOPE LABEL,...]") //nolint:err113 // user-facing hint
 		},
 	}
 }
@@ -726,65 +721,7 @@ func VocabCmd() *cobra.Command {
 	return cmd
 }
 
-var artifactIDRegexp = regexp.MustCompile(`^([A-Z]+)-\d+-(\d+)$`)
 
-func ReseedCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "reseed",
-		Short: "Scan all artifacts and fix sequence counters",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			s := MustStore()
-			defer func() { _ = s.Close() }()
-			ctx := context.Background()
-			arts, err := s.List(ctx, parchment.Filter{})
-			if err != nil {
-				return err
-			}
-			maxSequenceByPrefix := make(map[string]uint64)
-			for _, a := range arts {
-				m := artifactIDRegexp.FindStringSubmatch(a.ID)
-				if m == nil {
-					continue
-				}
-				prefix := m[1]
-				seq, _ := strconv.ParseUint(m[2], 10, 64)
-				if seq > maxSequenceByPrefix[prefix] {
-					maxSequenceByPrefix[prefix] = seq
-				}
-			}
-			for prefix, maxSequence := range maxSequenceByPrefix {
-				next := maxSequence + 1
-				if err := s.SeedSequence(ctx, prefix, next, false); err != nil {
-					return fmt.Errorf("seed %s: %w", prefix, err)
-				}
-				fmt.Printf("%s -> next seq = %d\n", prefix, next)
-			}
-			return nil
-		},
-	}
-}
-
-func SeedCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "set-seq <PREFIX> <next-seq>",
-		Short: "Force-set the ID sequence counter for a prefix (repair tool)",
-		Args:  cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			s := MustStore()
-			defer func() { _ = s.Close() }()
-			prefix := strings.ToUpper(args[0])
-			val, err := strconv.ParseUint(args[1], 10, 64)
-			if err != nil {
-				return fmt.Errorf("invalid sequence: %w", err)
-			}
-			if err := s.SeedSequence(context.Background(), prefix, val, true); err != nil {
-				return err
-			}
-			fmt.Printf("%s -> next seq = %d\n", prefix, val)
-			return nil
-		},
-	}
-}
 
 func SeedDirCmd() *cobra.Command {
 	return &cobra.Command{

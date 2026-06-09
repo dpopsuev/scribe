@@ -635,7 +635,7 @@ func createSingle(ctx context.Context, svc *Service, in *createInput) (string, e
 	}
 	art, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
 		Title: in.Title, Scope: in.Scope,
-		Goal: in.Goal, Parent: in.Parent, Prefix: in.Prefix,
+		Goal: in.Goal, Parent: in.Parent,
 		ExplicitID: in.ID, Priority: in.Priority,
 		Labels: labels, DependsOn: in.DependsOn, Sections: parseSections(in.Sections),
 		Links: in.Links, Extra: in.Extra, Patch: in.Patch, SkipHooks: in.SkipHooks,
@@ -774,7 +774,7 @@ func createBatch(ctx context.Context, svc *Service, in *createInput) (string, er
 		art, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
 			Title: ci.Title, Scope: ci.Scope,
 			Goal: ci.Goal, Parent: ci.Parent,
-			Priority: ci.Priority, Labels: batchLabels, Prefix: ci.Prefix,
+			Priority: ci.Priority, Labels: batchLabels,
 			Links: ci.Links, Extra: ci.Extra, Sections: parseSections(ci.Sections),
 		})
 		if err != nil {

@@ -26,6 +26,7 @@ func newLintServer(t *testing.T) func(map[string]any) string {
 				"action":   "list",
 				"family":   "knowledge",
 				"group_by": "kind",
+				"sort":     "status",
 				"scope":    args["scope"],
 			})
 		case "capture", "promote", "daily", "recall_unused", "backlinks", "ingest", "synthesize":
@@ -180,15 +181,15 @@ func TestKnowledge_Catalog(t *testing.T) {
 		t.Fatalf("catalog not implemented: %s", out)
 	}
 	// Must list artifact IDs.
-	if !strings.Contains(out, "NOT-") {
+	if !strings.Contains(out, "note") && !strings.Contains(out, "Stoicism") {
 		t.Errorf("catalog: expected NOT- entries, got: %s", out)
 	}
 	// Must include source.
-	if !strings.Contains(out, "SRC-") {
+	if !strings.Contains(out, "source") && !strings.Contains(out, "Meditations") {
 		t.Errorf("catalog: expected SRC- entries, got: %s", out)
 	}
 	// Must include journal.
-	if !strings.Contains(out, "JRN-") {
+	if !strings.Contains(out, "journal") {
 		t.Errorf("catalog: expected JRN- entries, got: %s", out)
 	}
 }
@@ -237,12 +238,15 @@ func TestKnowledge_Catalog_Sorted(t *testing.T) {
 
 	out := call(map[string]any{"action": "catalog", "scope": "test"})
 
-	evIdx := strings.Index(out, evergreenID[:6])
-	flIdx := strings.Index(out, fleetingID[:6])
+	// Use titles since UUID prefixes can collide with other UUIDs in output.
+	evIdx := strings.Index(out, "Mature idea")
+	flIdx := strings.Index(out, "Raw thought")
 	if evIdx < 0 || flIdx < 0 {
-		t.Fatalf("catalog: both artifacts must appear: %s", out)
+		t.Fatalf("catalog: both artifacts must appear: evIdx=%d flIdx=%d output=%s", evIdx, flIdx, out)
 	}
 	if evIdx > flIdx {
 		t.Errorf("catalog: evergreen should appear before fleeting, got ev@%d fl@%d", evIdx, flIdx)
 	}
+	_ = evergreenID
+	_ = fleetingID
 }

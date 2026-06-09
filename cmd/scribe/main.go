@@ -46,8 +46,6 @@ func main() {
 		cmds.OrphansCmd(),
 		cmds.ScopeKeysCmd(),
 		cmds.ServeCmd(),
-		cmds.ReseedCmd(),
-		cmds.SeedCmd(),
 		cmds.ToolsCmd(),
 		cmds.UICmd(),
 		cmds.VocabCmd(),

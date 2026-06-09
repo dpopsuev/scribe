@@ -84,7 +84,7 @@ func TestDetect_Knowledge_UncitedSource(t *testing.T) {
 		"scope":  "test",
 	})
 
-	if !strings.Contains(out, "SRC-") {
+	if !strings.Contains(out, "source") && !strings.Contains(out, "Meditations") {
 		t.Errorf("detect knowledge: expected uncited source SRC- in report, got: %s", out)
 	}
 }
