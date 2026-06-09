@@ -91,7 +91,11 @@ func (s *Service) Recall(ctx context.Context, query, scope string, top int) ([]R
 	seen := make(map[string]bool)
 	var candidates []*parchment.Artifact
 	for _, q := range BuildFTSPasses(query) {
-		arts, err := s.Proto.SearchArtifacts(ctx, q, parchment.ListInput{Scope: scope})
+		recallLabels := []string{}
+		if scope != "" {
+			recallLabels = append(recallLabels, parchment.LabelPrefixScope+scope)
+		}
+		arts, err := s.Proto.SearchArtifacts(ctx, q, parchment.ListInput{Labels: recallLabels})
 		if err != nil {
 			continue
 		}

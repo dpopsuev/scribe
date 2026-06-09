@@ -24,8 +24,7 @@ func (s *Service) RecordDecision(ctx context.Context, key, answer, scope string)
 	}
 	// Upsert: find existing decision with this key, update it; otherwise create.
 	existing, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{
-		Labels:        []string{parchment.LabelPrefixKind + parchment.KindNote, decisionLabel},
-		Scope:         sc,
+		Labels:        []string{parchment.LabelPrefixKind + parchment.KindNote, parchment.LabelPrefixScope + sc, decisionLabel},
 		TitleContains: key,
 	})
 	for _, art := range existing {
@@ -35,8 +34,7 @@ func (s *Service) RecordDecision(ctx context.Context, key, answer, scope string)
 		}
 	}
 	_, err := s.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Labels: []string{parchment.LabelPrefixKind + parchment.KindNote, decisionLabel},
-		Scope:  sc,
+		Labels: []string{parchment.LabelPrefixKind + parchment.KindNote, parchment.LabelPrefixScope + sc, decisionLabel},
 		Title:  key,
 		Goal:   answer,
 	})
@@ -50,8 +48,7 @@ func (s *Service) CheckDecision(ctx context.Context, key, scope string) (string,
 		sc = decisionScope
 	}
 	arts, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{
-		Labels:        []string{parchment.LabelPrefixKind + parchment.KindNote, decisionLabel},
-		Scope:         sc,
+		Labels:        []string{parchment.LabelPrefixKind + parchment.KindNote, parchment.LabelPrefixScope + sc, decisionLabel},
 		TitleContains: key,
 	})
 	for _, art := range arts {
@@ -69,7 +66,6 @@ func (s *Service) ListDecisions(ctx context.Context, scope string) ([]*parchment
 		sc = decisionScope
 	}
 	return s.Proto.ListArtifacts(ctx, parchment.ListInput{
-		Labels: []string{parchment.LabelPrefixKind + parchment.KindNote, decisionLabel},
-		Scope:  sc,
+		Labels: []string{parchment.LabelPrefixKind + parchment.KindNote, parchment.LabelPrefixScope + sc, decisionLabel},
 	})
 }

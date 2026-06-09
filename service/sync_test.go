@@ -117,7 +117,7 @@ func TestExportScope_WritesFiles(t *testing.T) {
 
 	_, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
 		Labels: []string{"kind:note", "architecture"},
-		Title:  "Design notes", Scope: "scribe",
+		Title:  "Design notes",
 		Sections: []parchment.Section{{Name: "body", Text: "Key insight here."}},
 	})
 	if err != nil {
@@ -159,7 +159,7 @@ func TestRoundTrip_ExportThenSync(t *testing.T) {
 	for _, title := range []string{"Alpha note", "Beta note"} {
 		_, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
 			Labels: []string{"kind:note"},
-			Title:  title, Scope: "test",
+			Title:  title,
 			Sections: []parchment.Section{{Name: "body", Text: title + " body."}},
 		})
 		if err != nil {

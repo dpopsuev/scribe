@@ -45,10 +45,11 @@ func (s *Service) ContextRead(ctx context.Context, taskID string) (*ContextPacke
 
 	var know []*parchment.Artifact
 	userLabels := userDefinedLabels(task.Labels)
-	if task.Label(parchment.LabelPrefixScope) != "" && len(userLabels) > 0 {
+	taskScope := task.Label(parchment.LabelPrefixScope)
+	if taskScope != "" && len(userLabels) > 0 {
+		ctxLabels := append([]string{parchment.LabelPrefixScope + taskScope}, userLabels...)
 		all, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{
-			Scope:  task.Label(parchment.LabelPrefixScope),
-			Labels: userLabels,
+			Labels: ctxLabels,
 		})
 		for _, art := range all {
 			if art.Label(parchment.LabelPrefixKind) == parchment.KindNote || art.Label(parchment.LabelPrefixKind) == parchment.KindConcept {

@@ -86,7 +86,7 @@ func TestSemanticRecall_FlagRankedFirst(t *testing.T) {
 	for _, entry := range corpus {
 		art, err := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"},
 			Title: entry.title,
-			Scope: "test",
+
 			Sections: []parchment.Section{
 				{Name: "body", Text: entry.body},
 			},
@@ -136,7 +136,7 @@ func TestSemanticRecall_FlagRankedFirst(t *testing.T) {
 	}
 
 	// Parse the ranked results directly to verify the flag is first.
-	arts, err := proto.SearchSemantic(ctx, query, parchment.ListInput{Scope: "test"})
+	arts, err := proto.SearchSemantic(ctx, query, parchment.ListInput{Labels: []string{parchment.LabelPrefixScope + "test"}})
 	if err != nil {
 		t.Fatalf("SearchSemantic: %v", err)
 	}

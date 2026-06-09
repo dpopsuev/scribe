@@ -64,7 +64,11 @@ func (s *Service) IngestSession(ctx context.Context, path, scope string) (*Inges
 }
 
 func (s *Service) ingestSessionFile(ctx context.Context, path, scope string) (created, skipped int, err error) {
-	existing, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindSource}, Scope: scope})
+	scopeLabels := []string{parchment.LabelPrefixKind + parchment.KindSource}
+	if scope != "" {
+		scopeLabels = append(scopeLabels, parchment.LabelPrefixScope+scope)
+	}
+	existing, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: scopeLabels})
 	for _, src := range existing {
 		for _, sec := range src.Sections {
 			if sec.Name == "provenance" && strings.Contains(sec.Text, path) {
@@ -82,9 +86,13 @@ func (s *Service) ingestSessionFile(ctx context.Context, path, scope string) (cr
 	if sess.cwd != "" {
 		title = fmt.Sprintf("Session: %s (%s)", filepath.Base(path), filepath.Base(sess.cwd))
 	}
+	sourceLabels := []string{parchment.LabelPrefixKind + parchment.KindSource}
+	if scope != "" {
+		sourceLabels = append(sourceLabels, parchment.LabelPrefixScope+scope)
+	}
 	source, err := s.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Labels: []string{parchment.LabelPrefixKind + parchment.KindSource},
-		Title:  title, Scope: scope,
+		Labels: sourceLabels,
+		Title:  title,
 		Sections: []parchment.Section{
 			{Name: "provenance", Text: path},
 			{Name: "summary", Text: sess.summary()},
@@ -99,9 +107,13 @@ func (s *Service) ingestSessionFile(ctx context.Context, path, scope string) (cr
 		if c == "" {
 			continue
 		}
+		contextLabels := []string{parchment.LabelPrefixKind + parchment.KindContext}
+		if scope != "" {
+			contextLabels = append(contextLabels, parchment.LabelPrefixScope+scope)
+		}
 		art, err := s.Proto.CreateArtifact(ctx, parchment.CreateInput{
-			Labels: []string{parchment.LabelPrefixKind + parchment.KindContext},
-			Title:  ExtractTitle(c), Scope: scope,
+			Labels:   contextLabels,
+			Title:    ExtractTitle(c),
 			Sections: []parchment.Section{{Name: "summary", Text: c}},
 		})
 		if err != nil {

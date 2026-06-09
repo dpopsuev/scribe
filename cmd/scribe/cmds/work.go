@@ -21,7 +21,7 @@ import (
 
 func CreateCmd() *cobra.Command {
 	var in parchment.CreateInput
-	var kind, explicitID string
+	var kind, explicitID, scope string
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create an artifact",
@@ -34,6 +34,9 @@ func CreateCmd() *cobra.Command {
 			if kind != "" {
 				in.Labels = append([]string{parchment.LabelPrefixKind + kind}, in.Labels...)
 			}
+			if scope != "" {
+				in.Labels = append(in.Labels, parchment.LabelPrefixScope+scope)
+			}
 			art, err := svc.Proto.CreateArtifact(context.Background(), in)
 			if err != nil {
 				return err
@@ -44,7 +47,7 @@ func CreateCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&kind, "kind", "task", "artifact kind")
 	cmd.Flags().StringVar(&in.Title, "title", "", "artifact title")
-	cmd.Flags().StringVar(&in.Scope, "scope", "", "owning repository")
+	cmd.Flags().StringVar(&scope, "scope", "", "owning repository")
 	cmd.Flags().StringVar(&in.Goal, "goal", "", "goal statement")
 	cmd.Flags().StringVar(&in.Parent, "parent", "", "parent artifact ID")
 
@@ -179,8 +182,11 @@ func ArchiveCmd() *cobra.Command {
 				if excludeKind != "" {
 					bulkExclude = append(bulkExclude, parchment.LabelPrefixKind+excludeKind)
 				}
+				if scope != "" {
+					bulkLabels = append(bulkLabels, parchment.LabelPrefixScope+scope)
+				}
 				in := parchment.BulkMutationInput{
-					Scope: scope, IDPrefix: idPrefix,
+					IDPrefix: idPrefix,
 					Labels: bulkLabels, ExcludeLabels: bulkExclude, DryRun: dryRun,
 				}
 				res, err := svc.Proto.BulkArchive(context.Background(), in)
@@ -447,7 +453,11 @@ func OrphansCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, cleanup := MustService()
 			defer cleanup()
-			in := parchment.OrphanInput{Scope: scope}
+			var orphanLabels []string
+			if scope != "" {
+				orphanLabels = []string{parchment.LabelPrefixScope + scope}
+			}
+			in := parchment.OrphanInput{Labels: orphanLabels}
 			report, err := svc.Proto.DetectOrphans(context.Background(), in)
 			if err != nil {
 				return err
@@ -533,7 +543,10 @@ func SearchCmd() *cobra.Command {
 			if status != "" {
 				searchLabels = append(searchLabels, parchment.LabelPrefixStatus+status)
 			}
-			li := parchment.ListInput{Labels: searchLabels, Scope: scope}
+			if scope != "" {
+				searchLabels = append(searchLabels, parchment.LabelPrefixScope+scope)
+			}
+			li := parchment.ListInput{Labels: searchLabels}
 			matched, err := svc.Proto.SearchArtifacts(context.Background(), args[0], li)
 			if err != nil {
 				return err

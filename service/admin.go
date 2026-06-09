@@ -238,10 +238,11 @@ func (s *Service) SetGoal(ctx context.Context, in SetGoalInput) (*SetGoalResult,
 		return nil, fmt.Errorf("no kind with is_goal_kind=true in schema") //nolint:err113 // agent-facing error
 	}
 
-	existing, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{
-		Labels: []string{parchment.LabelPrefixKind + goalKind, parchment.LabelPrefixStatus + goalDef.ActiveStatus},
-		Scope:  in.Scope,
-	})
+	goalLabels := []string{parchment.LabelPrefixKind + goalKind, parchment.LabelPrefixStatus + goalDef.ActiveStatus}
+	if in.Scope != "" {
+		goalLabels = append(goalLabels, parchment.LabelPrefixScope+in.Scope)
+	}
+	existing, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: goalLabels})
 
 	archived := make([]*parchment.Artifact, 0, len(existing))
 	for _, old := range existing {
@@ -256,8 +257,8 @@ func (s *Service) SetGoal(ctx context.Context, in SetGoalInput) (*SetGoalResult,
 	}
 
 	goal, err := s.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Labels: []string{parchment.LabelPrefixKind + goalKind, parchment.LabelPrefixStatus + goalDef.ActiveStatus},
-		Title:  in.Title, Scope: in.Scope,
+		Labels: goalLabels,
+		Title:  in.Title,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create goal: %w", err)
@@ -267,10 +268,14 @@ func (s *Service) SetGoal(ctx context.Context, in SetGoalInput) (*SetGoalResult,
 	if rootKind == "" {
 		rootKind = goalKind
 	}
+	rootLabels := []string{parchment.LabelPrefixKind + rootKind}
+	if in.Scope != "" {
+		rootLabels = append(rootLabels, parchment.LabelPrefixScope+in.Scope)
+	}
 	root, err := s.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Labels: []string{parchment.LabelPrefixKind + rootKind},
-		Title:  in.Title, Scope: in.Scope,
-		Links: map[string][]string{parchment.RelJustifies: {goal.ID}},
+		Labels: rootLabels,
+		Title:  in.Title,
+		Links:  map[string][]string{parchment.RelJustifies: {goal.ID}},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create root: %w", err)
@@ -459,8 +464,12 @@ func (s *Service) RenderDetect(ctx context.Context, check, scope, kind, project,
 	}
 
 	if check == DetectCheckOrphans || check == DetectCheckAll {
+		orphanLabels := []string{}
+		if scope != "" {
+			orphanLabels = append(orphanLabels, parchment.LabelPrefixScope+scope)
+		}
 		report, err := s.Proto.DetectOrphans(ctx, parchment.OrphanInput{
-			Scope: scope,
+			Labels: orphanLabels,
 		})
 		if err != nil {
 			return "", err

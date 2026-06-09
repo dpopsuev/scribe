@@ -482,9 +482,10 @@ func renderTreeNode(node *parchment.TreeNode, prefix string, last, showScope boo
 		}
 		edgeLabel = node.Edge + arrow
 	}
+	nodeScope := labelVal(node.Labels, parchment.LabelPrefixScope)
 	scopeLabel := ""
-	if showScope && node.Scope != "" {
-		scopeLabel = fmt.Sprintf(" [%s]", node.Scope)
+	if showScope && nodeScope != "" {
+		scopeLabel = fmt.Sprintf(" [%s]", nodeScope)
 	}
 	fmt.Fprintf(b, "%s%s%s%s%s [%s] %s\n", prefix, connector, edgeLabel, node.ID, scopeLabel, labelVal(node.Labels, parchment.LabelPrefixStatus), node.Title)
 	childPrefix := prefix
@@ -522,9 +523,10 @@ func renderBriefingNode(node *parchment.TreeNode, prefix string, last, showScope
 		}
 		edgeLabel = node.Edge + arrow
 	}
+	briefingScope := labelVal(node.Labels, parchment.LabelPrefixScope)
 	scopeLabel := ""
-	if showScope && node.Scope != "" {
-		scopeLabel = fmt.Sprintf(" [%s]", node.Scope)
+	if showScope && briefingScope != "" {
+		scopeLabel = fmt.Sprintf(" [%s]", briefingScope)
 	}
 	nodeKind := labelVal(node.Labels, parchment.LabelPrefixKind)
 	nodeStatus := labelVal(node.Labels, parchment.LabelPrefixStatus)
@@ -550,8 +552,8 @@ func countDistinctScopes(node *parchment.TreeNode) int {
 	scopes := map[string]struct{}{}
 	var walk func(n *parchment.TreeNode)
 	walk = func(n *parchment.TreeNode) {
-		if n.Scope != "" {
-			scopes[n.Scope] = struct{}{}
+		if sc := labelVal(n.Labels, parchment.LabelPrefixScope); sc != "" {
+			scopes[sc] = struct{}{}
 		}
 		for _, ch := range n.Children {
 			walk(ch)
@@ -633,9 +635,12 @@ func createSingle(ctx context.Context, svc *Service, in *createInput) (string, e
 	if in.Status != "" {
 		labels = append(labels, parchment.LabelPrefixStatus+in.Status)
 	}
+	if in.Scope != "" {
+		labels = append(labels, parchment.LabelPrefixScope+in.Scope)
+	}
 	art, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Title: in.Title, Scope: in.Scope,
-		Goal: in.Goal, Parent: in.Parent,
+		Title: in.Title,
+		Goal:  in.Goal, Parent: in.Parent,
 		ExplicitID: in.ID, Priority: in.Priority,
 		Labels: labels, DependsOn: in.DependsOn, Sections: parseSections(in.Sections),
 		Links: in.Links, Extra: in.Extra, Patch: in.Patch, SkipHooks: in.SkipHooks,
@@ -679,9 +684,12 @@ func createFromStash(ctx context.Context, svc *Service, in *createInput) (string
 	if in.Status != "" {
 		stashLabels = append(stashLabels, parchment.LabelPrefixStatus+in.Status)
 	}
+	if in.Scope != "" {
+		stashLabels = append(stashLabels, parchment.LabelPrefixScope+in.Scope)
+	}
 	art, err := svc.Proto.PromoteStash(ctx, in.StashID, parchment.CreateInput{
-		Title: in.Title, Scope: in.Scope,
-		Goal: in.Goal, Parent: in.Parent,
+		Title: in.Title,
+		Goal:  in.Goal, Parent: in.Parent,
 		Priority: in.Priority, Labels: stashLabels,
 		Links: in.Links, Sections: parseSections(in.Sections), Patch: in.Patch,
 	})
@@ -700,23 +708,25 @@ func createClone(ctx context.Context, svc *Service, in *createInput) (string, er
 	if in.Kind != "" {
 		kind = in.Kind
 	}
-	scope := source.Label(parchment.LabelPrefixScope)
-	if in.Scope != "" {
-		scope = in.Scope
-	}
 	title := source.Title
 	if in.Title != "" {
 		title = in.Title
 	}
 	// Strip system labels (kind:, status:) from source — clone starts fresh with kind and draft status.
+	// If in.Scope overrides, also strip scope: from source labels.
 	var baseLabels []string
 	for _, l := range source.Labels {
 		if !strings.HasPrefix(l, parchment.LabelPrefixKind) && !strings.HasPrefix(l, parchment.LabelPrefixStatus) {
-			baseLabels = append(baseLabels, l)
+			if in.Scope == "" || !strings.HasPrefix(l, parchment.LabelPrefixScope) {
+				baseLabels = append(baseLabels, l)
+			}
 		}
 	}
 	if len(in.Labels) > 0 {
 		baseLabels = in.Labels
+	}
+	if in.Scope != "" {
+		baseLabels = append(baseLabels, parchment.LabelPrefixScope+in.Scope)
 	}
 	sections := make([]parchment.Section, 0, len(source.Sections))
 	for _, s := range source.Sections {
@@ -733,7 +743,8 @@ func createClone(ctx context.Context, svc *Service, in *createInput) (string, er
 	cloneLabels = append(cloneLabels, parchment.LabelPrefixStatus+cloneStatus)
 	cloneLabels = append(cloneLabels, baseLabels...)
 	art, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Title: title, Scope: scope, Goal: source.Goal,
+		Title:  title,
+		Goal:   source.Goal,
 		Parent: in.Parent, Priority: in.Priority,
 		Labels: cloneLabels, Sections: sections,
 	})
@@ -771,9 +782,12 @@ func createBatch(ctx context.Context, svc *Service, in *createInput) (string, er
 		if ci.Status != "" {
 			batchLabels = append(batchLabels, parchment.LabelPrefixStatus+ci.Status)
 		}
+		if ci.Scope != "" {
+			batchLabels = append(batchLabels, parchment.LabelPrefixScope+ci.Scope)
+		}
 		art, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-			Title: ci.Title, Scope: ci.Scope,
-			Goal: ci.Goal, Parent: ci.Parent,
+			Title: ci.Title,
+			Goal:  ci.Goal, Parent: ci.Parent,
 			Priority: ci.Priority, Labels: batchLabels,
 			Links: ci.Links, Extra: ci.Extra, Sections: parseSections(ci.Sections),
 		})
@@ -962,12 +976,14 @@ var opSet = Op{
 			if in.Status != "" {
 				bulkLabels = append(bulkLabels, parchment.LabelPrefixStatus+in.Status)
 			}
+			if in.Scope != "" {
+				bulkLabels = append(bulkLabels, parchment.LabelPrefixScope+in.Scope)
+			}
 			if in.ExcludeKind != "" {
 				bulkExclude = append(bulkExclude, parchment.LabelPrefixKind+in.ExcludeKind)
 			}
 			arts, err := svc.Proto.ListArtifacts(ctx, parchment.ListInput{
-				Scope: in.Scope, IDPrefix: in.IDPrefix,
-				Labels: bulkLabels, ExcludeLabels: bulkExclude,
+				IDPrefix: in.IDPrefix, Labels: bulkLabels, ExcludeLabels: bulkExclude,
 			})
 			if err != nil {
 				return "", err
@@ -1157,7 +1173,10 @@ var opList = Op{
 			if in.Kind != "" {
 				semLabels = append([]string{parchment.LabelPrefixKind + in.Kind}, semLabels...)
 			}
-			li := parchment.ListInput{Scope: in.Scope, Limit: in.Limit, Labels: semLabels}
+			if in.Scope != "" {
+				semLabels = append(semLabels, parchment.LabelPrefixScope+in.Scope)
+			}
+			li := parchment.ListInput{Limit: in.Limit, Labels: semLabels}
 			var scored []parchment.ScoredArtifact
 			var semErr error
 			scored, semErr = svc.Proto.SearchSemantic(ctx, in.Query, li)
@@ -1226,6 +1245,9 @@ var opList = Op{
 		if in.Status != "" {
 			listLabels = append(listLabels, parchment.LabelPrefixStatus+in.Status)
 		}
+		if in.Scope != "" {
+			listLabels = append(listLabels, parchment.LabelPrefixScope+in.Scope)
+		}
 		listExclude := in.ExcludeLabels
 		if in.ExcludeKind != "" {
 			listExclude = append(listExclude, parchment.LabelPrefixKind+in.ExcludeKind)
@@ -1234,7 +1256,6 @@ var opList = Op{
 			listExclude = append(listExclude, parchment.LabelPrefixStatus+in.ExcludeStatus)
 		}
 		li := parchment.ListInput{
-			Scope:  in.Scope,
 			Parent: in.Parent, Sprint: in.Sprint, IDPrefix: in.IDPrefix,
 			Labels: listLabels, LabelsOr: in.LabelsOr, ExcludeLabels: listExclude,
 			GroupBy: in.GroupBy, Sort: in.Sort, Limit: in.Limit, Cursor: in.Cursor, Query: in.Query,
@@ -1336,7 +1357,7 @@ var opList = Op{
 		if li.Limit > 0 && li.Limit < total {
 			out += fmt.Sprintf("\n(showing %d of %d total)", len(arts), total)
 		}
-		isUnfiltered := li.Scope == "" && li.Query == "" && li.TitleContains == "" &&
+		isUnfiltered := li.Query == "" && li.TitleContains == "" &&
 			len(li.Labels) == 0 && len(li.LabelsOr) == 0 && len(li.ExcludeLabels) == 0 &&
 			li.Parent == "" && li.IDPrefix == "" && li.Limit == 0
 		if isUnfiltered && total > 0 {

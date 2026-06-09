@@ -232,7 +232,7 @@ func TestArtifact_Promote_TemplateConformanceEnforced(t *testing.T) {
 	// Create a template with a required section
 	tpl, err := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTemplate},
 		Title: "need-tpl",
-		Scope: "test",
+
 		Sections: []parchment.Section{
 			{Name: "acceptance", Text: "required:Must have acceptance criteria"},
 		},

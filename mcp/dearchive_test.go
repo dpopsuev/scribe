@@ -34,7 +34,7 @@ func TestDeArchive_RoundTrip(t *testing.T) {
 	proto, call := newDeArchiveServer(t)
 	ctx := context.Background()
 
-	art, err := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "to be archived and restored", Scope: "test"})
+	art, err := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "to be archived and restored"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestDeArchive_RestoredArtifactIsWritable(t *testing.T) {
 	proto, call := newDeArchiveServer(t)
 	ctx := context.Background()
 
-	art, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "writable after restore", Scope: "test"})
+	art, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "writable after restore"})
 
 	call("artifact", map[string]any{"action": "set", "field": "status", "value": "archived", "bypass_guards": true, "id": art.ID})
 	call("artifact", map[string]any{"action": "set", "field": "status", "value": "draft", "bypass_guards": true, "force": true, "id": art.ID})
@@ -109,8 +109,8 @@ func TestDeArchive_Cascade(t *testing.T) {
 	proto, call := newDeArchiveServer(t)
 	ctx := context.Background()
 
-	parent, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindGoal}, Title: "parent", Scope: "test"})
-	child, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "child", Scope: "test", Parent: parent.ID})
+	parent, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindGoal}, Title: "parent"})
+	child, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "child", Parent: parent.ID})
 	// Retire child first so parent can be archived (archive requires terminal children).
 	_, _ = proto.RetireArtifact(ctx, []string{child.ID}, false)
 
@@ -142,7 +142,7 @@ func TestDeArchive_NonArchivedReturnsError(t *testing.T) {
 	proto, call := newDeArchiveServer(t)
 	ctx := context.Background()
 
-	art, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "not archived", Scope: "test"})
+	art, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "not archived"})
 
 	out := call("artifact", map[string]any{
 		"action": "set", "field": "status", "value": "draft", "bypass_guards": true, "force": true,

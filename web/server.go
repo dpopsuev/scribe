@@ -163,9 +163,11 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	if status := queryParams.Get("status"); status != "" {
 		listLabels = append(listLabels, parchment.LabelPrefixStatus+status)
 	}
+	if sc := queryParams.Get("scope"); sc != "" {
+		listLabels = append(listLabels, parchment.LabelPrefixScope+sc)
+	}
 	in := parchment.ListInput{
 		Labels: listLabels,
-		Scope:  queryParams.Get("scope"),
 	}
 	arts, err := s.proto.ListArtifacts(r.Context(), in)
 	if err != nil {
@@ -173,9 +175,10 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, "list.html", map[string]any{
-		"Title":     "Artifacts",
-		"Artifacts": arts,
-		"Filter":    in,
+		"Title":       "Artifacts",
+		"Artifacts":   arts,
+		"Filter":      in,
+		"ScopeFilter": queryParams.Get("scope"),
 	})
 }
 

@@ -41,7 +41,7 @@ func TestBrief_IncludesMemorySection(t *testing.T) {
 	// Seed an evergreen note — should surface in brief memory
 	_, err := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindNote, parchment.LabelPrefixStatus + parchment.StatusEvergreen},
 		Title: "SetField rejects unknown fields",
-		Scope: "test",
+
 		Sections: []parchment.Section{
 			{Name: "body", Text: "Use attach_section for named content instead."},
 		},
@@ -93,7 +93,7 @@ func TestBrief_MemoryLimitedToThree(t *testing.T) {
 	for i := range 6 {
 		_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindNote, parchment.LabelPrefixStatus + parchment.StatusEvergreen},
 			Title: "memory note",
-			Scope: "test",
+
 			Sections: []parchment.Section{
 				{Name: "body", Text: "some important observation about the system"},
 			},
@@ -137,7 +137,7 @@ func TestOrient_IncludesRecentSessions(t *testing.T) {
 	// Simulate what ingest_session creates: a source artifact with provenance section
 	_, err := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindSource},
 		Title: "Session: 2026-05-26T10-00-00_abc123.jsonl (parchment)",
-		Scope: "test",
+
 		Sections: []parchment.Section{
 			{Name: "provenance", Text: "/home/dpopsuev/.config/pi/agent/sessions/--parchment--/2026-05-26T10-00-00_abc123.jsonl"},
 			{Name: "summary", Text: "Format: pi\nCWD: /home/dpopsuev/Workspace/parchment\nCompaction summaries: 2\nScribe tool calls observed: 47"},

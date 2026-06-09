@@ -15,10 +15,11 @@ import (
 func (s *Service) BriefMemoryLines(ctx context.Context, scope string, n int) []string {
 	var knowledge []*parchment.Artifact
 	for _, kind := range []string{parchment.KindNote, parchment.KindConcept} {
-		arts, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{
-			Labels: []string{parchment.LabelPrefixKind + kind, parchment.LabelPrefixStatus + parchment.StatusEvergreen},
-			Scope:  scope,
-		})
+		memLabels := []string{parchment.LabelPrefixKind + kind, parchment.LabelPrefixStatus + parchment.StatusEvergreen}
+		if scope != "" {
+			memLabels = append(memLabels, parchment.LabelPrefixScope+scope)
+		}
+		arts, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: memLabels})
 		knowledge = append(knowledge, arts...)
 	}
 	if len(knowledge) == 0 {
@@ -55,10 +56,11 @@ func (s *Service) BriefMemoryLines(ctx context.Context, scope string, n int) []s
 
 // OrientSessionLines returns formatted lines describing recently ingested sessions.
 func (s *Service) OrientSessionLines(ctx context.Context, scope string, n int) []string {
-	sources, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{
-		Labels: []string{parchment.LabelPrefixKind + parchment.KindSource},
-		Scope:  scope,
-	})
+	sessionLabels := []string{parchment.LabelPrefixKind + parchment.KindSource}
+	if scope != "" {
+		sessionLabels = append(sessionLabels, parchment.LabelPrefixScope+scope)
+	}
+	sources, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: sessionLabels})
 	type sessionSource struct {
 		art        *parchment.Artifact
 		provenance string

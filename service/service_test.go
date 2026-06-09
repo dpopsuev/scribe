@@ -28,9 +28,9 @@ func TestContextRead_ReturnsTask(t *testing.T) {
 	svc := newTestService(t)
 
 	task, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Labels:   []string{"kind:task", "go", "security"},
-		Title:    "fix auth bug",
-		Scope:    "test",
+		Labels: []string{"kind:task", "go", "security"},
+		Title:  "fix auth bug",
+
 		Priority: "high",
 		Sections: []parchment.Section{{Name: "context", Text: "JWT expiry not checked"}},
 	})
@@ -57,8 +57,8 @@ func TestContextRead_RulesExpandedByLabelHierarchy(t *testing.T) {
 
 	// Create a note with labels "rule" and "lang.go" (PRC-ADR-6: rule is a label, not a kind)
 	_, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Title:    "Go conventions",
-		Scope:    "global",
+		Title: "Go conventions",
+
 		Priority: "none",
 		Labels:   []string{"kind:note", "rule", "lang.go"},
 		Sections: []parchment.Section{{Name: "content", Text: "Use gofmt."}},
@@ -69,8 +69,8 @@ func TestContextRead_RulesExpandedByLabelHierarchy(t *testing.T) {
 
 	// Create a task with label "lang.go" — rule should appear in context
 	task, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Title:    "write Go service",
-		Scope:    "test",
+		Title: "write Go service",
+
 		Priority: "medium",
 		Labels:   []string{"kind:task", "lang.go"},
 		Sections: []parchment.Section{{Name: "context", Text: "build a Go HTTP service"}},
@@ -97,8 +97,8 @@ func TestContextRead_AlwaysRulesAlwaysIncluded(t *testing.T) {
 	svc := newTestService(t)
 
 	_, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Title:    "KISS directives",
-		Scope:    "global",
+		Title: "KISS directives",
+
 		Priority: "none",
 		Labels:   []string{"kind:note", "rule", "always"},
 		Sections: []parchment.Section{{Name: "content", Text: "Keep it simple."}},
@@ -109,8 +109,8 @@ func TestContextRead_AlwaysRulesAlwaysIncluded(t *testing.T) {
 
 	// Task with no matching labels — always rule should still appear
 	task, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Title:    "unrelated task",
-		Scope:    "test",
+		Title: "unrelated task",
+
 		Priority: "low",
 		Labels:   []string{"kind:task", "rust"},
 		Sections: []parchment.Section{{Name: "context", Text: "Rust stuff"}},
@@ -134,8 +134,8 @@ func TestContextRead_KnowledgeInSameScope(t *testing.T) {
 	svc := newTestService(t)
 
 	_, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Title:  "auth note",
-		Scope:  "test",
+		Title: "auth note",
+
 		Labels: []string{"kind:note", "security"},
 	})
 	if err != nil {
@@ -143,8 +143,8 @@ func TestContextRead_KnowledgeInSameScope(t *testing.T) {
 	}
 
 	task, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Title:    "auth task",
-		Scope:    "test",
+		Title: "auth task",
+
 		Priority: "high",
 		Labels:   []string{"kind:task", "security"},
 		Sections: []parchment.Section{{Name: "context", Text: "fix auth"}},
@@ -185,7 +185,6 @@ func TestBrief_ReturnsCurrentGoals(t *testing.T) {
 
 	_, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:goal"},
 		Title: "ship labeldef",
-		Scope: "test",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -222,7 +221,7 @@ func TestRenderChangelog_ShowsChangedArtifacts(t *testing.T) {
 	ctx := context.Background()
 
 	past := "2020-01-01T00:00:00Z"
-	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "recent", Scope: "test"})
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "recent"})
 
 	out, err := svc.RenderChangelog(ctx, past, "test")
 	if err != nil {
@@ -290,7 +289,7 @@ func TestRenderBrief_ShowsOpenBugs(t *testing.T) {
 	svc := newTestService(t, "test")
 	ctx := context.Background()
 
-	bug, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:bug", "status:open"}, Title: "bad crash", Scope: "test"})
+	bug, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:bug", "status:open"}, Title: "bad crash"})
 
 	out, err := svc.RenderBrief(ctx, "", "v1", []string{"test"})
 	if err != nil {
@@ -379,7 +378,7 @@ func TestRenderBriefCompact_ContainsVersionAndCounts(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task", "status:active"}}) //nolint:errcheck // test setup, Title: "active task", Scope: "test",
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task", "status:active"}}) //nolint:errcheck // test setup, Title: "active task",
 
 	out, err := svc.RenderBriefCompact(ctx, "v2.19.0")
 	if err != nil {
@@ -438,7 +437,7 @@ func TestSetGoal_CreatesGoalAndRoot(t *testing.T) {
 	svc := service.New(proto, nil, []string{"test"})
 	ctx := context.Background()
 
-	result, err := svc.SetGoal(ctx, service.SetGoalInput{Title: "improve semantic search", Scope: "test"})
+	result, err := svc.SetGoal(ctx, service.SetGoalInput{Title: "improve semantic search"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -473,11 +472,11 @@ func TestSetGoal_ArchivesExistingGoal(t *testing.T) {
 	svc := service.New(proto, nil, []string{"test"})
 	ctx := context.Background()
 
-	first, err := svc.SetGoal(ctx, service.SetGoalInput{Title: "first goal", Scope: "test"})
+	first, err := svc.SetGoal(ctx, service.SetGoalInput{Title: "first goal"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := svc.SetGoal(ctx, service.SetGoalInput{Title: "second goal", Scope: "test"})
+	second, err := svc.SetGoal(ctx, service.SetGoalInput{Title: "second goal"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -635,9 +634,9 @@ func TestInventory_CountsByKindAndStatus(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "t1", Scope: "test"}) //nolint:errcheck // test setup
-	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "t2", Scope: "test"}) //nolint:errcheck // test setup
-	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Title: "n1", Scope: "test"}) //nolint:errcheck // test setup
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "t1"}) //nolint:errcheck // test setup
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "t2"}) //nolint:errcheck // test setup
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Title: "n1"}) //nolint:errcheck // test setup
 
 	result, err := svc.Inventory(ctx)
 	if err != nil {
@@ -658,11 +657,11 @@ func TestBulkSetField_UpdatesMatchingArtifacts(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "alpha", Scope: "test"}) //nolint:errcheck // test setup
-	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "beta", Scope: "test"})  //nolint:errcheck // test setup
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "alpha"}) //nolint:errcheck // test setup
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "beta"})  //nolint:errcheck // test setup
 
 	result, err := svc.Proto.BulkSetField(ctx, parchment.BulkMutationInput{
-		Labels: []string{"kind:task"}, Scope: "test",
+		Labels: []string{"kind:task"},
 	}, "title", "bulk-updated")
 	if err != nil {
 		t.Fatal(err)

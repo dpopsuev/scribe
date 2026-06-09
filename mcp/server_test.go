@@ -1194,8 +1194,8 @@ func TestChangelog(t *testing.T) {
 	since := time.Now().UTC().Add(-1 * time.Hour).Format(time.RFC3339)
 	// Use Protocol to emit EventLog events — direct store.Put does not.
 	proto := parchment.New(s, nil, []string{"test"}, nil, parchment.ProtocolConfig{})
-	proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task", "status:active"}, Scope: "test", Title: "Changed"})     //nolint:errcheck // test setup
-	proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task", "status:draft"}, Scope: "test", Title: "Also changed"}) //nolint:errcheck // test setup
+	proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task", "status:active"}, Title: "Changed"})     //nolint:errcheck // test setup
+	proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task", "status:draft"}, Title: "Also changed"}) //nolint:errcheck // test setup
 
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
@@ -1217,8 +1217,8 @@ func TestChangelog_ScopeFilter(t *testing.T) {
 	ctx := context.Background()
 	since := time.Now().UTC().Add(-1 * time.Hour).Format(time.RFC3339)
 	proto := parchment.New(s, nil, []string{"alpha", "beta"}, nil, parchment.ProtocolConfig{})
-	proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task", "status:active"}, Scope: "alpha", Title: "Alpha"}) //nolint:errcheck // test setup
-	proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task", "status:draft"}, Scope: "beta", Title: "Beta"})    //nolint:errcheck // test setup
+	proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task", "status:active", parchment.LabelPrefixScope + "alpha"}, Title: "Alpha"}) //nolint:errcheck // test setup
+	proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task", "status:draft", parchment.LabelPrefixScope + "beta"}, Title: "Beta"})    //nolint:errcheck // test setup
 
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)

@@ -34,7 +34,7 @@ func TestCorrelate_FoundArtifacts(t *testing.T) {
 	proto, call := newCorrelateServer(t)
 	ctx := context.Background()
 
-	art, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "implement retry logic", Scope: "test"})
+	art, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "implement retry logic"})
 
 	evidence := "Completed work: " + art.ID + " is done. Pushed PR #42."
 
@@ -61,8 +61,8 @@ func TestCorrelate_MissingArtifacts(t *testing.T) {
 	proto, call := newCorrelateServer(t)
 	ctx := context.Background()
 
-	mentioned, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "mentioned task", Scope: "test"})
-	unmentioned, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "silent task", Scope: "test"})
+	mentioned, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "mentioned task"})
+	unmentioned, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "silent task"})
 
 	evidence := "Shipped: " + mentioned.ID + " — looks good."
 
@@ -89,7 +89,7 @@ func TestCorrelate_StatusDrift(t *testing.T) {
 	proto, call := newCorrelateServer(t)
 	ctx := context.Background()
 
-	art, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "drift candidate", Scope: "test"})
+	art, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "drift candidate"})
 	// Artifact is draft/active in Scribe but evidence says it's done.
 	evidence := art.ID + " PASSED — all tests green, shipped to prod."
 
@@ -132,7 +132,7 @@ func TestCorrelate_Recommendations(t *testing.T) {
 	proto, call := newCorrelateServer(t)
 	ctx := context.Background()
 
-	art, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "closeable task", Scope: "test"})
+	art, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "closeable task"})
 	evidence := art.ID + " is done and deployed. No issues."
 
 	out := call(map[string]any{

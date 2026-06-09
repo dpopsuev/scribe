@@ -123,7 +123,7 @@ func TestIngestSession_PiFormat(t *testing.T) {
 	}
 
 	// A source artifact for the session must have been created.
-	sources, err := proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindSource}, Scope: "test"})
+	sources, err := proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindSource}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestIngestSession_ClaudeFormat(t *testing.T) {
 		t.Fatalf("ingest_session action not implemented: %s", out)
 	}
 
-	sources, _ := proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindSource}, Scope: "test"})
+	sources, _ := proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindSource}})
 	if len(sources) == 0 {
 		t.Fatal("expected source artifact for Claude session")
 	}
@@ -183,7 +183,7 @@ func TestIngestSession_ExtractsCompactionSummary(t *testing.T) {
 	})
 
 	// The compaction summary should become a context or note artifact.
-	all, _ := proto.ListArtifacts(ctx, parchment.ListInput{Scope: "test"})
+	all, _ := proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixScope + "test"}})
 	hasCompactionNote := false
 	for _, a := range all {
 		if a.Label(parchment.LabelPrefixKind) == parchment.KindContext || a.Label(parchment.LabelPrefixKind) == parchment.KindNote {
@@ -210,7 +210,7 @@ func TestIngestSession_Idempotent(t *testing.T) {
 	call(map[string]any{"action": "ingest_session", "path": path, "scope": "test"})
 	call(map[string]any{"action": "ingest_session", "path": path, "scope": "test"})
 
-	sources, _ := proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindSource}, Scope: "test"})
+	sources, _ := proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindSource}})
 	// Should have exactly one source for this session, not two.
 	sessionSources := 0
 	for _, s := range sources {
@@ -244,7 +244,7 @@ func TestIngestSession_Directory(t *testing.T) {
 		t.Fatalf("directory ingest failed: %s", out)
 	}
 
-	sources, _ := proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindSource}, Scope: "test"})
+	sources, _ := proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindSource}})
 	if len(sources) < 2 {
 		t.Errorf("directory ingest should create one source per session file, got %d", len(sources))
 	}

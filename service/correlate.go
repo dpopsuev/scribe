@@ -36,7 +36,11 @@ func (s *Service) Correlate(ctx context.Context, evidence, scope string) (*Corre
 	evidenceLower := strings.ToLower(evidence)
 	mentionedIDs := ExtractIDs(evidence)
 
-	all, err := s.Proto.ListArtifacts(ctx, parchment.ListInput{Scope: scope})
+	var correlateLabels []string
+	if scope != "" {
+		correlateLabels = []string{parchment.LabelPrefixScope + scope}
+	}
+	all, err := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: correlateLabels})
 	if err != nil {
 		return nil, fmt.Errorf("list artifacts: %w", err)
 	}

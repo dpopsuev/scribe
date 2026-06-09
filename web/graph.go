@@ -146,8 +146,12 @@ func fetchArtifacts(ctx context.Context, proto *parchment.Protocol, scope string
 	for _, st := range statuses {
 		labelsOr = append(labelsOr, parchment.LabelPrefixStatus+strings.TrimSpace(st))
 	}
+	labels := []string{}
+	if scope != "" {
+		labels = append(labels, parchment.LabelPrefixScope+scope)
+	}
 	return proto.ListArtifacts(ctx, parchment.ListInput{
-		Scope:    scope,
+		Labels:   labels,
 		LabelsOr: labelsOr,
 	})
 }
@@ -218,6 +222,7 @@ func (s *Server) handleAPICreateArtifact(w http.ResponseWriter, r *http.Request)
 		parchment.CreateInput
 		Kind   string `json:"kind,omitempty"`
 		Status string `json:"status,omitempty"`
+		Scope  string `json:"scope,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
 		http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
@@ -229,6 +234,9 @@ func (s *Server) handleAPICreateArtifact(w http.ResponseWriter, r *http.Request)
 	}
 	if raw.Status != "" {
 		in.Labels = append(in.Labels, parchment.LabelPrefixStatus+raw.Status)
+	}
+	if raw.Scope != "" {
+		in.Labels = append(in.Labels, parchment.LabelPrefixScope+raw.Scope)
 	}
 	art, err := s.proto.CreateArtifact(r.Context(), in)
 	if err != nil {
