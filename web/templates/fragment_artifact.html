@@ -3,14 +3,14 @@
   <div class="fragment-meta">
     <span class="badge badge-{{labelValue .Artifact.Labels "status:"}}">{{labelValue .Artifact.Labels "status:"}}</span>
     <span class="badge">{{labelValue .Artifact.Labels "kind:"}}</span>
-    {{if .Artifact.Scope}}<span class="badge-scope">{{.Artifact.Scope}}</span>{{end}}
+    {{if labelValue .Artifact.Labels "scope:"}}<span class="badge-scope">{{labelValue .Artifact.Labels "scope:"}}</span>{{end}}
   </div>
 </div>
 
 <table class="meta-table" style="font-size:0.85em">
   <tr><td>ID</td><td>{{.Artifact.ID}}</td></tr>
   {{if .Artifact.Parent}}<tr><td>Parent</td><td><a href="/artifacts/{{.Artifact.Parent}}">{{.Artifact.Parent}}</a></td></tr>{{end}}
-  {{if .Artifact.Priority}}<tr><td>Priority</td><td>{{.Artifact.Priority}}</td></tr>{{end}}
+  {{if labelValue .Artifact.Labels "priority:"}}<tr><td>Priority</td><td>{{labelValue .Artifact.Labels "priority:"}}</td></tr>{{end}}
   {{if .Artifact.Labels}}<tr><td>Labels</td><td>{{range .Artifact.Labels}}<span class="badge" style="font-size:0.75em">{{.}}</span> {{end}}</td></tr>{{end}}
   <tr><td>Updated</td><td>{{.Artifact.UpdatedAt.Format "2006-01-02"}}</td></tr>
 </table>

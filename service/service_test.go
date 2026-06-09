@@ -448,8 +448,8 @@ func TestSetGoal_CreatesGoalAndRoot(t *testing.T) {
 	if result.Root == nil {
 		t.Fatal("SetGoal should return a root artifact")
 	}
-	if result.Goal.ResolvedKind() != "goal" {
-		t.Errorf("goal kind = %q, want %q", result.Goal.ResolvedKind(), "goal")
+	if result.Goal.Label(parchment.LabelPrefixKind) != "goal" {
+		t.Errorf("goal kind = %q, want %q", result.Goal.Label(parchment.LabelPrefixKind), "goal")
 	}
 	// Root should justify the goal
 	found := false
@@ -535,16 +535,16 @@ func TestFilterSections_EmptyFilterKeepsAll(t *testing.T) {
 // --- RelevanceScore ---
 
 func TestRelevanceScore_ActiveHigherThanDraft(t *testing.T) {
-	active := &parchment.Artifact{Labels: []string{"status:active"}, Priority: "high"}
-	draft := &parchment.Artifact{Labels: []string{"status:draft"}, Priority: "high"}
+	active := &parchment.Artifact{Labels: []string{"status:active", "priority:high"}}
+	draft := &parchment.Artifact{Labels: []string{"status:draft", "priority:high"}}
 	if service.RelevanceScore(active) <= service.RelevanceScore(draft) {
 		t.Error("active artifact should score higher than draft")
 	}
 }
 
 func TestRelevanceScore_CriticalHigherThanLow(t *testing.T) {
-	crit := &parchment.Artifact{Labels: []string{"status:active"}, Priority: "critical"}
-	low := &parchment.Artifact{Labels: []string{"status:active"}, Priority: "low"}
+	crit := &parchment.Artifact{Labels: []string{"status:active", "priority:critical"}}
+	low := &parchment.Artifact{Labels: []string{"status:active", "priority:low"}}
 	if service.RelevanceScore(crit) <= service.RelevanceScore(low) {
 		t.Error("critical priority should score higher than low")
 	}
@@ -727,18 +727,18 @@ func TestSortArtifacts_ByStatus(t *testing.T) {
 		{ID: "D", Labels: []string{"status:draft"}},
 	}
 	service.SortArtifacts(arts, "status")
-	if arts[0].ResolvedStatus() != "active" {
-		t.Errorf("SortArtifacts(status)[0] = %q, want active", arts[0].ResolvedStatus())
+	if arts[0].Label(parchment.LabelPrefixStatus) != "active" {
+		t.Errorf("SortArtifacts(status)[0] = %q, want active", arts[0].Label(parchment.LabelPrefixStatus))
 	}
 }
 
 func TestSortArtifacts_ByScope(t *testing.T) {
 	arts := []*parchment.Artifact{
-		{ID: "1", Scope: "z-scope"},
-		{ID: "2", Scope: "a-scope"},
+		{ID: "1", Labels: []string{"scope:z-scope"}},
+		{ID: "2", Labels: []string{"scope:a-scope"}},
 	}
 	service.SortArtifacts(arts, "scope")
-	if arts[0].Scope != "a-scope" {
-		t.Errorf("SortArtifacts(scope)[0] = %q, want a-scope", arts[0].Scope)
+	if arts[0].Label(parchment.LabelPrefixScope) != "a-scope" {
+		t.Errorf("SortArtifacts(scope)[0] = %q, want a-scope", arts[0].Label(parchment.LabelPrefixScope))
 	}
 }

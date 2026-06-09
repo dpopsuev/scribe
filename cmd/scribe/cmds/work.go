@@ -1002,8 +1002,8 @@ func GoalCmd() *cobra.Command {
 			}
 			for _, a := range m.Goals {
 				prefix := ""
-				if a.Scope != "" {
-					prefix = "[" + a.Scope + "] "
+				if a.Label(parchment.LabelPrefixScope) != "" {
+					prefix = "[" + a.Label(parchment.LabelPrefixScope) + "] "
 				}
 				fmt.Printf("%s %s%s\n", a.ID, prefix, a.Title)
 			}

@@ -4,13 +4,13 @@
 <table class="meta-table">
   <tr><td>ID</td><td>{{.Artifact.ID}}</td></tr>
   <tr><td>Kind</td><td>
-    <span class="kind-dot" style="background:var(--color-kind-{{.Artifact.ResolvedKind}},#94a3b8)"></span>
-    {{.Artifact.ResolvedKind}}
+    <span class="kind-dot" style="background:var(--color-kind-{{labelValue .Artifact.Labels "kind:"}},#94a3b8)"></span>
+    {{labelValue .Artifact.Labels "kind:"}}
   </td></tr>
-  <tr><td>Scope</td><td>{{.Artifact.Scope}}</td></tr>
-  <tr><td>Status</td><td><span class="badge badge-{{.Artifact.ResolvedStatus}}">{{.Artifact.ResolvedStatus}}</span></td></tr>
+  <tr><td>Scope</td><td>{{labelValue .Artifact.Labels "scope:"}}</td></tr>
+  <tr><td>Status</td><td><span class="badge badge-{{labelValue .Artifact.Labels "status:"}}">{{labelValue .Artifact.Labels "status:"}}</span></td></tr>
   {{if .Artifact.Parent}}<tr><td>Parent</td><td><a href="/artifacts/{{.Artifact.Parent}}">{{.Artifact.Parent}}</a></td></tr>{{end}}
-  {{if .Artifact.Sprint}}<tr><td>Sprint</td><td><a href="/artifacts/{{.Artifact.Sprint}}">{{.Artifact.Sprint}}</a></td></tr>{{end}}
+  {{if labelValue .Artifact.Labels "sprint:"}}<tr><td>Sprint</td><td><a href="/artifacts/{{labelValue .Artifact.Labels "sprint:"}}">{{labelValue .Artifact.Labels "sprint:"}}</a></td></tr>{{end}}
   {{if .Artifact.Goal}}<tr><td>Goal</td><td>{{.Artifact.Goal}}</td></tr>{{end}}
   {{if .Artifact.DependsOn}}<tr><td>Depends On</td><td>{{range .Artifact.DependsOn}}<a href="/artifacts/{{.}}">{{.}}</a> {{end}}</td></tr>{{end}}
   {{if .Artifact.Labels}}<tr><td>Labels</td><td>{{range .Artifact.Labels}}<span class="badge">{{.}}</span> {{end}}</td></tr>{{end}}

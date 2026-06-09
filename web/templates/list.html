@@ -18,10 +18,10 @@
     <tr>
       <td><a href="/artifacts/{{.ID}}">{{.ID}}</a></td>
       <td>
-        <span class="kind-dot" style="background:var(--color-kind-{{.ResolvedKind}},#94a3b8)"></span>{{.ResolvedKind}}
+        <span class="kind-dot" style="background:var(--color-kind-{{labelValue .Labels "kind:"}},#94a3b8)"></span>{{labelValue .Labels "kind:"}}
       </td>
-      <td>{{.Scope}}</td>
-      <td><span class="badge badge-{{.ResolvedStatus}}">{{.ResolvedStatus}}</span></td>
+      <td>{{labelValue .Labels "scope:"}}</td>
+      <td><span class="badge badge-{{labelValue .Labels "status:"}}">{{labelValue .Labels "status:"}}</span></td>
       <td>{{.Title}}</td>
       <td><a href="/tree/{{.ID}}">tree</a></td>
     </tr>

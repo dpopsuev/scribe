@@ -22,14 +22,14 @@ func setup(t *testing.T) *web.Server {
 
 	ctx := context.Background()
 	s.Put(ctx, &parchment.Artifact{
-		Labels: []string{"kind:task", "status:active"}, ID: "TASK-2026-001", Scope: "test", Title: "Test Task",
+		Labels: []string{"kind:task", "status:active", "scope:test"}, ID: "TASK-2026-001", Title: "Test Task",
 		Sections: []parchment.Section{
 			{Name: "design", Text: "## Overview\n\nThis is a **test** design."},
 		},
 	})
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:campaign", "status:active"}, ID: "CMP-2026-001", Scope: "test", Title: "Test Campaign"})
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:goal", "status:current"}, ID: "GOL-2026-001", Scope: "test", Title: "Test Goal"})
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "status:active"}, ID: "TASK-2026-002", Scope: "test", Title: "Child Task",
+	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:campaign", "status:active", "scope:test"}, ID: "CMP-2026-001", Title: "Test Campaign"})
+	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:goal", "status:current", "scope:test"}, ID: "GOL-2026-001", Title: "Test Goal"})
+	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "status:active", "scope:test"}, ID: "TASK-2026-002", Title: "Child Task",
 		Parent: "GOL-2026-001"})
 
 	proto := parchment.New(s, nil, []string{"test"}, nil, parchment.ProtocolConfig{})

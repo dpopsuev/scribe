@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/config"
 	"github.com/dpopsuev/scribe/service"
 	"github.com/spf13/cobra"
@@ -41,8 +42,8 @@ func BriefCmd() *cobra.Command {
 				var lines []string
 				for _, g := range m.Goals {
 					prefix := ""
-					if g.Scope != "" {
-						prefix = "[" + g.Scope + "] "
+					if g.Label(parchment.LabelPrefixScope) != "" {
+						prefix = "[" + g.Label(parchment.LabelPrefixScope) + "] "
 					}
 					lines = append(lines, fmt.Sprintf("  %s %s%s", g.ID, prefix, g.Title))
 				}
@@ -92,7 +93,7 @@ func DfCmd() *cobra.Command {
 			if len(report.StaleArts) > 0 {
 				fmt.Println("\nTop stale artifacts (by updated_at):")
 				for _, a := range report.StaleArts {
-					fmt.Printf("  %s [%s] %s\n", a.ID, a.ResolvedStatus(), a.Title)
+					fmt.Printf("  %s [%s] %s\n", a.ID, a.Label(parchment.LabelPrefixStatus), a.Title)
 				}
 			}
 			return nil
@@ -170,8 +171,8 @@ func InventoryCmd() *cobra.Command {
 				fmt.Printf("\nTracked %s:\n", kind)
 				for _, a := range arts {
 					prefix := ""
-					if a.Scope != "" {
-						prefix = "[" + a.Scope + "] "
+					if a.Label(parchment.LabelPrefixScope) != "" {
+						prefix = "[" + a.Label(parchment.LabelPrefixScope) + "] "
 					}
 					fmt.Printf("  %s %s%s\n", a.ID, prefix, a.Title)
 				}

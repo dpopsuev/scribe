@@ -93,16 +93,16 @@ func (s *Service) Brief(ctx context.Context) (*BriefResult, error) { //nolint:cy
 	unknownCounts := make(map[string]int)
 	completable, unimplemented := 0, 0
 	for _, art := range all {
-		if schema.UnknownKind(art.ResolvedKind()) {
-			unknownCounts[art.ResolvedKind()]++
+		if schema.UnknownKind(art.Label(parchment.LabelPrefixKind)) {
+			unknownCounts[art.Label(parchment.LabelPrefixKind)]++
 		}
-		isEffortKind := art.ResolvedKind() == parchment.KindCampaign || art.ResolvedKind() == parchment.KindGoal
-		if !schema.IsTerminal(art.ResolvedStatus()) && isEffortKind { //nolint:nestif // brief check is inherently nested
+		isEffortKind := art.Label(parchment.LabelPrefixKind) == parchment.KindCampaign || art.Label(parchment.LabelPrefixKind) == parchment.KindGoal
+		if !schema.IsTerminal(art.Label(parchment.LabelPrefixStatus)) && isEffortKind { //nolint:nestif // brief check is inherently nested
 			children, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Parent: art.ID})
 			if len(children) > 0 {
 				allDone := true
 				for _, ch := range children {
-					if !schema.IsTerminal(ch.ResolvedStatus()) {
+					if !schema.IsTerminal(ch.Label(parchment.LabelPrefixStatus)) {
 						allDone = false
 						break
 					}
@@ -112,7 +112,7 @@ func (s *Service) Brief(ctx context.Context) (*BriefResult, error) { //nolint:cy
 				}
 			}
 		}
-		if !schema.IsTerminal(art.ResolvedStatus()) && (art.ResolvedKind() == parchment.KindSpec || art.ResolvedKind() == parchment.KindBug) {
+		if !schema.IsTerminal(art.Label(parchment.LabelPrefixStatus)) && (art.Label(parchment.LabelPrefixKind) == parchment.KindSpec || art.Label(parchment.LabelPrefixKind) == parchment.KindBug) {
 			backlinks, _ := s.Proto.Backlinks(ctx, art.ID, parchment.RelImplements)
 			if len(backlinks) == 0 {
 				unimplemented++
@@ -159,7 +159,7 @@ func (s *Service) Dashboard(ctx context.Context, staleDays int) (*DashboardResul
 	scopeMap := map[string]*DashboardScope{}
 	var staleArts []*parchment.Artifact
 	for _, art := range all {
-		sc := art.Scope
+		sc := art.Label(parchment.LabelPrefixScope)
 		if sc == "" {
 			sc = scopeNone
 		}
@@ -169,9 +169,9 @@ func (s *Service) Dashboard(ctx context.Context, staleDays int) (*DashboardResul
 			scopeMap[sc] = ds
 		}
 		ds.Total++
-		if schema.IsReadonly(art.ResolvedStatus()) {
+		if schema.IsReadonly(art.Label(parchment.LabelPrefixStatus)) {
 			ds.Archived++
-		} else if !schema.IsTerminal(art.ResolvedStatus()) {
+		} else if !schema.IsTerminal(art.Label(parchment.LabelPrefixStatus)) {
 			ds.Active++
 			if art.UpdatedAt.Before(cutoff) {
 				ds.Stale++
@@ -218,10 +218,10 @@ func (s *Service) Inventory(ctx context.Context) (*InventoryResult, error) {
 		Tracked:  make(map[string][]*parchment.Artifact),
 	}
 	for _, art := range all {
-		r.ByKind[art.ResolvedKind()]++
-		r.ByStatus[art.ResolvedStatus()]++
-		if def, ok := briefKinds[art.ResolvedKind()]; ok && art.ResolvedStatus() == def.ActiveStatus {
-			r.Tracked[art.ResolvedKind()] = append(r.Tracked[art.ResolvedKind()], art)
+		r.ByKind[art.Label(parchment.LabelPrefixKind)]++
+		r.ByStatus[art.Label(parchment.LabelPrefixStatus)]++
+		if def, ok := briefKinds[art.Label(parchment.LabelPrefixKind)]; ok && art.Label(parchment.LabelPrefixStatus) == def.ActiveStatus {
+			r.Tracked[art.Label(parchment.LabelPrefixKind)] = append(r.Tracked[art.Label(parchment.LabelPrefixKind)], art)
 		}
 	}
 	return r, nil
@@ -291,13 +291,13 @@ func SortArtifacts(arts []*parchment.Artifact, field string) {
 		case "title":
 			return arts[i].Title < arts[j].Title
 		case "status":
-			return arts[i].ResolvedStatus() < arts[j].ResolvedStatus()
+			return arts[i].Label(parchment.LabelPrefixStatus) < arts[j].Label(parchment.LabelPrefixStatus)
 		case "scope":
-			return arts[i].Scope < arts[j].Scope
+			return arts[i].Label(parchment.LabelPrefixScope) < arts[j].Label(parchment.LabelPrefixScope)
 		case "kind":
-			return arts[i].ResolvedKind() < arts[j].ResolvedKind()
+			return arts[i].Label(parchment.LabelPrefixKind) < arts[j].Label(parchment.LabelPrefixKind)
 		case "sprint":
-			return arts[i].Sprint < arts[j].Sprint
+			return arts[i].Label(parchment.LabelPrefixSprint) < arts[j].Label(parchment.LabelPrefixSprint)
 		default:
 			return arts[i].ID < arts[j].ID
 		}
@@ -323,8 +323,8 @@ func (s *Service) RenderBrief(ctx context.Context, since, version string, homeSc
 		var lines []string
 		for _, b := range bugs {
 			prio := ""
-			if b.Priority != "" {
-				prio = " [" + b.Priority + "]"
+			if b.Label(parchment.LabelPrefixPriority) != "" {
+				prio = " [" + b.Label(parchment.LabelPrefixPriority) + "]"
 			}
 			lines = append(lines, fmt.Sprintf("  %s%s %s", b.ID, prio, b.Title))
 		}
@@ -334,8 +334,8 @@ func (s *Service) RenderBrief(ctx context.Context, since, version string, homeSc
 		var lines []string
 		for _, c := range m.Campaigns {
 			prefix := ""
-			if c.Scope != "" {
-				prefix = "[" + c.Scope + "] "
+			if c.Label(parchment.LabelPrefixScope) != "" {
+				prefix = "[" + c.Label(parchment.LabelPrefixScope) + "] "
 			}
 			lines = append(lines, fmt.Sprintf("  %s %s%s", c.ID, prefix, c.Title))
 		}
@@ -345,8 +345,8 @@ func (s *Service) RenderBrief(ctx context.Context, since, version string, homeSc
 		var lines []string
 		for _, g := range m.Goals {
 			prefix := ""
-			if g.Scope != "" {
-				prefix = "[" + g.Scope + "] "
+			if g.Label(parchment.LabelPrefixScope) != "" {
+				prefix = "[" + g.Label(parchment.LabelPrefixScope) + "] "
 			}
 			lines = append(lines, fmt.Sprintf("  %s %s%s", g.ID, prefix, g.Title))
 		}
@@ -371,7 +371,7 @@ func (s *Service) RenderBrief(ctx context.Context, since, version string, homeSc
 			}
 			var lines []string
 			for _, c := range changed[:limit] {
-				lines = append(lines, fmt.Sprintf("  %s %-8s [%s] %s", c.ID, c.ResolvedStatus(), c.ResolvedKind(), c.Title))
+				lines = append(lines, fmt.Sprintf("  %s %-8s [%s] %s", c.ID, c.Label(parchment.LabelPrefixStatus), c.Label(parchment.LabelPrefixKind), c.Title))
 			}
 			header := fmt.Sprintf("Changed Since %s (%d):", since[:10], len(changed))
 			if len(changed) > 15 {
@@ -529,7 +529,7 @@ func (s *Service) renderEviction(ctx context.Context, scope string) (string, err
 	fmt.Fprintf(&b, "%d eviction candidate(s):\n\n", len(candidates))
 	for _, c := range candidates {
 		fmt.Fprintf(&b, "%-16s %-10s [%s] %s\n  reason: %s\n  tensor: access=%.2f structural=%.2f quality=%.2f recency=%.2f\n\n",
-			c.Artifact.ID, string(c.Label), c.Artifact.ResolvedStatus(), c.Artifact.Title,
+			c.Artifact.ID, string(c.Label), c.Artifact.Label(parchment.LabelPrefixStatus), c.Artifact.Title,
 			c.Reason,
 			c.Tensor.AccessHeat, c.Tensor.StructuralHeat, c.Tensor.QualityScore, c.Tensor.Recency,
 		)
@@ -619,11 +619,11 @@ func (s *Service) RenderChangelog(ctx context.Context, since, scope string) (str
 		if aerr != nil {
 			continue
 		}
-		sc := art.Scope
+		sc := art.Label(parchment.LabelPrefixScope)
 		if sc == "" {
 			sc = scopeNone
 		}
-		byScope[sc] = append(byScope[sc], fmt.Sprintf("  %-16s %-8s %-8s %s", art.ID, art.ResolvedKind(), art.ResolvedStatus(), art.Title))
+		byScope[sc] = append(byScope[sc], fmt.Sprintf("  %-16s %-8s %-8s %s", art.ID, art.Label(parchment.LabelPrefixKind), art.Label(parchment.LabelPrefixStatus), art.Title))
 	}
 
 	scopes := make([]string, 0, len(byScope))

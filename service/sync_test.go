@@ -55,11 +55,11 @@ Given expired token, returns 401.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if art.ResolvedKind() != "task" {
-		t.Errorf("kind = %q, want task", art.ResolvedKind())
+	if art.Label(parchment.LabelPrefixKind) != "task" {
+		t.Errorf("kind = %q, want task", art.Label(parchment.LabelPrefixKind))
 	}
-	if art.Priority != "high" {
-		t.Errorf("priority = %q, want high", art.Priority)
+	if art.Label(parchment.LabelPrefixPriority) != "high" {
+		t.Errorf("priority = %q, want high", art.Label(parchment.LabelPrefixPriority))
 	}
 	if !slices.Contains(art.Labels, "go") || !slices.Contains(art.Labels, "security") {
 		t.Errorf("labels = %v, want to contain go and security", art.Labels)

@@ -44,7 +44,7 @@ func (s *Service) BriefMemoryLines(ctx context.Context, scope string, n int) []s
 				age = fmt.Sprintf("%dd ago", days)
 			}
 		}
-		line := fmt.Sprintf("  [%s] %s", a.ResolvedKind(), a.Title)
+		line := fmt.Sprintf("  [%s] %s", a.Label(parchment.LabelPrefixKind), a.Title)
 		if age != "" {
 			line += "  (" + age + ")"
 		}

@@ -60,7 +60,7 @@ type datasetCard struct {
 // exportable returns true when an artifact meets the quality bar for training.
 // Only complete, active, or evergreen artifacts with no compliance violations.
 func exportable(a *parchment.Artifact) bool {
-	switch a.ResolvedStatus() {
+	switch a.Label(parchment.LabelPrefixStatus) {
 	case "active", "complete", "evergreen", "current", "accepted":
 		// ok
 	default:
@@ -100,16 +100,16 @@ func writeSFT(ctx context.Context, w http.ResponseWriter, proto *parchment.Proto
 		}
 		content, _ := json.Marshal(map[string]any{
 			"id":       a.ID,
-			"kind":     a.ResolvedKind(),
+			"kind":     a.Label(parchment.LabelPrefixKind),
 			"title":    a.Title,
-			"status":   a.ResolvedStatus(),
-			"priority": a.ResolvedPriority(),
-			"scope":    a.Scope,
+			"status":   a.Label(parchment.LabelPrefixStatus),
+			"priority": a.Label(parchment.LabelPrefixPriority),
+			"scope":    a.Label(parchment.LabelPrefixScope),
 			"sections": a.Sections,
 		})
 		ex := sftExample{Messages: []sftMessage{
 			{Role: "system", Content: "You are Scribe, a structured artifact management assistant. Respond with valid JSON matching the artifact schema."},
-			{Role: "user", Content: fmt.Sprintf("Create a %s artifact titled %q in scope %q.", a.ResolvedKind(), a.Title, a.Scope)},
+			{Role: "user", Content: fmt.Sprintf("Create a %s artifact titled %q in scope %q.", a.Label(parchment.LabelPrefixKind), a.Title, a.Label(parchment.LabelPrefixScope))},
 			{Role: "assistant", Content: string(content)},
 		}}
 		b, _ := json.Marshal(ex)
@@ -135,10 +135,10 @@ func writeKG(ctx context.Context, w http.ResponseWriter, proto *parchment.Protoc
 		}
 		node := kgNode{
 			ID:     a.ID,
-			Kind:   a.ResolvedKind(),
-			Status: a.ResolvedStatus(),
+			Kind:   a.Label(parchment.LabelPrefixKind),
+			Status: a.Label(parchment.LabelPrefixStatus),
 			Title:  a.Title,
-			Scope:  a.Scope,
+			Scope:  a.Label(parchment.LabelPrefixScope),
 			Text:   sectionText(a),
 		}
 		b, _ := json.Marshal(node)
@@ -170,7 +170,7 @@ func writeDPO(ctx context.Context, w http.ResponseWriter, proto *parchment.Proto
 	}
 	n := 0
 	for _, a := range arts {
-		if a.ResolvedKind() != "decision" || !exportable(a) {
+		if a.Label(parchment.LabelPrefixKind) != "decision" || !exportable(a) {
 			continue
 		}
 		var prompt, chosen, rejected string

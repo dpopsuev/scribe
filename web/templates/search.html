@@ -15,9 +15,9 @@
     {{range .Results}}
     <tr>
       <td><a href="/artifacts/{{.ID}}">{{.ID}}</a></td>
-      <td>{{.ResolvedKind}}</td>
-      <td>{{.Scope}}</td>
-      <td><span class="badge badge-{{.ResolvedStatus}}">{{.ResolvedStatus}}</span></td>
+      <td>{{labelValue .Labels "kind:"}}</td>
+      <td>{{labelValue .Labels "scope:"}}</td>
+      <td><span class="badge badge-{{labelValue .Labels "status:"}}">{{labelValue .Labels "status:"}}</span></td>
       <td>{{.Title}}</td>
     </tr>
     {{end}}

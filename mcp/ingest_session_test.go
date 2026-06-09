@@ -186,7 +186,7 @@ func TestIngestSession_ExtractsCompactionSummary(t *testing.T) {
 	all, _ := proto.ListArtifacts(ctx, parchment.ListInput{Scope: "test"})
 	hasCompactionNote := false
 	for _, a := range all {
-		if a.ResolvedKind() == parchment.KindContext || a.ResolvedKind() == parchment.KindNote {
+		if a.Label(parchment.LabelPrefixKind) == parchment.KindContext || a.Label(parchment.LabelPrefixKind) == parchment.KindNote {
 			for _, sec := range a.Sections {
 				if strings.Contains(sec.Text, "retry") || strings.Contains(sec.Text, "backoff") {
 					hasCompactionNote = true

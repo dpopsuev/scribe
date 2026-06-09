@@ -32,7 +32,7 @@ func (s *Service) DetectKnowledge(ctx context.Context, in DetectKnowledgeInput) 
 	})
 	for _, art := range fleetingNotes {
 		issues = append(issues, fmt.Sprintf("%-20s %-8s [fleeting >%dd] %s",
-			art.ID, art.ResolvedKind(), staleDays, art.Title))
+			art.ID, art.Label(parchment.LabelPrefixKind), staleDays, art.Title))
 	}
 
 	sources, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindSource}, Scope: in.Scope})
@@ -40,7 +40,7 @@ func (s *Service) DetectKnowledge(ctx context.Context, in DetectKnowledgeInput) 
 		backlinks, _ := s.Proto.Backlinks(ctx, art.ID, parchment.RelCites)
 		if len(backlinks) == 0 {
 			issues = append(issues, fmt.Sprintf("%-20s %-8s [no cites] %s",
-				art.ID, art.ResolvedKind(), art.Title))
+				art.ID, art.Label(parchment.LabelPrefixKind), art.Title))
 		}
 	}
 
@@ -55,7 +55,7 @@ func (s *Service) DetectKnowledge(ctx context.Context, in DetectKnowledgeInput) 
 		}
 		if remembersCount == 0 {
 			issues = append(issues, fmt.Sprintf("%-20s %-8s [no remembers] %s",
-				art.ID, art.ResolvedKind(), art.Title))
+				art.ID, art.Label(parchment.LabelPrefixKind), art.Title))
 		}
 	}
 
@@ -118,7 +118,7 @@ func (s *Service) LintOrphanedNotes(ctx context.Context, scope string) []string 
 			}
 			if !connected {
 				issues = append(issues, fmt.Sprintf("%s [%s|%s] %s — no knowledge edges",
-					art.ID, art.ResolvedKind(), art.ResolvedStatus(), art.Title))
+					art.ID, art.Label(parchment.LabelPrefixKind), art.Label(parchment.LabelPrefixStatus), art.Title))
 			}
 		}
 	}
@@ -191,7 +191,7 @@ func (s *Service) KnowledgeCatalog(ctx context.Context, scope string) (*Knowledg
 		}
 		for i := 1; i < len(arts); i++ {
 			for j := i; j > 0; j-- {
-				ai, aj := statusOrder[arts[j].ResolvedStatus()], statusOrder[arts[j-1].ResolvedStatus()]
+				ai, aj := statusOrder[arts[j].Label(parchment.LabelPrefixStatus)], statusOrder[arts[j-1].Label(parchment.LabelPrefixStatus)]
 				if ai == 0 && aj == 0 {
 					ai, aj = 99, 99
 				}
@@ -220,7 +220,7 @@ func (s *Service) KnowledgeCatalog(ctx context.Context, scope string) (*Knowledg
 				}
 			}
 			fmt.Fprintf(&b, "  %-22s [%s|%s]%s  %d edges\n",
-				art.ID, art.ResolvedKind(), art.ResolvedStatus(), labelStr, len(edges))
+				art.ID, art.Label(parchment.LabelPrefixKind), art.Label(parchment.LabelPrefixStatus), labelStr, len(edges))
 			if summary != "" {
 				fmt.Fprintf(&b, "  %s\n", summary)
 			}
@@ -267,7 +267,7 @@ func (s *Service) KnowledgeOrient(ctx context.Context, scope string) (string, er
 		totalByKind[kind] = len(arts)
 		all = append(all, arts...)
 		for _, a := range arts {
-			switch a.ResolvedStatus() {
+			switch a.Label(parchment.LabelPrefixStatus) {
 			case parchment.StatusFleeting:
 				fleeting++
 			case parchment.StatusEvergreen:

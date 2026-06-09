@@ -26,9 +26,9 @@ func setupGraph(t *testing.T) *web.Server {
 
 	// Two scopes: alpha (2 tasks) and beta (1 spec).
 	for _, art := range []*parchment.Artifact{
-		{ID: "TSK-A1", Labels: []string{"kind:task", "status:active"}, Scope: "alpha", Title: "Alpha task 1"},
-		{ID: "TSK-A2", Labels: []string{"kind:task", "status:draft"}, Scope: "alpha", Title: "Alpha task 2"},
-		{ID: "SPC-B1", Labels: []string{"kind:spec", "status:active"}, Scope: "beta", Title: "Beta spec 1"},
+		{ID: "TSK-A1", Labels: []string{"kind:task", "status:active", "scope:alpha"}, Title: "Alpha task 1"},
+		{ID: "TSK-A2", Labels: []string{"kind:task", "status:draft", "scope:alpha"}, Title: "Alpha task 2"},
+		{ID: "SPC-B1", Labels: []string{"kind:spec", "status:active", "scope:beta"}, Title: "Beta spec 1"},
 	} {
 		if err := s.Put(ctx, art); err != nil {
 			t.Fatal(err)

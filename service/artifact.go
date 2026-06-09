@@ -40,13 +40,13 @@ func FilterSections(art *parchment.Artifact, filter []string) {
 // RelevanceScore returns a numeric relevance score for top-N ranking.
 func RelevanceScore(art *parchment.Artifact) float64 {
 	score := 0.0
-	switch art.ResolvedStatus() {
+	switch art.Label(parchment.LabelPrefixStatus) {
 	case "active", "current", "open", "in_progress", "in_review":
 		score += 3.0
 	case "draft", "proposed", "fleeting":
 		score += 1.0
 	}
-	switch art.Priority {
+	switch art.Label(parchment.LabelPrefixPriority) {
 	case "critical":
 		score += 4.0
 	case "high":

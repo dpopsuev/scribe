@@ -81,13 +81,13 @@ func TestOpSet_BulkArchiveViaScope(t *testing.T) {
 	artA, _ := svc.Proto.GetArtifact(ctx, a.ID)
 	artB, _ := svc.Proto.GetArtifact(ctx, b.ID)
 	artC, _ := svc.Proto.GetArtifact(ctx, c.ID)
-	if artA.ResolvedStatus() != "archived" {
-		t.Errorf("A.status = %q, want archived", artA.ResolvedStatus())
+	if artA.Label(parchment.LabelPrefixStatus) != "archived" {
+		t.Errorf("A.status = %q, want archived", artA.Label(parchment.LabelPrefixStatus))
 	}
-	if artB.ResolvedStatus() != "archived" {
-		t.Errorf("B.status = %q, want archived", artB.ResolvedStatus())
+	if artB.Label(parchment.LabelPrefixStatus) != "archived" {
+		t.Errorf("B.status = %q, want archived", artB.Label(parchment.LabelPrefixStatus))
 	}
-	if artC.ResolvedStatus() == "archived" {
+	if artC.Label(parchment.LabelPrefixStatus) == "archived" {
 		t.Error("C should not be archived (different scope)")
 	}
 }
@@ -114,7 +114,7 @@ func TestOpSet_BulkDryRunPreview(t *testing.T) {
 		t.Errorf("expected dry run indication in output, got: %s", out)
 	}
 	unchanged, _ := svc.Proto.GetArtifact(ctx, art.ID)
-	if unchanged.ResolvedStatus() == "archived" {
+	if unchanged.Label(parchment.LabelPrefixStatus) == "archived" {
 		t.Error("artifact should not be archived in dry-run mode")
 	}
 }
@@ -140,8 +140,8 @@ func TestOpSet_ArchiveViaStatusField(t *testing.T) {
 		t.Errorf("expected archive to succeed with bypass_guards, got: %s", out)
 	}
 	updated, _ := svc.Proto.GetArtifact(ctx, art.ID)
-	if updated.ResolvedStatus() != "archived" {
-		t.Errorf("status = %q, want archived", updated.ResolvedStatus())
+	if updated.Label(parchment.LabelPrefixStatus) != "archived" {
+		t.Errorf("status = %q, want archived", updated.Label(parchment.LabelPrefixStatus))
 	}
 }
 
@@ -924,8 +924,8 @@ func TestOpUpdate_SetsMultipleFields(t *testing.T) {
 	if updated.Title != "new" {
 		t.Errorf("title = %q, want new", updated.Title)
 	}
-	if updated.Priority != "high" {
-		t.Errorf("priority = %q, want high", updated.Priority)
+	if updated.Label(parchment.LabelPrefixPriority) != "high" {
+		t.Errorf("priority = %q, want high", updated.Label(parchment.LabelPrefixPriority))
 	}
 }
 

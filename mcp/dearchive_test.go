@@ -50,8 +50,8 @@ func TestDeArchive_RoundTrip(t *testing.T) {
 
 	// Verify it's archived.
 	got, _ := proto.GetArtifact(ctx, art.ID)
-	if !proto.Schema().IsReadonly(got.ResolvedStatus()) {
-		t.Fatalf("expected archived status after archive, got: %s", got.ResolvedStatus())
+	if !proto.Schema().IsReadonly(got.Label(parchment.LabelPrefixStatus)) {
+		t.Fatalf("expected archived status after archive, got: %s", got.Label(parchment.LabelPrefixStatus))
 	}
 
 	// Restore via de-archive.
@@ -68,8 +68,8 @@ func TestDeArchive_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if restored.ResolvedStatus() != parchment.StatusDraft {
-		t.Errorf("de-archive should restore to draft, got: %s", restored.ResolvedStatus())
+	if restored.Label(parchment.LabelPrefixStatus) != parchment.StatusDraft {
+		t.Errorf("de-archive should restore to draft, got: %s", restored.Label(parchment.LabelPrefixStatus))
 	}
 }
 
@@ -131,7 +131,7 @@ func TestDeArchive_Cascade(t *testing.T) {
 	}
 
 	got, _ := proto.GetArtifact(ctx, parent.ID)
-	if got.ResolvedStatus() == parchment.StatusArchived {
+	if got.Label(parchment.LabelPrefixStatus) == parchment.StatusArchived {
 		t.Error("parent still archived after de-archive")
 	}
 }
@@ -157,7 +157,7 @@ func TestDeArchive_NonArchivedReturnsError(t *testing.T) {
 	}
 	// The key invariant: artifact must NOT be in archived status afterward.
 	got, _ := proto.GetArtifact(ctx, art.ID)
-	if got.ResolvedStatus() == parchment.StatusArchived {
-		t.Errorf("de-archive of non-archived artifact must not archive it, got: %s", got.ResolvedStatus())
+	if got.Label(parchment.LabelPrefixStatus) == parchment.StatusArchived {
+		t.Errorf("de-archive of non-archived artifact must not archive it, got: %s", got.Label(parchment.LabelPrefixStatus))
 	}
 }

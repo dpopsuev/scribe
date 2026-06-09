@@ -25,10 +25,10 @@ var knowledgeKinds = map[string]bool{
 
 // IsRecallable returns true when an artifact should be included in recall.
 func IsRecallable(art *parchment.Artifact, schema *parchment.Schema) bool {
-	if knowledgeKinds[art.ResolvedKind()] {
+	if knowledgeKinds[art.Label(parchment.LabelPrefixKind)] {
 		return true
 	}
-	return schema.IsTerminal(art.ResolvedStatus())
+	return schema.IsTerminal(art.Label(parchment.LabelPrefixStatus))
 }
 
 // KindWeight returns the relevance multiplier for a kind + status combination.
@@ -111,7 +111,7 @@ func (s *Service) Recall(ctx context.Context, query, scope string, top int) ([]R
 	var results []RecallResult
 	for _, a := range candidates {
 		bm25 := TermOverlap(a, queryTerms)
-		score := bm25 * KindWeight(a.ResolvedKind(), a.ResolvedStatus()) * RecencyWeight(a.UpdatedAt)
+		score := bm25 * KindWeight(a.Label(parchment.LabelPrefixKind), a.Label(parchment.LabelPrefixStatus)) * RecencyWeight(a.UpdatedAt)
 		results = append(results, RecallResult{a, score})
 	}
 	sort.Slice(results, func(i, j int) bool { return results[i].Score > results[j].Score })

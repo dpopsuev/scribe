@@ -25,14 +25,14 @@ func seedBriefNoise(t *testing.T, s parchment.Store) {
 
 	// Docs and refs — trigger Domain Context
 	for i := 0; i < 5; i++ {
-		_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:ref", "status:draft"}, ID: "REF-" + string(rune('A'+i)), Scope: "test", Title: "Reference " + string(rune('A'+i)),
+		_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:ref", "status:draft", "scope:test"}, ID: "REF-" + string(rune('A'+i)), Title: "Reference " + string(rune('A'+i)),
 			UpdatedAt: old})
-		_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:doc", "status:draft"}, ID: "DOC-" + string(rune('A'+i)), Scope: "other-scope", Title: "Doc " + string(rune('A'+i)),
+		_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:doc", "status:draft", "scope:other-scope"}, ID: "DOC-" + string(rune('A'+i)), Title: "Doc " + string(rune('A'+i)),
 			UpdatedAt: old})
 	}
 	// Tasks without sections — trigger should-section warnings
 	for i := 0; i < 3; i++ {
-		_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "status:draft"}, ID: "TSK-" + string(rune('A'+i)), Scope: "test", Title: "Task " + string(rune('A'+i)),
+		_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "status:draft", "scope:test"}, ID: "TSK-" + string(rune('A'+i)), Title: "Task " + string(rune('A'+i)),
 			UpdatedAt: old})
 	}
 }

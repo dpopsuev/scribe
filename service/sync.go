@@ -59,12 +59,12 @@ func (s *Service) SyncDir(ctx context.Context, path string) (int, error) {
 			rel, _ := filepath.Rel(abs, p)
 			art.ID = syncDerivedID(rel)
 		}
-		if art.Scope == "" {
-			art.Scope = "global"
+		if art.Label(parchment.LabelPrefixScope) == "" {
+			art.Labels = append(art.Labels, parchment.LabelPrefixScope+"global")
 		}
-		switch art.ResolvedKind() {
+		switch art.Label(parchment.LabelPrefixKind) {
 		case "rule", "skill":
-			k := art.ResolvedKind()
+			k := art.Label(parchment.LabelPrefixKind)
 			art.Labels = appendIfMissing(art.Labels, k)
 			for i, l := range art.Labels {
 				if l == parchment.LabelPrefixKind+k {
@@ -147,7 +147,7 @@ func (s *Service) ExportScope(ctx context.Context, scope, outDir string) (int, e
 		return 0, fmt.Errorf("mkdir %s: %w", outDir, err)
 	}
 
-	arts, err := s.Proto.Store().List(ctx, parchment.Filter{Scope: scope})
+	arts, err := s.Proto.Store().List(ctx, parchment.Filter{Labels: []string{parchment.LabelPrefixScope + scope}})
 	if err != nil {
 		return 0, err
 	}
@@ -174,18 +174,18 @@ func (s *Service) ExportScope(ctx context.Context, scope, outDir string) (int, e
 }
 
 func serializeArtifact(art *parchment.Artifact) ([]byte, error) {
-	fm := map[string]any{"id": art.ID, "kind": art.ResolvedKind()}
+	fm := map[string]any{"id": art.ID, "kind": art.Label(parchment.LabelPrefixKind)}
 	if art.Title != "" {
 		fm["title"] = art.Title
 	}
-	if art.Scope != "" {
-		fm["scope"] = art.Scope
+	if art.Label(parchment.LabelPrefixScope) != "" {
+		fm["scope"] = art.Label(parchment.LabelPrefixScope)
 	}
-	if s := art.ResolvedStatus(); s != "" {
+	if s := art.Label(parchment.LabelPrefixStatus); s != "" {
 		fm["status"] = s
 	}
-	if art.Priority != "" && art.Priority != "none" {
-		fm["priority"] = art.Priority
+	if art.Label(parchment.LabelPrefixPriority) != "" && art.Label(parchment.LabelPrefixPriority) != "none" {
+		fm["priority"] = art.Label(parchment.LabelPrefixPriority)
 	}
 	if len(art.Labels) > 0 {
 		fm["labels"] = art.Labels

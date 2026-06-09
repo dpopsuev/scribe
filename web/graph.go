@@ -53,7 +53,7 @@ func buildScopeGraph(ctx context.Context, proto *parchment.Protocol) (graphData,
 	countByScope := make(map[string]int)
 	ids := make([]string, 0, len(allArts))
 	for _, a := range allArts {
-		sc := a.Scope
+		sc := a.Label(parchment.LabelPrefixScope)
 		if sc == "" || sc == parchment.SchemaScope {
 			continue
 		}
@@ -115,7 +115,7 @@ func buildKindGraph(ctx context.Context, proto *parchment.Protocol, scope string
 	countByKind := make(map[string]int)
 	ids := make([]string, 0, len(arts))
 	for _, a := range arts {
-		k := a.ResolvedKind()
+		k := a.Label(parchment.LabelPrefixKind)
 		kindOf[a.ID] = k
 		countByKind[k]++
 		ids = append(ids, a.ID)
@@ -187,9 +187,9 @@ func buildArtifactGraph(ctx context.Context, proto *parchment.Protocol, scope st
 		nodes = append(nodes, graphNode{
 			ID:         a.ID,
 			Name:       a.Title,
-			Kind:       a.ResolvedKind(),
-			Status:     a.ResolvedStatus(),
-			Scope:      a.ResolvedScope(),
+			Kind:       a.Label(parchment.LabelPrefixKind),
+			Status:     a.Label(parchment.LabelPrefixStatus),
+			Scope:      a.Label(parchment.LabelPrefixScope),
 			Val:        degree[a.ID] + 1,
 			Violations: violationCount(a),
 		})

@@ -61,7 +61,7 @@ var opTopoSort = Op{
 				blocked := false
 				for _, depID := range art.DependsOn {
 					dep, _ := svc.Proto.GetArtifact(ctx, depID)
-					if dep != nil && !schema.IsTerminal(dep.ResolvedStatus()) {
+					if dep != nil && !schema.IsTerminal(dep.Label(parchment.LabelPrefixStatus)) {
 						blocked = true
 						break
 					}
@@ -290,9 +290,9 @@ func getDiff(ctx context.Context, svc *Service, idA, idB string) (string, error)
 	}
 	var lines []string
 	for _, f := range []struct{ name, va, vb string }{
-		{"kind", artifactA.ResolvedKind(), artifactB.ResolvedKind()}, {"scope", artifactA.Scope, artifactB.Scope},
-		{"status", artifactA.ResolvedStatus(), artifactB.ResolvedStatus()}, {"title", artifactA.Title, artifactB.Title},
-		{"parent", artifactA.Parent, artifactB.Parent}, {"priority", artifactA.Priority, artifactB.Priority},
+		{"kind", artifactA.Label(parchment.LabelPrefixKind), artifactB.Label(parchment.LabelPrefixKind)}, {"scope", artifactA.Label(parchment.LabelPrefixScope), artifactB.Label(parchment.LabelPrefixScope)},
+		{"status", artifactA.Label(parchment.LabelPrefixStatus), artifactB.Label(parchment.LabelPrefixStatus)}, {"title", artifactA.Title, artifactB.Title},
+		{"parent", artifactA.Parent, artifactB.Parent}, {"priority", artifactA.Label(parchment.LabelPrefixPriority), artifactB.Label(parchment.LabelPrefixPriority)},
 	} {
 		if f.va != f.vb {
 			lines = append(lines, fmt.Sprintf("  %s: %q → %q", f.name, f.va, f.vb))
@@ -342,8 +342,8 @@ func getSummary(ctx context.Context, svc *Service, ids []string) (string, error)
 			return "", fmt.Errorf("get %s: %w", id, err)
 		}
 		results = append(results, summary{
-			ID: art.ID, Title: art.Title, Kind: art.ResolvedKind(), Scope: art.Scope,
-			Status: art.ResolvedStatus(), Priority: art.Priority, Parent: art.Parent, Sprint: art.Sprint,
+			ID: art.ID, Title: art.Title, Kind: art.Label(parchment.LabelPrefixKind), Scope: art.Label(parchment.LabelPrefixScope),
+			Status: art.Label(parchment.LabelPrefixStatus), Priority: art.Label(parchment.LabelPrefixPriority), Parent: art.Parent, Sprint: art.Label(parchment.LabelPrefixSprint),
 		})
 	}
 	if len(results) == 1 {
@@ -369,7 +369,7 @@ func renderScoredTable(results []parchment.ScoredArtifact) string {
 			score = "fts"
 		}
 		fmt.Fprintf(&b, "%-20s  %5s  %-40s  %-12s  %s\n",
-			r.Artifact.ID, score, title, r.Artifact.ResolvedKind(), r.Artifact.ResolvedStatus())
+			r.Artifact.ID, score, title, r.Artifact.Label(parchment.LabelPrefixKind), r.Artifact.Label(parchment.LabelPrefixStatus))
 	}
 	return b.String()
 }
@@ -412,12 +412,12 @@ func getImpact(ctx context.Context, svc *Service, id string) (string, error) {
 		return "", err
 	}
 	var lines []string
-	lines = append(lines, fmt.Sprintf("Impact analysis for %s [%s] %s:", id, art.ResolvedStatus(), art.Title))
+	lines = append(lines, fmt.Sprintf("Impact analysis for %s [%s] %s:", id, art.Label(parchment.LabelPrefixStatus), art.Title))
 	children, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{Parent: id})
 	if len(children) > 0 {
 		lines = append(lines, fmt.Sprintf("\nChildren (%d):", len(children)))
 		for _, ch := range children {
-			lines = append(lines, fmt.Sprintf("  %s [%s] %s", ch.ID, ch.ResolvedStatus(), ch.Title))
+			lines = append(lines, fmt.Sprintf("  %s [%s] %s", ch.ID, ch.Label(parchment.LabelPrefixStatus), ch.Title))
 		}
 	}
 	depEdges, _ := svc.Proto.GetArtifactEdges(ctx, id)
@@ -649,14 +649,14 @@ func createSingle(ctx context.Context, svc *Service, in *createInput) (string, e
 		return "", err
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "created %s [%s|%s] %s", art.ID, art.ResolvedKind(), art.ResolvedStatus(), art.Title)
+	fmt.Fprintf(&b, "created %s [%s|%s] %s", art.ID, art.Label(parchment.LabelPrefixKind), art.Label(parchment.LabelPrefixStatus), art.Title)
 	if art.Parent != "" {
 		fmt.Fprintf(&b, " (parent: %s)", art.Parent)
 	}
 	schema := svc.Proto.Schema()
-	if expected := schema.GetExpectedSections(art.ResolvedKind()); len(expected) > 0 {
-		must := schema.GetMustSections(art.ResolvedKind())
-		should := schema.GetShouldSections(art.ResolvedKind())
+	if expected := schema.GetExpectedSections(art.Label(parchment.LabelPrefixKind)); len(expected) > 0 {
+		must := schema.GetMustSections(art.Label(parchment.LabelPrefixKind))
+		should := schema.GetShouldSections(art.Label(parchment.LabelPrefixKind))
 		var hints []string
 		for _, s := range must {
 			hints = append(hints, s+" (must)")
@@ -688,7 +688,7 @@ func createFromStash(ctx context.Context, svc *Service, in *createInput) (string
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("promoted stash to %s: %s [%s|%s]", art.ID, art.Title, art.ResolvedKind(), art.ResolvedStatus()), nil
+	return fmt.Sprintf("promoted stash to %s: %s [%s|%s]", art.ID, art.Title, art.Label(parchment.LabelPrefixKind), art.Label(parchment.LabelPrefixStatus)), nil
 }
 
 func createClone(ctx context.Context, svc *Service, in *createInput) (string, error) {
@@ -696,11 +696,11 @@ func createClone(ctx context.Context, svc *Service, in *createInput) (string, er
 	if err != nil {
 		return "", fmt.Errorf("source %s: %w", in.CloneFrom, err)
 	}
-	kind := source.ResolvedKind()
+	kind := source.Label(parchment.LabelPrefixKind)
 	if in.Kind != "" {
 		kind = in.Kind
 	}
-	scope := source.Scope
+	scope := source.Label(parchment.LabelPrefixScope)
 	if in.Scope != "" {
 		scope = in.Scope
 	}
@@ -781,7 +781,7 @@ func createBatch(ctx context.Context, svc *Service, in *createInput) (string, er
 			return "", fmt.Errorf("artifact[%d] %q: %w", i, ci.Title, err)
 		}
 		idRefs[fmt.Sprintf("$%d", i)] = art.ID
-		fmt.Fprintf(&b, "%s [%s] %s", art.ID, art.ResolvedKind(), art.Title)
+		fmt.Fprintf(&b, "%s [%s] %s", art.ID, art.Label(parchment.LabelPrefixKind), art.Title)
 		if art.Parent != "" {
 			fmt.Fprintf(&b, " (parent: %s)", art.Parent)
 		}
@@ -992,7 +992,7 @@ var opSet = Op{
 		if in.Field == parchment.FieldStatus && in.Value == parchment.StatusActive && !in.Force {
 			for _, id := range ids {
 				art, err := svc.Proto.GetArtifact(ctx, id)
-				if err != nil || art.ResolvedKind() != parchment.KindTask {
+				if err != nil || art.Label(parchment.LabelPrefixKind) != parchment.KindTask {
 					continue
 				}
 				if targets, ok := art.Links[parchment.RelImplements]; ok {
@@ -1081,13 +1081,13 @@ func resolveIDs(ids []string, id string) []string {
 
 var listValidFields = map[string]func(*parchment.Artifact) string{
 	"id":         func(a *parchment.Artifact) string { return a.ID },
-	"kind":       func(a *parchment.Artifact) string { return a.ResolvedKind() },
-	"scope":      func(a *parchment.Artifact) string { return a.Scope },
-	"status":     func(a *parchment.Artifact) string { return a.ResolvedStatus() },
+	"kind":       func(a *parchment.Artifact) string { return a.Label(parchment.LabelPrefixKind) },
+	"scope":      func(a *parchment.Artifact) string { return a.Label(parchment.LabelPrefixScope) },
+	"status":     func(a *parchment.Artifact) string { return a.Label(parchment.LabelPrefixStatus) },
 	"title":      func(a *parchment.Artifact) string { return a.Title },
 	"parent":     func(a *parchment.Artifact) string { return a.Parent },
-	"priority":   func(a *parchment.Artifact) string { return a.Priority },
-	"sprint":     func(a *parchment.Artifact) string { return a.Sprint },
+	"priority":   func(a *parchment.Artifact) string { return a.Label(parchment.LabelPrefixPriority) },
+	"sprint":     func(a *parchment.Artifact) string { return a.Label(parchment.LabelPrefixSprint) },
 	"depends_on": func(a *parchment.Artifact) string { return strings.Join(a.DependsOn, ",") },
 	"labels":     func(a *parchment.Artifact) string { return strings.Join(a.Labels, ",") },
 }
@@ -1275,13 +1275,13 @@ var opList = Op{
 					var key string
 					switch in.GroupBy {
 					case "status":
-						key = a.ResolvedStatus()
+						key = a.Label(parchment.LabelPrefixStatus)
 					case "scope":
-						key = a.Scope
+						key = a.Label(parchment.LabelPrefixScope)
 					case "kind":
-						key = a.ResolvedKind()
+						key = a.Label(parchment.LabelPrefixKind)
 					case "sprint":
-						key = a.Sprint
+						key = a.Label(parchment.LabelPrefixSprint)
 					default:
 						key = "unknown"
 					}

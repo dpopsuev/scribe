@@ -18,7 +18,6 @@ import (
 	"github.com/dpopsuev/scribe/web"
 )
 
-
 func TestViolationCount_NoLabels(t *testing.T) {
 	a := &parchment.Artifact{Labels: []string{"kind:task"}, ID: "T-1"}
 	if got := web.ViolationCount(a); got != 0 {
@@ -76,7 +75,6 @@ func TestViolationCount_EmptyViolationsSlice(t *testing.T) {
 	}
 }
 
-
 func complianceServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	s, err := parchment.OpenSQLite(t.TempDir() + "/comp.db")
@@ -87,19 +85,19 @@ func complianceServer(t *testing.T) *httptest.Server {
 
 	ctx := context.Background()
 	s.Put(ctx, &parchment.Artifact{ //nolint:errcheck // test setup
-		ID: "TSK-OK", Scope: "test",
-		Title: "Compliant", Labels: []string{"kind:task", "status:active", "compliance:ok", "kind:task"},
+		ID:    "TSK-OK",
+		Title: "Compliant", Labels: []string{"kind:task", "status:active", "compliance:ok", "kind:task", "scope:test"},
 	})
 	s.Put(ctx, &parchment.Artifact{ //nolint:errcheck // test setup
-		ID: "TSK-WARN", Scope: "test",
+		ID:     "TSK-WARN",
 		Title:  "Warning",
-		Labels: []string{"kind:task", "status:active", "compliance:violation", "kind:task"},
+		Labels: []string{"kind:task", "status:active", "compliance:violation", "kind:task", "scope:test"},
 		Extra:  map[string]any{parchment.ExtraKeyComplianceViolations: []any{"m1", "m2"}},
 	})
 	s.Put(ctx, &parchment.Artifact{ //nolint:errcheck // test setup
-		ID: "TSK-CRIT", Scope: "test",
+		ID:     "TSK-CRIT",
 		Title:  "Critical",
-		Labels: []string{"kind:task", "status:active", "compliance:violation", "kind:task"},
+		Labels: []string{"kind:task", "status:active", "compliance:violation", "kind:task", "scope:test"},
 		Extra:  map[string]any{parchment.ExtraKeyComplianceViolations: []any{"m1", "m2", "m3", "m4"}},
 	})
 

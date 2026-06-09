@@ -138,13 +138,13 @@ func SortArts(arts []*parchment.Artifact, field string) {
 		case "title":
 			return arts[i].Title < arts[j].Title
 		case "status":
-			return arts[i].ResolvedStatus() < arts[j].ResolvedStatus()
+			return arts[i].Label(parchment.LabelPrefixStatus) < arts[j].Label(parchment.LabelPrefixStatus)
 		case "scope":
-			return arts[i].Scope < arts[j].Scope
+			return arts[i].Label(parchment.LabelPrefixScope) < arts[j].Label(parchment.LabelPrefixScope)
 		case "kind":
-			return arts[i].ResolvedKind() < arts[j].ResolvedKind()
+			return arts[i].Label(parchment.LabelPrefixKind) < arts[j].Label(parchment.LabelPrefixKind)
 		case "sprint":
-			return arts[i].Sprint < arts[j].Sprint
+			return arts[i].Label(parchment.LabelPrefixSprint) < arts[j].Label(parchment.LabelPrefixSprint)
 		default:
 			return arts[i].ID < arts[j].ID
 		}
