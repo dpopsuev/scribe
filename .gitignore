@@ -1,7 +1,13 @@
 bin/
+/scribe
+/ingest-mock
 vendor/
 agent_e2e/node_modules/
 web/static/graph/node_modules/
 web/static/graph/package-lock.json
 !web/static/graph/vendor/
 web/static/graph/test-results/
+eval/results/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
