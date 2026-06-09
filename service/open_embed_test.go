@@ -11,11 +11,10 @@ import (
 
 	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/config"
+	"github.com/dpopsuev/scribe/embed"
 	"github.com/dpopsuev/scribe/service"
 )
 
-// stubOllama returns an httptest.Server that responds to POST /api/embeddings
-// with a fixed 3-dimension embedding vector.
 func stubOllama(t *testing.T) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -29,38 +28,42 @@ func stubOllama(t *testing.T) *httptest.Server {
 }
 
 func TestOpen_WithEmbedConfig_StartsEmbedder(t *testing.T) {
-	// Given: embed.url points at a stub Ollama server
-	// When: service.Open is called and an artifact is created
-	// Then: the artifact gains the "encoded" label within the sweep interval
+	// Given: an embed func pointing at a stub Ollama server
+	// When:  service.Open is called, an artifact is created, embedder sweep runs
+	// Then:  the artifact gains the "encoded" label within the sweep interval
 	t.Parallel()
 
 	ollama := stubOllama(t)
 	defer ollama.Close()
 
+	const model = "nomic-embed-text"
 	cfg := &config.Config{}
 	cfg.DB.SQLite.Path = filepath.Join(t.TempDir(), "test.sqlite")
-	cfg.Embed.URL = ollama.URL
-	cfg.Embed.Model = "nomic-embed-text"
-	cfg.Embed.SweepIntervalSec = 1
 
-	svc, cleanup, err := service.Open(cfg, []string{"test"})
+	embedFunc := embed.OllamaFunc(ollama.URL, model)
+	svc, cleanup, err := service.Open(cfg, embedFunc, model, []string{"test"})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	defer cleanup()
 
+	embedder := embed.New(context.Background(), svc.Proto, model, time.Second, 1, embedFunc)
+	defer embedder.Stop()
+
 	ctx := context.Background()
-	art, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Title: "embedding integration test", Scope: "test"})
+	art, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Labels: []string{"kind:note", "scope:test"},
+		Title:  "embedding integration test",
+	})
 	if err != nil {
 		t.Fatalf("CreateArtifact: %v", err)
 	}
 
-	// Wait up to 3 sweep cycles for the "encoded" label to appear.
 	deadline := time.Now().Add(4 * time.Second)
 	for time.Now().Before(deadline) {
 		updated, _ := svc.Proto.GetArtifact(ctx, art.ID)
-		if updated != nil && slices.Contains(updated.Labels, parchment.LabelEncoded("nomic-embed-text")) {
-			return // pass
+		if updated != nil && slices.Contains(updated.Labels, parchment.LabelEncoded(model)) {
+			return
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
@@ -68,45 +71,50 @@ func TestOpen_WithEmbedConfig_StartsEmbedder(t *testing.T) {
 }
 
 func TestOpen_WithEmbedConfig_CleanupStopsEmbedder(t *testing.T) {
-	// Given: service.Open with embed config
-	// When: cleanup() is called
-	// Then: no panic — the embedder goroutine exits cleanly
+	// Given: service.Open with an embed func
+	// When:  cleanup() is called
+	// Then:  no panic — store closes cleanly
 	t.Parallel()
 
 	ollama := stubOllama(t)
 	defer ollama.Close()
 
+	const model = "nomic-embed-text"
 	cfg := &config.Config{}
 	cfg.DB.SQLite.Path = filepath.Join(t.TempDir(), "test.sqlite")
-	cfg.Embed.URL = ollama.URL
-	cfg.Embed.SweepIntervalSec = 60
 
-	_, cleanup, err := service.Open(cfg, []string{"test"})
+	embedFunc := embed.OllamaFunc(ollama.URL, model)
+	embedder := func(proto *parchment.Protocol) func() {
+		e := embed.New(context.Background(), proto, model, 60*time.Second, 1, embedFunc)
+		return e.Stop
+	}
+
+	svc, cleanup, err := service.Open(cfg, embedFunc, model, []string{"test"})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	cleanup() // must not panic or block
+	stop := embedder(svc.Proto)
+	stop()
+	cleanup()
 }
 
 func TestOpen_WithoutEmbedConfig_EmbedderDisabled(t *testing.T) {
-	// Given: no embed.url in config
-	// When: service.Open is called and semantic search is attempted
-	// Then: error is returned — embedder is not running
+	// Given: no embed func passed
+	// When:  SearchSemantic is called
+	// Then:  error returned — no embedder configured
 	t.Parallel()
 
 	cfg := &config.Config{}
 	cfg.DB.SQLite.Path = filepath.Join(t.TempDir(), "test.sqlite")
-	// cfg.Embed.URL intentionally empty
 
-	svc, cleanup, err := service.Open(cfg, []string{"test"})
+	svc, cleanup, err := service.Open(cfg, nil, "", []string{"test"})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	defer cleanup()
 
-	ctx := context.Background()
-	_, err = svc.Proto.SearchSemantic(ctx, "anything", parchment.ListInput{})
+	_, err = svc.Proto.SearchSemantic(context.Background(), "anything", parchment.ListInput{})
 	if err == nil {
-		t.Fatal("expected error from SearchSemantic when embedder is not configured")
+		t.Fatal("expected error from SearchSemantic when no embed func configured")
 	}
 }

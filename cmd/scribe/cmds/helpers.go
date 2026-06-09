@@ -66,7 +66,7 @@ func MustService() (svc *service.Service, cleanup func()) {
 			homeScopes = []string{sc}
 		}
 	}
-	s, cl, err := service.Open(cfg, homeScopes)
+	s, cl, err := service.Open(cfg, nil, "", homeScopes)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)

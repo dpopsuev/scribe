@@ -28,7 +28,7 @@ func BriefCmd() *cobra.Command {
 			} else {
 				homeScopes = cfg.ResolvedScopes()
 			}
-			svc, closeDB, err := service.Open(cfg, homeScopes)
+			svc, closeDB, err := service.Open(cfg, nil, "", homeScopes)
 			if err != nil {
 				return err
 			}

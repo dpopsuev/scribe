@@ -19,6 +19,7 @@ import (
 
 	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/directive"
+	"github.com/dpopsuev/scribe/embed"
 	"github.com/dpopsuev/scribe/mcp"
 	"github.com/dpopsuev/scribe/service"
 	"github.com/dpopsuev/scribe/web"
@@ -107,13 +108,29 @@ func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, devU
 		}
 	}
 
-	// Single construction path via service.Open.
-	svc, cleanup, err := service.Open(cfg, homeScopes)
+	// Build optional embedding function — only when configured.
+	var embedFunc parchment.EmbeddingFunc
+	embedModel := cfg.Embed.Model
+	if cfg.Embed.Enabled() {
+		if embedModel == "" {
+			embedModel = "nomic-embed-text"
+		}
+		embedFunc = embed.OllamaFunc(cfg.Embed.URL, embedModel)
+	}
+
+	svc, cleanup, err := service.Open(cfg, embedFunc, embedModel, homeScopes)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to open store", slog.String(logKeyDB, cfg.DBPath()), slog.Any(logKeyError, err))
 		return err
 	}
 	defer cleanup()
+
+	// Start embedder sweep only when embedding is configured.
+	if embedFunc != nil {
+		sweepInterval := time.Duration(cfg.Embed.SweepInterval()) * time.Second
+		embedder := embed.New(ctx, svc.Proto, embedModel, sweepInterval, cfg.Embed.Workers(), embedFunc)
+		defer embedder.Stop()
+	}
 
 	// Seed once on first run; skip if templates already exist.
 	if cfg.SeedDir != "" {
@@ -312,7 +329,7 @@ func UICmd() *cobra.Command {
 			if uiScopes[0] == "" {
 				uiScopes = cfg.ResolvedScopes()
 			}
-			svc, cleanup, err := service.Open(cfg, uiScopes)
+			svc, cleanup, err := service.Open(cfg, nil, "", uiScopes)
 			if err != nil {
 				return err
 			}
