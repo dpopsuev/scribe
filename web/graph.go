@@ -44,120 +44,52 @@ type graphData struct {
 // pair. Node Val is proportional to artifact count; link Weight is the number
 // of cross-scope edges between the two scopes.
 func buildScopeGraph(ctx context.Context, proto *parchment.Protocol) (graphData, error) {
-	allArts, err := proto.ListArtifacts(ctx, parchment.ListInput{})
+	counts, weights, err := proto.Store().ScopeGraph(ctx)
 	if err != nil {
 		return graphData{}, err
 	}
-
-	scopeOf := make(map[string]string, len(allArts))
-	countByScope := make(map[string]int)
-	ids := make([]string, 0, len(allArts))
-	for _, a := range allArts {
-		sc := a.Label(parchment.LabelPrefixScope)
-		if sc == "" || sc == parchment.SchemaScope {
-			continue
-		}
-		scopeOf[a.ID] = sc
-		countByScope[sc]++
-		ids = append(ids, a.ID)
-	}
-
-	edges, _ := proto.Store().ListEdges(ctx, ids, nil)
-
-	type edgeKey struct{ from, to string }
-	weight := make(map[edgeKey]float64)
-	for _, e := range edges {
-		fs, ts := scopeOf[e.From], scopeOf[e.To]
-		if fs == "" || ts == "" || fs == ts {
-			continue
-		}
-		// Canonical direction: lexicographic min → max avoids double-counting.
-		if fs > ts {
-			fs, ts = ts, fs
-		}
-		weight[edgeKey{fs, ts}]++
-	}
-
-	nodes := make([]graphNode, 0, len(countByScope))
-	for scope, count := range countByScope {
+	nodes := make([]graphNode, 0, len(counts))
+	for _, sc := range counts {
 		nodes = append(nodes, graphNode{
-			ID:    "scope:" + scope,
-			Name:  scope,
-			Kind:  "scope",
-			Scope: scope,
-			Val:   max(3, count/20),
+			ID: "scope:" + sc.Scope, Name: sc.Scope,
+			Kind: "scope", Scope: sc.Scope,
+			Val: max(3, sc.Count/20),
 		})
 	}
-
-	links := make([]graphLink, 0, len(weight))
-	for ek, w := range weight {
+	links := make([]graphLink, 0, len(weights))
+	for _, w := range weights {
 		links = append(links, graphLink{
-			Source:   "scope:" + ek.from,
-			Target:   "scope:" + ek.to,
-			Relation: "cross-scope",
-			Weight:   w,
+			Source: "scope:" + w.FromScope, Target: "scope:" + w.ToScope,
+			Relation: "cross-scope", Weight: float64(w.Weight),
 		})
 	}
-
 	return graphData{Nodes: nodes, Links: links}, nil
 }
 
-// buildKindGraph returns one node per kind within a scope and links between
-// kinds based on cross-kind edges. Used as the intermediate depth level
-// between scope super-nodes and individual artifact nodes.
 func buildKindGraph(ctx context.Context, proto *parchment.Protocol, scope string, statuses, relations []string) (graphData, error) {
-	arts, err := fetchArtifacts(ctx, proto, scope, statuses)
+	statusLabels := make([]string, 0, len(statuses))
+	for _, st := range statuses {
+		statusLabels = append(statusLabels, parchment.LabelPrefixStatus+strings.TrimSpace(st))
+	}
+	counts, weights, err := proto.Store().KindGraph(ctx, scope, statusLabels, relations)
 	if err != nil {
 		return graphData{}, err
 	}
-
-	kindOf := make(map[string]string, len(arts))
-	countByKind := make(map[string]int)
-	ids := make([]string, 0, len(arts))
-	for _, a := range arts {
-		k := a.Label(parchment.LabelPrefixKind)
-		kindOf[a.ID] = k
-		countByKind[k]++
-		ids = append(ids, a.ID)
-	}
-
-	edges, _ := proto.Store().ListEdges(ctx, ids, relations)
-
-	type edgeKey struct{ from, to string }
-	weight := make(map[edgeKey]float64)
-	for _, e := range edges {
-		fk, tk := kindOf[e.From], kindOf[e.To]
-		if fk == "" || tk == "" || fk == tk {
-			continue
-		}
-		if fk > tk {
-			fk, tk = tk, fk
-		}
-		weight[edgeKey{fk, tk}]++
-	}
-
-	nodes := make([]graphNode, 0, len(countByKind))
-	for kind, count := range countByKind {
+	nodes := make([]graphNode, 0, len(counts))
+	for _, kc := range counts {
 		nodes = append(nodes, graphNode{
-			ID:    "kind:" + scope + ":" + kind,
-			Name:  kind,
-			Kind:  "kind-group",
-			Scope: scope,
-			Group: kind,
-			Val:   max(2, count/5),
+			ID: "kind:" + scope + ":" + kc.Scope, Name: kc.Scope,
+			Kind: "kind-group", Scope: scope, Group: kc.Scope,
+			Val: max(2, kc.Count/5),
 		})
 	}
-
-	links := make([]graphLink, 0, len(weight))
-	for ek, w := range weight {
+	links := make([]graphLink, 0, len(weights))
+	for _, w := range weights {
 		links = append(links, graphLink{
-			Source:   "kind:" + scope + ":" + ek.from,
-			Target:   "kind:" + scope + ":" + ek.to,
-			Relation: "cross-kind",
-			Weight:   w,
+			Source: "kind:" + scope + ":" + w.FromScope, Target: "kind:" + scope + ":" + w.ToScope,
+			Relation: "cross-kind", Weight: float64(w.Weight),
 		})
 	}
-
 	return graphData{Nodes: nodes, Links: links}, nil
 }
 
