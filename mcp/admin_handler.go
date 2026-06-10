@@ -275,7 +275,7 @@ func (h *handler) handleCapabilities(_ context.Context) (*sdkmcp.CallToolResult,
 	caps := map[string]any{
 		// artifact tool actions
 		"artifact_actions": []string{
-			"create", "get", "list", "set", "update", "archive", "de-archive",
+			"create", "get", "list", "set", "update",
 			"retire", "attach_section", "detach_section", "bulk_section_update",
 			"diff", "recall", "orient", "tree", "briefing", "link", "unlink",
 			"topo_sort", "replace", "catalog", "impact",

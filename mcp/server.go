@@ -59,7 +59,7 @@ func NewServer(svc *service.Service, vocab []string, version string) (*sdkmcp.Se
 		"FIND: list(query=) for keyword FTS; recall(query=, top=10) for ranked FTS with kind/recency scoring; list(semantic=true, query=) for vector similarity (requires embeddings). " +
 		"READ: get(id=) full artifact; get_section(id=, name=) for one section only (cheaper). " +
 		"LIST: always add scope/kind/status or top=N — bare list returns ALL artifacts and burns context. " +
-		"WRITE: create, set, attach_section, archive. " +
+		"WRITE: create, set, attach_section. " +
 		"GRAPH: briefing(id=) — full edge-aware context chain; tree(id=) — children; link/unlink — edges; topo_sort — dependency order; impact — blast radius. " +
 		"ORIENT: orient for vault map (call after brief); catalog for full inventory. " +
 		"STASH: get(stash_id=) to inspect a failed-create stash; create(stash_id=) to promote it."
@@ -74,7 +74,7 @@ func NewServer(svc *service.Service, vocab []string, version string) (*sdkmcp.Se
 	}, bindHandler(h.handleArtifact))
 	reg.Register(directive.ToolMeta{
 		Name: "artifact", Description: artifactDesc,
-		Keywords:   []string{"create", "get", "list", "set", "archive", "artifact", "section", "tree", "briefing", "topo_sort", "link", "unlink", "move", "impact"},
+		Keywords:   []string{"create", "get", "list", "set", "artifact", "section", "tree", "briefing", "topo_sort", "link", "unlink", "move", "impact"},
 		Categories: []string{"crud", "graph"},
 	})
 
@@ -128,7 +128,7 @@ type handler struct {
 // --- consolidated input types ---
 
 type artifactInput struct {
-	Action string `json:"action" jsonschema:"required,create | get | list | set | update | archive | de-archive | retire | detach_section | bulk_section_update | diff | recall | orient | tree | briefing | link | unlink | topo_sort | replace"`
+	Action string `json:"action" jsonschema:"required,create | get | list | set | update | retire | detach_section | bulk_section_update | diff | recall | orient | tree | briefing | link | unlink | topo_sort | replace"`
 
 	ID     string `json:"id,omitempty"`
 	Target string `json:"target,omitempty" jsonschema:"new parent ID (move)"`

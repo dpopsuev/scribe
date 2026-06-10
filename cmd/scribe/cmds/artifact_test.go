@@ -53,18 +53,9 @@ func TestSet_ChangesField(t *testing.T) {
 	mustNotContain(t, out, "before")
 }
 
-func TestArchive_ChangesStatus(t *testing.T) {
-	db := newDB(t)
-	id := strings.TrimSpace(run(t, db, "create", "--kind", "task", "--scope", "test", "--title", "to archive"))
-	run(t, db, "archive", id)
-	out := run(t, db, "show", id)
-	mustContain(t, out, "archived")
-}
-
 func TestDelete_RemovesArtifact(t *testing.T) {
 	db := newDB(t)
 	id := strings.TrimSpace(run(t, db, "create", "--kind", "task", "--scope", "test", "--title", "delete me"))
-	run(t, db, "archive", id)
 	run(t, db, "delete", id)
 	out := run(t, db, "show", id)
 	mustNotContain(t, out, "delete me")

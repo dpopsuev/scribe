@@ -28,10 +28,9 @@ func TestContextRead_ReturnsTask(t *testing.T) {
 	svc := newTestService(t)
 
 	task, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Labels: []string{"kind:task", "go", "security"},
+		Labels: []string{"kind:task", "go", "security", "priority:high"},
 		Title:  "fix auth bug",
 
-		Priority: "high",
 		Sections: []parchment.Section{{Name: "context", Text: "JWT expiry not checked"}},
 	})
 	if err != nil {
@@ -57,9 +56,7 @@ func TestContextRead_RulesExpandedByLabelHierarchy(t *testing.T) {
 
 	// Create a note with labels "rule" and "lang.go" (PRC-ADR-6: rule is a label, not a kind)
 	_, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Title: "Go conventions",
-
-		Priority: "none",
+		Title:    "Go conventions",
 		Labels:   []string{"kind:note", "rule", "lang.go"},
 		Sections: []parchment.Section{{Name: "content", Text: "Use gofmt."}},
 	})
@@ -69,9 +66,7 @@ func TestContextRead_RulesExpandedByLabelHierarchy(t *testing.T) {
 
 	// Create a task with label "lang.go" — rule should appear in context
 	task, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Title: "write Go service",
-
-		Priority: "medium",
+		Title:    "write Go service",
 		Labels:   []string{"kind:task", "lang.go"},
 		Sections: []parchment.Section{{Name: "context", Text: "build a Go HTTP service"}},
 	})
@@ -97,9 +92,7 @@ func TestContextRead_AlwaysRulesAlwaysIncluded(t *testing.T) {
 	svc := newTestService(t)
 
 	_, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Title: "KISS directives",
-
-		Priority: "none",
+		Title:    "KISS directives",
 		Labels:   []string{"kind:note", "rule", "always"},
 		Sections: []parchment.Section{{Name: "content", Text: "Keep it simple."}},
 	})
@@ -109,9 +102,7 @@ func TestContextRead_AlwaysRulesAlwaysIncluded(t *testing.T) {
 
 	// Task with no matching labels — always rule should still appear
 	task, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Title: "unrelated task",
-
-		Priority: "low",
+		Title:    "unrelated task",
 		Labels:   []string{"kind:task", "rust"},
 		Sections: []parchment.Section{{Name: "context", Text: "Rust stuff"}},
 	})
@@ -143,10 +134,8 @@ func TestContextRead_KnowledgeInSameScope(t *testing.T) {
 	}
 
 	task, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Title: "auth task",
-
-		Priority: "high",
-		Labels:   []string{"kind:task", "security"},
+		Title:    "auth task",
+		Labels:   []string{"kind:task", "security", "priority:high"},
 		Sections: []parchment.Section{{Name: "context", Text: "fix auth"}},
 	})
 	if err != nil {

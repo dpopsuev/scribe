@@ -638,10 +638,13 @@ func createSingle(ctx context.Context, svc *Service, in *createInput) (string, e
 	if in.Scope != "" {
 		labels = append(labels, parchment.LabelPrefixScope+in.Scope)
 	}
+	if in.Priority != "" {
+		labels = append(labels, parchment.LabelPrefixPriority+in.Priority)
+	}
 	art, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
 		Title: in.Title,
 		Goal:  in.Goal, Parent: in.Parent,
-		ExplicitID: in.ID, Priority: in.Priority,
+		ExplicitID: in.ID,
 		Labels: labels, DependsOn: in.DependsOn, Sections: parseSections(in.Sections),
 		Links: in.Links, Extra: in.Extra, Patch: in.Patch, SkipHooks: in.SkipHooks,
 		CreatedAt: in.CreatedAt,
@@ -687,10 +690,13 @@ func createFromStash(ctx context.Context, svc *Service, in *createInput) (string
 	if in.Scope != "" {
 		stashLabels = append(stashLabels, parchment.LabelPrefixScope+in.Scope)
 	}
+	if in.Priority != "" {
+		stashLabels = append(stashLabels, parchment.LabelPrefixPriority+in.Priority)
+	}
 	art, err := svc.Proto.PromoteStash(ctx, in.StashID, parchment.CreateInput{
 		Title: in.Title,
 		Goal:  in.Goal, Parent: in.Parent,
-		Priority: in.Priority, Labels: stashLabels,
+		Labels: stashLabels,
 		Links: in.Links, Sections: parseSections(in.Sections), Patch: in.Patch,
 	})
 	if err != nil {
@@ -742,10 +748,13 @@ func createClone(ctx context.Context, svc *Service, in *createInput) (string, er
 	}
 	cloneLabels = append(cloneLabels, parchment.LabelPrefixStatus+cloneStatus)
 	cloneLabels = append(cloneLabels, baseLabels...)
+	if in.Priority != "" {
+		cloneLabels = append(cloneLabels, parchment.LabelPrefixPriority+in.Priority)
+	}
 	art, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
 		Title:  title,
 		Goal:   source.Goal,
-		Parent: in.Parent, Priority: in.Priority,
+		Parent: in.Parent,
 		Labels: cloneLabels, Sections: sections,
 	})
 	if err != nil {
@@ -785,10 +794,13 @@ func createBatch(ctx context.Context, svc *Service, in *createInput) (string, er
 		if ci.Scope != "" {
 			batchLabels = append(batchLabels, parchment.LabelPrefixScope+ci.Scope)
 		}
+		if ci.Priority != "" {
+			batchLabels = append(batchLabels, parchment.LabelPrefixPriority+ci.Priority)
+		}
 		art, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
 			Title: ci.Title,
 			Goal:  ci.Goal, Parent: ci.Parent,
-			Priority: ci.Priority, Labels: batchLabels,
+			Labels: batchLabels,
 			Links: ci.Links, Extra: ci.Extra, Sections: parseSections(ci.Sections),
 		})
 		if err != nil {
@@ -1248,6 +1260,9 @@ var opList = Op{
 		if in.Scope != "" {
 			listLabels = append(listLabels, parchment.LabelPrefixScope+in.Scope)
 		}
+		if in.Sprint != "" {
+			listLabels = append(listLabels, parchment.LabelPrefixSprint+in.Sprint)
+		}
 		listExclude := in.ExcludeLabels
 		if in.ExcludeKind != "" {
 			listExclude = append(listExclude, parchment.LabelPrefixKind+in.ExcludeKind)
@@ -1256,7 +1271,7 @@ var opList = Op{
 			listExclude = append(listExclude, parchment.LabelPrefixStatus+in.ExcludeStatus)
 		}
 		li := parchment.ListInput{
-			Parent: in.Parent, Sprint: in.Sprint, IDPrefix: in.IDPrefix,
+			Parent: in.Parent, IDPrefix: in.IDPrefix,
 			Labels: listLabels, LabelsOr: in.LabelsOr, ExcludeLabels: listExclude,
 			GroupBy: in.GroupBy, Sort: in.Sort, Limit: in.Limit, Cursor: in.Cursor, Query: in.Query,
 			TitleContains: in.TitleContains, Family: in.Family,

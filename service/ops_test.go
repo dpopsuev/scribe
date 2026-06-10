@@ -181,7 +181,7 @@ func TestOpSet_ActivationAllowedAfterSpecRead(t *testing.T) {
 
 	spec, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:spec"}, Title: "S"})
 	task, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Labels: []string{"kind:task"}, Title: "T", Priority: "medium",
+		Labels: []string{"kind:task", "priority:medium"}, Title: "T",
 		Sections: []parchment.Section{
 			{Name: "context", Text: "ctx"}, {Name: "checklist", Text: "ok"}, {Name: "acceptance", Text: "ok"},
 		},

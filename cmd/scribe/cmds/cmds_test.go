@@ -40,7 +40,6 @@ func run(t *testing.T, dbPath string, args ...string) string {
 		cmds.ListCmd(),
 		cmds.SetCmd(),
 		cmds.DeleteCmd(),
-		cmds.ArchiveCmd(),
 		cmds.TreeCmd(),
 		cmds.BriefingCmd(),
 		cmds.LinkCmd(),

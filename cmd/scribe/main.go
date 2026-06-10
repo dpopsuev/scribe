@@ -35,7 +35,6 @@ func main() {
 		cmds.SectionCmd(),
 		cmds.SearchCmd(),
 		cmds.GoalCmd(),
-		cmds.ArchiveCmd(),
 		cmds.VacuumCmd(),
 		cmds.DfCmd(),
 		cmds.BriefCmd(),
