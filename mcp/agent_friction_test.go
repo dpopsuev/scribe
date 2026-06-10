@@ -275,7 +275,7 @@ func TestArtifact_Promote_TemplateConformanceEnforced(t *testing.T) {
 		"action": "set",
 		"id":     artID,
 		"field":  "status",
-		"value":  "proposed",
+		"value":  "decision.proposed",
 	})
 
 	// Conformance check should fire here, not at create time.

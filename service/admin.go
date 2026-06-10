@@ -97,12 +97,12 @@ func (s *Service) Brief(ctx context.Context) (*BriefResult, error) { //nolint:cy
 			unknownCounts[art.Label(parchment.LabelPrefixKind)]++
 		}
 		isEffortKind := art.Label(parchment.LabelPrefixKind) == parchment.KindCampaign || art.Label(parchment.LabelPrefixKind) == parchment.KindGoal
-		if !schema.IsTerminal(art.Label(parchment.LabelPrefixStatus)) && isEffortKind { //nolint:nestif // brief check is inherently nested
+		if !schema.IsTerminal(parchment.StatusFromLabels(art.Labels)) && isEffortKind { //nolint:nestif // brief check is inherently nested
 			children, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Parent: art.ID})
 			if len(children) > 0 {
 				allDone := true
 				for _, ch := range children {
-					if !schema.IsTerminal(ch.Label(parchment.LabelPrefixStatus)) {
+					if !schema.IsTerminal(parchment.StatusFromLabels(ch.Labels)) {
 						allDone = false
 						break
 					}
@@ -112,7 +112,7 @@ func (s *Service) Brief(ctx context.Context) (*BriefResult, error) { //nolint:cy
 				}
 			}
 		}
-		if !schema.IsTerminal(art.Label(parchment.LabelPrefixStatus)) && (art.Label(parchment.LabelPrefixKind) == parchment.KindSpec || art.Label(parchment.LabelPrefixKind) == parchment.KindBug) {
+		if !schema.IsTerminal(parchment.StatusFromLabels(art.Labels)) && (art.Label(parchment.LabelPrefixKind) == parchment.KindSpec || art.Label(parchment.LabelPrefixKind) == parchment.KindBug) {
 			backlinks, _ := s.Proto.Backlinks(ctx, art.ID, parchment.RelImplements)
 			if len(backlinks) == 0 {
 				unimplemented++
@@ -169,9 +169,9 @@ func (s *Service) Dashboard(ctx context.Context, staleDays int) (*DashboardResul
 			scopeMap[sc] = ds
 		}
 		ds.Total++
-		if schema.IsReadonly(art.Label(parchment.LabelPrefixStatus)) {
+		if schema.IsReadonly(parchment.StatusFromLabels(art.Labels)) {
 			ds.Archived++
-		} else if !schema.IsTerminal(art.Label(parchment.LabelPrefixStatus)) {
+		} else if !schema.IsTerminal(parchment.StatusFromLabels(art.Labels)) {
 			ds.Active++
 			if art.UpdatedAt.Before(cutoff) {
 				ds.Stale++
@@ -219,8 +219,8 @@ func (s *Service) Inventory(ctx context.Context) (*InventoryResult, error) {
 	}
 	for _, art := range all {
 		r.ByKind[art.Label(parchment.LabelPrefixKind)]++
-		r.ByStatus[art.Label(parchment.LabelPrefixStatus)]++
-		if def, ok := briefKinds[art.Label(parchment.LabelPrefixKind)]; ok && art.Label(parchment.LabelPrefixStatus) == def.ActiveStatus {
+		r.ByStatus[parchment.StatusFromLabels(art.Labels)]++
+		if def, ok := briefKinds[art.Label(parchment.LabelPrefixKind)]; ok && parchment.StatusFromLabels(art.Labels) == def.ActiveStatus {
 			r.Tracked[art.Label(parchment.LabelPrefixKind)] = append(r.Tracked[art.Label(parchment.LabelPrefixKind)], art)
 		}
 	}
@@ -238,7 +238,11 @@ func (s *Service) SetGoal(ctx context.Context, in SetGoalInput) (*SetGoalResult,
 		return nil, fmt.Errorf("no kind with is_goal_kind=true in schema") //nolint:err113 // agent-facing error
 	}
 
-	goalLabels := []string{parchment.LabelPrefixKind + goalKind, parchment.LabelPrefixStatus + goalDef.ActiveStatus}
+	activeStatusLabel := goalDef.ActiveStatus
+	if !parchment.IsDomainStatusLabel(activeStatusLabel) {
+		activeStatusLabel = parchment.LabelPrefixStatus + activeStatusLabel
+	}
+	goalLabels := []string{parchment.LabelPrefixKind + goalKind, activeStatusLabel}
 	if in.Scope != "" {
 		goalLabels = append(goalLabels, parchment.LabelPrefixScope+in.Scope)
 	}
@@ -246,14 +250,7 @@ func (s *Service) SetGoal(ctx context.Context, in SetGoalInput) (*SetGoalResult,
 
 	archived := make([]*parchment.Artifact, 0, len(existing))
 	for _, old := range existing {
-		results, err := s.Proto.SetField(ctx, []string{old.ID}, parchment.FieldStatus,
-			schema.ReadonlyStatuses[0], parchment.SetFieldOptions{Force: true})
-		if err != nil || (len(results) > 0 && !results[0].OK) {
-			continue
-		}
-		if updated, _ := s.Proto.GetArtifact(ctx, old.ID); updated != nil {
-			archived = append(archived, updated)
-		}
+		archived = append(archived, old)
 	}
 
 	goal, err := s.Proto.CreateArtifact(ctx, parchment.CreateInput{
@@ -296,7 +293,7 @@ func SortArtifacts(arts []*parchment.Artifact, field string) {
 		case "title":
 			return arts[i].Title < arts[j].Title
 		case "status":
-			return arts[i].Label(parchment.LabelPrefixStatus) < arts[j].Label(parchment.LabelPrefixStatus)
+			return parchment.StatusFromLabels(arts[i].Labels) < parchment.StatusFromLabels(arts[j].Labels)
 		case "scope":
 			return arts[i].Label(parchment.LabelPrefixScope) < arts[j].Label(parchment.LabelPrefixScope)
 		case "kind":
@@ -323,7 +320,7 @@ func (s *Service) RenderBrief(ctx context.Context, since, version string, homeSc
 	}
 	sections = append(sections, fmt.Sprintf("Scribe %s | Scope: %s", version, scopeStr))
 
-	bugs, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindBug, parchment.LabelPrefixStatus + parchment.StatusOpen}})
+	bugs, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindBug, "work.draft"}})
 	if len(bugs) > 0 {
 		var lines []string
 		for _, b := range bugs {
@@ -357,18 +354,18 @@ func (s *Service) RenderBrief(ctx context.Context, since, version string, homeSc
 		}
 		sections = append(sections, "Goal:\n"+strings.Join(lines, "\n"))
 	}
-	active, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixStatus + parchment.StatusActive}})
-	draft, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixStatus + parchment.StatusDraft}})
+	active, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{"work.active"}})
+	draft, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{"work.draft"}})
 	if len(active) > 0 || len(draft) > 0 {
 		sections = append(sections, fmt.Sprintf("Active Work: %d active, %d draft", len(active), len(draft)))
 	}
 	staleThreshold := time.Now().UTC().Add(-7 * 24 * time.Hour).Format(time.RFC3339)
-	stale, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixStatus + parchment.StatusDraft}, UpdatedBefore: staleThreshold})
+	stale, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{"work.draft"}, UpdatedBefore: staleThreshold})
 	if len(stale) > 0 {
 		m.Warnings = append(m.Warnings, fmt.Sprintf("%d draft(s) stale >7 days — run dashboard for details", len(stale)))
 	}
 	if since != "" { //nolint:nestif // session delta block is inherently nested
-		changed, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{UpdatedAfter: since, ExcludeLabels: []string{parchment.LabelPrefixStatus + parchment.StatusArchived}})
+		changed, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{UpdatedAfter: since, ExcludeLabels: []string{"status:archived"}})
 		if len(changed) > 0 {
 			limit := len(changed)
 			if limit > 15 {
@@ -376,7 +373,7 @@ func (s *Service) RenderBrief(ctx context.Context, since, version string, homeSc
 			}
 			var lines []string
 			for _, c := range changed[:limit] {
-				lines = append(lines, fmt.Sprintf("  %s %-8s [%s] %s", c.ID, c.Label(parchment.LabelPrefixStatus), c.Label(parchment.LabelPrefixKind), c.Title))
+				lines = append(lines, fmt.Sprintf("  %s %-8s [%s] %s", c.ID, parchment.StatusFromLabels(c.Labels), c.Label(parchment.LabelPrefixKind), c.Title))
 			}
 			header := fmt.Sprintf("Changed Since %s (%d):", since[:10], len(changed))
 			if len(changed) > 15 {
@@ -480,7 +477,7 @@ func (s *Service) RenderDetect(ctx context.Context, check, scope, kind, project,
 			var b strings.Builder
 			for _, o := range report.Orphans {
 				oKind := labelVal(o.Labels, parchment.LabelPrefixKind)
-				oStatus := labelVal(o.Labels, parchment.LabelPrefixStatus)
+				oStatus := parchment.StatusFromLabels(o.Labels)
 				fmt.Fprintf(&b, "%-16s %-5s [%s] %s\n  → %s\n\n", o.ID, oKind, oStatus, o.Title, o.Reason)
 			}
 			fmt.Fprintf(&b, "%d orphan(s) across %d artifacts", report.TotalOrphans, report.TotalScanned)
@@ -538,7 +535,7 @@ func (s *Service) renderEviction(ctx context.Context, scope string) (string, err
 	fmt.Fprintf(&b, "%d eviction candidate(s):\n\n", len(candidates))
 	for _, c := range candidates {
 		fmt.Fprintf(&b, "%-16s %-10s [%s] %s\n  reason: %s\n  tensor: access=%.2f structural=%.2f quality=%.2f recency=%.2f\n\n",
-			c.Artifact.ID, string(c.Label), c.Artifact.Label(parchment.LabelPrefixStatus), c.Artifact.Title,
+			c.Artifact.ID, string(c.Label), parchment.StatusFromLabels(c.Artifact.Labels), c.Artifact.Title,
 			c.Reason,
 			c.Tensor.AccessHeat, c.Tensor.StructuralHeat, c.Tensor.QualityScore, c.Tensor.Recency,
 		)
@@ -632,7 +629,7 @@ func (s *Service) RenderChangelog(ctx context.Context, since, scope string) (str
 		if sc == "" {
 			sc = scopeNone
 		}
-		byScope[sc] = append(byScope[sc], fmt.Sprintf("  %-16s %-8s %-8s %s", art.ID, art.Label(parchment.LabelPrefixKind), art.Label(parchment.LabelPrefixStatus), art.Title))
+		byScope[sc] = append(byScope[sc], fmt.Sprintf("  %-16s %-8s %-8s %s", art.ID, art.Label(parchment.LabelPrefixKind), parchment.StatusFromLabels(art.Labels), art.Title))
 	}
 
 	scopes := make([]string, 0, len(byScope))
@@ -649,9 +646,9 @@ func (s *Service) RenderChangelog(ctx context.Context, since, scope string) (str
 }
 
 func (s *Service) RenderBriefCompact(ctx context.Context, version string) (string, error) {
-	active, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixStatus + parchment.StatusActive}})
-	draft, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixStatus + parchment.StatusDraft}})
-	bugs, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindBug, parchment.LabelPrefixStatus + parchment.StatusOpen}})
+	active, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{"work.active"}})
+	draft, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{"work.draft"}})
+	bugs, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindBug, "work.draft"}})
 	return fmt.Sprintf("Scribe %s | %d active, %d draft, %d open bugs",
 		version, len(active), len(draft), len(bugs)), nil
 }

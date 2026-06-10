@@ -15,7 +15,7 @@ import (
 func (s *Service) BriefMemoryLines(ctx context.Context, scope string, n int) []string {
 	var knowledge []*parchment.Artifact
 	for _, kind := range []string{parchment.KindNote, parchment.KindConcept} {
-		memLabels := []string{parchment.LabelPrefixKind + kind, parchment.LabelPrefixStatus + parchment.StatusEvergreen}
+		memLabels := []string{parchment.LabelPrefixKind + kind, "note.evergreen"}
 		if scope != "" {
 			memLabels = append(memLabels, parchment.LabelPrefixScope+scope)
 		}

@@ -60,7 +60,7 @@ func (s *Service) Correlate(ctx context.Context, evidence, scope string) (*Corre
 
 	var missing []*parchment.Artifact
 	for _, a := range all {
-		if schema.IsTerminal(a.Label(parchment.LabelPrefixStatus)) {
+		if schema.IsTerminal(parchment.StatusFromLabels(a.Labels)) {
 			continue
 		}
 		if !mentionedIDs[a.ID] {
@@ -70,7 +70,7 @@ func (s *Service) Correlate(ctx context.Context, evidence, scope string) (*Corre
 
 	var drift []*parchment.Artifact
 	for _, a := range found {
-		if schema.IsTerminal(a.Label(parchment.LabelPrefixStatus)) {
+		if schema.IsTerminal(parchment.StatusFromLabels(a.Labels)) {
 			continue
 		}
 		if EvidenceImpliesComplete(evidenceLower, strings.ToLower(a.ID)) {
@@ -125,7 +125,7 @@ func RenderCorrelateReport(r *CorrelateResult) string {
 		b.WriteString("  (none)\n")
 	}
 	for _, a := range r.Found {
-		fmt.Fprintf(&b, "  %s [%s] %s\n", a.ID, a.Label(parchment.LabelPrefixStatus), a.Title)
+		fmt.Fprintf(&b, "  %s [%s] %s\n", a.ID, parchment.StatusFromLabels(a.Labels), a.Title)
 	}
 	b.WriteString("\n")
 	fmt.Fprintf(&b, "Missing / unaccounted (%d):\n", len(r.Missing))
@@ -133,7 +133,7 @@ func RenderCorrelateReport(r *CorrelateResult) string {
 		b.WriteString("  (none — all active artifacts mentioned)\n")
 	}
 	for _, a := range r.Missing {
-		fmt.Fprintf(&b, "  %s [%s] %s\n", a.ID, a.Label(parchment.LabelPrefixStatus), a.Title)
+		fmt.Fprintf(&b, "  %s [%s] %s\n", a.ID, parchment.StatusFromLabels(a.Labels), a.Title)
 	}
 	b.WriteString("\n")
 	fmt.Fprintf(&b, "Status drift (%d):\n", len(r.Drift))
@@ -141,7 +141,7 @@ func RenderCorrelateReport(r *CorrelateResult) string {
 		b.WriteString("  (none)\n")
 	}
 	for _, a := range r.Drift {
-		fmt.Fprintf(&b, "  %s [%s] %s — evidence implies complete\n", a.ID, a.Label(parchment.LabelPrefixStatus), a.Title)
+		fmt.Fprintf(&b, "  %s [%s] %s — evidence implies complete\n", a.ID, parchment.StatusFromLabels(a.Labels), a.Title)
 	}
 	if len(r.Drift) > 0 || len(r.Missing) > 0 {
 		b.WriteString("\nNext:\n")

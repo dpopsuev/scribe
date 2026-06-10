@@ -162,6 +162,7 @@ func userDefinedLabels(labels []string) []string {
 	for _, l := range labels {
 		if strings.HasPrefix(l, "kind:") ||
 			strings.HasPrefix(l, "status:") ||
+			parchment.IsDomainStatusLabel(l) ||
 			strings.HasPrefix(l, "scope:") ||
 			strings.HasPrefix(l, "priority:") ||
 			strings.HasPrefix(l, "sprint:") ||

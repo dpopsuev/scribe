@@ -17,16 +17,16 @@ func seedDataset(t *testing.T, s parchment.Store) *parchment.Protocol {
 	t.Helper()
 	ctx := context.Background()
 	arts := []*parchment.Artifact{
-		{ID: "TASK-001", Labels: []string{"kind:task", "status:active", "scope:alpha"}, Title: "Build export"},
-		{ID: "TASK-002", Labels: []string{"kind:task", "status:draft", "scope:alpha"}, Title: "Draft task — excluded"},
-		{ID: "ADR-001", Labels: []string{"kind:decision", "status:accepted", "scope:alpha"}, Title: "Use JSONL",
+		{ID: "TASK-001", Labels: []string{"kind:task", "work.active", "scope:alpha"}, Title: "Build export"},
+		{ID: "TASK-002", Labels: []string{"kind:task", "work.draft", "scope:alpha"}, Title: "Draft task — excluded"},
+		{ID: "ADR-001", Labels: []string{"kind:decision", "decision.accepted", "scope:alpha"}, Title: "Use JSONL",
 			Sections: []parchment.Section{
 				{Name: "problem", Text: "Which format for training data?"},
 				{Name: "decision", Text: "JSONL — streamable, one example per line."},
 				{Name: "alternatives", Text: "CSV — not suitable for nested data."},
 			},
 		},
-		{ID: "SPEC-001", Labels: []string{"kind:spec", "status:active", "scope:alpha"}, Title: "Dataset API",
+		{ID: "SPEC-001", Labels: []string{"kind:spec", "work.active", "scope:alpha"}, Title: "Dataset API",
 			Sections: []parchment.Section{
 				{Name: "problem", Text: "Need a dataset export endpoint."},
 			},
@@ -277,9 +277,9 @@ func TestDatasetExport_QualityFilter_ExcludesViolation(t *testing.T) {
 	// Artifact with compliance violation label
 	_ = s.Put(ctx, &parchment.Artifact{
 		ID: "BAD-001", Title: "Bad",
-		Labels: []string{"kind:task", "status:active", "compliance:violation", "scope:x"},
+		Labels: []string{"kind:task", "work.active", "compliance:violation", "scope:x"},
 	})
-	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "status:active", "scope:x"}, ID: "GOOD-001", Title: "Good"})
+	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "work.active", "scope:x"}, ID: "GOOD-001", Title: "Good"})
 	proto := parchment.New(s, nil, []string{"x"}, nil, parchment.ProtocolConfig{})
 	srv := httptest.NewServer(web.NewServer(proto, "test", ""))
 	defer srv.Close()

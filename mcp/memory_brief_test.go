@@ -39,7 +39,7 @@ func TestBrief_IncludesMemorySection(t *testing.T) {
 	ctx := context.Background()
 
 	// Seed an evergreen note — should surface in brief memory
-	_, err := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindNote, parchment.LabelPrefixStatus + parchment.StatusEvergreen},
+	_, err := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindNote, "note.evergreen"},
 		Title: "SetField rejects unknown fields",
 
 		Sections: []parchment.Section{
@@ -91,7 +91,7 @@ func TestBrief_MemoryLimitedToThree(t *testing.T) {
 	ctx := context.Background()
 
 	for i := range 6 {
-		_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindNote, parchment.LabelPrefixStatus + parchment.StatusEvergreen},
+		_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindNote, "note.evergreen"},
 			Title: "memory note",
 
 			Sections: []parchment.Section{

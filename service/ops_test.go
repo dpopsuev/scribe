@@ -162,7 +162,7 @@ func TestOpSet_ActivationBlockedUntilSpecRead(t *testing.T) {
 	svc.Proto.LinkArtifacts(ctx, task.ID, "implements", []string{spec.ID}, 0) //nolint:errcheck // test setup, error irrelevant to subject under test
 
 	op := service.Find("set")
-	raw, _ := json.Marshal(map[string]any{"id": task.ID, "field": "status", "value": "active"})
+	raw, _ := json.Marshal(map[string]any{"id": task.ID, "field": "status", "value": "work.active"})
 	out, err := op.Run(ctx, svc, raw)
 	if err != nil {
 		t.Fatal(err)
@@ -190,7 +190,7 @@ func TestOpSet_ActivationAllowedAfterSpecRead(t *testing.T) {
 	svc.ReadLog[spec.ID] = true
 
 	op := service.Find("set")
-	raw, _ := json.Marshal(map[string]any{"id": task.ID, "field": "status", "value": "active"})
+	raw, _ := json.Marshal(map[string]any{"id": task.ID, "field": "status", "value": "work.active"})
 	out, err := op.Run(ctx, svc, raw)
 	if err != nil {
 		t.Fatal(err)
@@ -274,7 +274,7 @@ func TestOpSet_FieldErrorPropagated(t *testing.T) {
 	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "T"})
 	op := service.Find("set")
 	raw, _ := json.Marshal(map[string]any{
-		"id": art.ID, "field": "status", "value": "complete",
+		"id": art.ID, "field": "status", "value": "work.complete",
 	})
 	out, err := op.Run(ctx, svc, raw)
 	if err != nil {

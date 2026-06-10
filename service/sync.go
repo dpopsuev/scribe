@@ -181,7 +181,7 @@ func serializeArtifact(art *parchment.Artifact) ([]byte, error) {
 	if art.Label(parchment.LabelPrefixScope) != "" {
 		fm["scope"] = art.Label(parchment.LabelPrefixScope)
 	}
-	if s := art.Label(parchment.LabelPrefixStatus); s != "" {
+	if s := parchment.StatusFromLabels(art.Labels); s != "" {
 		fm["status"] = s
 	}
 	if art.Label(parchment.LabelPrefixPriority) != "" && art.Label(parchment.LabelPrefixPriority) != "none" {

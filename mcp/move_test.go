@@ -16,11 +16,11 @@ func TestArtifactMove_ReparentsAtomically(t *testing.T) {
 	gcall := func(args map[string]any) string { return callTool(t, cs, "artifact", args) }
 
 	// Create parent A, parent B, and a child.
-	parentA := qolExtractID(t, call(map[string]any{"action": "create", "kind": "goal", "title": "Parent A", "scope": "test", "status": "draft"}))
-	parentB := qolExtractID(t, call(map[string]any{"action": "create", "kind": "goal", "title": "Parent B", "scope": "test", "status": "draft"}))
+	parentA := qolExtractID(t, call(map[string]any{"action": "create", "kind": "goal", "title": "Parent A", "scope": "test", "status": "work.draft"}))
+	parentB := qolExtractID(t, call(map[string]any{"action": "create", "kind": "goal", "title": "Parent B", "scope": "test", "status": "work.draft"}))
 	child := qolExtractID(t, call(map[string]any{
 		"action": "create", "kind": "task", "title": "Child task",
-		"scope": "test", "status": "draft", "parent": parentA,
+		"scope": "test", "status": "work.draft", "parent": parentA,
 		"sections": []map[string]string{{"name": "context", "text": "x"}},
 	}))
 

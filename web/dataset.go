@@ -60,8 +60,9 @@ type datasetCard struct {
 // exportable returns true when an artifact meets the quality bar for training.
 // Only complete, active, or evergreen artifacts with no compliance violations.
 func exportable(a *parchment.Artifact) bool {
-	switch a.Label(parchment.LabelPrefixStatus) {
-	case "active", "complete", "evergreen", "current", "accepted":
+	switch parchment.StatusFromLabels(a.Labels) {
+	case "work.active", "work.complete",
+		"note.evergreen", "decision.accepted":
 		// ok
 	default:
 		return false
@@ -102,7 +103,7 @@ func writeSFT(ctx context.Context, w http.ResponseWriter, proto *parchment.Proto
 			"id":       a.ID,
 			"kind":     a.Label(parchment.LabelPrefixKind),
 			"title":    a.Title,
-			"status":   a.Label(parchment.LabelPrefixStatus),
+			"status":   parchment.StatusFromLabels(a.Labels),
 			"priority": a.Label(parchment.LabelPrefixPriority),
 			"scope":    a.Label(parchment.LabelPrefixScope),
 			"sections": a.Sections,
@@ -136,7 +137,7 @@ func writeKG(ctx context.Context, w http.ResponseWriter, proto *parchment.Protoc
 		node := kgNode{
 			ID:     a.ID,
 			Kind:   a.Label(parchment.LabelPrefixKind),
-			Status: a.Label(parchment.LabelPrefixStatus),
+			Status: parchment.StatusFromLabels(a.Labels),
 			Title:  a.Title,
 			Scope:  a.Label(parchment.LabelPrefixScope),
 			Text:   sectionText(a),

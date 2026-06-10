@@ -161,7 +161,11 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		listLabels = append(listLabels, parchment.LabelPrefixKind+kind)
 	}
 	if status := queryParams.Get("status"); status != "" {
-		listLabels = append(listLabels, parchment.LabelPrefixStatus+status)
+		if parchment.IsDomainStatusLabel(status) {
+			listLabels = append(listLabels, status)
+		} else {
+			listLabels = append(listLabels, parchment.LabelPrefixStatus+status)
+		}
 	}
 	if sc := queryParams.Get("scope"); sc != "" {
 		listLabels = append(listLabels, parchment.LabelPrefixScope+sc)

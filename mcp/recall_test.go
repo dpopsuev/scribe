@@ -99,7 +99,7 @@ func TestRecall_CompletedTaskIsMemory(t *testing.T) {
 	task, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "Remove SetField Extra fallback — error on unknown fields",
 
 		Goal:  "SetField must reject unknown fields instead of writing silently to Extra"})
-	_, _ = proto.SetField(ctx, []string{task.ID}, parchment.FieldStatus, parchment.StatusComplete, parchment.SetFieldOptions{Force: true})
+	_, _ = proto.SetField(ctx, []string{task.ID}, parchment.FieldStatus, "work.complete", parchment.SetFieldOptions{Force: true})
 
 	out := call(map[string]any{
 		"action": "list", "ranked": true,
@@ -121,7 +121,7 @@ func TestRecall_CompletedDecisionIsMemory(t *testing.T) {
 	decision, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindDecision}, Title: "Template conformance fires on promote not create",
 
 		Goal:  "Partial drafts accepted at create time, full validation deferred to promote"})
-	_, _ = proto.SetField(ctx, []string{decision.ID}, parchment.FieldStatus, "accepted", parchment.SetFieldOptions{Force: true})
+	_, _ = proto.SetField(ctx, []string{decision.ID}, parchment.FieldStatus, "decision.accepted", parchment.SetFieldOptions{Force: true})
 
 	out := call(map[string]any{
 		"action": "list", "ranked": true,
@@ -140,11 +140,11 @@ func TestRecall_EvergreenRanksHigher(t *testing.T) {
 	proto, call := newRecallServer(t)
 	ctx := context.Background()
 
-	fleeting, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindNote, parchment.LabelPrefixStatus + parchment.StatusFleeting}, Title: "template conformance fleeting",
+	fleeting, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindNote, "note.fleeting"}, Title: "template conformance fleeting",
 
 		Sections: []parchment.Section{{Name: "body", Text: "template conformance check fires on promote"}},
 	})
-	evergreen, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindNote, parchment.LabelPrefixStatus + parchment.StatusEvergreen}, Title: "template conformance evergreen",
+	evergreen, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindNote, "note.evergreen"}, Title: "template conformance evergreen",
 
 		Sections: []parchment.Section{{Name: "body", Text: "template conformance check fires on promote not create"}},
 	})

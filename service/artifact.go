@@ -19,6 +19,16 @@ func labelVal(labels []string, prefix string) string {
 	return ""
 }
 
+// statusLabelFor returns the label to use for filtering/building by a status string.
+// Domain statuses (work.draft, note.fleeting, etc.) are raw labels.
+// System statuses (retired, archived) use the status: prefix.
+func statusLabelFor(status string) string {
+	if parchment.IsDomainStatusLabel(status) {
+		return status
+	}
+	return parchment.LabelPrefixStatus + status
+}
+
 // FilterSections removes sections not in the filter list (in-place).
 func FilterSections(art *parchment.Artifact, filter []string) {
 	if len(filter) == 0 {
@@ -40,10 +50,10 @@ func FilterSections(art *parchment.Artifact, filter []string) {
 // RelevanceScore returns a numeric relevance score for top-N ranking.
 func RelevanceScore(art *parchment.Artifact) float64 {
 	score := 0.0
-	switch art.Label(parchment.LabelPrefixStatus) {
-	case "active", "current", "open", "in_progress", "in_review":
+	switch parchment.StatusFromLabels(art.Labels) {
+	case "work.active", "decision.proposed":
 		score += 3.0
-	case "draft", "proposed", "fleeting":
+	case "work.draft", "note.fleeting":
 		score += 1.0
 	}
 	switch art.Label(parchment.LabelPrefixPriority) {
@@ -89,7 +99,7 @@ func (s *Service) PersistReadLog(ctx context.Context, sessionID string, readLog 
 	if _, err := s.Proto.GetArtifact(ctx, artID); err != nil {
 		_, _ = s.Proto.CreateArtifact(ctx, parchment.CreateInput{
 			ExplicitID: artID,
-			Labels:     []string{parchment.LabelPrefixKind + parchment.KindConfig, parchment.LabelPrefixStatus + "active", parchment.LabelPrefixScope + readLogScope},
+			Labels:     []string{parchment.LabelPrefixKind + parchment.KindConfig, "work.active", parchment.LabelPrefixScope + readLogScope},
 			Title:      readLogTitle,
 			Extra:      map[string]any{"read_ids": ids, "session_id": sessionID},
 		})

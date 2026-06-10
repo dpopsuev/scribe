@@ -16,7 +16,7 @@ func TestBulkSectionUpdate_ReplacesInAllSections(t *testing.T) {
 
 	id := qolExtractID(t, call(map[string]any{
 		"action": "create", "kind": "task", "title": "Replace test",
-		"scope": "test", "status": "draft",
+		"scope": "test", "status": "work.draft",
 		"sections": []map[string]string{
 			{"name": "context", "text": "old value in context"},
 			{"name": "checklist", "text": "old value in checklist"},
@@ -53,7 +53,7 @@ func TestBulkSectionUpdate_NoMatchIsNoop(t *testing.T) {
 
 	id := qolExtractID(t, call(map[string]any{
 		"action": "create", "kind": "task", "title": "Noop test",
-		"scope": "test", "status": "draft",
+		"scope": "test", "status": "work.draft",
 		"sections": []map[string]string{{"name": "context", "text": "untouched content"}},
 	}))
 

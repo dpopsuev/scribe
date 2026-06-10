@@ -278,7 +278,7 @@ func TestRenderBrief_ShowsOpenBugs(t *testing.T) {
 	svc := newTestService(t, "test")
 	ctx := context.Background()
 
-	bug, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:bug", "status:open"}, Title: "bad crash"})
+	bug, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:bug", "work.draft"}, Title: "bad crash"})
 
 	out, err := svc.RenderBrief(ctx, "", "v1", []string{"test"})
 	if err != nil {
@@ -367,7 +367,7 @@ func TestRenderBriefCompact_ContainsVersionAndCounts(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task", "status:active"}}) //nolint:errcheck // test setup, Title: "active task",
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task", "work.active"}}) //nolint:errcheck // test setup, Title: "active task",
 
 	out, err := svc.RenderBriefCompact(ctx, "v2.19.0")
 	if err != nil {
@@ -523,16 +523,16 @@ func TestFilterSections_EmptyFilterKeepsAll(t *testing.T) {
 // --- RelevanceScore ---
 
 func TestRelevanceScore_ActiveHigherThanDraft(t *testing.T) {
-	active := &parchment.Artifact{Labels: []string{"status:active", "priority:high"}}
-	draft := &parchment.Artifact{Labels: []string{"status:draft", "priority:high"}}
+	active := &parchment.Artifact{Labels: []string{"work.active", "priority:high"}}
+	draft := &parchment.Artifact{Labels: []string{"work.draft", "priority:high"}}
 	if service.RelevanceScore(active) <= service.RelevanceScore(draft) {
 		t.Error("active artifact should score higher than draft")
 	}
 }
 
 func TestRelevanceScore_CriticalHigherThanLow(t *testing.T) {
-	crit := &parchment.Artifact{Labels: []string{"status:active", "priority:critical"}}
-	low := &parchment.Artifact{Labels: []string{"status:active", "priority:low"}}
+	crit := &parchment.Artifact{Labels: []string{"work.active", "priority:critical"}}
+	low := &parchment.Artifact{Labels: []string{"work.active", "priority:low"}}
 	if service.RelevanceScore(crit) <= service.RelevanceScore(low) {
 		t.Error("critical priority should score higher than low")
 	}
@@ -710,13 +710,13 @@ func TestRenderCheck_ReturnsJSON(t *testing.T) {
 
 func TestSortArtifacts_ByStatus(t *testing.T) {
 	arts := []*parchment.Artifact{
-		{ID: "C", Labels: []string{"status:complete"}},
-		{ID: "A", Labels: []string{"status:active"}},
-		{ID: "D", Labels: []string{"status:draft"}},
+		{ID: "C", Labels: []string{"work.complete"}},
+		{ID: "A", Labels: []string{"work.active"}},
+		{ID: "D", Labels: []string{"work.draft"}},
 	}
 	service.SortArtifacts(arts, "status")
-	if arts[0].Label(parchment.LabelPrefixStatus) != "active" {
-		t.Errorf("SortArtifacts(status)[0] = %q, want active", arts[0].Label(parchment.LabelPrefixStatus))
+	if parchment.StatusFromLabels(arts[0].Labels) != "work.active" {
+		t.Errorf("SortArtifacts(status)[0] = %q, want work.active", parchment.StatusFromLabels(arts[0].Labels))
 	}
 }
 

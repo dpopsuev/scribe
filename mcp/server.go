@@ -138,7 +138,7 @@ type artifactInput struct {
 	Title     string              `json:"title,omitempty"`
 	Goal      string              `json:"goal,omitempty"`
 	Parent    string              `json:"parent,omitempty"`
-	Status    string              `json:"status,omitempty" jsonschema:"draft, active, complete, archived, retired"`
+	Status    string              `json:"status,omitempty" jsonschema:"work.draft, work.active, work.blocked, work.complete, note.fleeting, note.mature, note.evergreen, decision.proposed, decision.accepted, decision.rejected, decision.deferred, retired, archived"`
 	Priority  string              `json:"priority,omitempty" jsonschema:"none, low, medium, high, critical"`
 	DependsOn []string            `json:"depends_on,omitempty"`
 	Labels    []string            `json:"labels,omitempty"`

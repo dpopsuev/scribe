@@ -69,7 +69,12 @@ func buildScopeGraph(ctx context.Context, proto *parchment.Protocol) (graphData,
 func buildKindGraph(ctx context.Context, proto *parchment.Protocol, scope string, statuses, relations []string) (graphData, error) {
 	statusLabels := make([]string, 0, len(statuses))
 	for _, st := range statuses {
-		statusLabels = append(statusLabels, parchment.LabelPrefixStatus+strings.TrimSpace(st))
+		s := strings.TrimSpace(st)
+		if parchment.IsDomainStatusLabel(s) {
+			statusLabels = append(statusLabels, s)
+		} else {
+			statusLabels = append(statusLabels, parchment.LabelPrefixStatus+s)
+		}
 	}
 	counts, weights, err := proto.Store().KindGraph(ctx, scope, statusLabels, relations)
 	if err != nil {
@@ -120,7 +125,7 @@ func buildArtifactGraph(ctx context.Context, proto *parchment.Protocol, scope st
 			ID:         a.ID,
 			Name:       a.Title,
 			Kind:       a.Label(parchment.LabelPrefixKind),
-			Status:     a.Label(parchment.LabelPrefixStatus),
+			Status:     parchment.StatusFromLabels(a.Labels),
 			Scope:      a.Label(parchment.LabelPrefixScope),
 			Val:        degree[a.ID] + 1,
 			Violations: violationCount(a),
@@ -144,7 +149,12 @@ func buildArtifactGraph(ctx context.Context, proto *parchment.Protocol, scope st
 func fetchArtifacts(ctx context.Context, proto *parchment.Protocol, scope string, statuses []string) ([]*parchment.Artifact, error) {
 	labelsOr := make([]string, 0, len(statuses))
 	for _, st := range statuses {
-		labelsOr = append(labelsOr, parchment.LabelPrefixStatus+strings.TrimSpace(st))
+		s := strings.TrimSpace(st)
+		if parchment.IsDomainStatusLabel(s) {
+			labelsOr = append(labelsOr, s)
+		} else {
+			labelsOr = append(labelsOr, parchment.LabelPrefixStatus+s)
+		}
 	}
 	labels := []string{}
 	if scope != "" {
@@ -233,7 +243,11 @@ func (s *Server) handleAPICreateArtifact(w http.ResponseWriter, r *http.Request)
 		in.Labels = append([]string{parchment.LabelPrefixKind + raw.Kind}, in.Labels...)
 	}
 	if raw.Status != "" {
-		in.Labels = append(in.Labels, parchment.LabelPrefixStatus+raw.Status)
+		if parchment.IsDomainStatusLabel(raw.Status) {
+			in.Labels = append(in.Labels, raw.Status)
+		} else {
+			in.Labels = append(in.Labels, parchment.LabelPrefixStatus+raw.Status)
+		}
 	}
 	if raw.Scope != "" {
 		in.Labels = append(in.Labels, parchment.LabelPrefixScope+raw.Scope)

@@ -25,7 +25,7 @@ func (s *Service) DetectKnowledge(ctx context.Context, in DetectKnowledgeInput) 
 	threshold := time.Now().AddDate(0, 0, -staleDays).Format(time.RFC3339)
 	var issues []string
 
-	fleetingLabels := []string{parchment.LabelPrefixKind + parchment.KindNote, parchment.LabelPrefixStatus + parchment.StatusFleeting}
+	fleetingLabels := []string{parchment.LabelPrefixKind + parchment.KindNote, "note.fleeting"}
 	if in.Scope != "" {
 		fleetingLabels = append(fleetingLabels, parchment.LabelPrefixScope+in.Scope)
 	}
@@ -138,7 +138,7 @@ func (s *Service) LintOrphanedNotes(ctx context.Context, scope string) []string 
 			}
 			if !connected {
 				issues = append(issues, fmt.Sprintf("%s [%s|%s] %s — no knowledge edges",
-					art.ID, art.Label(parchment.LabelPrefixKind), art.Label(parchment.LabelPrefixStatus), art.Title))
+					art.ID, art.Label(parchment.LabelPrefixKind), parchment.StatusFromLabels(art.Labels), art.Title))
 			}
 		}
 	}
@@ -204,9 +204,9 @@ func (s *Service) KnowledgeCatalog(ctx context.Context, scope string) (*Knowledg
 		{parchment.KindContext, "Context"},
 	}
 	statusOrder := map[string]int{
-		parchment.StatusEvergreen: 0,
-		parchment.StatusActive:    1,
-		parchment.StatusFleeting:  2,
+		"note.evergreen": 0,
+		"work.active":    1,
+		"note.fleeting":  2,
 	}
 	for _, g := range groups {
 		gLabels := []string{parchment.LabelPrefixKind + g.kind}
@@ -221,8 +221,8 @@ func (s *Service) KnowledgeCatalog(ctx context.Context, scope string) (*Knowledg
 		// Stable: equal-status entries keep their original relative order.
 		for i := 1; i < len(arts); i++ {
 			for j := i; j > 0; j-- {
-				ai := statusOrder[arts[j].Label(parchment.LabelPrefixStatus)]
-				aj := statusOrder[arts[j-1].Label(parchment.LabelPrefixStatus)]
+				ai := statusOrder[parchment.StatusFromLabels(arts[j].Labels)]
+				aj := statusOrder[parchment.StatusFromLabels(arts[j-1].Labels)]
 				if ai < aj {
 					arts[j], arts[j-1] = arts[j-1], arts[j]
 				}
@@ -248,7 +248,7 @@ func (s *Service) KnowledgeCatalog(ctx context.Context, scope string) (*Knowledg
 				}
 			}
 			fmt.Fprintf(&b, "  %-22s [%s|%s]%s  %d edges\n",
-				art.ID, art.Label(parchment.LabelPrefixKind), art.Label(parchment.LabelPrefixStatus), labelStr, len(edges))
+				art.ID, art.Label(parchment.LabelPrefixKind), parchment.StatusFromLabels(art.Labels), labelStr, len(edges))
 			if summary != "" {
 				fmt.Fprintf(&b, "  %s\n", summary)
 			}
@@ -262,11 +262,11 @@ func (s *Service) KnowledgeCatalog(ctx context.Context, scope string) (*Knowledg
 func (s *Service) KnowledgeOrient(ctx context.Context, scope string) (string, error) { //nolint:gocyclo,cyclop,funlen // orient report is inherently multi-section
 	var b strings.Builder
 	kinds := []struct{ kind, status, meaning string }{
-		{parchment.KindNote, parchment.StatusFleeting + "→evergreen", "core knowledge unit"},
-		{parchment.KindJournal, parchment.StatusActive, "daily dated entry"},
-		{parchment.KindSource, parchment.StatusActive, "external material — ingest it, cite it"},
-		{parchment.KindConcept, parchment.StatusActive, "atomic idea — elaborate on it"},
-		{parchment.KindContext, parchment.StatusActive, "agent memory — remembers edges"},
+		{parchment.KindNote, "note.fleeting" + "→evergreen", "core knowledge unit"},
+		{parchment.KindJournal, "work.active", "daily dated entry"},
+		{parchment.KindSource, "work.active", "external material — ingest it, cite it"},
+		{parchment.KindConcept, "work.active", "atomic idea — elaborate on it"},
+		{parchment.KindContext, "work.active", "agent memory — remembers edges"},
 	}
 	fmt.Fprintf(&b, "## Schema Legend\n\n")
 	for _, k := range kinds {
@@ -299,10 +299,10 @@ func (s *Service) KnowledgeOrient(ctx context.Context, scope string) (string, er
 		totalByKind[kind] = len(arts)
 		all = append(all, arts...)
 		for _, a := range arts {
-			switch a.Label(parchment.LabelPrefixStatus) {
-			case parchment.StatusFleeting:
+			switch parchment.StatusFromLabels(a.Labels) {
+			case "note.fleeting":
 				fleeting++
-			case parchment.StatusEvergreen:
+			case "note.evergreen":
 				evergreen++
 			}
 		}

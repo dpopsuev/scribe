@@ -51,7 +51,7 @@ var opTopoSort = Op{
 			schema := svc.Proto.Schema()
 			var ready []parchment.TopoEntry
 			for _, e := range entries {
-				if schema.IsTerminal(labelVal(e.Labels, parchment.LabelPrefixStatus)) {
+				if schema.IsTerminal(parchment.StatusFromLabels(e.Labels)) {
 					continue
 				}
 				art, _ := svc.Proto.GetArtifact(ctx, e.ID)
@@ -61,7 +61,7 @@ var opTopoSort = Op{
 				blocked := false
 				for _, depID := range art.DependsOn {
 					dep, _ := svc.Proto.GetArtifact(ctx, depID)
-					if dep != nil && !schema.IsTerminal(dep.Label(parchment.LabelPrefixStatus)) {
+					if dep != nil && !schema.IsTerminal(parchment.StatusFromLabels(dep.Labels)) {
 						blocked = true
 						break
 					}
@@ -84,7 +84,7 @@ var opTopoSort = Op{
 		}
 		var b strings.Builder
 		for i, e := range entries {
-			fmt.Fprintf(&b, "%d. %s [%s] %s", i+1, e.ID, labelVal(e.Labels, parchment.LabelPrefixStatus), e.Title)
+			fmt.Fprintf(&b, "%d. %s [%s] %s", i+1, e.ID, parchment.StatusFromLabels(e.Labels), e.Title)
 			if e.Priority != "" && e.Priority != "none" {
 				fmt.Fprintf(&b, " (%s)", e.Priority)
 			}
@@ -291,7 +291,7 @@ func getDiff(ctx context.Context, svc *Service, idA, idB string) (string, error)
 	var lines []string
 	for _, f := range []struct{ name, va, vb string }{
 		{"kind", artifactA.Label(parchment.LabelPrefixKind), artifactB.Label(parchment.LabelPrefixKind)}, {"scope", artifactA.Label(parchment.LabelPrefixScope), artifactB.Label(parchment.LabelPrefixScope)},
-		{"status", artifactA.Label(parchment.LabelPrefixStatus), artifactB.Label(parchment.LabelPrefixStatus)}, {"title", artifactA.Title, artifactB.Title},
+		{"status", parchment.StatusFromLabels(artifactA.Labels), parchment.StatusFromLabels(artifactB.Labels)}, {"title", artifactA.Title, artifactB.Title},
 		{"parent", artifactA.Parent, artifactB.Parent}, {"priority", artifactA.Label(parchment.LabelPrefixPriority), artifactB.Label(parchment.LabelPrefixPriority)},
 	} {
 		if f.va != f.vb {
@@ -343,7 +343,7 @@ func getSummary(ctx context.Context, svc *Service, ids []string) (string, error)
 		}
 		results = append(results, summary{
 			ID: art.ID, Title: art.Title, Kind: art.Label(parchment.LabelPrefixKind), Scope: art.Label(parchment.LabelPrefixScope),
-			Status: art.Label(parchment.LabelPrefixStatus), Priority: art.Label(parchment.LabelPrefixPriority), Parent: art.Parent, Sprint: art.Label(parchment.LabelPrefixSprint),
+			Status: parchment.StatusFromLabels(art.Labels), Priority: art.Label(parchment.LabelPrefixPriority), Parent: art.Parent, Sprint: art.Label(parchment.LabelPrefixSprint),
 		})
 	}
 	if len(results) == 1 {
@@ -369,7 +369,7 @@ func renderScoredTable(results []parchment.ScoredArtifact) string {
 			score = "fts"
 		}
 		fmt.Fprintf(&b, "%-20s  %5s  %-40s  %-12s  %s\n",
-			r.Artifact.ID, score, title, r.Artifact.Label(parchment.LabelPrefixKind), r.Artifact.Label(parchment.LabelPrefixStatus))
+			r.Artifact.ID, score, title, r.Artifact.Label(parchment.LabelPrefixKind), parchment.StatusFromLabels(r.Artifact.Labels))
 	}
 	return b.String()
 }
@@ -412,12 +412,12 @@ func getImpact(ctx context.Context, svc *Service, id string) (string, error) {
 		return "", err
 	}
 	var lines []string
-	lines = append(lines, fmt.Sprintf("Impact analysis for %s [%s] %s:", id, art.Label(parchment.LabelPrefixStatus), art.Title))
+	lines = append(lines, fmt.Sprintf("Impact analysis for %s [%s] %s:", id, parchment.StatusFromLabels(art.Labels), art.Title))
 	children, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{Parent: id})
 	if len(children) > 0 {
 		lines = append(lines, fmt.Sprintf("\nChildren (%d):", len(children)))
 		for _, ch := range children {
-			lines = append(lines, fmt.Sprintf("  %s [%s] %s", ch.ID, ch.Label(parchment.LabelPrefixStatus), ch.Title))
+			lines = append(lines, fmt.Sprintf("  %s [%s] %s", ch.ID, parchment.StatusFromLabels(ch.Labels), ch.Title))
 		}
 	}
 	depEdges, _ := svc.Proto.GetArtifactEdges(ctx, id)
@@ -426,9 +426,9 @@ func getImpact(ctx context.Context, svc *Service, id string) (string, error) {
 		if e.Direction == "incoming" { //nolint:goconst // "incoming" is a domain constant defined in parchment
 			switch e.Relation {
 			case "depends_on":
-				dependents = append(dependents, fmt.Sprintf("  %s [%s] %s", e.Target.ID, labelVal(e.Target.Labels, parchment.LabelPrefixStatus), e.Target.Title))
+				dependents = append(dependents, fmt.Sprintf("  %s [%s] %s", e.Target.ID, parchment.StatusFromLabels(e.Target.Labels), e.Target.Title))
 			case "implements":
-				implementors = append(implementors, fmt.Sprintf("  %s [%s] %s", e.Target.ID, labelVal(e.Target.Labels, parchment.LabelPrefixStatus), e.Target.Title))
+				implementors = append(implementors, fmt.Sprintf("  %s [%s] %s", e.Target.ID, parchment.StatusFromLabels(e.Target.Labels), e.Target.Title))
 			}
 		}
 	}
@@ -487,7 +487,7 @@ func renderTreeNode(node *parchment.TreeNode, prefix string, last, showScope boo
 	if showScope && nodeScope != "" {
 		scopeLabel = fmt.Sprintf(" [%s]", nodeScope)
 	}
-	fmt.Fprintf(b, "%s%s%s%s%s [%s] %s\n", prefix, connector, edgeLabel, node.ID, scopeLabel, labelVal(node.Labels, parchment.LabelPrefixStatus), node.Title)
+	fmt.Fprintf(b, "%s%s%s%s%s [%s] %s\n", prefix, connector, edgeLabel, node.ID, scopeLabel, parchment.StatusFromLabels(node.Labels), node.Title)
 	childPrefix := prefix
 	if prefix != "" {
 		if last {
@@ -529,7 +529,7 @@ func renderBriefingNode(node *parchment.TreeNode, prefix string, last, showScope
 		scopeLabel = fmt.Sprintf(" [%s]", briefingScope)
 	}
 	nodeKind := labelVal(node.Labels, parchment.LabelPrefixKind)
-	nodeStatus := labelVal(node.Labels, parchment.LabelPrefixStatus)
+	nodeStatus := parchment.StatusFromLabels(node.Labels)
 	kindStatus := nodeStatus
 	if nodeKind != "" {
 		kindStatus = nodeKind + "|" + nodeStatus
@@ -633,7 +633,7 @@ func createSingle(ctx context.Context, svc *Service, in *createInput) (string, e
 		labels = append([]string{parchment.LabelPrefixKind + in.Kind}, labels...)
 	}
 	if in.Status != "" {
-		labels = append(labels, parchment.LabelPrefixStatus+in.Status)
+		labels = append(labels, statusLabelFor(in.Status))
 	}
 	if in.Scope != "" {
 		labels = append(labels, parchment.LabelPrefixScope+in.Scope)
@@ -657,7 +657,7 @@ func createSingle(ctx context.Context, svc *Service, in *createInput) (string, e
 		return "", err
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "created %s [%s|%s] %s", art.ID, art.Label(parchment.LabelPrefixKind), art.Label(parchment.LabelPrefixStatus), art.Title)
+	fmt.Fprintf(&b, "created %s [%s|%s] %s", art.ID, art.Label(parchment.LabelPrefixKind), parchment.StatusFromLabels(art.Labels), art.Title)
 	if art.Parent != "" {
 		fmt.Fprintf(&b, " (parent: %s)", art.Parent)
 	}
@@ -685,7 +685,7 @@ func createFromStash(ctx context.Context, svc *Service, in *createInput) (string
 		stashLabels = append([]string{parchment.LabelPrefixKind + in.Kind}, stashLabels...)
 	}
 	if in.Status != "" {
-		stashLabels = append(stashLabels, parchment.LabelPrefixStatus+in.Status)
+		stashLabels = append(stashLabels, statusLabelFor(in.Status))
 	}
 	if in.Scope != "" {
 		stashLabels = append(stashLabels, parchment.LabelPrefixScope+in.Scope)
@@ -702,7 +702,7 @@ func createFromStash(ctx context.Context, svc *Service, in *createInput) (string
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("promoted stash to %s: %s [%s|%s]", art.ID, art.Title, art.Label(parchment.LabelPrefixKind), art.Label(parchment.LabelPrefixStatus)), nil
+	return fmt.Sprintf("promoted stash to %s: %s [%s|%s]", art.ID, art.Title, art.Label(parchment.LabelPrefixKind), parchment.StatusFromLabels(art.Labels)), nil
 }
 
 func createClone(ctx context.Context, svc *Service, in *createInput) (string, error) {
@@ -744,9 +744,13 @@ func createClone(ctx context.Context, svc *Service, in *createInput) (string, er
 	}
 	cloneStatus := in.Status
 	if cloneStatus == "" {
-		cloneStatus = parchment.StatusDraft
+		cloneStatus = "work.draft"
 	}
-	cloneLabels = append(cloneLabels, parchment.LabelPrefixStatus+cloneStatus)
+	if parchment.IsDomainStatusLabel(cloneStatus) {
+		cloneLabels = append(cloneLabels, cloneStatus)
+	} else {
+		cloneLabels = append(cloneLabels, parchment.LabelPrefixStatus+cloneStatus)
+	}
 	cloneLabels = append(cloneLabels, baseLabels...)
 	if in.Priority != "" {
 		cloneLabels = append(cloneLabels, parchment.LabelPrefixPriority+in.Priority)
@@ -986,7 +990,7 @@ var opSet = Op{
 				bulkLabels = append(bulkLabels, parchment.LabelPrefixKind+in.Kind)
 			}
 			if in.Status != "" {
-				bulkLabels = append(bulkLabels, parchment.LabelPrefixStatus+in.Status)
+				bulkLabels = append(bulkLabels, statusLabelFor(in.Status))
 			}
 			if in.Scope != "" {
 				bulkLabels = append(bulkLabels, parchment.LabelPrefixScope+in.Scope)
@@ -1017,7 +1021,7 @@ var opSet = Op{
 		if len(ids) == 0 {
 			return "", fmt.Errorf("provide id, ids, or filter params (scope, kind, status)") //nolint:err113 // user-facing hint
 		}
-		if in.Field == parchment.FieldStatus && in.Value == parchment.StatusActive && !in.Force {
+		if in.Field == parchment.FieldStatus && in.Value == "work.active" && !in.Force {
 			for _, id := range ids {
 				art, err := svc.Proto.GetArtifact(ctx, id)
 				if err != nil || art.Label(parchment.LabelPrefixKind) != parchment.KindTask {
@@ -1111,7 +1115,7 @@ var listValidFields = map[string]func(*parchment.Artifact) string{
 	"id":         func(a *parchment.Artifact) string { return a.ID },
 	"kind":       func(a *parchment.Artifact) string { return a.Label(parchment.LabelPrefixKind) },
 	"scope":      func(a *parchment.Artifact) string { return a.Label(parchment.LabelPrefixScope) },
-	"status":     func(a *parchment.Artifact) string { return a.Label(parchment.LabelPrefixStatus) },
+	"status":     func(a *parchment.Artifact) string { return parchment.StatusFromLabels(a.Labels) },
 	"title":      func(a *parchment.Artifact) string { return a.Title },
 	"parent":     func(a *parchment.Artifact) string { return a.Parent },
 	"priority":   func(a *parchment.Artifact) string { return a.Label(parchment.LabelPrefixPriority) },
@@ -1255,7 +1259,7 @@ var opList = Op{
 			listLabels = append([]string{parchment.LabelPrefixKind + in.Kind}, listLabels...)
 		}
 		if in.Status != "" {
-			listLabels = append(listLabels, parchment.LabelPrefixStatus+in.Status)
+			listLabels = append(listLabels, statusLabelFor(in.Status))
 		}
 		if in.Scope != "" {
 			listLabels = append(listLabels, parchment.LabelPrefixScope+in.Scope)
@@ -1268,7 +1272,7 @@ var opList = Op{
 			listExclude = append(listExclude, parchment.LabelPrefixKind+in.ExcludeKind)
 		}
 		if in.ExcludeStatus != "" {
-			listExclude = append(listExclude, parchment.LabelPrefixStatus+in.ExcludeStatus)
+			listExclude = append(listExclude, statusLabelFor(in.ExcludeStatus))
 		}
 		li := parchment.ListInput{
 			Parent: in.Parent, IDPrefix: in.IDPrefix,
@@ -1311,7 +1315,7 @@ var opList = Op{
 					var key string
 					switch in.GroupBy {
 					case "status":
-						key = a.Label(parchment.LabelPrefixStatus)
+						key = parchment.StatusFromLabels(a.Labels)
 					case "scope":
 						key = a.Label(parchment.LabelPrefixScope)
 					case "kind":

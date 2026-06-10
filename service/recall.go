@@ -24,18 +24,18 @@ var knowledgeKinds = map[string]bool{
 }
 
 // IsRecallable returns true when an artifact should be included in recall.
-func IsRecallable(art *parchment.Artifact, schema *parchment.Schema) bool {
+func IsRecallable(art *parchment.Artifact, proto *parchment.Protocol) bool {
 	if knowledgeKinds[art.Label(parchment.LabelPrefixKind)] {
 		return true
 	}
-	return schema.IsTerminal(art.Label(parchment.LabelPrefixStatus))
+	return proto.IsTerminal(parchment.StatusFromLabels(art.Labels))
 }
 
 // KindWeight returns the relevance multiplier for a kind + status combination.
 func KindWeight(kind, status string) float64 {
 	switch kind {
 	case parchment.KindNote:
-		if status == parchment.StatusEvergreen {
+		if status == "note.evergreen" {
 			return 2.0
 		}
 		return 1.0
@@ -86,7 +86,7 @@ func (s *Service) Recall(ctx context.Context, query, scope string, top int) ([]R
 	if scope == "" && len(s.HomeScopes) > 0 {
 		scope = s.HomeScopes[0]
 	}
-	schema := s.Proto.Schema()
+
 
 	seen := make(map[string]bool)
 	var candidates []*parchment.Artifact
@@ -100,7 +100,7 @@ func (s *Service) Recall(ctx context.Context, query, scope string, top int) ([]R
 			continue
 		}
 		for _, a := range arts {
-			if seen[a.ID] || !IsRecallable(a, schema) {
+			if seen[a.ID] || !IsRecallable(a, s.Proto) {
 				continue
 			}
 			seen[a.ID] = true
@@ -115,7 +115,7 @@ func (s *Service) Recall(ctx context.Context, query, scope string, top int) ([]R
 	var results []RecallResult
 	for _, a := range candidates {
 		bm25 := TermOverlap(a, queryTerms)
-		score := bm25 * KindWeight(a.Label(parchment.LabelPrefixKind), a.Label(parchment.LabelPrefixStatus)) * RecencyWeight(a.UpdatedAt)
+		score := bm25 * KindWeight(a.Label(parchment.LabelPrefixKind), parchment.StatusFromLabels(a.Labels)) * RecencyWeight(a.UpdatedAt)
 		results = append(results, RecallResult{a, score})
 	}
 	sort.Slice(results, func(i, j int) bool { return results[i].Score > results[j].Score })
