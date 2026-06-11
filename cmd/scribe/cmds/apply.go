@@ -3,7 +3,6 @@ package cmds
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -81,11 +80,7 @@ type crdSpec struct {
 	AllowedChildren  []string      `yaml:"allowedChildren,omitempty"`
 	IsContainerKind  bool          `yaml:"isContainerKind,omitempty"`
 	Vacuumable       bool          `yaml:"vacuumable,omitempty"`
-	CycleGuard       bool          `yaml:"cycleGuard,omitempty"`
-	MaxIncoming      int           `yaml:"maxIncoming,omitempty"`
-	MaxOutgoing      int           `yaml:"maxOutgoing,omitempty"`
-	CompletionRollup bool          `yaml:"completionRollup,omitempty"`
-	ConformanceCheck bool          `yaml:"conformanceCheck,omitempty"`
+
 	WhenToUse        string        `yaml:"whenToUse,omitempty"`
 	AgentNote        string        `yaml:"agentNote,omitempty"`
 	Implies          string        `yaml:"implies,omitempty"`
@@ -210,11 +205,6 @@ func applyCRDResource(ctx context.Context, proto *parchment.Protocol, s parchmen
 			return "", err
 		}
 		return fmt.Sprintf("applied LabelDefinition %s", r.Metadata.Name), nil
-	case "EdgeTypeDefinition":
-		if err := applyEdgeTypeDefinitionCRD(ctx, s, r); err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("applied EdgeTypeDefinition %s", r.Metadata.Name), nil
 	case "Artifact":
 		return applyArtifactCRD(ctx, proto, r)
 	default:
@@ -321,59 +311,7 @@ func applyLabelDefinitionCRD(ctx context.Context, s parchment.Store, r *crdResou
 	return s.Put(ctx, art)
 }
 
-func applyEdgeTypeDefinitionCRD(ctx context.Context, s parchment.Store, r *crdResource) error {
-	extra := map[string]any{}
-	if r.Spec.MaxOutgoing > 0 {
-		extra["max_outgoing"] = r.Spec.MaxOutgoing
-	}
-	if r.Spec.MaxIncoming > 0 {
-		extra["max_incoming"] = r.Spec.MaxIncoming
-	}
-	if r.Spec.Directionality != "" {
-		extra["directionality"] = r.Spec.Directionality
-	}
-	if r.Spec.CycleGuard {
-		extra["cycle_guard"] = true
-	}
-	if r.Spec.CompletionRollup {
-		extra["completion_rollup"] = true
-	}
-	if r.Spec.ConformanceCheck {
-		extra["conformance_check"] = true
-	}
-	if len(r.Spec.AllowedPairs) > 0 {
-		pairs := make([]map[string]string, len(r.Spec.AllowedPairs))
-		for i, p := range r.Spec.AllowedPairs {
-			pairs[i] = map[string]string{"source": p.Source, "target": p.Target}
-		}
-		b, _ := json.Marshal(pairs)
-		var raw any
-		_ = json.Unmarshal(b, &raw)
-		extra["allowed_pairs"] = raw
-	}
 
-	now := time.Now().UTC()
-	id := crdResourceID(r.Metadata.Name)
-	art := &parchment.Artifact{
-		ID:         id,
-		Labels:     []string{parchment.LabelPrefixKind + parchment.KindEdgeTypeDefinition, "work.active", parchment.LabelPrefixScope + parchment.SchemaScope},
-		Title:      r.Metadata.Name,
-		Extra:      extra,
-		CreatedAt:  now,
-		UpdatedAt:  now,
-		InsertedAt: now,
-	}
-	if r.Spec.WhenToUse != "" {
-		art.Sections = append(art.Sections, parchment.Section{Name: "when_to_use", Text: strings.TrimSpace(r.Spec.WhenToUse)})
-	}
-	if r.Spec.AgentNote != "" {
-		art.Sections = append(art.Sections, parchment.Section{Name: "agent_note", Text: strings.TrimSpace(r.Spec.AgentNote)})
-	}
-	if r.Spec.Implies != "" {
-		art.Sections = append(art.Sections, parchment.Section{Name: "implies", Text: strings.TrimSpace(r.Spec.Implies)})
-	}
-	return s.Put(ctx, art)
-}
 
 func cleanExtra(m map[string]any) {
 	for k, v := range m {
