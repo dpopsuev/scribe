@@ -190,9 +190,7 @@ func serializeArtifact(art *parchment.Artifact) ([]byte, error) {
 	if len(art.Labels) > 0 {
 		fm["labels"] = art.Labels
 	}
-	if art.Parent != "" {
-		fm["parent"] = art.Parent
-	}
+
 
 
 	fmBytes, err := yaml.Marshal(fm)

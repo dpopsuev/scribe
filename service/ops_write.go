@@ -152,8 +152,8 @@ func createSingle(ctx context.Context, svc *Service, in *createInput) (string, e
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "created %s [%s|%s] %s", art.ID, art.Label(parchment.LabelPrefixKind), parchment.StatusFromLabels(art.Labels), art.Title)
-	if art.Parent != "" {
-		fmt.Fprintf(&b, " (parent: %s)", art.Parent)
+	if parentOf(ctx, svc.Proto.Store(), art.ID) != "" {
+		fmt.Fprintf(&b, " (parent: %s)", parentOf(ctx, svc.Proto.Store(), art.ID))
 	}
 	schema := svc.Proto.Schema()
 	if expected := schema.GetExpectedSections(art.Label(parchment.LabelPrefixKind)); len(expected) > 0 {
@@ -306,8 +306,8 @@ func createBatch(ctx context.Context, svc *Service, in *createInput) (string, er
 		}
 		idRefs[fmt.Sprintf("$%d", i)] = art.ID
 		fmt.Fprintf(&b, "%s [%s] %s", art.ID, art.Label(parchment.LabelPrefixKind), art.Title)
-		if art.Parent != "" {
-			fmt.Fprintf(&b, " (parent: %s)", art.Parent)
+		if parentOf(ctx, svc.Proto.Store(), art.ID) != "" {
+			fmt.Fprintf(&b, " (parent: %s)", parentOf(ctx, svc.Proto.Store(), art.ID))
 		}
 		b.WriteString("\n")
 	}

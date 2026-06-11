@@ -29,8 +29,8 @@ func setup(t *testing.T) *web.Server {
 	})
 	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:campaign", "work.active", "scope:test"}, ID: "CMP-2026-001", Title: "Test Campaign"})
 	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:goal", "work.active", "scope:test"}, ID: "GOL-2026-001", Title: "Test Goal"})
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "work.active", "scope:test"}, ID: "TASK-2026-002", Title: "Child Task",
-		Parent: "GOL-2026-001"})
+	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "work.active", "scope:test"}, ID: "TASK-2026-002", Title: "Child Task"})
+	s.AddEdge(ctx, parchment.Edge{From: "GOL-2026-001", To: "TASK-2026-002", Relation: parchment.RelParentOf})
 
 	proto := parchment.New(s, nil, []string{"test"}, nil, parchment.ProtocolConfig{})
 	return web.NewServer(proto, "dev", "")

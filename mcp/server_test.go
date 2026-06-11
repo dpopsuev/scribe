@@ -210,8 +210,10 @@ func TestArtifactTree_MixedScope_ShowsLabels(t *testing.T) {
 	ctx := context.Background()
 
 	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:sprint", "work.active", "scope:origami"}, ID: "SPR-1", Title: "Sprint One"})
-	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "work.draft", "scope:origami"}, ID: "TASK-1", Title: "Origami Work", Parent: "SPR-1"})
-	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "work.draft", "scope:scribe"}, ID: "TASK-2", Title: "Scribe Work", Parent: "SPR-1"})
+	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "work.draft", "scope:origami"}, ID: "TASK-1", Title: "Origami Work"})
+	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "work.draft", "scope:scribe"}, ID: "TASK-2", Title: "Scribe Work"})
+	_ = s.AddEdge(ctx, parchment.Edge{From: "SPR-1", To: "TASK-1", Relation: parchment.RelParentOf})
+	_ = s.AddEdge(ctx, parchment.Edge{From: "SPR-1", To: "TASK-2", Relation: parchment.RelParentOf})
 
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
@@ -231,8 +233,10 @@ func TestArtifactTree_SingleScope_OmitsLabels(t *testing.T) {
 	ctx := context.Background()
 
 	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:sprint", "work.active", "scope:origami"}, ID: "SPR-1", Title: "Sprint One"})
-	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "work.draft", "scope:origami"}, ID: "TASK-1", Title: "Work A", Parent: "SPR-1"})
-	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "work.draft", "scope:origami"}, ID: "TASK-2", Title: "Work B", Parent: "SPR-1"})
+	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "work.draft", "scope:origami"}, ID: "TASK-1", Title: "Work A"})
+	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "work.draft", "scope:origami"}, ID: "TASK-2", Title: "Work B"})
+	_ = s.AddEdge(ctx, parchment.Edge{From: "SPR-1", To: "TASK-1", Relation: parchment.RelParentOf})
+	_ = s.AddEdge(ctx, parchment.Edge{From: "SPR-1", To: "TASK-2", Relation: parchment.RelParentOf})
 
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
@@ -252,8 +256,9 @@ func TestBriefing_EdgeAwareOutput(t *testing.T) {
 	ctx := context.Background()
 
 	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:campaign", "work.active", "scope:go4"}, ID: "CAM-1", Title: "Gang of Four"})
-	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "work.draft", "scope:go4"}, ID: "TSK-1", Title: "Remove MCP clients", Parent: "CAM-1"})
+	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "work.draft", "scope:go4"}, ID: "TSK-1", Title: "Remove MCP clients"})
 	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:bug", "work.draft", "scope:limes"}, ID: "BUG-1", Title: "Hardcoded deps"})
+	_ = s.AddEdge(ctx, parchment.Edge{From: "CAM-1", To: "TSK-1", Relation: parchment.RelParentOf})
 	_ = s.AddEdge(ctx, parchment.Edge{From: "TSK-1", To: "BUG-1", Relation: "implements"})
 
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
@@ -1016,8 +1021,11 @@ func TestBatchCreate_IntraBatchParent(t *testing.T) {
 	arts, _ := s.List(ctx, parchment.Filter{Labels: []string{"kind:task"}})
 	found := false
 	for _, a := range arts {
-		if a.Title == "Child Task" && a.Parent != "" && a.Parent != "$0" {
-			found = true
+		if a.Title == "Child Task" {
+			edges, _ := s.Neighbors(ctx, a.ID, parchment.RelParentOf, parchment.Incoming)
+			if len(edges) > 0 && edges[0].From != "$0" {
+				found = true
+			}
 		}
 	}
 	if !found {
@@ -1796,7 +1804,7 @@ func TestArchive_CascadeDryRun(t *testing.T) {
 	}
 	for i := 1; i <= 3; i++ {
 		id := fmt.Sprintf("TASK-%d", i)
-		if err := s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "work.active", "scope:test"}, ID: id, Title: fmt.Sprintf("Child %d", i), Parent: "GOL-1"}); err != nil {
+		if err := s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "work.active", "scope:test"}, ID: id, Title: fmt.Sprintf("Child %d", i)}); err != nil {
 			t.Fatal(err)
 		}
 		if err := s.AddEdge(ctx, parchment.Edge{From: "GOL-1", To: id, Relation: parchment.RelParentOf}); err != nil {

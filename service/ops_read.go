@@ -288,7 +288,7 @@ func getDiff(ctx context.Context, svc *Service, idA, idB string) (string, error)
 	for _, f := range []struct{ name, va, vb string }{
 		{"kind", artifactA.Label(parchment.LabelPrefixKind), artifactB.Label(parchment.LabelPrefixKind)}, {"scope", artifactA.Label(parchment.LabelPrefixScope), artifactB.Label(parchment.LabelPrefixScope)},
 		{"status", parchment.StatusFromLabels(artifactA.Labels), parchment.StatusFromLabels(artifactB.Labels)}, {"title", artifactA.Title, artifactB.Title},
-		{"parent", artifactA.Parent, artifactB.Parent}, {"priority", artifactA.Label(parchment.LabelPrefixPriority), artifactB.Label(parchment.LabelPrefixPriority)},
+		{"parent", parentOf(ctx, svc.Proto.Store(), artifactA.ID), parentOf(ctx, svc.Proto.Store(), artifactB.ID)}, {"priority", artifactA.Label(parchment.LabelPrefixPriority), artifactB.Label(parchment.LabelPrefixPriority)},
 	} {
 		if f.va != f.vb {
 			lines = append(lines, fmt.Sprintf("  %s: %q → %q", f.name, f.va, f.vb))
@@ -339,7 +339,7 @@ func getSummary(ctx context.Context, svc *Service, ids []string) (string, error)
 		}
 		results = append(results, summary{
 			ID: art.ID, Title: art.Title, Kind: art.Label(parchment.LabelPrefixKind), Scope: art.Label(parchment.LabelPrefixScope),
-			Status: parchment.StatusFromLabels(art.Labels), Priority: art.Label(parchment.LabelPrefixPriority), Parent: art.Parent, Sprint: art.Label(parchment.LabelPrefixSprint),
+			Status: parchment.StatusFromLabels(art.Labels), Priority: art.Label(parchment.LabelPrefixPriority), Parent: parentOf(ctx, svc.Proto.Store(), art.ID), Sprint: art.Label(parchment.LabelPrefixSprint),
 		})
 	}
 	if len(results) == 1 {
@@ -628,7 +628,7 @@ var listValidFields = map[string]func(*parchment.Artifact) string{
 	"scope":      func(a *parchment.Artifact) string { return a.Label(parchment.LabelPrefixScope) },
 	"status":     func(a *parchment.Artifact) string { return parchment.StatusFromLabels(a.Labels) },
 	"title":      func(a *parchment.Artifact) string { return a.Title },
-	"parent":     func(a *parchment.Artifact) string { return a.Parent },
+
 	"priority":   func(a *parchment.Artifact) string { return a.Label(parchment.LabelPrefixPriority) },
 	"sprint":     func(a *parchment.Artifact) string { return a.Label(parchment.LabelPrefixSprint) },
 	"depends_on": func(a *parchment.Artifact) string { return "" },
@@ -895,4 +895,12 @@ var opList = Op{
 		}
 		return out, nil
 	},
+}
+
+func parentOf(ctx context.Context, store parchment.Store, id string) string {
+	edges, _ := store.Neighbors(ctx, id, parchment.RelParentOf, parchment.Incoming)
+	if len(edges) > 0 {
+		return edges[0].From
+	}
+	return ""
 }

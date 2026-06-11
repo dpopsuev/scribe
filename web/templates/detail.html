@@ -9,7 +9,7 @@
   </td></tr>
   <tr><td>Scope</td><td>{{labelValue .Artifact.Labels "scope:"}}</td></tr>
   <tr><td>Status</td><td><span class="badge badge-{{labelValue .Artifact.Labels "status:"}}">{{labelValue .Artifact.Labels "status:"}}</span></td></tr>
-  {{if .Artifact.Parent}}<tr><td>Parent</td><td><a href="/artifacts/{{.Artifact.Parent}}">{{.Artifact.Parent}}</a></td></tr>{{end}}
+
   {{if labelValue .Artifact.Labels "sprint:"}}<tr><td>Sprint</td><td><a href="/artifacts/{{labelValue .Artifact.Labels "sprint:"}}">{{labelValue .Artifact.Labels "sprint:"}}</a></td></tr>{{end}}
   {{if .Artifact.Goal}}<tr><td>Goal</td><td>{{call .Artifact.Goal}}</td></tr>{{end}}
   {{if .Artifact.Labels}}<tr><td>Labels</td><td>{{range .Artifact.Labels}}<span class="badge">{{.}}</span> {{end}}</td></tr>{{end}}

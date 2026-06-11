@@ -30,10 +30,10 @@ func TestArtifactMove_ReparentsAtomically(t *testing.T) {
 		t.Fatalf("set(field=parent) should succeed, got: %s", out)
 	}
 
-	// Verify parent field updated.
-	getOut := call(map[string]any{"action": "get", "id": child})
-	if !strings.Contains(getOut, parentB) {
-		t.Errorf("child should reference parentB after move, got: %s", getOut)
+	// Verify parent edge updated — check via tree of parentB.
+	treeBcheck := gcall(map[string]any{"action": "get", "format": "tree", "id": parentB})
+	if !strings.Contains(treeBcheck, "Child task") {
+		t.Errorf("child should be under parentB after move, tree: %s", treeBcheck)
 	}
 
 	// Verify tree: parentA no longer has child, parentB does.
