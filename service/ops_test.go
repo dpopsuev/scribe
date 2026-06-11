@@ -810,7 +810,8 @@ func TestOpCreate_ReturnsID(t *testing.T) {
 	}
 	// IDs are UUIDs — find the second token (first is "created").
 	tokens := strings.Fields(out)
-	if len(tokens) < 2 || !parchment.IsUUIDShaped(tokens[1]) {
+	tok := tokens[1]
+	if len(tokens) < 2 || len(tok) != 36 || tok[8] != '-' || tok[13] != '-' || tok[18] != '-' || tok[23] != '-' {
 		t.Errorf("expected UUID ID in output, got: %s", out)
 	}
 	if !strings.Contains(out, "my task") {

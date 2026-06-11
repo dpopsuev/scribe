@@ -3,8 +3,6 @@ package cmds_test
 import (
 	"strings"
 	"testing"
-
-	parchment "github.com/dpopsuev/parchment"
 )
 
 func TestCreate_PrintsID(t *testing.T) {
@@ -12,7 +10,7 @@ func TestCreate_PrintsID(t *testing.T) {
 	out := run(t, db, "create", "--kind", "task", "--scope", "test", "--title", "write tests")
 	// IDs are now UUIDs; verify the output contains a valid UUID.
 	id := strings.TrimSpace(out)
-	if !parchment.IsUUIDShaped(id) {
+	if len(id) != 36 || id[8] != '-' || id[13] != '-' || id[18] != '-' || id[23] != '-' {
 		t.Errorf("expected UUID ID in output, got: %q", out)
 	}
 }
