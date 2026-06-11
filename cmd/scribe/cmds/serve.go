@@ -18,7 +18,6 @@ import (
 	"time"
 
 	parchment "github.com/dpopsuev/parchment"
-	"github.com/dpopsuev/scribe/directive"
 	"github.com/dpopsuev/scribe/embed"
 	"github.com/dpopsuev/scribe/mcp"
 	"github.com/dpopsuev/scribe/service"
@@ -263,7 +262,7 @@ func ToolsCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			reg := mcp.ToolRegistry()
 
-			var tools []directive.ToolMeta
+			var tools []mcp.ToolMeta
 			if category != "" {
 				tools = reg.ByCategory(category)
 			} else {

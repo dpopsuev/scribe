@@ -8,7 +8,6 @@ import (
 
 	battmcp "github.com/dpopsuev/battery/mcp"
 	parchment "github.com/dpopsuev/parchment"
-	"github.com/dpopsuev/scribe/directive"
 	"github.com/dpopsuev/scribe/service"
 	"github.com/google/jsonschema-go/jsonschema"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -29,11 +28,11 @@ const scribeInstructions = "Artifact graph + knowledge vault. " +
 // Built on battery/mcp framework — auto-Observable, panic recovery, result helpers.
 // svc must be constructed via service.Open — both CLI and MCP use the same factory
 // so Protocol configuration, homeScopes, and schema are identical across surfaces.
-func NewServer(svc *service.Service, vocab []string, version string) (*sdkmcp.Server, *directive.Registry) {
+func NewServer(svc *service.Service, vocab []string, version string) (*sdkmcp.Server, *Registry) {
 	batt := battmcp.NewServer("scribe", version).
 		WithInstructions(scribeInstructions)
 
-	reg := directive.New()
+	reg := newRegistry()
 	sid := newSessionID()
 	var store parchment.Store
 	if svc.Proto != nil {
@@ -72,7 +71,7 @@ func NewServer(svc *service.Service, vocab []string, version string) (*sdkmcp.Se
 		InputSchema: artifactSchema,
 		Annotations: &sdkmcp.ToolAnnotations{DestructiveHint: &destructiveHint},
 	}, bindHandler(h.handleArtifact))
-	reg.Register(directive.ToolMeta{
+	reg.register(ToolMeta{
 		Name: "artifact", Description: artifactDesc,
 		Keywords:   []string{"create", "get", "list", "set", "artifact", "section", "tree", "briefing", "topo_sort", "link", "unlink", "move", "impact"},
 		Categories: []string{"crud", "graph"},
@@ -93,7 +92,7 @@ func NewServer(svc *service.Service, vocab []string, version string) (*sdkmcp.Se
 		InputSchema: adminSchema,
 		Annotations: &sdkmcp.ToolAnnotations{DestructiveHint: &destructiveHint},
 	}, bindHandler(h.handleAdmin))
-	reg.Register(directive.ToolMeta{
+	reg.register(ToolMeta{
 		Name: "admin", Description: adminDesc,
 		Keywords:   []string{"brief", "dashboard", "goal", "vacuum", "detect", "orphan"},
 		Categories: []string{"lifecycle", "maintenance"},
@@ -104,14 +103,14 @@ func NewServer(svc *service.Service, vocab []string, version string) (*sdkmcp.Se
 
 // ToolRegistry returns a populated directive registry without requiring
 // a database connection. Useful for CLI introspection (scribe tools).
-func ToolRegistry() *directive.Registry {
+func ToolRegistry() *Registry {
 	_, reg := NewServer(service.New(nil, nil, nil), nil, "dev")
 	return reg
 }
 
 // NewServerFromStore constructs a Server from a raw store + config — used by
 // tests that open a store directly rather than going through service.Open.
-func NewServerFromStore(s parchment.Store, homeScopes []string, idc parchment.ProtocolConfig, version string) (*sdkmcp.Server, *directive.Registry) {
+func NewServerFromStore(s parchment.Store, homeScopes []string, idc parchment.ProtocolConfig, version string) (*sdkmcp.Server, *Registry) {
 	proto := parchment.New(s, nil, homeScopes, nil, idc)
 	svc := service.New(proto, nil, homeScopes)
 	return NewServer(svc, nil, version)
