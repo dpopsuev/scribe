@@ -58,6 +58,7 @@ func main() {
 		cmds.CapsuleCmd(),
 		cmds.SyncCmd(),
 		cmds.DaemonCmd(),
+		cmds.ApplyCmd(),
 	)
 
 	if err := root.Execute(); err != nil {
