@@ -178,9 +178,8 @@ func (s *Service) Dashboard(ctx context.Context, staleDays int) (*DashboardResul
 			}
 		}
 		ds.Sections += len(art.Sections)
-		for _, targets := range art.Links {
-			ds.Edges += len(targets)
-		}
+		edges, _ := s.Proto.Store().Neighbors(ctx, art.ID, "", parchment.Outgoing)
+		ds.Edges += len(edges)
 	}
 
 	sort.Slice(staleArts, func(i, j int) bool {

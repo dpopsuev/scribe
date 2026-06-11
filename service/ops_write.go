@@ -506,13 +506,10 @@ var opSet = Op{
 				if err != nil || art.Label(parchment.LabelPrefixKind) != parchment.KindTask {
 					continue
 				}
-				if targets, ok := art.Links[parchment.RelImplements]; ok {
-					for _, specID := range targets {
-						if !svc.ReadLog[specID] {
-							lines := make([]string, 0, 1)
-							lines = append(lines, fmt.Sprintf("%s -> error: must read %s first (call get on implementing spec before activating)", id, specID))
-							return strings.Join(lines, "\n"), nil
-						}
+				implEdges, _ := svc.Proto.Store().Neighbors(ctx, id, parchment.RelImplements, parchment.Outgoing)
+				for _, e := range implEdges {
+					if !svc.ReadLog[e.To] {
+						return fmt.Sprintf("%s -> error: must read %s first (call get on implementing spec before activating)", id, e.To), nil
 					}
 				}
 			}

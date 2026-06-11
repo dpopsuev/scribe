@@ -439,10 +439,11 @@ func TestSetGoal_CreatesGoalAndRoot(t *testing.T) {
 	if result.Goal.Label(parchment.LabelPrefixKind) != "goal" {
 		t.Errorf("goal kind = %q, want %q", result.Goal.Label(parchment.LabelPrefixKind), "goal")
 	}
-	// Root should justify the goal
+	// Root should justify the goal via edge
+	justifyEdges, _ := svc.Proto.Store().Neighbors(context.Background(), result.Root.ID, parchment.RelJustifies, parchment.Outgoing)
 	found := false
-	for _, id := range result.Root.Links[parchment.RelJustifies] {
-		if id == result.Goal.ID {
+	for _, e := range justifyEdges {
+		if e.To == result.Goal.ID {
 			found = true
 		}
 	}

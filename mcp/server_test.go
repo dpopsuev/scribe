@@ -784,10 +784,10 @@ func TestTemplate_MCPLinkSatisfiesAllowsConformant(t *testing.T) {
 		t.Errorf("expected target ID in result, got: %s", text)
 	}
 
-	// Verify link was added
-	art, _ := s.Get(ctx, "SPEC-2026-002")
-	if len(art.Links["satisfies"]) != 1 || art.Links["satisfies"][0] != "SCR-TPL-1" {
-		t.Errorf("satisfies link not added, links: %+v", art.Links)
+	// Verify link was added via edge
+	satisfiesEdges, _ := s.Neighbors(ctx, "SPEC-2026-002", "satisfies", parchment.Outgoing)
+	if len(satisfiesEdges) != 1 || satisfiesEdges[0].To != "SCR-TPL-1" {
+		t.Errorf("satisfies edge not added, edges: %+v", satisfiesEdges)
 	}
 }
 
@@ -1291,8 +1291,11 @@ func TestAutoLinkTemplate(t *testing.T) {
 	arts, _ := s.List(ctx, parchment.Filter{Labels: []string{"kind:spec", "scope:test"}})
 	found := false
 	for _, a := range arts {
-		if a.Title == "Auto-linked Spec" && len(a.Links["satisfies"]) == 1 && a.Links["satisfies"][0] == "TST-TPL-1" {
-			found = true
+		if a.Title == "Auto-linked Spec" {
+			edges, _ := s.Neighbors(ctx, a.ID, "satisfies", parchment.Outgoing)
+			if len(edges) == 1 && edges[0].To == "TST-TPL-1" {
+				found = true
+			}
 		}
 	}
 	if !found {
@@ -1336,8 +1339,9 @@ func TestAutoLinkTemplate_ExplicitOverride(t *testing.T) {
 	arts, _ := s.List(ctx, parchment.Filter{Labels: []string{"kind:spec", "scope:test"}})
 	for _, a := range arts {
 		if a.Title == "Explicit Spec" {
-			if len(a.Links["satisfies"]) != 1 || a.Links["satisfies"][0] != "TST-TPL-2" {
-				t.Errorf("explicit satisfies should be TST-TPL-2, got: %v", a.Links["satisfies"])
+			edges, _ := s.Neighbors(ctx, a.ID, "satisfies", parchment.Outgoing)
+			if len(edges) != 1 || edges[0].To != "TST-TPL-2" {
+				t.Errorf("explicit satisfies should be TST-TPL-2, got edges: %v", edges)
 			}
 		}
 	}

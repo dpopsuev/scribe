@@ -48,8 +48,9 @@ var opTopoSort = Op{
 					continue
 				}
 				blocked := false
-				for _, depID := range art.DependsOn {
-					dep, _ := svc.Proto.GetArtifact(ctx, depID)
+				depEdges, _ := svc.Proto.Store().Neighbors(ctx, art.ID, parchment.RelDependsOn, parchment.Outgoing)
+				for _, de := range depEdges {
+					dep, _ := svc.Proto.GetArtifact(ctx, de.To)
 					if dep != nil && !schema.IsTerminal(parchment.StatusFromLabels(dep.Labels)) {
 						blocked = true
 						break
@@ -630,7 +631,7 @@ var listValidFields = map[string]func(*parchment.Artifact) string{
 	"parent":     func(a *parchment.Artifact) string { return a.Parent },
 	"priority":   func(a *parchment.Artifact) string { return a.Label(parchment.LabelPrefixPriority) },
 	"sprint":     func(a *parchment.Artifact) string { return a.Label(parchment.LabelPrefixSprint) },
-	"depends_on": func(a *parchment.Artifact) string { return strings.Join(a.DependsOn, ",") },
+	"depends_on": func(a *parchment.Artifact) string { return "" },
 	"labels":     func(a *parchment.Artifact) string { return strings.Join(a.Labels, ",") },
 }
 

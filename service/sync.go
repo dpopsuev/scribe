@@ -193,9 +193,7 @@ func serializeArtifact(art *parchment.Artifact) ([]byte, error) {
 	if art.Parent != "" {
 		fm["parent"] = art.Parent
 	}
-	if len(art.DependsOn) > 0 {
-		fm["depends_on"] = art.DependsOn
-	}
+
 
 	fmBytes, err := yaml.Marshal(fm)
 	if err != nil {
