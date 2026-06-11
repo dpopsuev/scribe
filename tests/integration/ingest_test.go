@@ -10,19 +10,17 @@ import (
 )
 
 func TestIngest_Scale(t *testing.T) {
-	srv, db := testkit.NewServer(t)
-	defer srv.Close()
+	db := testkit.NewStore(t)
 
 	gen := &testkit.Generator{Source: "locus", NodeCount: 200, EdgesPerNode: 5, Shape: testkit.LocusComponentShape}
 	nodes, edges := testkit.ParseGenerated(t, gen)
-	client := &ingest.Client{BaseURL: srv.URL, Source: "locus"}
 
 	start := time.Now()
-	result, err := client.Stream(context.Background(), nodes, edges)
+	result, err := ingest.Apply(context.Background(), db, "locus", nodes, edges)
 	elapsed := time.Since(start)
 
 	if err != nil {
-		t.Fatalf("stream: %v", err)
+		t.Fatalf("apply: %v", err)
 	}
 	if len(result.Errors) > 0 {
 		t.Errorf("errors: %v", result.Errors)
@@ -39,15 +37,13 @@ func TestIngest_Scale(t *testing.T) {
 }
 
 func TestIngest_Idempotency(t *testing.T) {
-	srv, db := testkit.NewServer(t)
-	defer srv.Close()
+	db := testkit.NewStore(t)
 
 	gen := &testkit.Generator{Source: "locus", NodeCount: 50, ScanSHA: "fixed-sha", Shape: testkit.LocusComponentShape}
 	nodes, edges := testkit.ParseGenerated(t, gen)
-	client := &ingest.Client{BaseURL: srv.URL, Source: "locus"}
 
 	for i, label := range []string{"first", "second"} {
-		r, err := client.Stream(context.Background(), nodes, edges)
+		r, err := ingest.Apply(context.Background(), db, "locus", nodes, edges)
 		if err != nil || len(r.Errors) > 0 {
 			t.Fatalf("run %d (%s): err=%v errors=%v", i+1, label, err, r.Errors)
 		}
@@ -58,8 +54,7 @@ func TestIngest_Idempotency(t *testing.T) {
 }
 
 func TestIngest_MultiSource(t *testing.T) {
-	srv, db := testkit.NewServer(t)
-	defer srv.Close()
+	db := testkit.NewStore(t)
 
 	cases := []struct {
 		source string
@@ -73,7 +68,7 @@ func TestIngest_MultiSource(t *testing.T) {
 	for _, c := range cases {
 		gen := &testkit.Generator{Source: c.source, NodeCount: c.count, Shape: c.shape}
 		nodes, edges := testkit.ParseGenerated(t, gen)
-		r, err := (&ingest.Client{BaseURL: srv.URL, Source: c.source}).Stream(context.Background(), nodes, edges)
+		r, err := ingest.Apply(context.Background(), db, c.source, nodes, edges)
 		if err != nil || len(r.Errors) > 0 {
 			t.Errorf("source=%s: err=%v errors=%v", c.source, err, r.Errors)
 		}

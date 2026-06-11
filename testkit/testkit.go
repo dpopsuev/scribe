@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io"
 	"math/rand/v2"
-	"net/http/httptest"
 	"path/filepath"
 	"testing"
 	"time"
@@ -21,7 +20,6 @@ import (
 	parchment "github.com/dpopsuev/parchment"
 
 	"github.com/dpopsuev/scribe/internal/ingest"
-	"github.com/dpopsuev/scribe/web"
 )
 
 
@@ -202,10 +200,10 @@ func (s *ScriptedLLM) Reset() { s.pos = 0 }
 type AgentLoop struct {
 	Session AgentSession
 	LLM     *ScriptedLLM
-	Client  *ingest.Client
+	Store   parchment.Store
 }
 
-// Run drives the script to completion, streaming each turn to Scribe.
+// Run drives the script to completion, writing each turn directly to the store.
 func (a *AgentLoop) Run(ctx context.Context) error {
 	for i := 0; ; i++ {
 		scripted, ok := a.LLM.Next()
@@ -223,30 +221,22 @@ func (a *AgentLoop) Run(ctx context.Context) error {
 		}
 		node := TurnToNode(turn)
 		edges := TurnEdges(turn)
-		if _, err := a.Client.Stream(ctx, []ingest.NodeRecord{node}, edges); err != nil {
+		if _, err := ingest.Apply(ctx, a.Store, a.Session.Source, []ingest.NodeRecord{node}, edges); err != nil {
 			return fmt.Errorf("turn %d: %w", i, err)
 		}
 	}
 	return nil
 }
 
-
-// NewIngestClient creates an ingest.Client pointed at the given server URL.
-func NewIngestClient(baseURL, source string) *ingest.Client {
-	return &ingest.Client{BaseURL: baseURL, Source: source}
-}
-
-// NewServer starts a real Scribe HTTP server backed by an isolated SQLite DB.
-// The server and DB are closed automatically when t ends.
-func NewServer(t *testing.T) (*httptest.Server, parchment.Store) {
+// NewStore opens an isolated SQLite store for testing.
+func NewStore(t *testing.T) parchment.Store {
 	t.Helper()
 	db, err := parchment.OpenSQLite(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	proto := parchment.New(db, nil, nil, nil, parchment.ProtocolConfig{})
-	return httptest.NewServer(web.NewServer(proto, "test", "")), db
+	return db
 }
 
 // CountByPrefix returns the number of artifacts whose ID starts with prefix.

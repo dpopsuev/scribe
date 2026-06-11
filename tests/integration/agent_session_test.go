@@ -12,8 +12,7 @@ import (
 // scripted (faux) LLM, ingests each turn into Scribe, and asserts the
 // resulting graph is correctly structured and queryable.
 func TestAgentSession_E2E(t *testing.T) { //nolint:gocyclo // E2E: sequential assertions on one scenario
-	srv, db := testkit.NewServer(t)
-	defer srv.Close()
+	db := testkit.NewStore(t)
 
 	sessionID := "sess-abc123"
 	source := "faux-agent"
@@ -36,7 +35,7 @@ func TestAgentSession_E2E(t *testing.T) { //nolint:gocyclo // E2E: sequential as
 				Tools:     []testkit.AgentToolCall{{Name: "scribe_create_artifact", Input: `{"kind":"task","title":"Refactor initGraph"}`, Output: "SCR-TSK-999"}},
 			},
 		}},
-		Client: testkit.NewIngestClient(srv.URL, source),
+		Store: db,
 	}
 
 	if err := loop.Run(t.Context()); err != nil {
