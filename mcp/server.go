@@ -128,7 +128,7 @@ type handler struct {
 // --- consolidated input types ---
 
 type artifactInput struct {
-	Action string `json:"action" jsonschema:"required,create | get | list | set | update | retire | detach_section | bulk_section_update | diff | recall | orient | tree | briefing | link | unlink | topo_sort | replace"`
+	Action string `json:"action" jsonschema:"required,create | get | list | set | update | retire | attach_section | detach_section | bulk_section_update | diff | recall | orient | tree | briefing | link | unlink | topo_sort | replace | catalog | impact"`
 
 	ID     string `json:"id,omitempty"`
 	Target string `json:"target,omitempty" jsonschema:"new parent ID (move)"`

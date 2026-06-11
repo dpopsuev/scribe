@@ -10,7 +10,41 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+const (
+	opActionGet    = "get"
+	opActionUpdate = "update"
+)
+
 func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolRequest, in artifactInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: value semantics intentional
+	// Route aliases to canonical ops before registry lookup.
+	switch in.Action {
+	case "tree":
+		in.Action = opActionGet
+		in.Format = "tree"
+	case "briefing":
+		in.Action = opActionGet
+		in.Format = "briefing"
+	case "impact":
+		in.Action = opActionGet
+		in.Format = "impact"
+	case "diff":
+		in.Action = opActionGet
+	case "recall":
+		in.Action = "list"
+		in.Ranked = true
+	case "unlink":
+		in.Action = "link"
+		in.Mode = "remove"
+	case "attach_section", "bulk_section_update":
+		in.Action = opActionUpdate
+	case "detach_section":
+		in.Action = opActionUpdate
+	case "catalog":
+		in.Action = "orient"
+	case "retire":
+		in.Action = opActionUpdate
+		in.Status = "retired"
+	}
 	if op := service.Find(in.Action); op != nil {
 		raw, _ := json.Marshal(in)
 		out, err := op.Run(ctx, h.svc, raw)
