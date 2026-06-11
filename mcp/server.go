@@ -60,8 +60,7 @@ func NewServer(svc *service.Service, vocab []string, version string) (*sdkmcp.Se
 		"LIST: always add scope/kind/status or top=N — bare list returns ALL artifacts and burns context. " +
 		"WRITE: create, set, attach_section. " +
 		"GRAPH: briefing(id=) — full edge-aware context chain; tree(id=) — children; link/unlink — edges; topo_sort — dependency order; impact — blast radius. " +
-		"ORIENT: orient for vault map (call after brief); catalog for full inventory. " +
-		"STASH: get(stash_id=) to inspect a failed-create stash; create(stash_id=) to promote it."
+		"ORIENT: orient for vault map (call after brief); catalog for full inventory."
 	var artifactSchema any
 	_ = json.Unmarshal(schemaFor[artifactInput](), &artifactSchema)
 	sdk.AddTool(&sdkmcp.Tool{
@@ -193,7 +192,6 @@ type artifactInput struct {
 	Patch        map[string]string `json:"patch,omitempty" jsonschema:"{field: value} pairs for batch_update"`
 	Artifacts    []map[string]any  `json:"artifacts,omitempty"`
 	SkipHooks    bool              `json:"skip_hooks,omitempty"`
-	StashID      string            `json:"stash_id,omitempty" jsonschema:"get: inspect stash; create: promote stash"`
 	CloneFrom    string            `json:"clone_from,omitempty" jsonschema:"create: source artifact ID to clone from"`
 	IncludeEdges bool              `json:"include_edges,omitempty"`
 	CreatedAt    string            `json:"created_at,omitempty"`

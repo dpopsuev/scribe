@@ -97,7 +97,7 @@ func (s *Service) Brief(ctx context.Context) (*BriefResult, error) { //nolint:cy
 			unknownCounts[art.Label(parchment.LabelPrefixKind)]++
 		}
 		if !schema.IsTerminal(parchment.StatusFromLabels(art.Labels)) && s.Proto.IsContainerKind(art.Label(parchment.LabelPrefixKind)) { //nolint:nestif // brief check is inherently nested
-			children, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Parent: art.ID})
+			children, _ := s.Proto.Store().Children(ctx, art.ID)
 			if len(children) > 0 {
 				allDone := true
 				for _, ch := range children {

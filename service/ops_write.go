@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -28,7 +27,6 @@ type createInput struct {
 	Patch     map[string]string   `json:"patch,omitempty"`
 	SkipHooks bool                `json:"skip_hooks,omitempty"`
 	CreatedAt string              `json:"created_at,omitempty"`
-	StashID   string              `json:"stash_id,omitempty"`
 	CloneFrom string              `json:"clone_from,omitempty"`
 	Artifacts []map[string]any    `json:"artifacts,omitempty"`
 }
@@ -82,13 +80,10 @@ var opReplace = Op{
 
 var opCreate = Op{
 	Name: "create",
-	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) { //nolint:cyclop // routing: stash|clone|batch|single — each path is simple
+	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) { //nolint:cyclop // routing: clone|batch|single — each path is simple
 		var in createInput
 		if err := json.Unmarshal(raw, &in); err != nil {
 			return "", err
-		}
-		if in.StashID != "" {
-			return createFromStash(ctx, svc, &in)
 		}
 		if in.CloneFrom != "" {
 			return createClone(ctx, svc, &in)
@@ -144,10 +139,6 @@ func createSingle(ctx context.Context, svc *Service, in *createInput) (string, e
 		CreatedAt: in.CreatedAt,
 	})
 	if err != nil {
-		var ce *parchment.ConformanceError
-		if errors.As(err, &ce) {
-			return "", fmt.Errorf("%s [stash_id=%s]", ce.Error(), ce.StashID) //nolint:err113 // structured stash ID
-		}
 		return "", err
 	}
 	var b strings.Builder
@@ -171,32 +162,6 @@ func createSingle(ctx context.Context, svc *Service, in *createInput) (string, e
 		}
 	}
 	return b.String(), nil
-}
-
-func createFromStash(ctx context.Context, svc *Service, in *createInput) (string, error) {
-	stashLabels := in.Labels
-	if in.Kind != "" {
-		stashLabels = append([]string{parchment.LabelPrefixKind + in.Kind}, stashLabels...)
-	}
-	if in.Status != "" {
-		stashLabels = append(stashLabels, statusLabelFor(in.Status))
-	}
-	if in.Scope != "" {
-		stashLabels = append(stashLabels, parchment.LabelPrefixScope+in.Scope)
-	}
-	if in.Priority != "" {
-		stashLabels = append(stashLabels, parchment.LabelPrefixPriority+in.Priority)
-	}
-	art, err := svc.Proto.PromoteStash(ctx, in.StashID, parchment.CreateInput{
-		Title: in.Title,
-		Goal:  in.Goal, Parent: in.Parent,
-		Labels: stashLabels,
-		Links:  in.Links, Sections: parseSections(in.Sections), Patch: in.Patch,
-	})
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("promoted stash to %s: %s [%s|%s]", art.ID, art.Title, art.Label(parchment.LabelPrefixKind), parchment.StatusFromLabels(art.Labels)), nil
 }
 
 func createClone(ctx context.Context, svc *Service, in *createInput) (string, error) {

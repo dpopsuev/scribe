@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	parchment "github.com/dpopsuev/parchment"
 )
@@ -186,7 +185,6 @@ type getInput struct {
 	Depth         int      `json:"depth,omitempty"`
 	Relation      string   `json:"relation,omitempty"`
 	Direction     string   `json:"direction,omitempty"`
-	StashID       string   `json:"stash_id,omitempty"`
 	IncludeEdges  bool     `json:"include_edges,omitempty"`
 	SectionFilter []string `json:"section_filter,omitempty"`
 }
@@ -197,9 +195,6 @@ var opGet = Op{
 		var in getInput
 		if err := json.Unmarshal(raw, &in); err != nil {
 			return "", err
-		}
-		if in.StashID != "" {
-			return getStash(ctx, svc, in.StashID)
 		}
 		if in.Against != "" {
 			return getDiff(ctx, svc, in.ID, in.Against)
@@ -261,18 +256,6 @@ var opGet = Op{
 		}
 		return getBulk(ctx, svc, ids, in.SectionFilter)
 	},
-}
-
-func getStash(_ context.Context, svc *Service, stashID string) (string, error) {
-	stashed, err := svc.Proto.Stash().Get(stashID)
-	if err != nil {
-		return "", fmt.Errorf("stash %s: %w", stashID, err)
-	}
-	data, _ := json.Marshal(stashed.Input)
-	ttl := 10 * time.Minute
-	age := time.Since(stashed.CreatedAt).Round(time.Second)
-	return fmt.Sprintf("stash %s (age: %v, expires in ~%v):\n%s",
-		stashID, age, (ttl - age).Round(time.Second), string(data)), nil
 }
 
 func getDiff(ctx context.Context, svc *Service, idA, idB string) (string, error) {
@@ -409,7 +392,7 @@ func getImpact(ctx context.Context, svc *Service, id string) (string, error) {
 	}
 	var lines []string
 	lines = append(lines, fmt.Sprintf("Impact analysis for %s [%s] %s:", id, parchment.StatusFromLabels(art.Labels), art.Title))
-	children, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{Parent: id})
+	children, _ := svc.Proto.Store().Children(ctx, id)
 	if len(children) > 0 {
 		lines = append(lines, fmt.Sprintf("\nChildren (%d):", len(children)))
 		for _, ch := range children {
@@ -578,7 +561,6 @@ type listInput struct {
 	Kind           string   `json:"kind,omitempty"`
 	Scope          string   `json:"scope,omitempty"`
 	Status         string   `json:"status,omitempty"`
-	Parent         string   `json:"parent,omitempty"`
 	Sprint         string   `json:"sprint,omitempty"`
 	IDPrefix       string   `json:"id_prefix,omitempty"`
 	ExcludeKind    string   `json:"exclude_kind,omitempty"`
@@ -786,7 +768,7 @@ var opList = Op{
 			listExclude = append(listExclude, statusLabelFor(in.ExcludeStatus))
 		}
 		li := parchment.ListInput{
-			Parent: in.Parent, IDPrefix: in.IDPrefix,
+			IDPrefix: in.IDPrefix,
 			Labels: listLabels, LabelsOr: in.LabelsOr, ExcludeLabels: listExclude,
 			GroupBy: in.GroupBy, Sort: in.Sort, Limit: in.Limit, Cursor: in.Cursor, Query: in.Query,
 			TitleContains: in.TitleContains, Family: in.Family,
@@ -889,7 +871,7 @@ var opList = Op{
 		}
 		isUnfiltered := li.Query == "" && li.TitleContains == "" &&
 			len(li.Labels) == 0 && len(li.LabelsOr) == 0 && len(li.ExcludeLabels) == 0 &&
-			li.Parent == "" && li.IDPrefix == "" && li.Limit == 0
+			li.IDPrefix == "" && li.Limit == 0
 		if isUnfiltered && total > 0 {
 			out += fmt.Sprintf("\n(%d artifacts — use top=10 for relevance ranking or add scope/kind/status filters to narrow)", total)
 		}
