@@ -224,7 +224,7 @@ type knowledgeInput struct {
 }
 
 type adminInput struct {
-	Action  string `json:"action" jsonschema:"required,brief | capabilities | changelog | dashboard | snapshot | set_goal | detect | correlate | ingest_session | decision | set_scope | set_scope_labels | context_read | session"`
+	Action  string `json:"action" jsonschema:"required,brief | capabilities | changelog | dashboard | snapshot | set_goal | detect | correlate | ingest_session | decision | set_scope | set_scope_labels | context_read | session | vocab"`
 	Compact bool   `json:"compact,omitempty" jsonschema:"minimal output for repeat calls (brief)"`
 
 	SnapshotAction string `json:"snapshot_action,omitempty" jsonschema:"create, list, diff, or restore"`
@@ -250,6 +250,9 @@ type adminInput struct {
 
 	// ingest_session: filesystem path to a .jsonl session file or directory
 	Path string `json:"path,omitempty" jsonschema:"path to .jsonl session file or directory (ingest_session)"`
+
+	// vocab: disclosure depth — 0=slugs only, 1=slug+family+description, 2=full JSON
+	Depth int `json:"depth,omitempty" jsonschema:"vocab disclosure depth: 0=slugs only, 1=slug+family+description, 2=full JSON"`
 }
 
 // --- dispatchers ---

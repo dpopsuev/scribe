@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
+	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/service"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -70,8 +72,10 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 		}
 	case "capabilities":
 		return h.handleCapabilities(ctx)
+	case "vocab":
+		return h.handleVocab(ctx, in)
 	default:
-		return nil, nil, fmt.Errorf("unknown admin action %q (valid: brief, capabilities, changelog, dashboard, snapshot, set_goal, detect, correlate, ingest_session, decision, context_read, session, set_scope, set_scope_labels)", in.Action) //nolint:err113 // agent-facing hint
+		return nil, nil, fmt.Errorf("unknown admin action %q (valid: brief, capabilities, changelog, dashboard, snapshot, set_goal, detect, correlate, ingest_session, decision, context_read, session, set_scope, set_scope_labels, vocab)", in.Action) //nolint:err113 // agent-facing hint
 	}
 }
 
@@ -267,6 +271,113 @@ type detectInput struct {
 	StaleDays int    `json:"stale_days,omitempty" jsonschema:"days before a fleeting note is considered stuck (default: 7)"`
 }
 
+// handleVocab returns label definitions from _schema with progressive disclosure.
+// depth=0 (default): comma-separated slug list.
+// depth=1: one line per slug — slug | family | when_to_apply summary.
+// depth=2: full JSON of each label_definition's Extra and sections.
+func (h *handler) handleVocab(ctx context.Context, in adminInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: value semantics consistent with all admin handlers
+	if h.proto == nil {
+		return text("no schema available"), nil, nil
+	}
+	labelDefs, err := h.proto.ListArtifacts(ctx, parchment.ListInput{
+		Labels: []string{
+			parchment.LabelPrefixKind + parchment.KindLabelDefinition,
+			parchment.LabelPrefixScope + parchment.SchemaScope,
+		},
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	relDefs, err := h.proto.ListArtifacts(ctx, parchment.ListInput{
+		Labels: []string{
+			parchment.LabelPrefixKind + parchment.KindRelationship,
+			parchment.LabelPrefixScope + parchment.SchemaScope,
+		},
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	sort.Slice(labelDefs, func(i, j int) bool { return labelDefs[i].Title < labelDefs[j].Title })
+	sort.Slice(relDefs, func(i, j int) bool { return relDefs[i].Title < relDefs[j].Title })
+
+	switch in.Depth {
+	case 0:
+		slugs := make([]string, 0, len(labelDefs)+len(relDefs))
+		for _, art := range labelDefs {
+			slugs = append(slugs, art.Title)
+		}
+		for _, art := range relDefs {
+			slugs = append(slugs, art.Title)
+		}
+		return text(strings.Join(slugs, ", ")), nil, nil
+
+	case 1:
+		var lines []string
+		for _, art := range labelDefs {
+			family, _ := art.Extra["family"].(string)
+			desc := sectionText(art, "when_to_apply")
+			if desc == "" {
+				desc = sectionText(art, "implies")
+			}
+			lines = append(lines, fmt.Sprintf("%-30s [%-10s] %s", art.Title, family, desc))
+		}
+		if len(relDefs) > 0 {
+			lines = append(lines, "", "Relations:")
+			for _, art := range relDefs {
+				desc := sectionText(art, "when_to_apply")
+				if desc == "" {
+					desc = sectionText(art, "description")
+				}
+				lines = append(lines, fmt.Sprintf("  %-28s %s", art.Title, desc))
+			}
+		}
+		return text(strings.Join(lines, "\n")), nil, nil
+
+	default: // depth >= 2
+		type entry struct {
+			Slug     string         `json:"slug"`
+			Extra    map[string]any `json:"extra,omitempty"`
+			Sections []struct {
+				Name string `json:"name"`
+				Text string `json:"text"`
+			} `json:"sections,omitempty"`
+		}
+		var out []entry
+		for _, art := range labelDefs {
+			e := entry{Slug: art.Title, Extra: art.Extra}
+			for _, sec := range art.Sections {
+				e.Sections = append(e.Sections, struct {
+					Name string `json:"name"`
+					Text string `json:"text"`
+				}{Name: sec.Name, Text: sec.Text})
+			}
+			out = append(out, e)
+		}
+		for _, art := range relDefs {
+			e := entry{Slug: art.Title, Extra: art.Extra}
+			for _, sec := range art.Sections {
+				e.Sections = append(e.Sections, struct {
+					Name string `json:"name"`
+					Text string `json:"text"`
+				}{Name: sec.Name, Text: sec.Text})
+			}
+			out = append(out, e)
+		}
+		data, _ := json.Marshal(out)
+		return text(string(data)), nil, nil
+	}
+}
+
+func sectionText(art *parchment.Artifact, name string) string {
+	for _, sec := range art.Sections {
+		if sec.Name == name {
+			return sec.Text
+		}
+	}
+	return ""
+}
+
 // handleCapabilities returns a structured map of every callable operation,
 // option, and field — the MCP equivalent of GraphQL introspection.
 // Agents call admin(action=capabilities) once at session start to discover
@@ -284,7 +395,7 @@ func (h *handler) handleCapabilities(_ context.Context) (*sdkmcp.CallToolResult,
 		"admin_actions": []string{
 			"brief", "capabilities", "changelog", "dashboard", "snapshot",
 			"set_goal", "detect", "correlate", "ingest_session", "decision",
-			"context_read", "session", "set_scope", "set_scope_labels",
+			"context_read", "session", "set_scope", "set_scope_labels", "vocab",
 		},
 		// set() options — each is a bool flag on the set action
 		"set_options": map[string]string{ //nolint:gosec // G101: map keys are option names, not credentials

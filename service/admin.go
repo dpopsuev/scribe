@@ -96,8 +96,7 @@ func (s *Service) Brief(ctx context.Context) (*BriefResult, error) { //nolint:cy
 		if schema.UnknownKind(art.Label(parchment.LabelPrefixKind)) {
 			unknownCounts[art.Label(parchment.LabelPrefixKind)]++
 		}
-		isEffortKind := art.Label(parchment.LabelPrefixKind) == parchment.KindCampaign || art.Label(parchment.LabelPrefixKind) == parchment.KindGoal
-		if !schema.IsTerminal(parchment.StatusFromLabels(art.Labels)) && isEffortKind { //nolint:nestif // brief check is inherently nested
+		if !schema.IsTerminal(parchment.StatusFromLabels(art.Labels)) && s.Proto.IsContainerKind(art.Label(parchment.LabelPrefixKind)) { //nolint:nestif // brief check is inherently nested
 			children, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{Parent: art.ID})
 			if len(children) > 0 {
 				allDone := true
@@ -112,7 +111,7 @@ func (s *Service) Brief(ctx context.Context) (*BriefResult, error) { //nolint:cy
 				}
 			}
 		}
-		if !schema.IsTerminal(parchment.StatusFromLabels(art.Labels)) && (art.Label(parchment.LabelPrefixKind) == parchment.KindSpec || art.Label(parchment.LabelPrefixKind) == parchment.KindBug) {
+		if !schema.IsTerminal(parchment.StatusFromLabels(art.Labels)) && s.Proto.RequiresImplementation(art.Label(parchment.LabelPrefixKind)) {
 			backlinks, _ := s.Proto.Backlinks(ctx, art.ID, parchment.RelImplements)
 			if len(backlinks) == 0 {
 				unimplemented++
