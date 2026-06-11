@@ -282,8 +282,8 @@ func (e *Embedder) Sweep(ctx context.Context) {
 func embeddingText(art *parchment.Artifact) string {
 	parts := make([]string, 0, 2+len(art.Sections))
 	parts = append(parts, art.Title)
-	if art.Goal != "" {
-		parts = append(parts, art.Goal)
+	if art.Goal() != "" {
+		parts = append(parts, art.Goal())
 	}
 	for _, s := range art.Sections {
 		parts = append(parts, s.Text)

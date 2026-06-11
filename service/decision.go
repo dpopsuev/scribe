@@ -53,7 +53,7 @@ func (s *Service) CheckDecision(ctx context.Context, key, scope string) (string,
 	})
 	for _, art := range arts {
 		if strings.EqualFold(art.Title, key) {
-			return art.Goal, nil
+			return art.Goal(), nil
 		}
 	}
 	return "", nil

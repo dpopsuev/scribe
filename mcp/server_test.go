@@ -1415,8 +1415,9 @@ func TestClone(t *testing.T) {
 	ctx := context.Background()
 	s.Put(ctx, &parchment.Artifact{
 		ID:    "SPEC-001",
-		Title: "Original Spec", Goal: "Original goal",
+		Title: "Original Spec",
 		Sections: []parchment.Section{
+			{Name: "goal", Text: "Original goal"},
 			{Name: "problem", Text: "The problem"},
 			{Name: "decision", Text: "The decision"},
 		},
@@ -1449,11 +1450,11 @@ func TestClone(t *testing.T) {
 	if clone.Title != "Cloned Spec" {
 		t.Errorf("clone title = %q, want 'Cloned Spec'", clone.Title)
 	}
-	if clone.Goal != "Original goal" {
-		t.Errorf("clone should inherit goal, got %q", clone.Goal)
+	if clone.Goal() != "Original goal" {
+		t.Errorf("clone should inherit goal, got %q", clone.Goal())
 	}
-	if len(clone.Sections) != 2 {
-		t.Errorf("clone should have 2 sections, got %d", len(clone.Sections))
+	if len(clone.Sections) != 3 {
+		t.Errorf("clone should have 3 sections (goal+problem+decision), got %d", len(clone.Sections))
 	}
 	if parchment.StatusFromLabels(clone.Labels) != "work.draft" {
 		t.Errorf("clone status should default to draft, got %q", parchment.StatusFromLabels(clone.Labels))

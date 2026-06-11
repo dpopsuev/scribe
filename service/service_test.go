@@ -676,7 +676,7 @@ func TestExtractExcerpt_FindsTermInSection(t *testing.T) {
 
 func TestExtractExcerpt_FallsBackToGoal(t *testing.T) {
 	art := &parchment.Artifact{
-		Goal: "improve authentication",
+		Sections: []parchment.Section{{Name: "goal", Text: "improve authentication"}},
 	}
 	excerpt := service.ExtractExcerpt(art, []string{"notfound"})
 	if excerpt != "improve authentication" {

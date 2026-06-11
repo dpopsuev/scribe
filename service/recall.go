@@ -154,7 +154,7 @@ func TermOverlap(art *parchment.Artifact, terms []string) float64 {
 	if len(terms) == 0 {
 		return 1.0
 	}
-	haystack := strings.ToLower(art.Title + " " + art.Goal)
+	haystack := strings.ToLower(art.Title + " " + art.Goal())
 	for _, sec := range art.Sections {
 		haystack += " " + strings.ToLower(sec.Text)
 	}
@@ -191,8 +191,8 @@ func ExtractExcerpt(art *parchment.Artifact, terms []string) string {
 			return excerpt
 		}
 	}
-	if art.Goal != "" && len(art.Goal) <= 120 {
-		return art.Goal
+	if goal := art.Goal(); goal != "" && len(goal) <= 120 {
+		return goal
 	}
 	return ""
 }

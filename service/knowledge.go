@@ -235,7 +235,7 @@ func (s *Service) KnowledgeCatalog(ctx context.Context, scope string) (*Knowledg
 			if len(art.Labels) > 0 {
 				labelStr = "  [" + strings.Join(art.Labels, ", ") + "]"
 			}
-			summary := art.Goal
+			summary := art.Goal()
 			if summary == "" {
 				for _, sec := range art.Sections {
 					if sec.Text != "" {

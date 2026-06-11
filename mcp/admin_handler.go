@@ -97,7 +97,7 @@ func (h *handler) handleDecision(ctx context.Context, in adminInput) (*sdkmcp.Ca
 		}
 		var lines []string
 		for _, a := range arts {
-			lines = append(lines, fmt.Sprintf("  %-30s %s", a.Title, a.Goal))
+			lines = append(lines, fmt.Sprintf("  %-30s %s", a.Title, a.Goal()))
 		}
 		return text(strings.Join(lines, "\n")), nil, nil
 	default: // "check" or empty
