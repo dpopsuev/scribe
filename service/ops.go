@@ -13,7 +13,7 @@ import (
 )
 
 func init() {
-	Registry = append(Registry, opSet, opList, opUpdate, opOrient, opCreate, opGet, opTopoSort, opLink)
+	Registry = append(Registry, opSet, opList, opUpdate, opOrient, opCreate, opGet, opTopoSort, opLink, opReplace)
 }
 
 type edgeInput struct {
@@ -584,6 +584,53 @@ type createInput struct {
 	StashID   string              `json:"stash_id,omitempty"`
 	CloneFrom string              `json:"clone_from,omitempty"`
 	Artifacts []map[string]any    `json:"artifacts,omitempty"`
+}
+
+var opReplace = Op{
+	Name: "replace",
+	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
+		var in createInput
+		if err := json.Unmarshal(raw, &in); err != nil {
+			return "", err
+		}
+		if in.ID == "" {
+			return "", fmt.Errorf("id is required for replace") //nolint:err113 // user-facing hint
+		}
+		labels := in.Labels
+		if in.Kind != "" {
+			labels = append([]string{parchment.LabelPrefixKind + in.Kind}, labels...)
+		}
+		if in.Status != "" {
+			labels = append(labels, statusLabelFor(in.Status))
+		}
+		if in.Scope != "" {
+			labels = append(labels, parchment.LabelPrefixScope+in.Scope)
+		}
+		if in.Priority != "" {
+			labels = append(labels, parchment.LabelPrefixPriority+in.Priority)
+		}
+		result, err := svc.Proto.UpsertArtifact(ctx, parchment.CreateInput{
+			ExplicitID: in.ID,
+			Title:      in.Title,
+			Goal:       in.Goal,
+			Parent:     in.Parent,
+			Labels:     labels,
+			DependsOn:  in.DependsOn,
+			Sections:   parseSections(in.Sections),
+			Links:      in.Links,
+			Extra:      in.Extra,
+		})
+		if err != nil {
+			return "", err
+		}
+		art := result.Artifact
+		verb := "updated"
+		if result.Created {
+			verb = "created"
+		}
+		return fmt.Sprintf("%s %s [%s|%s] %s", verb, art.ID,
+			art.Label(parchment.LabelPrefixKind), parchment.StatusFromLabels(art.Labels), art.Title), nil
+	},
 }
 
 var opCreate = Op{

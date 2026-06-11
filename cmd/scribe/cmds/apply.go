@@ -41,14 +41,11 @@ func ApplyCmd() *cobra.Command {
 			}
 			for _, r := range resources {
 				store := svc.Proto.Store()
-				if err := applyCRDResource(ctx, store, r); err != nil {
+				result, err := applyCRDResource(ctx, svc.Proto, store, r)
+				if err != nil {
 					return fmt.Errorf("apply %s %s: %w", r.Kind, r.Metadata.Name, err)
 				}
-				verb := "applied"
-				if _, err2 := store.Get(ctx, crdResourceID(r.Metadata.Name)); err2 == nil {
-					verb = "updated"
-				}
-				fmt.Printf("%s %s %s\n", verb, r.Kind, r.Metadata.Name)
+				fmt.Println(result)
 			}
 			svc.Proto.Registry().ReloadTraits(ctx)
 			return nil
@@ -67,8 +64,14 @@ type crdResource struct {
 
 type crdMeta struct {
 	Name        string `yaml:"name"`
+	ID          string `yaml:"id"`
 	Title       string `yaml:"title"`
 	Description string `yaml:"description"`
+}
+
+type crdArtifactSection struct {
+	Name string `yaml:"name"`
+	Text string `yaml:"text"`
 }
 
 type crdSpec struct {
@@ -96,6 +99,16 @@ type crdSpec struct {
 	Directionality   string        `yaml:"directionality,omitempty"`
 	AllowedPairs     []crdKindPair `yaml:"allowedPairs,omitempty"`
 	Semantics        string        `yaml:"semantics,omitempty"`
+
+	// Artifact CRD fields. Use "content" for sections to avoid conflict with
+	// the LabelDefinition "sections" field (which is a struct, not a list).
+	Labels          []string             `yaml:"labels,omitempty"`
+	ArtifactContent []crdArtifactSection `yaml:"content,omitempty"`
+	Goal            string               `yaml:"goal,omitempty"`
+	ArtifactParent  string               `yaml:"parent,omitempty"`
+	DependsOn       []string             `yaml:"dependsOn,omitempty"`
+	Links           map[string][]string  `yaml:"links,omitempty"`
+	Extra           map[string]any       `yaml:"extra,omitempty"`
 }
 
 type crdLifecycle struct {
@@ -190,15 +203,71 @@ func crdResourceID(name string) string {
 	return "RDEF-" + sanitized
 }
 
-func applyCRDResource(ctx context.Context, s parchment.Store, r *crdResource) error {
+func applyCRDResource(ctx context.Context, proto *parchment.Protocol, s parchment.Store, r *crdResource) (string, error) {
 	switch r.Kind {
 	case "LabelDefinition":
-		return applyLabelDefinitionCRD(ctx, s, r)
+		if err := applyLabelDefinitionCRD(ctx, s, r); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("applied LabelDefinition %s", r.Metadata.Name), nil
 	case "EdgeTypeDefinition":
-		return applyEdgeTypeDefinitionCRD(ctx, s, r)
+		if err := applyEdgeTypeDefinitionCRD(ctx, s, r); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("applied EdgeTypeDefinition %s", r.Metadata.Name), nil
+	case "Artifact":
+		return applyArtifactCRD(ctx, proto, r)
 	default:
-		return fmt.Errorf("%w: %s", errUnsupportedKind, r.Kind)
+		return "", fmt.Errorf("%w: %s", errUnsupportedKind, r.Kind)
 	}
+}
+
+func applyArtifactCRD(ctx context.Context, proto *parchment.Protocol, r *crdResource) (string, error) {
+	id := r.Metadata.ID
+	if id == "" {
+		id = r.Metadata.Name
+	}
+	if id == "" {
+		return "", fmt.Errorf("artifact CRD requires metadata.id") //nolint:err113 // user-facing validation
+	}
+	title := r.Metadata.Title
+	if title == "" {
+		title = r.Metadata.Name
+	}
+
+	sections := make([]parchment.ArtifactSection, 0, len(r.Spec.ArtifactContent))
+	for _, sec := range r.Spec.ArtifactContent {
+		sections = append(sections, parchment.ArtifactSection{Name: sec.Name, Text: strings.TrimSpace(sec.Text)})
+	}
+
+	pr := &parchment.Resource{
+		APIVersion: r.APIVersion,
+		Kind:       r.Kind,
+		Metadata: parchment.ResourceMeta{
+			Name:  r.Metadata.Name,
+			ID:    id,
+			Title: title,
+		},
+		Spec: parchment.ResourceSpec{
+			Labels:          r.Spec.Labels,
+			ArtifactContent: sections,
+			Goal:            r.Spec.Goal,
+			ArtifactParent:  r.Spec.ArtifactParent,
+			DependsOn:       r.Spec.DependsOn,
+			Links:           r.Spec.Links,
+			Extra:           r.Spec.Extra,
+		},
+	}
+
+	result, err := parchment.ApplyArtifactResource(ctx, proto, pr)
+	if err != nil {
+		return "", err
+	}
+	verb := "updated"
+	if result.Created {
+		verb = "created"
+	}
+	return fmt.Sprintf("applied Artifact %s (%s)", result.Artifact.ID, verb), nil
 }
 
 func applyLabelDefinitionCRD(ctx context.Context, s parchment.Store, r *crdResource) error {
