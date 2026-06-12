@@ -474,9 +474,9 @@ func TestOpReplace_SwapsEdgeTarget(t *testing.T) {
 	}
 }
 
-func TestOpTopoSort_ReturnsOrderedList(t *testing.T) {
+func TestOpQuery_TopoSort_ReturnsOrderedList(t *testing.T) {
 	// Given a goal with two tasks where one depends on the other
-	// When topo_sort(id=goal) is called
+	// When query(id=goal, sort=topo) is called
 	// Then output lists tasks in dependency order
 	svc := newTestService(t)
 	ctx := context.Background()
@@ -485,17 +485,17 @@ func TestOpTopoSort_ReturnsOrderedList(t *testing.T) {
 	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "First", Parent: goal.ID})
 	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "Second", Parent: goal.ID, DependsOn: []string{a.ID}})
 
-	op := service.Find("topo_sort")
+	op := service.Find("query")
 	if op == nil {
-		t.Fatal("topo_sort Op not registered")
+		t.Fatal("query Op not registered")
 	}
-	raw, _ := json.Marshal(map[string]any{"id": goal.ID})
+	raw, _ := json.Marshal(map[string]any{"id": goal.ID, "sort": "topo"})
 	out, err := op.Run(ctx, svc, raw)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out, a.ID) || !strings.Contains(out, b.ID) {
-		t.Errorf("expected both tasks in topo_sort output, got: %s", out)
+		t.Errorf("expected both tasks in topo output, got: %s", out)
 	}
 	posA := strings.Index(out, a.ID)
 	posB := strings.Index(out, b.ID)

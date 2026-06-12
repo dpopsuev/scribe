@@ -374,7 +374,7 @@ func TestE2E_Deterministic(t *testing.T) {
 	})
 
 	t.Run("graph_link_and_topo_sort", func(t *testing.T) {
-		// Create a goal with tasks (topo_sort works on direct children)
+		// Create a goal with tasks — query(sort=topo) returns dependency order
 		goalText := mcpCall(t, sid, next(), "artifact", map[string]any{
 			"action": "create", "kind": "goal", "title": "E2E Topo Goal", "scope": "e2e",
 		})
@@ -391,17 +391,16 @@ func TestE2E_Deterministic(t *testing.T) {
 			"parent": goalID, "priority": "medium", "depends_on": []string{t1ID},
 		})
 
-		// Topo sort the goal
-		topoText := mcpCall(t, sid, next(), "graph", map[string]any{
-			"action": "topo_sort", "id": goalID,
+		topoText := mcpCall(t, sid, next(), "artifact", map[string]any{
+			"action": "query", "id": goalID, "sort": "topo",
 		})
 		if !strings.Contains(topoText, "Step 1") || !strings.Contains(topoText, "Step 2") {
-			t.Fatalf("topo_sort missing tasks:\n%s", truncate(topoText, 500))
+			t.Fatalf("query(sort=topo) missing tasks:\n%s", truncate(topoText, 500))
 		}
 		idx1 := strings.Index(topoText, "Step 1")
 		idx2 := strings.Index(topoText, "Step 2")
 		if idx1 > idx2 {
-			t.Fatalf("topo_sort wrong order: Step 1 at %d, Step 2 at %d", idx1, idx2)
+			t.Fatalf("query(sort=topo) wrong order: Step 1 at %d, Step 2 at %d", idx1, idx2)
 		}
 	})
 

@@ -58,7 +58,7 @@ func NewServer(svc *service.Service, vocab []string, version string) (*sdkmcp.Se
 		"READ: get(id=) full artifact; get_section(id=, name=) for one section only (cheaper). " +
 		"LIST: always add scope/kind/status or top=N — bare list returns ALL artifacts and burns context. " +
 		"WRITE: create, set, attach_section. " +
-		"GRAPH: briefing(id=) — full edge-aware context chain; tree(id=) — children; link/unlink — edges; topo_sort — dependency order; impact — blast radius. " +
+		"GRAPH: briefing(id=) — full edge-aware context chain; tree(id=) — children; link/unlink — edges; query(id=, sort=topo) — dependency order; impact — blast radius. " +
 		"ORIENT: orient for vault map (call after brief); catalog for full inventory."
 	var artifactSchema any
 	_ = json.Unmarshal(schemaFor[artifactInput](), &artifactSchema)
@@ -71,7 +71,7 @@ func NewServer(svc *service.Service, vocab []string, version string) (*sdkmcp.Se
 	}, bindHandler(h.handleArtifact))
 	reg.register(ToolMeta{
 		Name: "artifact", Description: artifactDesc,
-		Keywords:   []string{"create", "get", "query", "set", "artifact", "section", "tree", "briefing", "topo_sort", "link", "unlink", "move", "impact"},
+		Keywords:   []string{"create", "get", "query", "set", "artifact", "section", "tree", "briefing", "link", "unlink", "move", "impact"},
 		Categories: []string{"crud", "graph"},
 	})
 
@@ -125,7 +125,7 @@ type handler struct {
 // --- consolidated input types ---
 
 type artifactInput struct {
-	Action string `json:"action" jsonschema:"required,create | get | query | set | update | orient | link | topo_sort | replace"`
+	Action string `json:"action" jsonschema:"required,create | get | query | set | update | orient | link | replace"`
 
 	ID     string `json:"id,omitempty"`
 	Target string `json:"target,omitempty" jsonschema:"new parent ID (move)"`
@@ -199,8 +199,8 @@ type artifactInput struct {
 	Relation  string      `json:"relation,omitempty" jsonschema:"parent_of, depends_on, follows, justifies, implements, documents"`
 	Weight    float64     `json:"weight,omitempty" jsonschema:"edge coupling strength (0.0 = boolean, 1.0 = max; default 0)"`
 	Direction string      `json:"direction,omitempty" jsonschema:"outbound (default) or inbound"`
-	Depth     int         `json:"depth,omitempty" jsonschema:"tree/briefing: max depth; topo_sort: max results when unblocked=true"`
-	Unblocked bool        `json:"unblocked,omitempty" jsonschema:"topo_sort: return only unblocked ready tasks"`
+	Depth     int         `json:"depth,omitempty" jsonschema:"tree/briefing: max depth; query sort=topo: max results when unblocked=true"`
+	Unblocked bool        `json:"unblocked,omitempty" jsonschema:"query sort=topo: return only unblocked ready tasks"`
 	Targets   []string    `json:"targets,omitempty"`
 	OldTarget string      `json:"old_target,omitempty"`
 	Edges     []edgeInput `json:"edges,omitempty" jsonschema:"link/unlink bulk mode: [{from, relation, to}]"`

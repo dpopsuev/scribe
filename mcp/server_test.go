@@ -2740,7 +2740,7 @@ func TestToolDescriptions_ProgressiveDisclosure(t *testing.T) {
 	}
 
 	// graph actions folded into artifact tool (SCR-TSK-364) — verify artifact describes them.
-	for _, phrase := range []string{"briefing", "tree", "topo_sort", "impact"} {
+	for _, phrase := range []string{"briefing", "tree", "sort=topo", "impact"} {
 		if !strings.Contains(artifact, phrase) {
 			t.Errorf("artifact desc missing graph phrase %q; got:\n%s", phrase, artifact)
 		}

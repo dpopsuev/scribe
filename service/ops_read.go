@@ -10,81 +10,6 @@ import (
 	parchment "github.com/dpopsuev/parchment"
 )
 
-type topoSortInput struct {
-	ID        string `json:"id"`
-	Unblocked bool   `json:"unblocked,omitempty"`
-	Depth     int    `json:"depth,omitempty"`
-	Format    string `json:"format,omitempty"`
-}
-
-var opTopoSort = Op{
-	Name: "topo_sort",
-	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
-		var in topoSortInput
-		if err := json.Unmarshal(raw, &in); err != nil {
-			return "", err
-		}
-		if in.ID == "" {
-			return "", fmt.Errorf("id required for topo_sort") //nolint:err113 // user-facing hint
-		}
-		entries, err := svc.Proto.TopoSort(ctx, in.ID)
-		if err != nil && len(entries) == 0 {
-			return "", err
-		}
-		if in.Unblocked {
-			limit := in.Depth
-			if limit <= 0 {
-				limit = 5
-			}
-			var ready []parchment.TopoEntry
-			for _, e := range entries {
-				if svc.Proto.IsTerminal(parchment.StatusFromLabels(e.Labels)) {
-					continue
-				}
-				art, _ := svc.Proto.GetArtifact(ctx, e.ID)
-				if art == nil {
-					continue
-				}
-				blocked := false
-				depEdges, _ := svc.Proto.Store().Neighbors(ctx, art.ID, parchment.RelDependsOn, parchment.Outgoing)
-				for _, de := range depEdges {
-					dep, _ := svc.Proto.GetArtifact(ctx, de.To)
-					if dep != nil && !svc.Proto.IsTerminal(parchment.StatusFromLabels(dep.Labels)) {
-						blocked = true
-						break
-					}
-				}
-				if !blocked {
-					ready = append(ready, e)
-					if len(ready) >= limit {
-						break
-					}
-				}
-			}
-			if len(ready) == 0 {
-				return "no unblocked tasks found", nil
-			}
-			entries = ready
-		}
-		if in.Format == "json" {
-			data, _ := json.Marshal(entries)
-			return string(data), nil
-		}
-		var b strings.Builder
-		for i, e := range entries {
-			fmt.Fprintf(&b, "%d. %s [%s] %s", i+1, e.ID, parchment.StatusFromLabels(e.Labels), e.Title)
-			if e.Priority != "" && e.Priority != "none" {
-				fmt.Fprintf(&b, " (%s)", e.Priority)
-			}
-			b.WriteString("\n")
-		}
-		if err != nil {
-			fmt.Fprintf(&b, "\n%s\n", err)
-		}
-		return b.String(), nil
-	},
-}
-
 type edgeInput struct {
 	From     string `json:"from"`
 	Relation string `json:"relation"`
@@ -557,6 +482,8 @@ var opOrient = Op{
 }
 
 type listInput struct {
+	ID             string   `json:"id,omitempty"`
+	Unblocked      bool     `json:"unblocked,omitempty"`
 	Kind           string   `json:"kind,omitempty"`
 	Scope          string   `json:"scope,omitempty"`
 	Status         string   `json:"status,omitempty"`
@@ -661,6 +588,68 @@ var opQuery = Op{
 		if err := json.Unmarshal(raw, &in); err != nil {
 			return "", err
 		}
+		// sort=topo: topological dependency order rooted at id=.
+		if in.Sort == "topo" {
+			if in.ID == "" {
+				return "", fmt.Errorf("id required for sort=topo") //nolint:err113 // user-facing hint
+			}
+			entries, err := svc.Proto.TopoSort(ctx, in.ID)
+			if err != nil && len(entries) == 0 {
+				return "", err
+			}
+			if in.Unblocked {
+				limit := in.Depth
+				if limit <= 0 {
+					limit = 5
+				}
+				var ready []parchment.TopoEntry
+				for _, e := range entries {
+					if svc.Proto.IsTerminal(parchment.StatusFromLabels(e.Labels)) {
+						continue
+					}
+					art, _ := svc.Proto.GetArtifact(ctx, e.ID)
+					if art == nil {
+						continue
+					}
+					blocked := false
+					depEdges, _ := svc.Proto.Store().Neighbors(ctx, art.ID, parchment.RelDependsOn, parchment.Outgoing)
+					for _, de := range depEdges {
+						dep, _ := svc.Proto.GetArtifact(ctx, de.To)
+						if dep != nil && !svc.Proto.IsTerminal(parchment.StatusFromLabels(dep.Labels)) {
+							blocked = true
+							break
+						}
+					}
+					if !blocked {
+						ready = append(ready, e)
+						if len(ready) >= limit {
+							break
+						}
+					}
+				}
+				if len(ready) == 0 {
+					return "no unblocked tasks found", nil
+				}
+				entries = ready
+			}
+			if in.Format == "json" {
+				data, _ := json.Marshal(entries)
+				return string(data), nil
+			}
+			var b strings.Builder
+			for i, e := range entries {
+				fmt.Fprintf(&b, "%d. %s [%s] %s", i+1, e.ID, parchment.StatusFromLabels(e.Labels), e.Title)
+				if e.Priority != "" && e.Priority != "none" {
+					fmt.Fprintf(&b, " (%s)", e.Priority)
+				}
+				b.WriteString("\n")
+			}
+			if err != nil {
+				fmt.Fprintf(&b, "\n%s\n", err)
+			}
+			return b.String(), nil
+		}
+
 		const modeSemantic = "semantic"
 		const modeHybrid = "hybrid"
 		// Normalize mode: legacy Semantic bool → mode=semantic.
