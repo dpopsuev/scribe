@@ -354,6 +354,6 @@ func (s *Service) KnowledgeOrient(ctx context.Context, scope string) (string, er
 	b.WriteString("  promote(id) → elevate a fleeting note to evergreen when it has landed\n")
 	b.WriteString("  lint (detect check=knowledge) → periodically health-check the wiki\n")
 	b.WriteString("  File synthesis answers back as notes — don't let them disappear into chat\n")
-	b.WriteString("\n→ artifact(action=search, query=) for keyword lookup; artifact(action=recall, query=, top=10) for semantic; artifact(action=get, id=) to read a specific artifact\n")
+	b.WriteString("\n→ artifact(action=query, query=) for keyword lookup; artifact(action=query, query=, ranked=true, top=10) for ranked recall; artifact(action=get, id=) to read a specific artifact\n")
 	return b.String(), nil
 }

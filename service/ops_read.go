@@ -654,8 +654,8 @@ func listCompact(arts []*parchment.Artifact, fields []string, li *parchment.List
 	return b.String(), nil
 }
 
-var opList = Op{
-	Name: "list",
+var opQuery = Op{
+	Name: "query",
 	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) { //nolint:cyclop // multi-mode list: count|top|compact|grouped|default
 		var in listInput
 		if err := json.Unmarshal(raw, &in); err != nil {

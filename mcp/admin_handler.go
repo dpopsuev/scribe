@@ -386,9 +386,9 @@ func (h *handler) handleCapabilities(_ context.Context) (*sdkmcp.CallToolResult,
 	caps := map[string]any{
 		// artifact tool actions
 		"artifact_actions": []string{
-			"create", "get", "list", "set", "update",
+			"create", "get", "query", "set", "update",
 			"retire", "attach_section", "detach_section", "bulk_section_update",
-			"diff", "recall", "orient", "tree", "briefing", "link", "unlink",
+			"diff", "orient", "tree", "briefing", "link", "unlink",
 			"topo_sort", "replace", "catalog", "impact",
 		},
 		// admin tool actions
@@ -421,9 +421,8 @@ func (h *handler) handleCapabilities(_ context.Context) (*sdkmcp.CallToolResult,
 		"schema_kinds": []string{
 			"kind_definition", "edge_type_definition", "label_definition", "rule",
 		},
-		"schema_discovery": "artifact(action=list, kind=kind_definition, scope=_schema) — learn when to create each kind. " +
-			"artifact(action=list, kind=edge_type_definition, scope=_schema) — learn what each relation means. " +
-			"artifact(action=list, kind=label_definition, scope=_schema) — learn when to apply each label.",
+		"schema_discovery": "artifact(action=query, kind=kind_definition, scope=_schema) — learn when to create each kind. " +
+			"artifact(action=query, kind=label_definition, scope=_schema) — learn when to apply each label.",
 	}
 	data, _ := json.Marshal(caps)
 	return text(string(data)), nil, nil

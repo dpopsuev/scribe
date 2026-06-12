@@ -216,11 +216,8 @@ func TestKnowledge_Orient_DiscoveryPointer(t *testing.T) {
 
 	out := knowledge(map[string]any{"action": "orient", "scope": "test"})
 
-	if !strings.Contains(out, "artifact(action=search") {
-		t.Errorf("orient must include search navigation hint; got:\n%s", out)
-	}
-	if !strings.Contains(out, "artifact(action=recall") {
-		t.Errorf("orient must include recall navigation hint; got:\n%s", out)
+	if !strings.Contains(out, "artifact(action=query") {
+		t.Errorf("orient must include query navigation hint; got:\n%s", out)
 	}
 	if !strings.Contains(out, "artifact(action=get") {
 		t.Errorf("orient must include get navigation hint; got:\n%s", out)

@@ -328,7 +328,7 @@ func TestE2E_Deterministic(t *testing.T) {
 		}
 
 		text = mcpCall(t, sid, next(), "artifact", map[string]any{
-			"action": "list", "kind": "task", "scope": "e2e",
+			"action": "query", "kind": "task", "scope": "e2e",
 		})
 		if !strings.Contains(text, "E2E task 1") {
 			t.Fatalf("list missing task:\n%s", truncate(text, 300))
@@ -346,7 +346,7 @@ func TestE2E_Deterministic(t *testing.T) {
 
 		// List to get IDs
 		listText := mcpCall(t, sid, next(), "artifact", map[string]any{
-			"action": "list", "kind": "task", "scope": "e2e",
+			"action": "query", "kind": "task", "scope": "e2e",
 			"fields": []string{"id", "title"},
 		})
 		if !strings.Contains(listText, "Bulk A") || !strings.Contains(listText, "Bulk B") {
@@ -463,7 +463,7 @@ func TestE2E_Deterministic(t *testing.T) {
 
 	t.Run("top_n_ranking", func(t *testing.T) {
 		text := mcpCall(t, sid, next(), "artifact", map[string]any{
-			"action": "list", "scope": "e2e", "top": 3,
+			"action": "query", "scope": "e2e", "top": 3,
 		})
 		// Should return JSON array with at most 3 items
 		if !strings.Contains(text, "\"id\"") {

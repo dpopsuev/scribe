@@ -75,7 +75,7 @@ func TestSearchSections_FindsTextInSection(t *testing.T) {
 	})
 
 	// search_sections → list with query=
-	result := call(map[string]any{"action": "list", "scope": "test", "query": "xyz987"})
+	result := call(map[string]any{"action": "query", "scope": "test", "query": "xyz987"})
 	if !strings.Contains(result, "has the phrase") {
 		t.Errorf("search_sections: expected to find matching artifact, got: %s", result)
 	}
@@ -93,7 +93,7 @@ func TestTitleContains_FiltersToMatchingTitles(t *testing.T) {
 	call(map[string]any{"action": "create", "kind": "task", "title": "Beta implementation", "scope": "test", "status": "work.draft"})
 	call(map[string]any{"action": "create", "kind": "task", "title": "Alpha testing", "scope": "test", "status": "work.draft"})
 
-	result := call(map[string]any{"action": "list", "scope": "test", "kind": "task", "title_contains": "Alpha"})
+	result := call(map[string]any{"action": "query", "scope": "test", "kind": "task", "title_contains": "Alpha"})
 	if !strings.Contains(result, "Alpha implementation") {
 		t.Errorf("title_contains=Alpha: want 'Alpha implementation', got: %s", result)
 	}

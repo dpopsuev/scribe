@@ -45,9 +45,9 @@ func TestFind_ReturnsNilForUnknownName(t *testing.T) {
 
 func TestFind_ListOpRegistered(t *testing.T) {
 	// Given "list" is a registered Op
-	// When Find("list") is called
+	// When Find("query") is called
 	// Then the Op is returned
-	if service.Find("list") == nil {
+	if service.Find("query") == nil {
 		t.Fatal("Find(\"list\") returned nil — list Op not registered")
 	}
 }
@@ -298,7 +298,7 @@ func TestOpList_RankedReturnsMatchingArtifacts(t *testing.T) {
 		Labels: []string{"kind:note"}, Title: "authentication flow",
 	})
 
-	op := service.Find("list")
+	op := service.Find("query")
 	raw, _ := json.Marshal(map[string]any{"ranked": true, "query": "authentication", "scope": "test"})
 	out, err := op.Run(ctx, svc, raw)
 	if err != nil {
@@ -314,7 +314,7 @@ func TestOpList_RankedEmptyQueryReturnsError(t *testing.T) {
 	// When list(ranked=true) is called
 	// Then an error is returned
 	svc := newTestService(t)
-	op := service.Find("list")
+	op := service.Find("query")
 	raw, _ := json.Marshal(map[string]any{"ranked": true, "scope": "test"})
 	_, err := op.Run(context.Background(), svc, raw)
 	if err == nil {
@@ -330,7 +330,7 @@ func TestOpList_SemanticReturnsErrorWhenNoEmbeddings(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	op := service.Find("list")
+	op := service.Find("query")
 	raw, _ := json.Marshal(map[string]any{"mode": "semantic", "query": "authentication", "scope": "test"})
 	_, err := op.Run(ctx, svc, raw)
 	if err == nil {
@@ -353,7 +353,7 @@ func TestOpList_HybridFallsBackToFTS_WhenNoEmbeddings(t *testing.T) {
 		Labels: []string{"kind:note"}, Title: "authentication flow",
 	})
 
-	op := service.Find("list")
+	op := service.Find("query")
 	raw, _ := json.Marshal(map[string]any{"mode": "hybrid", "query": "authentication", "scope": "test"})
 	out, err := op.Run(ctx, svc, raw)
 	if err != nil {
@@ -369,7 +369,7 @@ func TestOpList_SemanticEmptyQueryReturnsError(t *testing.T) {
 	// When: list(semantic=true)
 	// Then: error is returned
 	svc := newTestService(t)
-	op := service.Find("list")
+	op := service.Find("query")
 	raw, _ := json.Marshal(map[string]any{"semantic": true, "scope": "test"})
 	_, err := op.Run(context.Background(), svc, raw)
 	if err == nil {
@@ -395,7 +395,7 @@ func TestOpList_Semantic_WithEmbeddings_ReturnsResults(t *testing.T) {
 	authVec, _ := embedFn(ctx, "authentication jwt token")
 	_ = store.PutEmbedding(ctx, art.ID, parchment.DefaultEmbedModel, "", authVec)
 
-	op := service.Find("list")
+	op := service.Find("query")
 	raw, _ := json.Marshal(map[string]any{"semantic": true, "query": "security token validation", "scope": "test"})
 	out, err := op.Run(ctx, svc, raw)
 	if err != nil {
@@ -426,7 +426,7 @@ func TestOpList_DepthWithRelationAndDirection(t *testing.T) {
 	svc.Proto.LinkArtifacts(ctx, campaign.ID, "parent_of", []string{goal.ID}, 0) //nolint:errcheck // test setup
 	svc.Proto.LinkArtifacts(ctx, goal.ID, "parent_of", []string{task.ID}, 0)     //nolint:errcheck // test setup
 
-	op := service.Find("list")
+	op := service.Find("query")
 	// Use the task ID directly via list — depth traversal is the subject, not search ranking.
 	raw, _ := json.Marshal(map[string]any{
 		"id_prefix": task.ID,
@@ -863,7 +863,7 @@ func TestOpList_FamilyKnowledgeGrouped(t *testing.T) {
 	concept, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:concept"}, Title: "key concept"})
 	task, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "a task"})
 
-	op := service.Find("list")
+	op := service.Find("query")
 	raw, _ := json.Marshal(map[string]any{"family": "knowledge", "group_by": "kind", "scope": "test"})
 	out, err := op.Run(ctx, svc, raw)
 	if err != nil {
@@ -1040,7 +1040,7 @@ func TestOpList_DefaultTableOutput(t *testing.T) {
 	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "Alpha"})
 	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "Beta"})
 
-	op := service.Find("list")
+	op := service.Find("query")
 	raw, _ := json.Marshal(map[string]any{})
 	out, err := op.Run(ctx, svc, raw)
 	if err != nil {
@@ -1064,7 +1064,7 @@ func TestOpList_CountMode(t *testing.T) {
 	for range 3 {
 		svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "T"}) //nolint:errcheck // test setup, error irrelevant to subject under test
 	}
-	op := service.Find("list")
+	op := service.Find("query")
 	raw, _ := json.Marshal(map[string]any{"count": true})
 	out, err := op.Run(ctx, svc, raw)
 	if err != nil {
@@ -1085,7 +1085,7 @@ func TestOpList_TopNReturnsJSON(t *testing.T) {
 	for range 5 {
 		svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "T"}) //nolint:errcheck // test setup, error irrelevant to subject under test
 	}
-	op := service.Find("list")
+	op := service.Find("query")
 	raw, _ := json.Marshal(map[string]any{"top": 2})
 	out, err := op.Run(ctx, svc, raw)
 	if err != nil {
@@ -1109,7 +1109,7 @@ func TestOpList_CompactFields(t *testing.T) {
 
 	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "Compact"}) //nolint:errcheck // test setup, error irrelevant to subject under test
 
-	op := service.Find("list")
+	op := service.Find("query")
 	raw, _ := json.Marshal(map[string]any{"fields": []string{"id", "title"}})
 	out, err := op.Run(ctx, svc, raw)
 	if err != nil {
@@ -1125,7 +1125,7 @@ func TestOpList_CompactInvalidFieldError(t *testing.T) {
 	// When list(fields=[bogus]) is called
 	// Then an error is returned
 	svc := newTestService(t)
-	op := service.Find("list")
+	op := service.Find("query")
 	raw, _ := json.Marshal(map[string]any{"fields": []string{"bogus"}})
 	_, err := op.Run(context.Background(), svc, raw)
 	if err == nil {
@@ -1143,7 +1143,7 @@ func TestOpList_FilterByKind(t *testing.T) {
 	task, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "T"})
 	note, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Title: "N"})
 
-	op := service.Find("list")
+	op := service.Find("query")
 	raw, _ := json.Marshal(map[string]any{"kind": "task"})
 	out, err := op.Run(ctx, svc, raw)
 	if err != nil {
@@ -1166,7 +1166,7 @@ func TestOpList_UnfilteredHint(t *testing.T) {
 
 	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "T"}) //nolint:errcheck // test setup, error irrelevant to subject under test
 
-	op := service.Find("list")
+	op := service.Find("query")
 	raw, _ := json.Marshal(map[string]any{})
 	out, err := op.Run(ctx, svc, raw)
 	if err != nil {

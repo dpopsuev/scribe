@@ -84,7 +84,7 @@ func TestScopedList_HomeScopes(t *testing.T) {
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
-		"action": "list",
+		"action": "query",
 		"kind":   "task",
 	})
 
@@ -107,7 +107,7 @@ func TestScopedList_ExplicitScope(t *testing.T) {
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
-		"action": "list",
+		"action": "query",
 		"kind":   "task",
 		"scope":  "asterisk",
 	})
@@ -158,7 +158,7 @@ func TestScopedList_HomeScoped_KindFilter(t *testing.T) {
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
-		"action": "list",
+		"action": "query",
 		"kind":   "task",
 		"status": "work.draft",
 	})
@@ -196,7 +196,7 @@ func TestNoHomeScopes_ShowsAll(t *testing.T) {
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
-		"action": "list",
+		"action": "query",
 		"kind":   "task",
 	})
 
@@ -1165,7 +1165,7 @@ func TestListCount(t *testing.T) {
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
-		"action": "list",
+		"action": "query",
 		"count":  true,
 		"kind":   "task",
 	})
@@ -1185,7 +1185,7 @@ func TestListCount_GroupBy(t *testing.T) {
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
-		"action":   "list",
+		"action":   "query",
 		"count":    true,
 		"group_by": "status",
 	})
@@ -1385,7 +1385,7 @@ func TestListCompact(t *testing.T) {
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
-		"action": "list",
+		"action": "query",
 		"fields": []any{"id", "status", "title"},
 	})
 	if !strings.Contains(text, "ID") || !strings.Contains(text, "STATUS") || !strings.Contains(text, "TITLE") {
@@ -1410,7 +1410,7 @@ func TestListCompact_InvalidField(t *testing.T) {
 	result, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
 		Name: "artifact",
 		Arguments: map[string]any{
-			"action": "list",
+			"action": "query",
 			"fields": []any{"id", "nonexistent"},
 		},
 	})
@@ -1518,7 +1518,7 @@ func TestMCPSchema_ArrayTypes(t *testing.T) {
 
 	// fields array (list)
 	text = callTool(t, cs, "artifact", map[string]any{
-		"action": "list",
+		"action": "query",
 		"fields": []any{"id", "title"},
 	})
 	if !strings.Contains(text, "T-001") {
@@ -1574,7 +1574,7 @@ func TestMCPSchema_BooleanTypes(t *testing.T) {
 
 	// count boolean (list)
 	text = callTool(t, cs, "artifact", map[string]any{
-		"action": "list",
+		"action": "query",
 		"count":  true,
 		"kind":   "task",
 	})
@@ -2402,7 +2402,7 @@ func TestList_SearchByQuery(t *testing.T) {
 	cs := connectClient(t, srv)
 
 	text := callTool(t, cs, "artifact", map[string]any{
-		"action": "list",
+		"action": "query",
 		"query":  "auth",
 	})
 
@@ -2691,7 +2691,7 @@ func TestList_UnfilteredHint(t *testing.T) {
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
-	out := callTool(t, cs, "artifact", map[string]any{"action": "list"})
+	out := callTool(t, cs, "artifact", map[string]any{"action": "query"})
 
 	if !strings.Contains(out, "top=10") || !strings.Contains(out, "filters to narrow") {
 		t.Errorf("unfiltered list must include context-cost hint; got:\n%s", out)
@@ -2706,7 +2706,7 @@ func TestList_FilteredNoHint(t *testing.T) {
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
 
-	out := callTool(t, cs, "artifact", map[string]any{"action": "list", "scope": "origami"})
+	out := callTool(t, cs, "artifact", map[string]any{"action": "query", "scope": "origami"})
 
 	if strings.Contains(out, "filters to narrow") {
 		t.Errorf("filtered list must not include truncation hint; got:\n%s", out)

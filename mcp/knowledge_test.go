@@ -71,7 +71,7 @@ func translateKnowledgeToArtifact(args map[string]any) map[string]any {
 		out["field"] = "status"
 		out["value"] = "note.evergreen"
 	case "orient", "catalog":
-		out["action"] = "list"
+		out["action"] = "query"
 		out["family"] = "knowledge"
 	case "daily":
 		out["action"] = "create"

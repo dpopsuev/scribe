@@ -119,7 +119,7 @@ func TestSemanticRecall_FlagRankedFirst(t *testing.T) {
 	// "precision" is not in the vocab, so it contributes nothing — only the timing words fire.
 	query := "synchronization precision boundary clock"
 
-	op := service.Find("list")
+	op := service.Find("query")
 	raw, _ := json.Marshal(map[string]any{
 		"mode":  "semantic",
 		"query": query,

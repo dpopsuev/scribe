@@ -15,9 +15,8 @@ import (
 
 // scribeInstructions is the MCP server instructions shown to clients.
 // Kept deliberately minimal — the schema is self-describing.
-// Query artifact(action=list, kind=kind_definition, scope=_schema) to learn when to create each kind.
-// Query artifact(action=list, kind=edge_type_definition, scope=_schema) to learn what each relation means.
-// Query artifact(action=list, kind=label_definition, scope=_schema) to learn when to apply each label.
+// Query artifact(action=query, kind=kind_definition, scope=_schema) to learn when to create each kind.
+// Query artifact(action=query, kind=label_definition, scope=_schema) to learn when to apply each label.
 const scribeInstructions = "Artifact graph + knowledge vault. " +
 	"SESSION START: admin(action=brief) — discloses scope, active goal, open bugs. " +
 	"CAPABILITIES: admin(action=capabilities) — structured map of every action, option, and field; call this when unsure what's possible (e.g. rename_id, dry_run, cascade). " +
@@ -72,7 +71,7 @@ func NewServer(svc *service.Service, vocab []string, version string) (*sdkmcp.Se
 	}, bindHandler(h.handleArtifact))
 	reg.register(ToolMeta{
 		Name: "artifact", Description: artifactDesc,
-		Keywords:   []string{"create", "get", "list", "set", "artifact", "section", "tree", "briefing", "topo_sort", "link", "unlink", "move", "impact"},
+		Keywords:   []string{"create", "get", "query", "set", "artifact", "section", "tree", "briefing", "topo_sort", "link", "unlink", "move", "impact"},
 		Categories: []string{"crud", "graph"},
 	})
 
@@ -126,7 +125,7 @@ type handler struct {
 // --- consolidated input types ---
 
 type artifactInput struct {
-	Action string `json:"action" jsonschema:"required,create | get | list | set | update | orient | link | topo_sort | replace | recall"`
+	Action string `json:"action" jsonschema:"required,create | get | query | set | update | orient | link | topo_sort | replace"`
 
 	ID     string `json:"id,omitempty"`
 	Target string `json:"target,omitempty" jsonschema:"new parent ID (move)"`

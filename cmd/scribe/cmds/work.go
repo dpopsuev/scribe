@@ -96,7 +96,7 @@ func ListCmd() *cobra.Command {
 		Use:   "list",
 		Short: "List artifacts with optional filters",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return RunOp("list", map[string]any{
+			return RunOp("query", map[string]any{
 				"kind": kind, "scope": scope, "status": status,
 				"parent": parent, "sprint": sprint, "id_prefix": idPrefix,
 				"exclude_kind": excludeKind, "exclude_status": excludeStatus,

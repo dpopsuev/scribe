@@ -8,7 +8,7 @@ package mcp_test
 // New contracts:
 //   artifact(action=recall, query=...)       — was knowledge(action=recall)
 //   artifact(action=create, kind=note)       — was knowledge(action=capture)
-//   artifact(action=list, family=knowledge)  — was knowledge(action=orient/catalog)
+//   artifact(action=query, family=knowledge)  — was knowledge(action=orient/catalog)
 //   admin(action=ingest_session, path=...)   — was knowledge(action=ingest_session)
 //   admin(action=detect, check=knowledge)    — was knowledge(action=lint)
 //
@@ -54,7 +54,7 @@ func TestConsolidation_ArtifactRecall(t *testing.T) {
 	})
 
 	out := callArtifact(map[string]any{
-		"action": "list", "ranked": true,
+		"action": "query", "ranked": true,
 		"query": "template conformance",
 		"scope": "test",
 	})
@@ -89,7 +89,7 @@ func TestConsolidation_ArtifactCreateNote(t *testing.T) {
 }
 
 // TestConsolidation_ArtifactListKnowledgeFamily verifies that knowledge artifacts
-// can be listed via artifact(action=list, family=knowledge).
+// can be listed via artifact(action=query, family=knowledge).
 func TestConsolidation_ArtifactListKnowledgeFamily(t *testing.T) {
 	proto, callArtifact, _ := newConsolidatedServer(t)
 	ctx := context.Background()
@@ -98,7 +98,7 @@ func TestConsolidation_ArtifactListKnowledgeFamily(t *testing.T) {
 	_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "a task"})
 
 	out := callArtifact(map[string]any{
-		"action": "list",
+		"action": "query",
 		"scope":  "test",
 		"family": "knowledge",
 	})

@@ -204,7 +204,7 @@ func artifactList(t *testing.T, baseURL, scope, title string) string {
 		"params": map[string]any{
 			"name": "artifact",
 			"arguments": map[string]any{
-				"action": "list",
+				"action": "query",
 				"scope":  scope,
 				"query":  title,
 				"fields": []string{"id", "title", "kind"},
