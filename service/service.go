@@ -12,6 +12,33 @@ import (
 	parchment "github.com/dpopsuev/parchment"
 )
 
+// InventoryResult is a count-by-kind/status summary used by the web UI.
+type InventoryResult struct {
+	Total    int                              `json:"total"`
+	ByKind   map[string]int                   `json:"by_kind"`
+	ByStatus map[string]int                   `json:"by_status"`
+	Tracked  map[string][]*parchment.Artifact `json:"tracked,omitempty"`
+}
+
+// Inventory returns artifact counts grouped by kind and status.
+func (s *Service) Inventory(ctx context.Context) (*InventoryResult, error) {
+	all, err := s.Proto.ListArtifacts(ctx, parchment.ListInput{})
+	if err != nil {
+		return nil, err
+	}
+	r := &InventoryResult{
+		Total:    len(all),
+		ByKind:   make(map[string]int),
+		ByStatus: make(map[string]int),
+		Tracked:  make(map[string][]*parchment.Artifact),
+	}
+	for _, art := range all {
+		r.ByKind[art.Label(parchment.LabelPrefixKind)]++
+		r.ByStatus[parchment.StatusFromLabels(art.Labels)]++
+	}
+	return r, nil
+}
+
 // Service wraps parchment.Protocol and provides all Scribe domain operations.
 // It is the single implementation shared by the MCP handlers and the CLI.
 type Service struct {

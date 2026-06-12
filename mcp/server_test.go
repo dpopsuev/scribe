@@ -1093,173 +1093,6 @@ func TestUpdate_FieldsOnly(t *testing.T) {
 	}
 }
 
-// --- SCR-TSK-13: Enriched brief ---
-
-func TestBrief_ShowsOpenBugs(t *testing.T) {
-	s := openStore(t)
-	ctx := context.Background()
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:bug", "work.draft", "scope:test", "priority:critical"}, ID: "BUG-2026-001", Title: "Critical bug"})
-
-	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
-	cs := connectClient(t, srv)
-
-	text := callTool(t, cs, "admin", map[string]any{"action": "brief"})
-
-	if !strings.Contains(text, "Open Bugs") {
-		t.Errorf("expected Open Bugs section: %s", text)
-	}
-	if !strings.Contains(text, "BUG-2026-001") {
-		t.Errorf("expected bug ID in brief: %s", text)
-	}
-	if !strings.Contains(text, "[critical]") {
-		t.Errorf("expected priority in bug listing: %s", text)
-	}
-}
-
-func TestBrief_ShowsChangedSince(t *testing.T) {
-	s := openStore(t)
-	ctx := context.Background()
-
-	since := time.Now().UTC().Add(-1 * time.Hour).Format(time.RFC3339)
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "work.active", "scope:test"}, ID: "TASK-2026-001", Title: "Recent task"})
-
-	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
-	cs := connectClient(t, srv)
-
-	text := callTool(t, cs, "admin", map[string]any{"action": "brief", "since": since})
-
-	if !strings.Contains(text, "Changed Since") {
-		t.Errorf("expected Changed Since section: %s", text)
-	}
-	if !strings.Contains(text, "TASK-2026-001") {
-		t.Errorf("expected recent task in changes: %s", text)
-	}
-}
-
-func TestBrief_ShowsActiveSummary(t *testing.T) {
-	s := openStore(t)
-	ctx := context.Background()
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "work.active", "scope:test"}, ID: "TASK-2026-001", Title: "Active"})
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "work.draft", "scope:test"}, ID: "TASK-2026-002", Title: "Draft"})
-
-	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
-	cs := connectClient(t, srv)
-
-	text := callTool(t, cs, "admin", map[string]any{"action": "brief"})
-
-	if !strings.Contains(text, "Active Work:") {
-		t.Errorf("expected Active Work summary: %s", text)
-	}
-}
-
-// --- SCR-TSK-15: Count mode ---
-
-func TestListCount(t *testing.T) {
-	s := openStore(t)
-	ctx := context.Background()
-	for i := 1; i <= 5; i++ {
-		s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "work.draft", "scope:test"}, ID: fmt.Sprintf("TASK-2026-%03d", i), Title: fmt.Sprintf("Task %d", i)})
-	}
-
-	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
-	cs := connectClient(t, srv)
-
-	text := callTool(t, cs, "artifact", map[string]any{
-		"action": "query",
-		"count":  true,
-		"kind":   "task",
-	})
-	if text != "5" {
-		t.Errorf("expected count '5', got %q", text)
-	}
-}
-
-func TestListCount_GroupBy(t *testing.T) {
-	s := openStore(t)
-	ctx := context.Background()
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "work.draft", "scope:test"}, ID: "T-001", Title: "T1"})
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "work.active", "scope:test"}, ID: "T-002", Title: "T2"})
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "work.draft", "scope:test"}, ID: "T-003", Title: "T3"})
-
-	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
-	cs := connectClient(t, srv)
-
-	text := callTool(t, cs, "artifact", map[string]any{
-		"action":   "query",
-		"count":    true,
-		"group_by": "status",
-	})
-	if !strings.Contains(text, `"work.draft":2`) || !strings.Contains(text, `"work.active":1`) {
-		t.Errorf("expected grouped counts, got: %s", text)
-	}
-}
-
-// --- SCR-TSK-11: Changelog ---
-
-func TestChangelog(t *testing.T) {
-	s := openStore(t)
-	ctx := context.Background()
-	since := time.Now().UTC().Add(-1 * time.Hour).Format(time.RFC3339)
-	// Use Protocol to emit EventLog events — direct store.Put does not.
-	proto := parchment.New(s, nil, []string{"test"}, nil, parchment.ProtocolConfig{})
-	proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task", "work.active"}, Title: "Changed"})     //nolint:errcheck // test setup
-	proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task", "work.draft"}, Title: "Also changed"}) //nolint:errcheck // test setup
-
-	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
-	cs := connectClient(t, srv)
-
-	text := callTool(t, cs, "admin", map[string]any{
-		"action": "changelog",
-		"since":  since,
-	})
-	if !strings.Contains(text, "2 artifacts") {
-		t.Errorf("expected 2 artifacts in changelog, got: %s", text)
-	}
-	if !strings.Contains(text, "Changed") || !strings.Contains(text, "Also changed") {
-		t.Errorf("expected both artifact titles in changelog: %s", text)
-	}
-}
-
-func TestChangelog_ScopeFilter(t *testing.T) {
-	s := openStore(t)
-	ctx := context.Background()
-	since := time.Now().UTC().Add(-1 * time.Hour).Format(time.RFC3339)
-	proto := parchment.New(s, nil, []string{"alpha", "beta"}, nil, parchment.ProtocolConfig{})
-	proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task", "work.active", parchment.LabelPrefixScope + "alpha"}, Title: "Alpha"}) //nolint:errcheck // test setup
-	proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task", "work.draft", parchment.LabelPrefixScope + "beta"}, Title: "Beta"})    //nolint:errcheck // test setup
-
-	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
-	cs := connectClient(t, srv)
-
-	text := callTool(t, cs, "admin", map[string]any{
-		"action": "changelog",
-		"since":  since,
-		"scope":  "alpha",
-	})
-	if !strings.Contains(text, "Alpha") {
-		t.Errorf("expected alpha artifact in changelog: %s", text)
-	}
-	if strings.Contains(text, "Beta") {
-		t.Errorf("beta artifact should be filtered out: %s", text)
-	}
-}
-
-func TestChangelog_NoChanges(t *testing.T) {
-	s := openStore(t)
-
-	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
-	cs := connectClient(t, srv)
-
-	future := time.Now().UTC().Add(1 * time.Hour).Format(time.RFC3339)
-	text := callTool(t, cs, "admin", map[string]any{
-		"action": "changelog",
-		"since":  future,
-	})
-	if !strings.Contains(text, "no changes") {
-		t.Errorf("expected 'no changes', got: %s", text)
-	}
-}
-
 // --- SCR-TSK-10: Auto-link template ---
 
 func TestAutoLinkTemplate(t *testing.T) {
@@ -2551,8 +2384,8 @@ func TestStreamableHTTP_ToolsListPreservesTypedInputSchemas(t *testing.T) {
 	}
 
 	expectedProps := map[string][]string{
-		"admin":    {"action", "scope"},
-		"artifact": {"action", "kind", "id", "relation"},
+		"artifact":     {"action", "kind", "id"},
+		"relationship": {"action", "relation", "targets"},
 	}
 	seen := make(map[string]bool, len(expectedProps))
 
@@ -2741,17 +2574,9 @@ func TestToolDescriptions_ProgressiveDisclosure(t *testing.T) {
 
 	// relationship: edge + orient surface.
 	relationship := desc["relationship"]
-	for _, phrase := range []string{"link", "orient", "unlink"} {
+	for _, phrase := range []string{"link", "unlink"} {
 		if !strings.Contains(relationship, phrase) {
 			t.Errorf("relationship desc missing %q; got:\n%s", phrase, relationship)
-		}
-	}
-
-	// admin: must disclose since= delta and compact= (SCR-TSK-328).
-	admin := desc["admin"]
-	for _, phrase := range []string{"since=", "compact=true", "CALL FIRST"} {
-		if !strings.Contains(admin, phrase) {
-			t.Errorf("admin desc missing %q; got:\n%s", phrase, admin)
 		}
 	}
 
@@ -2760,55 +2585,6 @@ func TestToolDescriptions_ProgressiveDisclosure(t *testing.T) {
 	// but must not contain the pipe-separated action dump.
 	for _, tool := range tools.Tools {
 		_ = tool // instructions are not exposed via ListTools; tested via server_instructions_test if needed
-	}
-}
-
-func TestAdmin_BriefCompact(t *testing.T) {
-	s := openStore(t)
-	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
-	cs := connectClient(t, srv)
-	text := callTool(t, cs, "admin", map[string]any{"action": "brief", "compact": true})
-	if text == "" {
-		t.Error("compact brief returned empty string")
-	}
-}
-
-func TestAdmin_Dashboard(t *testing.T) {
-	s := openStore(t)
-	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
-	cs := connectClient(t, srv)
-	text := callTool(t, cs, "admin", map[string]any{"action": "dashboard"})
-	if text == "" {
-		t.Error("dashboard returned empty string")
-	}
-}
-
-func TestAdmin_SetGoal_CreatesArtifacts(t *testing.T) {
-	s := openStore(t)
-	// KnowledgeSchema needed for goal kind — seed via Protocol then reuse store.
-	parchment.New(s, parchment.KnowledgeSchema(), []string{"test"}, nil, parchment.ProtocolConfig{})
-	srv, _ := scribemcp.NewServerFromStore(s, []string{"test"}, parchment.ProtocolConfig{}, "test")
-	cs := connectClient(t, srv)
-	text := callTool(t, cs, "admin", map[string]any{
-		"action": "set_goal",
-		"title":  "improve recall quality",
-		"scope":  "test",
-	})
-	if !strings.Contains(text, "improve recall quality") {
-		t.Errorf("set_goal output missing title: %s", text)
-	}
-}
-
-func TestAdmin_SetScope(t *testing.T) {
-	s := openStore(t)
-	srv, _ := scribemcp.NewServerFromStore(s, []string{"test", "other"}, parchment.ProtocolConfig{}, "test")
-	cs := connectClient(t, srv)
-	text := callTool(t, cs, "admin", map[string]any{
-		"action": "set_scope",
-		"labels": []string{"test"},
-	})
-	if !strings.Contains(text, "test") {
-		t.Errorf("set_scope output missing scope: %s", text)
 	}
 }
 

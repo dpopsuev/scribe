@@ -48,12 +48,6 @@ func TestDashboard(t *testing.T) {
 	if !strings.Contains(body, "Dashboard") {
 		t.Error("dashboard page missing title")
 	}
-	if !strings.Contains(body, "Test Campaign") {
-		t.Error("dashboard missing active campaign")
-	}
-	if !strings.Contains(body, "Test Goal") {
-		t.Error("dashboard missing goal")
-	}
 }
 
 func TestArtifactList(t *testing.T) {

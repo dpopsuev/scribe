@@ -10,6 +10,35 @@ import (
 	parchment "github.com/dpopsuev/parchment"
 )
 
+const (
+	sortFieldTitle  = "title"
+	sortFieldStatus = "status"
+	sortFieldScope  = "scope"
+	sortFieldKind   = "kind"
+	sortFieldSprint = "sprint"
+)
+
+// SortArtifacts sorts a slice of artifacts in-place by the named field.
+// Falls back to ID sort for unknown fields.
+func SortArtifacts(arts []*parchment.Artifact, field string) {
+	sort.Slice(arts, func(i, j int) bool {
+		switch field {
+		case sortFieldTitle:
+			return arts[i].Title < arts[j].Title
+		case sortFieldStatus:
+			return parchment.StatusFromLabels(arts[i].Labels) < parchment.StatusFromLabels(arts[j].Labels)
+		case sortFieldScope:
+			return arts[i].Label(parchment.LabelPrefixScope) < arts[j].Label(parchment.LabelPrefixScope)
+		case sortFieldKind:
+			return arts[i].Label(parchment.LabelPrefixKind) < arts[j].Label(parchment.LabelPrefixKind)
+		case sortFieldSprint:
+			return arts[i].Label(parchment.LabelPrefixSprint) < arts[j].Label(parchment.LabelPrefixSprint)
+		default:
+			return arts[i].ID < arts[j].ID
+		}
+	})
+}
+
 type edgeInput struct {
 	From     string `json:"from"`
 	Relation string `json:"relation"`
@@ -464,21 +493,6 @@ func countDistinctScopes(node *parchment.TreeNode) int {
 	}
 	walk(node)
 	return len(scopes)
-}
-
-type orientInput struct {
-	Scope string `json:"scope,omitempty"`
-}
-
-var opOrient = Op{
-	Name: "orient",
-	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
-		var in orientInput
-		if err := json.Unmarshal(raw, &in); err != nil {
-			return "", err
-		}
-		return svc.KnowledgeOrient(ctx, in.Scope)
-	},
 }
 
 type listInput struct {

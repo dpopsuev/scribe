@@ -877,30 +877,7 @@ func TestOpList_FamilyKnowledgeGrouped(t *testing.T) {
 	}
 }
 
-func TestOpOrient_ReturnsVaultReport(t *testing.T) {
-	// Given notes exist in a scope
-	// When orient(scope=test) is called
-	// Then output contains vault structure sections
-	svc := newTestService(t, "test")
-	ctx := context.Background()
 
-	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{ //nolint:errcheck // test setup, error irrelevant to subject under test
-		Labels: []string{"kind:note"}, Title: "design note",
-	})
-
-	op := service.Find("orient")
-	if op == nil {
-		t.Fatal("orient Op not registered")
-	}
-	raw, _ := json.Marshal(map[string]any{"scope": "test"})
-	out, err := op.Run(ctx, svc, raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, "Schema") && !strings.Contains(out, "Vault") {
-		t.Errorf("expected vault structure report, got: %s", out[:min(200, len(out))])
-	}
-}
 
 func TestOpUpdate_SetsMultipleFields(t *testing.T) {
 	// Given a task exists

@@ -23,7 +23,7 @@ import (
 	scribemcp "github.com/dpopsuev/scribe/mcp"
 )
 
-func newConsolidatedServer(t *testing.T) (proto *parchment.Protocol, callArtifact, callAdmin func(map[string]any) string) {
+func newConsolidatedServer(t *testing.T) (proto *parchment.Protocol, callArtifact func(map[string]any) string) {
 	t.Helper()
 	s := openStore(t)
 	proto = parchment.New(s, parchment.KnowledgeSchema(), []string{"test"}, nil, parchment.ProtocolConfig{
@@ -38,14 +38,13 @@ func newConsolidatedServer(t *testing.T) (proto *parchment.Protocol, callArtifac
 	}, "v0")
 	cs := connectClient(t, srv)
 	callArtifact = func(args map[string]any) string { return callTool(t, cs, "artifact", args) }
-	callAdmin = func(args map[string]any) string { return callTool(t, cs, "admin", args) }
 	return
 }
 
 // TestConsolidation_ArtifactRecall verifies that recall moved from the knowledge
 // tool to the artifact tool. artifact(action=recall) must find knowledge artifacts.
 func TestConsolidation_ArtifactRecall(t *testing.T) {
-	proto, callArtifact, _ := newConsolidatedServer(t)
+	proto, callArtifact := newConsolidatedServer(t)
 	ctx := context.Background()
 
 	_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindNote, "note.evergreen"}, Title: "template conformance deferred",
@@ -70,7 +69,7 @@ func TestConsolidation_ArtifactRecall(t *testing.T) {
 // TestConsolidation_ArtifactCreateNote verifies that knowledge artifacts are
 // created via artifact(action=create, kind=note) — same tool, different kind.
 func TestConsolidation_ArtifactCreateNote(t *testing.T) {
-	_, callArtifact, _ := newConsolidatedServer(t)
+	_, callArtifact := newConsolidatedServer(t)
 
 	out := callArtifact(map[string]any{
 		"action": "create",
@@ -91,7 +90,7 @@ func TestConsolidation_ArtifactCreateNote(t *testing.T) {
 // TestConsolidation_ArtifactListKnowledgeFamily verifies that knowledge artifacts
 // can be listed via artifact(action=query, family=knowledge).
 func TestConsolidation_ArtifactListKnowledgeFamily(t *testing.T) {
-	proto, callArtifact, _ := newConsolidatedServer(t)
+	proto, callArtifact := newConsolidatedServer(t)
 	ctx := context.Background()
 
 	_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindNote}, Title: "a fleeting note"})
@@ -112,33 +111,10 @@ func TestConsolidation_ArtifactListKnowledgeFamily(t *testing.T) {
 	}
 }
 
-// TestConsolidation_AdminIngestSession verifies that ingest_session moved from
-// the knowledge tool to the admin tool.
-func TestConsolidation_AdminIngestSession(t *testing.T) {
-	dir := t.TempDir()
-	path := buildPiSession(t, dir)
-
-	_, _, callAdmin := newConsolidatedServer(t)
-
-	out := callAdmin(map[string]any{
-		"action": "ingest_session",
-		"path":   path,
-		"scope":  "test",
-	})
-
-	if strings.Contains(strings.ToLower(out), "unknown admin action") {
-		t.Fatalf("admin(action=ingest_session) not implemented: %s", out)
-	}
-	// Must report ingestion activity
-	if out == "" {
-		t.Error("admin(action=ingest_session) must return output")
-	}
-}
-
-// // TestConsolidation_BatchCreate_Folded verifies that batch_create is folded
+// TestConsolidation_BatchCreate_Folded verifies that batch_create is folded
 // into create with an artifacts[] parameter.
 func TestConsolidation_BatchCreate_Folded(t *testing.T) {
-	_, callArtifact, _ := newConsolidatedServer(t)
+	_, callArtifact := newConsolidatedServer(t)
 
 	// batch_create via create with artifacts[] — new unified interface
 	out := callArtifact(map[string]any{

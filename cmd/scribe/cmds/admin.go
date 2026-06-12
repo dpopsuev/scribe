@@ -5,104 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 
-	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/config"
-	"github.com/dpopsuev/scribe/service"
 	"github.com/spf13/cobra"
 )
 
 const lintLevelError = "error"
-
-func BriefCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "brief",
-		Short: "Session brief: active goal, open work, and recent knowledge",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg := MustConfig()
-			cwd, _ := os.Getwd()
-			var homeScopes []string
-			if sc := cfg.ScopeForDir(cwd); sc != "" {
-				homeScopes = []string{sc}
-			} else {
-				homeScopes = cfg.ResolvedScopes()
-			}
-			svc, closeDB, err := service.Open(cfg, nil, "", homeScopes)
-			if err != nil {
-				return err
-			}
-			defer closeDB()
-			m, err := svc.Brief(context.Background())
-			if err != nil {
-				return err
-			}
-			var sections []string
-			if len(m.Goals) > 0 {
-				var lines []string
-				for _, g := range m.Goals {
-					prefix := ""
-					if g.Label(parchment.LabelPrefixScope) != "" {
-						prefix = "[" + g.Label(parchment.LabelPrefixScope) + "] "
-					}
-					lines = append(lines, fmt.Sprintf("  %s %s%s", g.ID, prefix, g.Title))
-				}
-				sections = append(sections, "Goal:\n"+strings.Join(lines, "\n"))
-			}
-			if len(m.Warnings) > 0 {
-				var lines []string
-				for _, w := range m.Warnings {
-					lines = append(lines, "  ⚠ "+w)
-				}
-				sections = append(sections, "Warnings:\n"+strings.Join(lines, "\n"))
-			}
-			if len(sections) == 0 {
-				fmt.Println("nothing to report")
-				return nil
-			}
-			fmt.Println(strings.Join(sections, "\n\n"))
-			return nil
-		},
-	}
-}
-
-func DfCmd() *cobra.Command {
-	var staleDays int
-	var format string
-	cmd := &cobra.Command{
-		Use:   "df",
-		Short: "Housekeeping dashboard: storage, staleness, scope health",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, cleanup := MustService()
-			defer cleanup()
-			report, err := svc.Dashboard(context.Background(), staleDays)
-			if err != nil {
-				return err
-			}
-			if format == formatJSON {
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				return enc.Encode(report)
-			}
-			fmt.Printf("DB size: %d bytes\n\n", report.DBSizeBytes)
-			fmt.Println("Scopes:")
-			for _, ds := range report.Scopes {
-				fmt.Printf("  %-15s total=%d active=%d archived=%d sections=%d edges=%d stale=%d\n",
-					ds.Scope, ds.Total, ds.Active, ds.Archived, ds.Sections, ds.Edges, ds.Stale)
-			}
-			if len(report.StaleArts) > 0 {
-				fmt.Println("\nTop stale artifacts (by updated_at):")
-				for _, a := range report.StaleArts {
-					fmt.Printf("  %s [%s] %s\n", a.ID, a.Label(parchment.LabelPrefixStatus), a.Title)
-				}
-			}
-			return nil
-		},
-	}
-	cmd.Flags().IntVar(&staleDays, "stale-days", 30, "staleness threshold in days")
-	cmd.Flags().StringVar(&format, "format", "text", "output format (text, json)")
-	return cmd
-}
 
 func VacuumCmd() *cobra.Command {
 	var days int
@@ -135,52 +43,6 @@ func VacuumCmd() *cobra.Command {
 	cmd.Flags().IntVar(&days, "days", 90, "minimum age in days")
 	cmd.Flags().StringVar(&scope, "scope", "", "limit to artifacts in this scope")
 	cmd.Flags().BoolVar(&force, "force", false, "delete protected kinds (spec, bug)")
-	return cmd
-}
-
-func InventoryCmd() *cobra.Command {
-	var format string
-	cmd := &cobra.Command{
-		Use:   "inventory",
-		Short: "Show a dashboard summary of all artifacts",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, cleanup := MustService()
-			defer cleanup()
-			inv, err := svc.Inventory(context.Background())
-			if err != nil {
-				return err
-			}
-			if format == formatJSON {
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				return enc.Encode(inv)
-			}
-			fmt.Printf("Total artifacts: %d\n\n", inv.Total)
-			fmt.Println("By kind:")
-			for k, v := range inv.ByKind {
-				fmt.Printf("  %-15s %d\n", k, v)
-			}
-			fmt.Println("\nBy status:")
-			for s, v := range inv.ByStatus {
-				fmt.Printf("  %-15s %d\n", s, v)
-			}
-			for kind, arts := range inv.Tracked {
-				if len(arts) == 0 {
-					continue
-				}
-				fmt.Printf("\nTracked %s:\n", kind)
-				for _, a := range arts {
-					prefix := ""
-					if a.Label(parchment.LabelPrefixScope) != "" {
-						prefix = "[" + a.Label(parchment.LabelPrefixScope) + "] "
-					}
-					fmt.Printf("  %s %s%s\n", a.ID, prefix, a.Title)
-				}
-			}
-			return nil
-		},
-	}
-	cmd.Flags().StringVar(&format, "format", "text", "output format (text, json)")
 	return cmd
 }
 

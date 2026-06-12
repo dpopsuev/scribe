@@ -74,10 +74,9 @@ func NewServer(svc *service.Service, vocab []string, version string) (*sdkmcp.Se
 	})
 
 	// relationship tool
-	relationshipDesc := "Edge management and graph structure. " +
+	relationshipDesc := "Edge management and graph traversal. " +
 		"EDGES: link(id=, relation=, targets=[]) to add; link(id=, relation=, targets=[], mode=unlink) to remove. " +
-		"BULK: link(edges=[{from, relation, to}]) for multiple edges in one call. " +
-		"ORIENT: orient(scope=) for vault map — scopes, active goals, kind counts. Call after brief."
+		"BULK: link(edges=[{from, relation, to}]) for multiple edges in one call."
 	var relationshipSchema any
 	_ = json.Unmarshal(schemaFor[relationshipInput](), &relationshipSchema)
 	sdk.AddTool(&sdkmcp.Tool{
@@ -91,27 +90,6 @@ func NewServer(svc *service.Service, vocab []string, version string) (*sdkmcp.Se
 		Name: "relationship", Description: relationshipDesc,
 		Keywords:   []string{"link", "unlink", "edge", "orient", "graph", "relation"},
 		Categories: []string{"graph"},
-	})
-
-	// admin tool
-	adminDesc := "Session bootstrap and housekeeping. " +
-		"CALL FIRST: brief — returns scope, open bugs, active goal, and memory surface. " +
-		"CONTINUATION: brief(since=<RFC3339>) for delta only — returns only what changed since that timestamp. " +
-		"brief(compact=true) for a one-line status summary. " +
-		"dashboard for scope health and staleness. vacuum(dry_run=true) before pruning. detect for orphans/overlaps."
-	var adminSchema any
-	_ = json.Unmarshal(schemaFor[adminInput](), &adminSchema)
-	sdk.AddTool(&sdkmcp.Tool{
-		Name:        "admin",
-		Title:       "Workspace Admin",
-		Description: adminDesc,
-		InputSchema: adminSchema,
-		Annotations: &sdkmcp.ToolAnnotations{DestructiveHint: &destructiveHint},
-	}, bindHandler(h.handleAdmin))
-	reg.register(ToolMeta{
-		Name: "admin", Description: adminDesc,
-		Keywords:   []string{"brief", "dashboard", "goal", "vacuum", "detect", "orphan"},
-		Categories: []string{"lifecycle", "maintenance"},
 	})
 
 	return sdk, reg
@@ -234,7 +212,7 @@ type edgeInput struct {
 // This is a minimal survivor of the old knowledge tool; all other fields
 // were removed when the knowledge tool was merged into admin.
 type relationshipInput struct {
-	Action    string      `json:"action" jsonschema:"required,link | orient"`
+	Action    string      `json:"action" jsonschema:"required,link"`
 	ID        string      `json:"id,omitempty" jsonschema:"source artifact ID (link) or scope filter (orient)"`
 	Relation  string      `json:"relation,omitempty" jsonschema:"parent_of, depends_on, follows, justifies, implements, documents"`
 	Targets   []string    `json:"targets,omitempty" jsonschema:"target artifact IDs"`
@@ -243,7 +221,6 @@ type relationshipInput struct {
 	Weight    float64     `json:"weight,omitempty" jsonschema:"edge coupling strength (0.0 = boolean, 1.0 = max; default 0)"`
 	Mode      string      `json:"mode,omitempty" jsonschema:"unlink to remove edges; replace to swap old_target for target"`
 	OldTarget string      `json:"old_target,omitempty" jsonschema:"edge to replace (mode=replace)"`
-	Scope     string      `json:"scope,omitempty" jsonschema:"scope filter for orient"`
 }
 
 type knowledgeInput struct {
@@ -251,37 +228,7 @@ type knowledgeInput struct {
 	Scope string `json:"scope,omitempty"`
 }
 
-type adminInput struct {
-	Action  string `json:"action" jsonschema:"required,brief | changelog | dashboard | snapshot | set_goal | detect | correlate | ingest_session | set_scope | context_read | session | vocab"`
-	Compact bool   `json:"compact,omitempty" jsonschema:"minimal output for repeat calls (brief)"`
 
-	SubAction    string `json:"sub_action,omitempty" jsonschema:"snapshot: create|list|diff|restore — session: start|commit|diff|merge"`
-	SnapshotName string `json:"snapshot_name,omitempty" jsonschema:"snapshot label (create) or key (diff)"`
-
-	StaleDays int    `json:"stale_days,omitempty" jsonschema:"days without update to consider stale (dashboard)"`
-	Since     string `json:"since,omitempty" jsonschema:"RFC 3339 lower bound (brief, changelog)"`
-
-	Title string `json:"title,omitempty"`
-	Scope string `json:"scope,omitempty"`
-	Kind  string `json:"kind,omitempty" jsonschema:"artifact kind filter or root kind for set_goal"`
-
-	Target string `json:"target,omitempty"`
-
-	Check   string `json:"check,omitempty" jsonschema:"orphans (default), overlaps, knowledge, eviction, or all"`
-	Status  string `json:"status,omitempty"`
-	Project string `json:"project,omitempty"`
-
-	Labels []string `json:"labels,omitempty"`
-
-	// correlate: freeform text containing artifact IDs and delivery signals
-	Evidence string `json:"evidence,omitempty" jsonschema:"freeform text with artifact IDs (correlate)"`
-
-	// ingest_session: filesystem path to a .jsonl session file or directory
-	Path string `json:"path,omitempty" jsonschema:"path to .jsonl session file or directory (ingest_session)"`
-
-	// vocab: disclosure depth — 0=slugs only, 1=slug+family+description, 2=full JSON
-	Depth int `json:"depth,omitempty" jsonschema:"vocab disclosure depth: 0=slugs only, 1=slug+family+description, 2=full JSON"`
-}
 
 // --- dispatchers ---
 

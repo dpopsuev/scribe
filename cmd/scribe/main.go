@@ -34,11 +34,9 @@ func main() {
 		cmds.BriefingCmd(),
 		cmds.SectionCmd(),
 		cmds.SearchCmd(),
-		cmds.GoalCmd(),
+
 		cmds.VacuumCmd(),
-		cmds.DfCmd(),
-		cmds.BriefCmd(),
-		cmds.InventoryCmd(),
+
 		cmds.LinkCmd(),
 		cmds.UnlinkCmd(),
 		cmds.OverlapsCmd(),
