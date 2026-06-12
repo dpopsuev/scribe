@@ -36,19 +36,15 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 			Kind: in.Kind, Project: in.Project,
 		})
 
-	case "decision":
-		return h.handleDecision(ctx, in)
 	case "set_scope":
+		// scope=<name> sets home scope; labels=[] sets arbitrary label filter for the scope.
+		if in.Scope != "" && len(in.Labels) > 0 {
+			if err := h.proto.SetScopeLabels(ctx, in.Scope, in.Labels); err != nil {
+				return nil, nil, err
+			}
+			return text(fmt.Sprintf("scope %q labels set to %v", in.Scope, in.Labels)), nil, nil
+		}
 		return h.handleSetScope(in.Labels) // Labels reused as []string scopes
-
-	case "set_scope_labels":
-		if in.Scope == "" {
-			return nil, nil, fmt.Errorf("scope is required for set_scope_labels") //nolint:err113 // agent-facing input validation
-		}
-		if err := h.proto.SetScopeLabels(ctx, in.Scope, in.Labels); err != nil {
-			return nil, nil, err
-		}
-		return text(fmt.Sprintf("scope %q labels set to %v", in.Scope, in.Labels)), nil, nil
 
 	case "correlate":
 		return h.handleCorrelate(ctx, in)
@@ -58,64 +54,22 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 	case "context_read":
 		return h.handleContextRead(ctx, in)
 	case "session":
-		switch in.SnapshotAction {
+		switch in.SubAction {
 		case "start":
 			return h.handleSessionStart(ctx, in)
 		case "commit":
 			return h.handleSessionCommit(ctx, in)
-		case "diff": //nolint:goconst // "diff" also appears in snapshot sub-dispatch; not extractable without coupling the two
+		case "diff":
 			return h.handleSessionDiff(ctx, in)
 		case "merge":
 			return h.handleSessionMerge(ctx, in)
 		default:
-			return nil, nil, fmt.Errorf("session requires snapshot_action=start|commit|diff|merge") //nolint:err113 // agent-facing hint
+			return nil, nil, fmt.Errorf("session requires sub_action=start|commit|diff|merge") //nolint:err113 // agent-facing hint
 		}
-	case "capabilities":
-		return h.handleCapabilities(ctx)
 	case "vocab":
 		return h.handleVocab(ctx, in)
 	default:
-		return nil, nil, fmt.Errorf("unknown admin action %q (valid: brief, capabilities, changelog, dashboard, snapshot, set_goal, detect, correlate, ingest_session, decision, context_read, session, set_scope, set_scope_labels, vocab)", in.Action) //nolint:err113 // agent-facing hint
-	}
-}
-
-// handleDecision dispatches decision cache sub-actions: check | record | list.
-// Uses adminInput.Check=key, adminInput.Value=answer, adminInput.Scope.
-func (h *handler) handleDecision(ctx context.Context, in adminInput) (*sdkmcp.CallToolResult, any, error) {
-	switch in.SnapshotAction {
-	case "record":
-		if in.Check == "" || in.Evidence == "" {
-			return nil, nil, fmt.Errorf("decision record requires check=<key> and evidence=<answer>") //nolint:err113 // user-facing hint
-		}
-		if err := h.svc.RecordDecision(ctx, in.Check, in.Evidence, in.Scope); err != nil {
-			return nil, nil, err
-		}
-		return text(fmt.Sprintf("decision recorded: %q → %q", in.Check, in.Evidence)), nil, nil
-	case "list":
-		arts, err := h.svc.ListDecisions(ctx, in.Scope)
-		if err != nil {
-			return nil, nil, err
-		}
-		if len(arts) == 0 {
-			return text("no decisions recorded"), nil, nil
-		}
-		var lines []string
-		for _, a := range arts {
-			lines = append(lines, fmt.Sprintf("  %-30s %s", a.Title, a.Goal()))
-		}
-		return text(strings.Join(lines, "\n")), nil, nil
-	default: // "check" or empty
-		if in.Check == "" {
-			return nil, nil, fmt.Errorf("decision check requires check=<key>") //nolint:err113 // user-facing hint
-		}
-		answer, err := h.svc.CheckDecision(ctx, in.Check, in.Scope)
-		if err != nil {
-			return nil, nil, err
-		}
-		if answer == "" {
-			return text(fmt.Sprintf("%q: not decided", in.Check)), nil, nil
-		}
-		return text(fmt.Sprintf("%q: %s", in.Check, answer)), nil, nil
+		return nil, nil, fmt.Errorf("unknown admin action %q (valid: brief, changelog, dashboard, snapshot, set_goal, detect, correlate, ingest_session, context_read, session, set_scope, vocab)", in.Action) //nolint:err113 // agent-facing hint
 	}
 }
 
@@ -176,7 +130,7 @@ func (h *handler) handleChangelog(ctx context.Context, since, scope string) (*sd
 }
 
 func (h *handler) handleSnapshot(ctx context.Context, in adminInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: value semantics intentional
-	out, err := h.svc.SnapshotAction(ctx, in.SnapshotAction, in.SnapshotName)
+	out, err := h.svc.SnapshotAction(ctx, in.SubAction, in.SnapshotName)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -378,52 +332,4 @@ func sectionText(art *parchment.Artifact, name string) string {
 	return ""
 }
 
-// handleCapabilities returns a structured map of every callable operation,
-// option, and field — the MCP equivalent of GraphQL introspection.
-// Agents call admin(action=capabilities) once at session start to discover
-// what's possible without relying on description prose or prior knowledge.
-func (h *handler) handleCapabilities(_ context.Context) (*sdkmcp.CallToolResult, any, error) {
-	caps := map[string]any{
-		// artifact tool actions
-		"artifact_actions": []string{
-			"create", "get", "query", "set", "update",
-			"retire", "attach_section", "detach_section", "bulk_section_update",
-			"diff", "orient", "tree", "briefing", "link", "unlink",
-			"topo_sort", "replace", "catalog", "impact",
-		},
-		// admin tool actions
-		"admin_actions": []string{
-			"brief", "capabilities", "changelog", "dashboard", "snapshot",
-			"set_goal", "detect", "correlate", "ingest_session", "decision",
-			"context_read", "session", "set_scope", "set_scope_labels", "vocab",
-		},
-		// set() options — each is a bool flag on the set action
-		"set_options": map[string]string{ //nolint:gosec // G101: map keys are option names, not credentials
-			"force":         "bypass lifecycle transition validation — allows status moves blocked by rules",
-			"bypass_guards": "skip rule evaluator entirely — for migrations or emergency writes",
-			"cascade":       "apply operation recursively to all children — used with retire/archive",
-			"dry_run":       "simulate without writing — returns what would change",
-			"rename_id":     "field=scope only — atomically renames the artifact ID to match the new scope key; result.new_id carries the new identifier; all edge references cascade automatically",
-		},
-		// fields accepted by set(field=X, value=Y)
-		"set_fields": []string{
-			"title", "goal", "scope", "status", "parent", "priority",
-			"kind", "depends_on", "labels", "sprint", "alias",
-		},
-		// result shape for set() — new_id is only present when rename_id=true
-		"set_result_shape": map[string]string{
-			"id":     "artifact ID (original, before rename if rename_id was used)",
-			"new_id": "new artifact ID after scope rename — only present when rename_id=true",
-			"field":  "field that was set",
-			"value":  "value that was set",
-		},
-		// schema kinds available in _schema scope for structural discovery
-		"schema_kinds": []string{
-			"kind_definition", "edge_type_definition", "label_definition", "rule",
-		},
-		"schema_discovery": "artifact(action=query, kind=kind_definition, scope=_schema) — learn when to create each kind. " +
-			"artifact(action=query, kind=label_definition, scope=_schema) — learn when to apply each label.",
-	}
-	data, _ := json.Marshal(caps)
-	return text(string(data)), nil, nil
-}
+

@@ -221,11 +221,11 @@ type knowledgeInput struct {
 }
 
 type adminInput struct {
-	Action  string `json:"action" jsonschema:"required,brief | capabilities | changelog | dashboard | snapshot | set_goal | detect | correlate | ingest_session | decision | set_scope | set_scope_labels | context_read | session | vocab"`
+	Action  string `json:"action" jsonschema:"required,brief | changelog | dashboard | snapshot | set_goal | detect | correlate | ingest_session | set_scope | context_read | session | vocab"`
 	Compact bool   `json:"compact,omitempty" jsonschema:"minimal output for repeat calls (brief)"`
 
-	SnapshotAction string `json:"snapshot_action,omitempty" jsonschema:"create, list, diff, or restore"`
-	SnapshotName   string `json:"snapshot_name,omitempty" jsonschema:"snapshot label (create) or key (diff)"`
+	SubAction    string `json:"sub_action,omitempty" jsonschema:"snapshot: create|list|diff|restore — session: start|commit|diff|merge"`
+	SnapshotName string `json:"snapshot_name,omitempty" jsonschema:"snapshot label (create) or key (diff)"`
 
 	StaleDays int    `json:"stale_days,omitempty" jsonschema:"days without update to consider stale (dashboard)"`
 	Since     string `json:"since,omitempty" jsonschema:"RFC 3339 lower bound (brief, changelog)"`
