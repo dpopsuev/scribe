@@ -21,7 +21,7 @@ type linkInput struct {
 	Relation    string      `json:"relation"`
 	Targets     []string    `json:"targets,omitempty"`
 	Target      string      `json:"target,omitempty"`
-	ReplaceFrom string      `json:"replace_from,omitempty"`
+	OldTarget   string      `json:"old_target,omitempty"` // edge to replace when mode=replace
 	Mode        string      `json:"mode,omitempty"`
 	Weight      float64     `json:"weight,omitempty"`
 	Edges       []edgeInput `json:"edges,omitempty"`
@@ -84,17 +84,17 @@ var opLink = Op{
 		if in.Mode == "remove" || in.Mode == "unlink" {
 			return execEdgeOp(ctx, svc, in, true)
 		}
-		if in.ReplaceFrom != "" {
+		if in.OldTarget != "" {
 			if in.ID == "" || in.Relation == "" || in.Target == "" {
 				return "", fmt.Errorf("id, relation, replace_from, and target required") //nolint:err113 // user-facing hint
 			}
-			if _, err := svc.Proto.UnlinkArtifacts(ctx, in.ID, in.Relation, []string{in.ReplaceFrom}); err != nil {
+			if _, err := svc.Proto.UnlinkArtifacts(ctx, in.ID, in.Relation, []string{in.OldTarget}); err != nil {
 				return "", fmt.Errorf("unlink old: %w", err)
 			}
 			if _, err := svc.Proto.LinkArtifacts(ctx, in.ID, in.Relation, []string{in.Target}, in.Weight); err != nil {
 				return "", fmt.Errorf("link new: %w", err)
 			}
-			return fmt.Sprintf("replaced %s -[%s]-> %s with %s", in.ID, in.Relation, in.ReplaceFrom, in.Target), nil
+			return fmt.Sprintf("replaced %s -[%s]-> %s with %s", in.ID, in.Relation, in.OldTarget, in.Target), nil
 		}
 		return execEdgeOp(ctx, svc, in, false)
 	},

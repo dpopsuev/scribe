@@ -463,7 +463,7 @@ func TestOpReplace_SwapsEdgeTarget(t *testing.T) {
 	op := service.Find("link")
 	raw, _ := json.Marshal(map[string]any{
 		"id": a.ID, "relation": "implements",
-		"replace_from": b.ID, "target": c.ID,
+		"old_target": b.ID, "target": c.ID,
 	})
 	out, err := op.Run(ctx, svc, raw)
 	if err != nil {
@@ -544,7 +544,7 @@ func TestOpLink_ModeReplaceSwapsTarget(t *testing.T) {
 	}
 	raw, _ := json.Marshal(map[string]any{
 		"id": a.ID, "relation": "implements",
-		"target": c.ID, "replace_from": b.ID,
+		"target": c.ID, "old_target": b.ID,
 	})
 	out, err := op.Run(ctx, svc, raw)
 	if err != nil {

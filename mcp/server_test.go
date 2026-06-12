@@ -2731,18 +2731,19 @@ func TestToolDescriptions_ProgressiveDisclosure(t *testing.T) {
 		desc[tool.Name] = tool.Description
 	}
 
-	// artifact: must guide agents away from bare list toward cheaper alternatives.
+	// artifact: CRUD + search surface.
 	artifact := desc["artifact"]
-	for _, phrase := range []string{"get_section", "recall", "top=N", "burns context"} {
+	for _, phrase := range []string{"query", "get", "create", "set", "sort=topo"} {
 		if !strings.Contains(artifact, phrase) {
 			t.Errorf("artifact desc missing %q; got:\n%s", phrase, artifact)
 		}
 	}
 
-	// graph actions folded into artifact tool (SCR-TSK-364) — verify artifact describes them.
-	for _, phrase := range []string{"briefing", "tree", "sort=topo", "impact"} {
-		if !strings.Contains(artifact, phrase) {
-			t.Errorf("artifact desc missing graph phrase %q; got:\n%s", phrase, artifact)
+	// relationship: edge + orient surface.
+	relationship := desc["relationship"]
+	for _, phrase := range []string{"link", "orient", "unlink"} {
+		if !strings.Contains(relationship, phrase) {
+			t.Errorf("relationship desc missing %q; got:\n%s", phrase, relationship)
 		}
 	}
 

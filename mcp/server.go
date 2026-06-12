@@ -53,26 +53,44 @@ func NewServer(svc *service.Service, vocab []string, version string) (*sdkmcp.Se
 	sdk := batt.SDK()
 	destructiveHint := true
 
-	artifactDesc := "CRUD + search + graph for work (task/spec/bug/goal) and knowledge (note/concept/source) artifacts. " +
-		"FIND: list(query=) for keyword FTS; recall(query=, top=10) for ranked FTS with kind/recency scoring; list(semantic=true, query=) for vector similarity (requires embeddings). " +
-		"READ: get(id=) full artifact; get_section(id=, name=) for one section only (cheaper). " +
-		"LIST: always add scope/kind/status or top=N — bare list returns ALL artifacts and burns context. " +
-		"WRITE: create, set, attach_section. " +
-		"GRAPH: briefing(id=) — full edge-aware context chain; tree(id=) — children; link/unlink — edges; query(id=, sort=topo) — dependency order; impact — blast radius. " +
-		"ORIENT: orient for vault map (call after brief); catalog for full inventory."
+	artifactDesc := "Node CRUD for work and knowledge artifacts. " +
+		"FIND: query(query=) for keyword FTS; query(ranked=true, query=) for scored recall; query(mode=semantic, query=) for vector similarity. " +
+		"READ: get(id=) full artifact. " +
+		"WRITE: create, set (single field), update (sections/extra patch), replace (idempotent upsert). " +
+		"PLAN: query(id=<goal>, sort=topo) for dependency order; query(id=<goal>, sort=topo, unblocked=true) for ready queue."
 	var artifactSchema any
 	_ = json.Unmarshal(schemaFor[artifactInput](), &artifactSchema)
 	sdk.AddTool(&sdkmcp.Tool{
 		Name:        "artifact",
-		Title:       "Artifact Manager",
+		Title:       "Artifact",
 		Description: artifactDesc,
 		InputSchema: artifactSchema,
 		Annotations: &sdkmcp.ToolAnnotations{DestructiveHint: &destructiveHint},
 	}, bindHandler(h.handleArtifact))
 	reg.register(ToolMeta{
 		Name: "artifact", Description: artifactDesc,
-		Keywords:   []string{"create", "get", "query", "set", "artifact", "section", "tree", "briefing", "link", "unlink", "move", "impact"},
-		Categories: []string{"crud", "graph"},
+		Keywords:   []string{"create", "get", "query", "set", "update", "replace", "artifact", "section"},
+		Categories: []string{"crud"},
+	})
+
+	// relationship tool
+	relationshipDesc := "Edge management and graph structure. " +
+		"EDGES: link(id=, relation=, targets=[]) to add; link(id=, relation=, targets=[], mode=unlink) to remove. " +
+		"BULK: link(edges=[{from, relation, to}]) for multiple edges in one call. " +
+		"ORIENT: orient(scope=) for vault map — scopes, active goals, kind counts. Call after brief."
+	var relationshipSchema any
+	_ = json.Unmarshal(schemaFor[relationshipInput](), &relationshipSchema)
+	sdk.AddTool(&sdkmcp.Tool{
+		Name:        "relationship",
+		Title:       "Relationship",
+		Description: relationshipDesc,
+		InputSchema: relationshipSchema,
+		Annotations: &sdkmcp.ToolAnnotations{DestructiveHint: &destructiveHint},
+	}, bindHandler(h.handleRelationship))
+	reg.register(ToolMeta{
+		Name: "relationship", Description: relationshipDesc,
+		Keywords:   []string{"link", "unlink", "edge", "orient", "graph", "relation"},
+		Categories: []string{"graph"},
 	})
 
 	// admin tool
@@ -125,7 +143,7 @@ type handler struct {
 // --- consolidated input types ---
 
 type artifactInput struct {
-	Action string `json:"action" jsonschema:"required,create | get | query | set | update | orient | link | replace"`
+	Action string `json:"action" jsonschema:"required,create | get | query | set | update | replace"`
 
 	ID     string `json:"id,omitempty"`
 	Target string `json:"target,omitempty" jsonschema:"new parent ID (move)"`
@@ -215,6 +233,19 @@ type edgeInput struct {
 // knowledgeInput carries the two fields used by handleIngestSession.
 // This is a minimal survivor of the old knowledge tool; all other fields
 // were removed when the knowledge tool was merged into admin.
+type relationshipInput struct {
+	Action    string      `json:"action" jsonschema:"required,link | orient"`
+	ID        string      `json:"id,omitempty" jsonschema:"source artifact ID (link) or scope filter (orient)"`
+	Relation  string      `json:"relation,omitempty" jsonschema:"parent_of, depends_on, follows, justifies, implements, documents"`
+	Targets   []string    `json:"targets,omitempty" jsonschema:"target artifact IDs"`
+	Target    string      `json:"target,omitempty" jsonschema:"single target artifact ID"`
+	Edges     []edgeInput `json:"edges,omitempty" jsonschema:"bulk mode: [{from, relation, to}]"`
+	Weight    float64     `json:"weight,omitempty" jsonschema:"edge coupling strength (0.0 = boolean, 1.0 = max; default 0)"`
+	Mode      string      `json:"mode,omitempty" jsonschema:"unlink to remove edges; replace to swap old_target for target"`
+	OldTarget string      `json:"old_target,omitempty" jsonschema:"edge to replace (mode=replace)"`
+	Scope     string      `json:"scope,omitempty" jsonschema:"scope filter for orient"`
+}
+
 type knowledgeInput struct {
 	Path  string `json:"path,omitempty"`
 	Scope string `json:"scope,omitempty"`
