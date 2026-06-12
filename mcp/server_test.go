@@ -2384,8 +2384,7 @@ func TestStreamableHTTP_ToolsListPreservesTypedInputSchemas(t *testing.T) {
 	}
 
 	expectedProps := map[string][]string{
-		"artifact":     {"action", "kind", "id"},
-		"relationship": {"action", "relation", "targets"},
+		"artifact": {"action", "kind", "id", "relation", "targets"},
 	}
 	seen := make(map[string]bool, len(expectedProps))
 
@@ -2572,11 +2571,10 @@ func TestToolDescriptions_ProgressiveDisclosure(t *testing.T) {
 		}
 	}
 
-	// relationship: edge + orient surface.
-	relationship := desc["relationship"]
-	for _, phrase := range []string{"link", "unlink"} {
-		if !strings.Contains(relationship, phrase) {
-			t.Errorf("relationship desc missing %q; got:\n%s", phrase, relationship)
+	// artifact: must describe edge operations now folded in.
+	for _, phrase := range []string{"link", "unlink", "EDGES"} {
+		if !strings.Contains(artifact, phrase) {
+			t.Errorf("artifact desc missing edge phrase %q; got:\n%s", phrase, artifact)
 		}
 	}
 
