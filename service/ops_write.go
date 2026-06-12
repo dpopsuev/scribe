@@ -146,20 +146,18 @@ func createSingle(ctx context.Context, svc *Service, in *createInput) (string, e
 	if parentOf(ctx, svc.Proto.Store(), art.ID) != "" {
 		fmt.Fprintf(&b, " (parent: %s)", parentOf(ctx, svc.Proto.Store(), art.ID))
 	}
-	schema := svc.Proto.Schema()
-	if expected := schema.GetExpectedSections(art.Label(parchment.LabelPrefixKind)); len(expected) > 0 {
-		must := schema.GetMustSections(art.Label(parchment.LabelPrefixKind))
-		should := schema.GetShouldSections(art.Label(parchment.LabelPrefixKind))
-		var hints []string
-		for _, s := range must {
-			hints = append(hints, s+" (must)")
-		}
-		for _, s := range should {
-			hints = append(hints, s+" (should)")
-		}
-		if len(hints) > 0 {
-			fmt.Fprintf(&b, "\nSections: %s", strings.Join(hints, ", "))
-		}
+	kind := art.Label(parchment.LabelPrefixKind)
+	must := svc.Proto.MustSections(kind)
+	should := svc.Proto.ShouldSections(kind)
+	var hints []string
+	for _, s := range must {
+		hints = append(hints, s+" (must)")
+	}
+	for _, s := range should {
+		hints = append(hints, s+" (should)")
+	}
+	if len(hints) > 0 {
+		fmt.Fprintf(&b, "\nSections: %s", strings.Join(hints, ", "))
 	}
 	return b.String(), nil
 }

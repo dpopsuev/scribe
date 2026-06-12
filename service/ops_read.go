@@ -36,10 +36,9 @@ var opTopoSort = Op{
 			if limit <= 0 {
 				limit = 5
 			}
-			schema := svc.Proto.Schema()
 			var ready []parchment.TopoEntry
 			for _, e := range entries {
-				if schema.IsTerminal(parchment.StatusFromLabels(e.Labels)) {
+				if svc.Proto.IsTerminal(parchment.StatusFromLabels(e.Labels)) {
 					continue
 				}
 				art, _ := svc.Proto.GetArtifact(ctx, e.ID)
@@ -50,7 +49,7 @@ var opTopoSort = Op{
 				depEdges, _ := svc.Proto.Store().Neighbors(ctx, art.ID, parchment.RelDependsOn, parchment.Outgoing)
 				for _, de := range depEdges {
 					dep, _ := svc.Proto.GetArtifact(ctx, de.To)
-					if dep != nil && !schema.IsTerminal(parchment.StatusFromLabels(dep.Labels)) {
+					if dep != nil && !svc.Proto.IsTerminal(parchment.StatusFromLabels(dep.Labels)) {
 						blocked = true
 						break
 					}

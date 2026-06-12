@@ -75,13 +75,12 @@ func (s *Service) Brief(ctx context.Context) (*BriefResult, error) { //nolint:cy
 	result := &BriefResult{
 		SchemaHash: s.Proto.Schema().Hash(),
 	}
-	schema := s.Proto.Schema()
 
-	for kind, def := range schema.BriefKinds() { //nolint:gocritic // rangeValCopy: acceptable
+	for kind, entry := range s.Proto.BriefKinds() {
 		arts, _ := s.Proto.ListArtifacts(ctx, parchment.ListInput{
-			Labels: []string{parchment.LabelPrefixKind + kind, parchment.LabelPrefixStatus + def.ActiveStatus},
+			Labels: []string{parchment.LabelPrefixKind + kind, parchment.LabelPrefixStatus + entry.ActiveStatus},
 		})
-		if def.IsGoalKind {
+		if entry.IsGoalKind {
 			result.Goals = append(result.Goals, arts...)
 		} else {
 			result.Campaigns = append(result.Campaigns, arts...)
@@ -93,15 +92,15 @@ func (s *Service) Brief(ctx context.Context) (*BriefResult, error) { //nolint:cy
 	unknownCounts := make(map[string]int)
 	completable, unimplemented := 0, 0
 	for _, art := range all {
-		if schema.UnknownKind(art.Label(parchment.LabelPrefixKind)) {
+		if !s.Proto.IsKnownKind(art.Label(parchment.LabelPrefixKind)) {
 			unknownCounts[art.Label(parchment.LabelPrefixKind)]++
 		}
-		if !schema.IsTerminal(parchment.StatusFromLabels(art.Labels)) && s.Proto.IsContainerKind(art.Label(parchment.LabelPrefixKind)) { //nolint:nestif // brief check is inherently nested
+		if !s.Proto.IsTerminal(parchment.StatusFromLabels(art.Labels)) && s.Proto.IsContainerKind(art.Label(parchment.LabelPrefixKind)) { //nolint:nestif // brief check is inherently nested
 			children, _ := s.Proto.Store().Children(ctx, art.ID)
 			if len(children) > 0 {
 				allDone := true
 				for _, ch := range children {
-					if !schema.IsTerminal(parchment.StatusFromLabels(ch.Labels)) {
+					if !s.Proto.IsTerminal(parchment.StatusFromLabels(ch.Labels)) {
 						allDone = false
 						break
 					}
@@ -111,7 +110,7 @@ func (s *Service) Brief(ctx context.Context) (*BriefResult, error) { //nolint:cy
 				}
 			}
 		}
-		if !schema.IsTerminal(parchment.StatusFromLabels(art.Labels)) && s.Proto.RequiresImplementation(art.Label(parchment.LabelPrefixKind)) {
+		if !s.Proto.IsTerminal(parchment.StatusFromLabels(art.Labels)) && s.Proto.RequiresImplementation(art.Label(parchment.LabelPrefixKind)) {
 			backlinks, _ := s.Proto.Backlinks(ctx, art.ID, parchment.RelImplements)
 			if len(backlinks) == 0 {
 				unimplemented++
@@ -147,7 +146,6 @@ func (s *Service) Dashboard(ctx context.Context, staleDays int) (*DashboardResul
 	if staleDays <= 0 {
 		staleDays = defaultDashboardStaleDays
 	}
-	schema := s.Proto.Schema()
 	cutoff := time.Now().UTC().Add(-time.Duration(staleDays) * 24 * time.Hour)
 
 	all, err := s.Proto.ListArtifacts(ctx, parchment.ListInput{})
@@ -168,9 +166,9 @@ func (s *Service) Dashboard(ctx context.Context, staleDays int) (*DashboardResul
 			scopeMap[sc] = ds
 		}
 		ds.Total++
-		if schema.IsReadonly(parchment.StatusFromLabels(art.Labels)) {
+		if s.Proto.IsReadonly(parchment.StatusFromLabels(art.Labels)) {
 			ds.Archived++
-		} else if !schema.IsTerminal(parchment.StatusFromLabels(art.Labels)) {
+		} else if !s.Proto.IsTerminal(parchment.StatusFromLabels(art.Labels)) {
 			ds.Active++
 			if art.UpdatedAt.Before(cutoff) {
 				ds.Stale++
@@ -208,7 +206,7 @@ func (s *Service) Inventory(ctx context.Context) (*InventoryResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	briefKinds := s.Proto.Schema().BriefKinds()
+	briefKinds := s.Proto.BriefKinds()
 	r := &InventoryResult{
 		Total:    len(all),
 		ByKind:   make(map[string]int),
@@ -218,7 +216,7 @@ func (s *Service) Inventory(ctx context.Context) (*InventoryResult, error) {
 	for _, art := range all {
 		r.ByKind[art.Label(parchment.LabelPrefixKind)]++
 		r.ByStatus[parchment.StatusFromLabels(art.Labels)]++
-		if def, ok := briefKinds[art.Label(parchment.LabelPrefixKind)]; ok && parchment.StatusFromLabels(art.Labels) == def.ActiveStatus {
+		if entry, ok := briefKinds[art.Label(parchment.LabelPrefixKind)]; ok && parchment.StatusFromLabels(art.Labels) == entry.ActiveStatus {
 			r.Tracked[art.Label(parchment.LabelPrefixKind)] = append(r.Tracked[art.Label(parchment.LabelPrefixKind)], art)
 		}
 	}
@@ -230,14 +228,13 @@ func (s *Service) SetGoal(ctx context.Context, in SetGoalInput) (*SetGoalResult,
 	if in.Title == "" {
 		return nil, fmt.Errorf("title is required") //nolint:err113 // agent-facing error
 	}
-	schema := s.Proto.Schema()
-	goalKind, goalDef := schema.GoalKind()
+	goalKind, goalActiveStatus := s.Proto.GoalKind()
 	if goalKind == "" {
-		return nil, fmt.Errorf("no kind with is_goal_kind=true in schema") //nolint:err113 // agent-facing error
+		return nil, fmt.Errorf("no kind with is_goal_kind=true registered") //nolint:err113 // agent-facing error
 	}
 
-	activeStatusLabel := goalDef.ActiveStatus
-	if !parchment.IsDomainStatusLabel(activeStatusLabel) {
+	activeStatusLabel := goalActiveStatus
+	if activeStatusLabel != "" && !strings.Contains(activeStatusLabel, ".") {
 		activeStatusLabel = parchment.LabelPrefixStatus + activeStatusLabel
 	}
 	goalLabels := []string{parchment.LabelPrefixKind + goalKind, activeStatusLabel}

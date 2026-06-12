@@ -44,8 +44,6 @@ func (s *Service) Correlate(ctx context.Context, evidence, scope string) (*Corre
 	if err != nil {
 		return nil, fmt.Errorf("list artifacts: %w", err)
 	}
-	schema := s.Proto.Schema()
-
 	byID := make(map[string]*parchment.Artifact, len(all))
 	for _, a := range all {
 		byID[a.ID] = a
@@ -60,7 +58,7 @@ func (s *Service) Correlate(ctx context.Context, evidence, scope string) (*Corre
 
 	var missing []*parchment.Artifact
 	for _, a := range all {
-		if schema.IsTerminal(parchment.StatusFromLabels(a.Labels)) {
+		if s.Proto.IsTerminal(parchment.StatusFromLabels(a.Labels)) {
 			continue
 		}
 		if !mentionedIDs[a.ID] {
@@ -70,7 +68,7 @@ func (s *Service) Correlate(ctx context.Context, evidence, scope string) (*Corre
 
 	var drift []*parchment.Artifact
 	for _, a := range found {
-		if schema.IsTerminal(parchment.StatusFromLabels(a.Labels)) {
+		if s.Proto.IsTerminal(parchment.StatusFromLabels(a.Labels)) {
 			continue
 		}
 		if EvidenceImpliesComplete(evidenceLower, strings.ToLower(a.ID)) {
