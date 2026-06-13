@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/service"
@@ -77,6 +78,7 @@ func NewServer(svc *service.Service, vocab []string, version string, stdioLabels
 		"PLAN: query(id=, sort=topo) for dependency order; query(id=, sort=topo, unblocked=true) for ready queue."
 	var artifactSchema any
 	_ = json.Unmarshal(schemaFor[artifactInput](), &artifactSchema)
+	patchSchemaFromRegistry(artifactSchema, h)
 	sdk.AddTool(&sdkmcp.Tool{
 		Name:        "artifact",
 		Title:       "Artifact",
@@ -139,18 +141,18 @@ type artifactInput struct {
 	Extra     map[string]any      `json:"extra,omitempty"`
 	Sections  []map[string]string `json:"sections,omitempty" jsonschema:"[{name, text}, ...]"`
 
-	Format   string   `json:"format,omitempty" jsonschema:"summary or full (default)"`
-	GroupBy  string   `json:"group_by,omitempty" jsonschema:"status, scope, kind, sprint"`
-	Sort     string   `json:"sort,omitempty" jsonschema:"id, title, status, scope, kind"`
-	Limit    int      `json:"limit,omitempty"`
-	Cursor   string   `json:"cursor,omitempty" jsonschema:"pagination cursor from previous list response"`
-	Count    bool     `json:"count,omitempty"`
-	Ranked   bool     `json:"ranked,omitempty" jsonschema:"scored FTS with kind and recency weighting"`
-	Mode     string   `json:"mode,omitempty" jsonschema:"fts (default) | semantic | hybrid"`
-	Session  string   `json:"session,omitempty" jsonschema:"scope results to a single agent session ID"`
-	Top      int      `json:"top,omitempty" jsonschema:"N most relevant by status+priority+recency"`
-	Fields   []string `json:"fields,omitempty" jsonschema:"id, kind, scope, status, title, parent, priority"`
-	Query    string   `json:"query,omitempty" jsonschema:"substring search across title, goal, sections"`
+	Format  string   `json:"format,omitempty" jsonschema:"summary or full (default)"`
+	GroupBy string   `json:"group_by,omitempty" jsonschema:"status, scope, kind, sprint"`
+	Sort    string   `json:"sort,omitempty" jsonschema:"id, title, status, scope, kind"`
+	Limit   int      `json:"limit,omitempty"`
+	Cursor  string   `json:"cursor,omitempty" jsonschema:"pagination cursor from previous list response"`
+	Count   bool     `json:"count,omitempty"`
+	Ranked  bool     `json:"ranked,omitempty" jsonschema:"scored FTS with kind and recency weighting"`
+	Mode    string   `json:"mode,omitempty" jsonschema:"fts (default) | semantic | hybrid"`
+	Session string   `json:"session,omitempty" jsonschema:"scope results to a single agent session ID"`
+	Top     int      `json:"top,omitempty" jsonschema:"N most relevant by status+priority+recency"`
+	Fields  []string `json:"fields,omitempty" jsonschema:"id, kind, scope, status, title, parent, priority"`
+	Query   string   `json:"query,omitempty" jsonschema:"substring search across title, goal, sections"`
 
 	TitleContains  string   `json:"title_contains,omitempty"`
 	CreatedAfter   string   `json:"created_after,omitempty"`
@@ -291,4 +293,43 @@ var arrayTypeHints = map[string]string{
 	"edges":          `JSON array of {"from":"X","relation":"r","to":"Y"} objects`,
 	"extra":          `JSON object — e.g. {"key": "value"}`,
 	"patch":          `JSON object mapping field→value — e.g. {"status": "active"}`,
+}
+
+// patchSchemaFromRegistry replaces static jsonschema field descriptions that
+// enumerate domain vocabulary (kind, status) with live values from the
+// Protocol's LabelTrait registry. This makes the MCP schema self-updating:
+// adding a new kind YAML automatically surfaces in the tool schema.
+func patchSchemaFromRegistry(schema any, h *handler) {
+	obj, ok := schema.(map[string]any)
+	if !ok || h.proto == nil {
+		return
+	}
+	props, ok := obj["properties"].(map[string]any)
+	if !ok {
+		return
+	}
+
+	// kind: all registered kind names from labelTraits.
+	if kindProp, ok := props["kind"].(map[string]any); ok {
+		kinds := h.proto.AllKinds()
+		if len(kinds) > 0 {
+			kindProp["description"] = strings.Join(kinds, ", ")
+		}
+	}
+
+	// status: all registered status labels (domain lifecycle statuses).
+	if statusProp, ok := props["status"].(map[string]any); ok {
+		statuses := h.proto.AllStatuses()
+		if len(statuses) > 0 {
+			statusProp["description"] = strings.Join(statuses, ", ")
+		}
+	}
+
+	// relation: all registered relation names from schema.
+	if relationProp, ok := props["relation"].(map[string]any); ok {
+		relations := h.proto.RegisteredRelations()
+		if len(relations) > 0 {
+			relationProp["description"] = strings.Join(relations, ", ")
+		}
+	}
 }

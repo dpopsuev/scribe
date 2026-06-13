@@ -2593,3 +2593,54 @@ func TestToolRegistry_ReturnsNonEmpty(t *testing.T) {
 		t.Fatal("ToolRegistry should return at least one tool")
 	}
 }
+
+// TestArtifactSchema_KindDescriptionFromRegistry verifies that the artifact tool's
+// "kind" field description is populated from the live LabelTrait registry,
+// not the hardcoded struct tag.
+//
+// Given: kind:note and kind:task are registered (seeded from registry YAML)
+// When:  the MCP server is initialized and tools/list is called
+// Then:  the kind field description contains the registered kind names
+func TestArtifactSchema_KindDescriptionFromRegistry(t *testing.T) {
+	t.Parallel()
+	srv, _ := scribemcp.NewServerFromStore(parchment.NewMemoryStore(), []string{"test"}, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	ctx := context.Background()
+	tools, err := cs.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var artifactSchema map[string]any
+	for _, tool := range tools.Tools {
+		if tool.Name == "artifact" {
+			raw, _ := json.Marshal(tool.InputSchema)
+			_ = json.Unmarshal(raw, &artifactSchema)
+			break
+		}
+	}
+	if artifactSchema == nil {
+		t.Fatal("artifact tool not found in tools/list")
+	}
+
+	props, ok := artifactSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("artifact schema missing properties")
+	}
+	kindProp, ok := props["kind"].(map[string]any)
+	if !ok {
+		t.Fatal("artifact schema missing kind property")
+	}
+	desc, _ := kindProp["description"].(string)
+
+	// Registry seeds note and task at minimum — both must appear.
+	for _, want := range []string{"note", "task"} {
+		if !strings.Contains(desc, want) {
+			t.Errorf("kind description missing %q; got: %s", want, desc)
+		}
+	}
+	// Must NOT be the old hardcoded stub value.
+	if desc == "task, spec, bug, goal, campaign, doc, ref, need, decision" {
+		t.Error("kind description is still the hardcoded stub — registry patch did not apply")
+	}
+}
