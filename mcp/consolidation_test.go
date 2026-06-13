@@ -47,7 +47,7 @@ func TestConsolidation_ArtifactRecall(t *testing.T) {
 	proto, callArtifact := newConsolidatedServer(t)
 	ctx := context.Background()
 
-	_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindNote, "note.evergreen"}, Title: "template conformance deferred",
+	_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + "note", "note.evergreen"}, Title: "template conformance deferred",
 
 		Sections: []parchment.Section{{Name: "body", Text: "conformance fires on promote not create"}},
 	})
@@ -93,8 +93,8 @@ func TestConsolidation_ArtifactListKnowledgeFamily(t *testing.T) {
 	proto, callArtifact := newConsolidatedServer(t)
 	ctx := context.Background()
 
-	_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindNote}, Title: "a fleeting note"})
-	_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "a task"})
+	_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + "note"}, Title: "a fleeting note"})
+	_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + "task"}, Title: "a task"})
 
 	out := callArtifact(map[string]any{
 		"action": "query",

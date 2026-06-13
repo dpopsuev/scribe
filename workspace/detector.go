@@ -31,11 +31,13 @@ func Detect(inputs WorkspaceInputs, detectors []Detector) []string {
 }
 
 // DefaultDetectors returns the standard set used at session start.
+// TimeDetector is intentionally excluded: time is immutable metadata
+// (created_at on the artifact), not a mutable label. Use created_after=/
+// created_before= query params for temporal filtering.
 func DefaultDetectors() []Detector {
 	return []Detector{
 		DirDetector{},
 		GitDetector{},
 		GoModuleDetector{},
-		TimeDetector{},
 	}
 }

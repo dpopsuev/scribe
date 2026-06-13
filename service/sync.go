@@ -68,7 +68,7 @@ func (s *Service) SyncDir(ctx context.Context, path string) (int, error) {
 			art.Labels = appendIfMissing(art.Labels, k)
 			for i, l := range art.Labels {
 				if l == parchment.LabelPrefixKind+k {
-					art.Labels[i] = parchment.LabelPrefixKind + parchment.KindNote
+					art.Labels[i] = parchment.LabelPrefixKind + "note"
 					break
 				}
 			}

@@ -16,11 +16,11 @@ import (
 
 // knowledgeKinds are always recallable regardless of status.
 var knowledgeKinds = map[string]bool{
-	parchment.KindNote:    true,
-	parchment.KindJournal: true,
-	parchment.KindSource:  true,
-	parchment.KindConcept: true,
-	parchment.KindContext: true,
+	"note":    true,
+	"journal": true,
+	"source":  true,
+	"concept": true,
+	"context": true,
 }
 
 // IsRecallable returns true when an artifact should be included in recall.
@@ -34,26 +34,26 @@ func IsRecallable(art *parchment.Artifact, proto *parchment.Protocol) bool {
 // KindWeight returns the relevance multiplier for a kind + status combination.
 func KindWeight(kind, status string) float64 {
 	switch kind {
-	case parchment.KindNote:
+	case "note":
 		if status == "note.evergreen" {
 			return 2.0
 		}
 		return 1.0
-	case parchment.KindConcept:
+	case "concept":
 		return 1.4
-	case parchment.KindDecision:
+	case "decision":
 		return 1.3
-	case parchment.KindBug:
+	case "bug":
 		return 1.2
-	case parchment.KindSource:
+	case "source":
 		return 1.1
-	case parchment.KindSpec:
+	case "spec":
 		return 1.0
-	case parchment.KindContext:
+	case "context":
 		return 1.0
-	case parchment.KindTask:
+	case "task":
 		return 0.9
-	case parchment.KindJournal:
+	case "journal":
 		return 0.8
 	default:
 		return 0.7

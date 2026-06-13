@@ -160,7 +160,7 @@ func TestEventFeed_EmitsSSE(t *testing.T) {
 	proto := parchment.New(s, nil, []string{"test"}, nil, parchment.ProtocolConfig{})
 	before := "1970-01-01T00:00:00Z"
 
-	art, err := proto.CreateArtifact(context.Background(), parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + parchment.KindTask}, Title: "SSE test artifact"})
+	art, err := proto.CreateArtifact(context.Background(), parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + "task"}, Title: "SSE test artifact"})
 	if err != nil {
 		t.Fatal(err)
 	}

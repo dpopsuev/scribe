@@ -419,7 +419,7 @@ var opSet = Op{
 		if in.Field == parchment.FieldStatus && in.Value == "work.active" && !in.Force {
 			for _, id := range ids {
 				art, err := svc.Proto.GetArtifact(ctx, id)
-				if err != nil || art.Label(parchment.LabelPrefixKind) != parchment.KindTask {
+				if err != nil || art.Label(parchment.LabelPrefixKind) != "task" {
 					continue
 				}
 				implEdges, _ := svc.Proto.Store().Neighbors(ctx, id, parchment.RelImplements, parchment.Outgoing)
