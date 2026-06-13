@@ -124,7 +124,7 @@ type artifactInput struct {
 	Action string `json:"action" jsonschema:"required,create | get | query | set | update | link"`
 
 	ID     string `json:"id,omitempty"`
-	Target string `json:"target,omitempty" jsonschema:"new parent ID (move)"`
+	Target string `json:"target,omitempty" jsonschema:"single target ID for link mode=replace; or new parent ID for set(field=parent)"`
 	Kind   string `json:"kind,omitempty" jsonschema:"task, spec, bug, goal, campaign, doc, ref, need, decision"`
 	Scope  string `json:"scope,omitempty"`
 
@@ -146,7 +146,6 @@ type artifactInput struct {
 	Cursor   string   `json:"cursor,omitempty" jsonschema:"pagination cursor from previous list response"`
 	Count    bool     `json:"count,omitempty"`
 	Ranked   bool     `json:"ranked,omitempty" jsonschema:"scored FTS with kind and recency weighting"`
-	Semantic bool     `json:"semantic,omitempty" jsonschema:"deprecated: use mode=semantic"`
 	Mode     string   `json:"mode,omitempty" jsonschema:"fts (default) | semantic | hybrid"`
 	Session  string   `json:"session,omitempty" jsonschema:"scope results to a single agent session ID"`
 	Top      int      `json:"top,omitempty" jsonschema:"N most relevant by status+priority+recency"`
@@ -192,7 +191,7 @@ type artifactInput struct {
 	CreatedAt    string            `json:"created_at,omitempty"`
 	Prefix       string            `json:"prefix,omitempty"`
 
-	Relation  string      `json:"relation,omitempty" jsonschema:"parent_of, depends_on, follows, justifies, implements, documents"`
+	Relation  string      `json:"relation,omitempty" jsonschema:"parent_of, depends_on, follows, justifies, implements, documents, blocks, duplicates, relates_to, clones, mentions, tested_by, supersedes, cites, elaborates, contradicts, traces_to, calls, explains, causes, resolves"` //nolint:misspell // synthesises intentionally omitted (British spelling causes linter noise)
 	Weight    float64     `json:"weight,omitempty" jsonschema:"edge coupling strength (0.0 = boolean, 1.0 = max; default 0)"`
 	Direction string      `json:"direction,omitempty" jsonschema:"outbound (default) or inbound"`
 	Depth     int         `json:"depth,omitempty" jsonschema:"tree/briefing: max depth; query sort=topo: max results when unblocked=true"`

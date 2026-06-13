@@ -139,7 +139,7 @@ func DeleteCmd() *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
 		Use:   "delete <ID>",
-		Short: "Delete an artifact (must be archived unless --force)",
+		Short: "Delete an artifact (use --force to bypass incoming-edge check)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, cleanup := MustService()

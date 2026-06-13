@@ -64,7 +64,7 @@ type listInput struct {
 	Fields         []string `json:"fields,omitempty"`
 	Format         string   `json:"format,omitempty"`
 	Ranked         bool     `json:"ranked,omitempty"`
-	Semantic       bool     `json:"semantic,omitempty"`  // deprecated: use Mode=semantic
+
 	Mode           string   `json:"mode,omitempty"`      // fts (default) | semantic | hybrid
 	Session        string   `json:"session,omitempty"`   // shorthand for labels=["session:<value>"]
 	Depth          int      `json:"depth,omitempty"`     // if >0, attach ArtifactTree to each result
@@ -210,11 +210,7 @@ var opQuery = Op{
 
 		const modeSemantic = "semantic"
 		const modeHybrid = "hybrid"
-		// Normalize mode: legacy Semantic bool → mode=semantic.
 		mode := in.Mode
-		if mode == "" && in.Semantic {
-			mode = modeSemantic
-		}
 		// Session shorthand: prepend "session:<value>" to labels filter.
 		if in.Session != "" {
 			in.Labels = append([]string{"session:" + in.Session}, in.Labels...)

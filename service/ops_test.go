@@ -370,7 +370,7 @@ func TestOpList_SemanticEmptyQueryReturnsError(t *testing.T) {
 	// Then: error is returned
 	svc := newTestService(t)
 	op := service.Find("query")
-	raw, _ := json.Marshal(map[string]any{"semantic": true, "scope": "test"})
+	raw, _ := json.Marshal(map[string]any{"mode": "semantic", "scope": "test"})
 	_, err := op.Run(context.Background(), svc, raw)
 	if err == nil {
 		t.Fatal("expected error for semantic list with empty query, got nil")
@@ -396,7 +396,7 @@ func TestOpList_Semantic_WithEmbeddings_ReturnsResults(t *testing.T) {
 	_ = store.PutEmbedding(ctx, art.ID, parchment.DefaultEmbedModel, "", authVec)
 
 	op := service.Find("query")
-	raw, _ := json.Marshal(map[string]any{"semantic": true, "query": "security token validation", "scope": "test"})
+	raw, _ := json.Marshal(map[string]any{"mode": "semantic", "query": "security token validation", "scope": "test"})
 	out, err := op.Run(ctx, svc, raw)
 	if err != nil {
 		t.Fatalf("semantic list with embeddings failed: %v", err)

@@ -134,7 +134,7 @@ func LinkCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "link <ID> <relation> <target> [target...]",
 		Short: "Add a directed relationship between artifacts",
-		Long:  "Relations: parent_of, depends_on, justifies, implements, documents",
+		Long:  "Relations: parent_of, depends_on, follows, justifies, implements, documents, blocks, duplicates, relates_to, clones, mentions, tested_by, supersedes, cites, elaborates, traces_to, calls, explains, causes, resolves",
 		Args:  cobra.MinimumNArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, cleanup := MustService()
