@@ -4,13 +4,16 @@
 // which runs all of them and merges their labels.
 package workspace
 
+import "time"
+
 // WorkspaceInputs carries the raw facts a client knows about its environment.
 // For the stdio transport, the server populates this from its own filesystem.
 // For the HTTP transport, the client sends cwd and optionally git_remote in
 // the MCP initialize _meta field; the server reads them here.
 type WorkspaceInputs struct {
-	CWD       string // working directory path
-	GitRemote string // git remote URL (optional — populated by GitDetector if empty)
+	CWD       string    // working directory path
+	GitRemote string    // git remote URL (optional — populated by GitDetector if empty)
+	Now       time.Time // current time (zero → time.Now()); injectable for tests
 }
 
 // Detector reads WorkspaceInputs and produces context labels.
@@ -32,5 +35,7 @@ func DefaultDetectors() []Detector {
 	return []Detector{
 		DirDetector{},
 		GitDetector{},
+		GoModuleDetector{},
+		TimeDetector{},
 	}
 }
