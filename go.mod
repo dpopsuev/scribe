@@ -5,7 +5,6 @@ go 1.26
 require (
 	github.com/chromedp/cdproto v0.0.0-20260321001828-e3e3800016bc
 	github.com/chromedp/chromedp v0.15.1
-	github.com/dpopsuev/battery v0.11.0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/modelcontextprotocol/go-sdk v1.5.0
 	github.com/spf13/cobra v1.10.2
@@ -28,7 +27,7 @@ require (
 
 require (
 	github.com/dominikbraun/graph v0.23.0 // indirect
-	github.com/dpopsuev/parchment v1.23.0
+	github.com/dpopsuev/parchment v1.24.0
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/jsonschema-go v0.4.3
 	github.com/google/uuid v1.6.0 // indirect
