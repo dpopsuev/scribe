@@ -452,11 +452,6 @@ func ScopeKeysCmd() *cobra.Command {
 	}
 }
 
-// RegisterKnowledge adds search, section, and vocab commands to root.
-func RegisterKnowledge(root *cobra.Command) {
-	root.AddCommand(SearchCmd(), SectionCmd(), VocabCmd())
-}
-
 func SearchCmd() *cobra.Command {
 	var scope, kind, status, format string
 	cmd := &cobra.Command{
@@ -664,8 +659,6 @@ func VocabCmd() *cobra.Command {
 	return cmd
 }
 
-
-
 func SeedDirCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "seed <dir>",
@@ -839,8 +832,6 @@ func ExportMdCmd() *cobra.Command {
 		},
 	}
 }
-
-
 
 const syncDaemonPollInterval = 30 * time.Second
 

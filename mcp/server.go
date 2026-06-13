@@ -50,9 +50,9 @@ func NewServer(svc *service.Service, vocab []string, version string, stdioLabels
 	wConfigured := len(wLabels) > 0
 
 	h := &handler{
-		proto:               svc.Proto,
-		svc:                 svc,
-		snapshotter:         svc.Snapshotter,
+		proto: svc.Proto,
+		svc:   svc,
+
 		version:             version,
 		homeScopes:          svc.HomeScopes,
 		workspaceLabels:     wLabels,
@@ -109,9 +109,9 @@ func NewServerFromStore(s parchment.Store, homeScopes []string, idc parchment.Pr
 }
 
 type handler struct {
-	proto               *parchment.Protocol
-	svc                 *service.Service
-	snapshotter         *parchment.Snapshotter
+	proto *parchment.Protocol
+	svc   *service.Service
+
 	version             string
 	homeScopes          []string // default scopes; narrowable at runtime
 	workspaceLabels     []string // context labels stamped on every artifact this session
@@ -206,14 +206,6 @@ type edgeInput struct {
 	From     string `json:"from" jsonschema:"source artifact ID"`
 	Relation string `json:"relation" jsonschema:"edge type"`
 	To       string `json:"to" jsonschema:"target artifact ID"`
-}
-
-// knowledgeInput carries the two fields used by handleIngestSession.
-// This is a minimal survivor of the old knowledge tool; all other fields
-// were removed when the knowledge tool was merged into admin.
-type knowledgeInput struct {
-	Path  string `json:"path,omitempty"`
-	Scope string `json:"scope,omitempty"`
 }
 
 // --- dispatchers ---
