@@ -131,7 +131,7 @@ type artifactInput struct {
 	Title     string              `json:"title,omitempty"`
 	Goal      string              `json:"goal,omitempty"`
 	Parent    string              `json:"parent,omitempty"`
-	Status    string              `json:"status,omitempty" jsonschema:"work.draft, work.active, work.blocked, work.complete, note.fleeting, note.mature, note.evergreen, decision.proposed, decision.accepted, decision.rejected, decision.deferred, retired, archived"`
+	Status    string              `json:"status,omitempty" jsonschema:"work.draft, work.active, work.blocked, work.complete, note.fleeting, note.mature, note.evergreen, decision.proposed, decision.accepted, decision.rejected, decision.deferred"`
 	Priority  string              `json:"priority,omitempty" jsonschema:"none, low, medium, high, critical"`
 	DependsOn []string            `json:"depends_on,omitempty"`
 	Labels    []string            `json:"labels,omitempty"`
@@ -181,7 +181,7 @@ type artifactInput struct {
 	Against        string   `json:"against,omitempty"`
 
 	IDs     []string `json:"ids,omitempty"`
-	Cascade bool     `json:"cascade,omitempty" jsonschema:"apply status transition recursively to all children (retire/archive tree operations)"`
+	Cascade bool     `json:"cascade,omitempty" jsonschema:"apply status transition recursively to all children"`
 	DryRun  bool     `json:"dry_run,omitempty" jsonschema:"simulate the operation and return what would change without writing anything"`
 
 	Patch        map[string]string `json:"patch,omitempty" jsonschema:"{field: value} pairs for batch_update"`

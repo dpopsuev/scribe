@@ -36,7 +36,7 @@ func main() {
 		cmds.SearchCmd(),
 
 		cmds.MigrateIDsCmd(),
-		cmds.VacuumCmd(),
+
 
 		cmds.LinkCmd(),
 		cmds.UnlinkCmd(),

@@ -12,40 +12,6 @@ import (
 
 const lintLevelError = "error"
 
-func VacuumCmd() *cobra.Command {
-	var days int
-	var scope string
-	var force bool
-	cmd := &cobra.Command{
-		Use:   "vacuum",
-		Short: "Delete archived artifacts older than --days (default 90). Protected kinds (spec, bug) are skipped unless --force.",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, cleanup := MustService()
-			defer cleanup()
-			result, err := svc.Proto.Vacuum(context.Background(), days, scope, force)
-			if err != nil {
-				return err
-			}
-			for _, id := range result.Skipped {
-				fmt.Printf("skipped %s (has incoming edges — use --force to override)\n", id)
-			}
-			if len(result.Deleted) == 0 {
-				fmt.Println("nothing to vacuum")
-				return nil
-			}
-			for _, id := range result.Deleted {
-				fmt.Printf("deleted %s\n", id)
-			}
-			fmt.Printf("%d archived artifacts vacuumed\n", len(result.Deleted))
-			return nil
-		},
-	}
-	cmd.Flags().IntVar(&days, "days", 90, "minimum age in days")
-	cmd.Flags().StringVar(&scope, "scope", "", "limit to artifacts in this scope")
-	cmd.Flags().BoolVar(&force, "force", false, "delete protected kinds (spec, bug)")
-	return cmd
-}
-
 func LintCmd() *cobra.Command {
 	var format string
 	cmd := &cobra.Command{

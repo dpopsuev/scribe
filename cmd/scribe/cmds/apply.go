@@ -79,7 +79,6 @@ type crdSpec struct {
 	Family           string        `yaml:"family,omitempty"`
 	AllowedChildren  []string      `yaml:"allowedChildren,omitempty"`
 	IsContainerKind  bool          `yaml:"isContainerKind,omitempty"`
-	Vacuumable       bool          `yaml:"vacuumable,omitempty"`
 
 	WhenToUse        string        `yaml:"whenToUse,omitempty"`
 	AgentNote        string        `yaml:"agentNote,omitempty"`
@@ -268,7 +267,6 @@ func applyLabelDefinitionCRD(ctx context.Context, s parchment.Store, r *crdResou
 		"always_apply":      r.Spec.AlwaysApply,
 		"family":            r.Spec.Family,
 		"is_container_kind": r.Spec.IsContainerKind,
-		"vacuumable":        r.Spec.Vacuumable,
 	}
 	if r.Spec.Lifecycle != nil {
 		trait["default_status"] = r.Spec.Lifecycle.DefaultStatus
