@@ -108,6 +108,50 @@ func TestEmbedder_StatusChangeDoesNotStripEncoded(t *testing.T) {
 	}
 }
 
+// TestEmbedder_ProcessOnePreservesExistingLabels verifies that adding the
+// "encoded" label after embedding does NOT destroy the artifact's existing labels.
+//
+// Given an artifact with kind, scope, and domain labels
+// When the embedder processes it
+// Then all original labels survive alongside the new "encoded" label
+//
+// Regression: embedder called SetField("labels", encodedLabel) which replaced
+// the entire label array with a single-element slice. All domain labels were lost.
+func TestEmbedder_ProcessOnePreservesExistingLabels(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	proto := newTestProto(t)
+
+	originalLabels := []string{"kind:note", "scope:test", "architecture", "priority:high"}
+	art, err := proto.CreateArtifact(ctx, parchment.CreateInput{
+		Labels: originalLabels,
+		Title:  "important architecture note",
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	e := newEmbedder(proto)
+	e.ProcessOne(ctx, art.ID)
+
+	after, err := proto.GetArtifact(ctx, art.ID)
+	if err != nil {
+		t.Fatalf("get after embed: %v", err)
+	}
+
+	// Encoded label must be present.
+	if !isEncoded(after) {
+		t.Error("expected 'encoded' label after embedding")
+	}
+
+	// All original labels must survive.
+	for _, want := range []string{"kind:note", "scope:test", "architecture", "priority:high"} {
+		if !slices.Contains(after.Labels, want) {
+			t.Errorf("label %q was destroyed by embedding; labels after: %v", want, after.Labels)
+		}
+	}
+}
+
 // TestEmbedder_SweepQueuesUnencodedArtifacts verifies that Sweep_ enqueues
 // artifacts that lack the "encoded" label.
 func TestEmbedder_SweepQueuesUnencodedArtifacts(t *testing.T) {

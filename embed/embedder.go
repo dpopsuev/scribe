@@ -256,7 +256,10 @@ func (e *Embedder) ProcessOne(ctx context.Context, id string) {
 			slog.String(parchment.LogKeyID, id), slog.Any(parchment.LogKeyError, err))
 		return
 	}
-	_, _ = e.proto.SetField(ctx, []string{id}, "labels", parchment.LabelEncoded(e.model))
+	if err := e.proto.AppendLabel(ctx, id, parchment.LabelEncoded(e.model)); err != nil {
+		slog.WarnContext(ctx, "embed: append label failed",
+			slog.String(parchment.LogKeyID, id), slog.Any(parchment.LogKeyError, err))
+	}
 }
 
 // Sweep finds artifacts without the "encoded" label and queues them.
