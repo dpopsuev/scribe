@@ -292,7 +292,7 @@ func applyLabelDefinitionCRD(ctx context.Context, s parchment.Store, r *crdResou
 	id := crdResourceID(r.Metadata.Name)
 	art := &parchment.Artifact{
 		ID:         id,
-		Labels:     []string{parchment.LabelPrefixKind + parchment.KindLabelDefinition, "work.active", parchment.LabelPrefixScope + parchment.SchemaScope},
+		Labels:     []string{parchment.LabelPrefixKind + "label_definition", "work.active", parchment.LabelPrefixScope + parchment.SchemaScope},
 		Title:      r.Metadata.Name,
 		Extra:      trait,
 		CreatedAt:  now,

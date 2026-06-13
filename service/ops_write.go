@@ -154,7 +154,7 @@ func createClone(ctx context.Context, svc *Service, in *createInput) (string, er
 	}
 	cloneStatus := in.Status
 	if cloneStatus == "" {
-		cloneStatus = "work.draft"
+		cloneStatus = svc.Proto.DefaultStatus(kind) // trait-driven default per kind
 	}
 	if parchment.IsDomainStatusLabel(cloneStatus) {
 		cloneLabels = append(cloneLabels, cloneStatus)
