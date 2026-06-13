@@ -59,6 +59,11 @@ func (s *Service) SyncDir(ctx context.Context, path string) (int, error) {
 			rel, _ := filepath.Rel(abs, p)
 			art.ID = syncDerivedID(rel)
 		}
+		// ParseMDFile no longer defaults the kind — sync treats all markdown as notes
+		// unless the frontmatter specifies otherwise.
+		if art.Label(parchment.LabelPrefixKind) == "" {
+			art.Labels = append(art.Labels, parchment.LabelPrefixKind+"note")
+		}
 		if art.Label(parchment.LabelPrefixScope) == "" {
 			art.Labels = append(art.Labels, parchment.LabelPrefixScope+"global")
 		}
