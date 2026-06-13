@@ -22,6 +22,7 @@ import (
 	"github.com/dpopsuev/scribe/mcp"
 	"github.com/dpopsuev/scribe/service"
 	"github.com/dpopsuev/scribe/web"
+	"github.com/dpopsuev/scribe/workspace"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 )
@@ -36,6 +37,7 @@ const (
 	logKeyTransport   = "transport"
 	logKeyScopes      = "scopes"
 	logKeyDir         = "dir"
+	logKeyWorkspace   = "labels"
 	logKeyCreated     = "created"
 	logKeyError       = "error"
 	logKeyPath        = "path"
@@ -94,7 +96,7 @@ func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, devU
 		slog.String(logKeyDB, cfg.DBPath()),
 	)
 
-	// Resolve homeScopes: flag > CWD detection > config-derived.
+	// Resolve home context: flag > workspace detection > config-derived.
 	homeScopes := scopes
 	if len(homeScopes) == 0 {
 		cwd, _ := os.Getwd()
@@ -102,6 +104,16 @@ func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, devU
 			homeScopes = []string{sc}
 		} else {
 			homeScopes = cfg.ResolvedScopes()
+		}
+	}
+	// Detect workspace context labels (git:, dir:) for stdio transport.
+	// HTTP transport is multi-tenant; detection doesn't apply.
+	var workspaceLabels []string
+	if transport == "stdio" || !cmd.Flags().Changed("transport") {
+		cwd, _ := os.Getwd()
+		workspaceLabels = workspace.Detect(cwd, workspace.DefaultDetectors())
+		if len(workspaceLabels) > 0 {
+			slog.InfoContext(ctx, "workspace detected", slog.Any(logKeyWorkspace, workspaceLabels))
 		}
 	}
 

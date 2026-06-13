@@ -1,0 +1,106 @@
+package workspace_test
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/dpopsuev/scribe/workspace"
+)
+
+func TestDirDetector(t *testing.T) {
+	cwd := t.TempDir()
+	labels := workspace.DirDetector{}.Detect(cwd)
+	if len(labels) != 1 {
+		t.Fatalf("want 1 label, got %d: %v", len(labels), labels)
+	}
+	if !strings.HasPrefix(labels[0], "dir:") {
+		t.Errorf("label should start with dir:, got %q", labels[0])
+	}
+}
+
+func TestGitDetector_FindsOrigin(t *testing.T) {
+	dir := t.TempDir()
+	gitDir := filepath.Join(dir, ".git")
+	if err := os.Mkdir(gitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitConfig := `[core]
+	repositoryformatversion = 0
+[remote "origin"]
+	url = git@github.com:dpopsuev/locus.git
+	fetch = +refs/heads/*:refs/remotes/origin/*
+`
+	if err := os.WriteFile(filepath.Join(gitDir, "config"), []byte(gitConfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	labels := workspace.GitDetector{}.Detect(dir)
+	if len(labels) != 1 {
+		t.Fatalf("want 1 label, got %d: %v", len(labels), labels)
+	}
+	if labels[0] != "git:github.com/dpopsuev/locus" {
+		t.Errorf("want git:github.com/dpopsuev/locus, got %q", labels[0])
+	}
+}
+
+func TestGitDetector_WalksUp(t *testing.T) {
+	root := t.TempDir()
+	gitDir := filepath.Join(root, ".git")
+	if err := os.Mkdir(gitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(gitDir, "config"), []byte(`[remote "origin"]
+	url = https://github.com/dpopsuev/scribe.git
+`), 0o644) //nolint:errcheck // test setup
+
+	sub := filepath.Join(root, "cmd", "scribe")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	labels := workspace.GitDetector{}.Detect(sub)
+	if len(labels) != 1 || labels[0] != "git:github.com/dpopsuev/scribe" {
+		t.Errorf("want git:github.com/dpopsuev/scribe, got %v", labels)
+	}
+}
+
+func TestGitDetector_NoGit(t *testing.T) {
+	labels := workspace.GitDetector{}.Detect(t.TempDir())
+	if len(labels) != 0 {
+		t.Errorf("want no labels, got %v", labels)
+	}
+}
+
+func TestDetect_Compose(t *testing.T) {
+	dir := t.TempDir()
+	labels := workspace.Detect(dir, workspace.DefaultDetectors())
+	hasDir := false
+	for _, l := range labels {
+		if strings.HasPrefix(l, "dir:") {
+			hasDir = true
+		}
+	}
+	if !hasDir {
+		t.Errorf("expected dir: label in %v", labels)
+	}
+}
+
+func TestNormalizeGitURL(t *testing.T) {
+	cases := []struct {
+		input string
+		want  string
+	}{
+		{"git@github.com:dpopsuev/locus.git", "github.com/dpopsuev/locus"},
+		{"https://github.com/dpopsuev/locus.git", "github.com/dpopsuev/locus"},
+		{"https://github.com/dpopsuev/locus", "github.com/dpopsuev/locus"},
+		{"ssh://git@github.com/dpopsuev/locus.git", "github.com/dpopsuev/locus"},
+	}
+	for _, tc := range cases {
+		got := workspace.NormalizeGitURL(tc.input)
+		if got != tc.want {
+			t.Errorf("NormalizeGitURL(%q) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
