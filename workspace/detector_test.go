@@ -11,7 +11,7 @@ import (
 
 func TestDirDetector(t *testing.T) {
 	cwd := t.TempDir()
-	labels := workspace.DirDetector{}.Detect(cwd)
+	labels := workspace.DirDetector{}.Detect(workspace.WorkspaceInputs{CWD: cwd})
 	if len(labels) != 1 {
 		t.Fatalf("want 1 label, got %d: %v", len(labels), labels)
 	}
@@ -20,28 +20,38 @@ func TestDirDetector(t *testing.T) {
 	}
 }
 
-func TestGitDetector_FindsOrigin(t *testing.T) {
+func TestDirDetector_EmptyCWD(t *testing.T) {
+	labels := workspace.DirDetector{}.Detect(workspace.WorkspaceInputs{})
+	if len(labels) != 0 {
+		t.Errorf("empty CWD should produce no labels, got %v", labels)
+	}
+}
+
+func TestGitDetector_UsesProvidedRemote(t *testing.T) {
+	// HTTP transport: client provides git_remote directly — no filesystem walk.
+	labels := workspace.GitDetector{}.Detect(workspace.WorkspaceInputs{
+		CWD:       t.TempDir(),
+		GitRemote: "git@github.com:dpopsuev/locus.git",
+	})
+	if len(labels) != 1 || labels[0] != "git:github.com/dpopsuev/locus" {
+		t.Errorf("want git:github.com/dpopsuev/locus, got %v", labels)
+	}
+}
+
+func TestGitDetector_WalksFilesystem(t *testing.T) {
+	// stdio transport: no git_remote provided — detector reads .git/config.
 	dir := t.TempDir()
 	gitDir := filepath.Join(dir, ".git")
 	if err := os.Mkdir(gitDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	gitConfig := `[core]
-	repositoryformatversion = 0
-[remote "origin"]
+	os.WriteFile(filepath.Join(gitDir, "config"), []byte(`[remote "origin"]
 	url = git@github.com:dpopsuev/locus.git
-	fetch = +refs/heads/*:refs/remotes/origin/*
-`
-	if err := os.WriteFile(filepath.Join(gitDir, "config"), []byte(gitConfig), 0o644); err != nil {
-		t.Fatal(err)
-	}
+`), 0o644) //nolint:errcheck // test setup
 
-	labels := workspace.GitDetector{}.Detect(dir)
-	if len(labels) != 1 {
-		t.Fatalf("want 1 label, got %d: %v", len(labels), labels)
-	}
-	if labels[0] != "git:github.com/dpopsuev/locus" {
-		t.Errorf("want git:github.com/dpopsuev/locus, got %q", labels[0])
+	labels := workspace.GitDetector{}.Detect(workspace.WorkspaceInputs{CWD: dir})
+	if len(labels) != 1 || labels[0] != "git:github.com/dpopsuev/locus" {
+		t.Errorf("want git:github.com/dpopsuev/locus, got %v", labels)
 	}
 }
 
@@ -60,14 +70,14 @@ func TestGitDetector_WalksUp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	labels := workspace.GitDetector{}.Detect(sub)
+	labels := workspace.GitDetector{}.Detect(workspace.WorkspaceInputs{CWD: sub})
 	if len(labels) != 1 || labels[0] != "git:github.com/dpopsuev/scribe" {
 		t.Errorf("want git:github.com/dpopsuev/scribe, got %v", labels)
 	}
 }
 
 func TestGitDetector_NoGit(t *testing.T) {
-	labels := workspace.GitDetector{}.Detect(t.TempDir())
+	labels := workspace.GitDetector{}.Detect(workspace.WorkspaceInputs{CWD: t.TempDir()})
 	if len(labels) != 0 {
 		t.Errorf("want no labels, got %v", labels)
 	}
@@ -75,7 +85,7 @@ func TestGitDetector_NoGit(t *testing.T) {
 
 func TestDetect_Compose(t *testing.T) {
 	dir := t.TempDir()
-	labels := workspace.Detect(dir, workspace.DefaultDetectors())
+	labels := workspace.Detect(workspace.WorkspaceInputs{CWD: dir}, workspace.DefaultDetectors())
 	hasDir := false
 	for _, l := range labels {
 		if strings.HasPrefix(l, "dir:") {

@@ -10,10 +10,13 @@ import (
 // expressed relative to $HOME for readability.
 type DirDetector struct{}
 
-func (DirDetector) Detect(cwd string) []string {
-	rel := cwd
+func (DirDetector) Detect(inputs WorkspaceInputs) []string {
+	if inputs.CWD == "" {
+		return nil
+	}
+	rel := inputs.CWD
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		if r, err := filepath.Rel(home, cwd); err == nil && !strings.HasPrefix(r, "..") {
+		if r, err := filepath.Rel(home, inputs.CWD); err == nil && !strings.HasPrefix(r, "..") {
 			rel = r
 		}
 	}

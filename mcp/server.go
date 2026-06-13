@@ -6,31 +6,35 @@ import (
 	"errors"
 	"fmt"
 
-	battmcp "github.com/dpopsuev/battery/mcp"
 	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/service"
 	"github.com/google/jsonschema-go/jsonschema"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// scribeInstructions is the MCP server instructions shown to clients.
-// Kept deliberately minimal — the schema is self-describing.
-// Query artifact(action=query, kind=kind_definition, scope=_schema) to learn when to create each kind.
-// Query artifact(action=query, kind=label_definition, scope=_schema) to learn when to apply each label.
-const scribeInstructions = "Artifact graph + knowledge vault. " +
-	"SESSION START: admin(action=brief) — discloses scope, active goal, open bugs. " +
-	"CAPABILITIES: admin(action=capabilities) — structured map of every action, option, and field; call this when unsure what's possible (e.g. rename_id, dry_run, cascade). " +
-	"SCHEMA: the _schema scope is self-describing — query kind_definition, edge_type_definition, label_definition artifacts to learn when and how to use each construct."
+// baseInstructions is the core MCP server instructions shown to clients.
+const baseInstructions = "Labeled Artifact Graph. " +
+	"SCHEMA: artifact(action=query, kind=label_definition, scope=_schema) to learn available kinds and labels."
+
+// workspaceUnconfiguredWarning is prepended to instructions when the client
+// has not declared workspace context in the initialize params.
+const workspaceUnconfiguredWarning = "WORKSPACE UNSET: pass workspace={cwd,git_remote} in your initialize _meta params " +
+	"to scope artifacts to your repository. Until set, artifacts have no workspace context.\n\n"
+
+// buildInstructions returns the instructions string for a session,
+// prepending a warning when the workspace context has not been configured.
+func buildInstructions(configured bool) string {
+	if !configured {
+		return workspaceUnconfiguredWarning + baseInstructions
+	}
+	return baseInstructions
+}
 
 // NewServer creates an MCP server exposing Scribe tools over the given store.
-// Returns both the server and a directive registry for CLI introspection.
-// Built on battery/mcp framework — auto-Observable, panic recovery, result helpers.
-// svc must be constructed via service.Open — both CLI and MCP use the same factory
-// so Protocol configuration, homeScopes, and schema are identical across surfaces.
-func NewServer(svc *service.Service, vocab []string, version string) (*sdkmcp.Server, *Registry) {
-	batt := battmcp.NewServer("scribe", version).
-		WithInstructions(scribeInstructions)
-
+// stdioLabels carries workspace labels detected from the server's own CWD
+// (stdio transport only). For HTTP transport, labels are set per-session via
+// the initialize handler.
+func NewServer(svc *service.Service, vocab []string, version string, stdioLabels ...string) (*sdkmcp.Server, *Registry) {
 	reg := newRegistry()
 	sid := newSessionID()
 	var store parchment.Store
@@ -41,16 +45,28 @@ func NewServer(svc *service.Service, vocab []string, version string) (*sdkmcp.Se
 		svc.ReadLog = loadReadLog(context.Background(), store, svc.Proto, sid)
 		svc.SessionID = sid
 	}
+
+	wLabels := stdioLabels
+	wConfigured := len(wLabels) > 0
+
 	h := &handler{
-		proto:       svc.Proto,
-		svc:         svc,
-		snapshotter: svc.Snapshotter,
-		version:     version,
-		homeScopes:  svc.HomeScopes,
+		proto:               svc.Proto,
+		svc:                 svc,
+		snapshotter:         svc.Snapshotter,
+		version:             version,
+		homeScopes:          svc.HomeScopes,
+		workspaceLabels:     wLabels,
+		workspaceConfigured: wConfigured,
 	}
 
-	// Build SDK directly for full MCP 2025 spec support (Title, Annotations).
-	sdk := batt.SDK()
+	// Build SDK server directly with InitializedHandler in options.
+	sdk := sdkmcp.NewServer(
+		&sdkmcp.Implementation{Name: "scribe", Version: version},
+		&sdkmcp.ServerOptions{
+			Instructions:       buildInstructions(wConfigured),
+			InitializedHandler: h.onInitialized,
+		},
+	)
 	destructiveHint := true
 
 	artifactDesc := "Labeled Artifact Graph — nodes and edges. " +
@@ -93,11 +109,13 @@ func NewServerFromStore(s parchment.Store, homeScopes []string, idc parchment.Pr
 }
 
 type handler struct {
-	proto       *parchment.Protocol
-	svc         *service.Service
-	snapshotter *parchment.Snapshotter
-	version     string
-	homeScopes  []string // default scopes; narrowable at runtime via admin(set_scope)
+	proto               *parchment.Protocol
+	svc                 *service.Service
+	snapshotter         *parchment.Snapshotter
+	version             string
+	homeScopes          []string // default scopes; narrowable at runtime
+	workspaceLabels     []string // context labels stamped on every artifact this session
+	workspaceConfigured bool     // true once workspace context has been set
 }
 
 // --- consolidated input types ---
@@ -197,8 +215,6 @@ type knowledgeInput struct {
 	Path  string `json:"path,omitempty"`
 	Scope string `json:"scope,omitempty"`
 }
-
-
 
 // --- dispatchers ---
 

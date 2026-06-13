@@ -8,16 +8,21 @@ import (
 	"strings"
 )
 
-// GitDetector walks up the directory tree from cwd, finds the nearest
-// .git/config, and produces a git: label from the origin remote URL.
+// GitDetector produces a git: label from the repository's origin remote URL.
+// If inputs.GitRemote is already set (HTTP transport — client provided it),
+// it is used directly. Otherwise the detector walks up from inputs.CWD to
+// find .git/config (stdio transport — server has filesystem access).
 type GitDetector struct{}
 
-func (GitDetector) Detect(cwd string) []string {
-	url := findGitOrigin(cwd)
-	if url == "" {
+func (GitDetector) Detect(inputs WorkspaceInputs) []string {
+	remote := inputs.GitRemote
+	if remote == "" && inputs.CWD != "" {
+		remote = findGitOrigin(inputs.CWD)
+	}
+	if remote == "" {
 		return nil
 	}
-	return []string{"git:" + NormalizeGitURL(url)}
+	return []string{"git:" + NormalizeGitURL(remote)}
 }
 
 // findGitOrigin walks up from cwd looking for .git/config.
@@ -51,7 +56,7 @@ func parseOriginURL(data []byte) string {
 		}
 		if inOrigin {
 			if strings.HasPrefix(line, "[") {
-				break // next section — origin had no url
+				break
 			}
 			if strings.HasPrefix(line, "url") {
 				parts := strings.SplitN(line, "=", 2)
@@ -66,18 +71,16 @@ func parseOriginURL(data []byte) string {
 
 // NormalizeGitURL converts any git remote URL form to host/owner/repo:
 //
-//	git@github.com:dpopsuev/locus.git → github.com/dpopsuev/locus
-//	https://github.com/dpopsuev/locus.git → github.com/dpopsuev/locus
-//	ssh://git@github.com/dpopsuev/locus → github.com/dpopsuev/locus
+//	git@github.com:dpopsuev/locus.git  →  github.com/dpopsuev/locus
+//	https://github.com/dpopsuev/locus  →  github.com/dpopsuev/locus
+//	ssh://git@github.com/dpopsuev/locus →  github.com/dpopsuev/locus
 func NormalizeGitURL(url string) string {
 	url = strings.TrimSuffix(url, ".git")
-	// SCP-style: git@github.com:owner/repo
 	if strings.HasPrefix(url, "git@") {
 		url = strings.TrimPrefix(url, "git@")
 		url = strings.Replace(url, ":", "/", 1)
 		return url
 	}
-	// https:// or ssh://
 	for _, prefix := range []string{"https://", "http://", "ssh://git@", "ssh://"} {
 		if strings.HasPrefix(url, prefix) {
 			return strings.TrimPrefix(url, prefix)

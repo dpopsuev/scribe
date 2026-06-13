@@ -106,14 +106,15 @@ func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, devU
 			homeScopes = cfg.ResolvedScopes()
 		}
 	}
-	// Detect workspace context labels (git:, dir:) for stdio transport.
-	// HTTP transport is multi-tenant; detection doesn't apply.
-	var workspaceLabels []string
+	// Detect workspace context labels for stdio transport.
+	// HTTP transport is multi-tenant; context comes from each client's initialize params.
+	var stdioWorkspaceLabels []string
 	if transport == "stdio" || !cmd.Flags().Changed("transport") {
 		cwd, _ := os.Getwd()
-		workspaceLabels = workspace.Detect(cwd, workspace.DefaultDetectors())
-		if len(workspaceLabels) > 0 {
-			slog.InfoContext(ctx, "workspace detected", slog.Any(logKeyWorkspace, workspaceLabels))
+		inputs := workspace.WorkspaceInputs{CWD: cwd}
+		stdioWorkspaceLabels = workspace.Detect(inputs, workspace.DefaultDetectors())
+		if len(stdioWorkspaceLabels) > 0 {
+			slog.InfoContext(ctx, "workspace detected", slog.Any(logKeyWorkspace, stdioWorkspaceLabels))
 		}
 	}
 
@@ -173,7 +174,7 @@ func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, devU
 		activeAddr = addr
 	}
 
-	srv, _ := mcp.NewServer(svc, nil, Version)
+	srv, _ := mcp.NewServer(svc, nil, Version, stdioWorkspaceLabels...)
 
 	// Per-request factory for HTTP transport: resolves ?workspace= to a scoped server.
 	// The store is shared; Protocol and Service are created per session.
