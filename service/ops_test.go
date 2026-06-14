@@ -1152,6 +1152,29 @@ func TestOpList_UnfilteredHint(t *testing.T) {
 	}
 }
 
+func TestReciprocalRankFusion(t *testing.T) {
+	a := &parchment.Artifact{ID: "A", Title: "A"}
+	b := &parchment.Artifact{ID: "B", Title: "B"}
+	c := &parchment.Artifact{ID: "C", Title: "C"}
+
+	semantic := []parchment.ScoredArtifact{
+		{Artifact: a, Score: 0.9},
+		{Artifact: b, Score: 0.7},
+	}
+	fts := []*parchment.Artifact{b, c}
+
+	results := service.ReciprocalRankFusion(semantic, fts)
+	if len(results) != 3 {
+		t.Fatalf("expected 3 results, got %d", len(results))
+	}
+	if results[0].Artifact.ID != "B" {
+		t.Errorf("B should be first (appears in both lists), got %s", results[0].Artifact.ID)
+	}
+	if results[0].Score <= results[1].Score {
+		t.Errorf("B's score should be highest (dual-list boost)")
+	}
+}
+
 func TestOpQuery_ExcerptChars(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()

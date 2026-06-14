@@ -235,18 +235,8 @@ var opQuery = Op{
 				return "", fmt.Errorf("semantic search requires an embedding backend: %w", semErr)
 			}
 			if mode == modeHybrid {
-				// Merge FTS results as unscored (score=0) — deduplicate by ID.
 				ftsResults, _ := svc.Proto.SearchArtifacts(ctx, in.Query, li)
-				seen := make(map[string]bool, len(scored))
-				for _, s := range scored {
-					seen[s.Artifact.ID] = true
-				}
-				for _, a := range ftsResults {
-					if !seen[a.ID] {
-						scored = append(scored, parchment.ScoredArtifact{Artifact: a})
-						seen[a.ID] = true
-					}
-				}
+				scored = ReciprocalRankFusion(scored, ftsResults)
 			}
 			if semErr != nil {
 				// Semantic unavailable in hybrid mode — fell back to FTS only.
@@ -425,6 +415,34 @@ var opQuery = Op{
 		}
 		return out, nil
 	},
+}
+
+const rrfK = 60
+
+func ReciprocalRankFusion(semantic []parchment.ScoredArtifact, fts []*parchment.Artifact) []parchment.ScoredArtifact {
+	type entry struct {
+		art   *parchment.Artifact
+		score float64
+	}
+	merged := make(map[string]*entry)
+
+	for rank, s := range semantic {
+		merged[s.Artifact.ID] = &entry{art: s.Artifact, score: 1.0 / float64(rrfK+rank+1)}
+	}
+	for rank, a := range fts {
+		if e, ok := merged[a.ID]; ok {
+			e.score += 1.0 / float64(rrfK+rank+1)
+		} else {
+			merged[a.ID] = &entry{art: a, score: 1.0 / float64(rrfK+rank+1)}
+		}
+	}
+
+	results := make([]parchment.ScoredArtifact, 0, len(merged))
+	for _, e := range merged {
+		results = append(results, parchment.ScoredArtifact{Artifact: e.art, Score: float32(e.score)})
+	}
+	sort.Slice(results, func(i, j int) bool { return results[i].Score > results[j].Score })
+	return results
 }
 
 func appendExcerpts(table string, arts []*parchment.Artifact, chars int, query string) string {
