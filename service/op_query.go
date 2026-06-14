@@ -76,6 +76,7 @@ type listInput struct {
 	UpdatedBefore  string `json:"updated_before,omitempty"`
 	InsertedAfter  string `json:"inserted_after,omitempty"`
 	InsertedBefore string `json:"inserted_before,omitempty"`
+	ExcerptChars   int    `json:"excerpt_chars,omitempty"`
 }
 
 func resolveIDs(ids []string, id string) []string {
@@ -412,7 +413,7 @@ var opQuery = Op{
 			return renderWithBriefing(ctx, svc, arts, BriefingOpts{Depth: in.Depth, Relation: in.Relation, Direction: in.Direction}), nil
 		}
 
-		out := parchment.RenderTable(arts)
+		out := appendExcerpts(parchment.RenderTable(arts), arts, in.ExcerptChars, in.Query)
 		if li.Limit > 0 && li.Limit < total {
 			out += fmt.Sprintf("\n(showing %d of %d total)", len(arts), total)
 		}
@@ -424,6 +425,60 @@ var opQuery = Op{
 		}
 		return out, nil
 	},
+}
+
+func appendExcerpts(table string, arts []*parchment.Artifact, chars int, query string) string {
+	if chars <= 0 {
+		return table
+	}
+	var b strings.Builder
+	b.WriteString(table)
+	terms := strings.Fields(strings.ToLower(query))
+	for _, a := range arts {
+		excerpt := sectionExcerpt(a, chars, terms)
+		if excerpt != "" {
+			fmt.Fprintf(&b, "  %s: %s\n", a.ID, excerpt)
+		}
+	}
+	return b.String()
+}
+
+func sectionExcerpt(art *parchment.Artifact, chars int, terms []string) string {
+	if len(terms) > 0 {
+		for _, sec := range art.Sections {
+			lower := strings.ToLower(sec.Text)
+			for _, t := range terms {
+				idx := strings.Index(lower, t)
+				if idx < 0 {
+					continue
+				}
+				start := idx - chars/4
+				if start < 0 {
+					start = 0
+				}
+				end := start + chars
+				if end > len(sec.Text) {
+					end = len(sec.Text)
+				}
+				excerpt := strings.TrimSpace(sec.Text[start:end])
+				if len(sec.Text) > end {
+					excerpt += "…"
+				}
+				return excerpt
+			}
+		}
+	}
+	for _, sec := range art.Sections {
+		text := strings.TrimSpace(sec.Text)
+		if text == "" {
+			continue
+		}
+		if len(text) > chars {
+			return text[:chars] + "…"
+		}
+		return text
+	}
+	return ""
 }
 
 func parentOf(ctx context.Context, store parchment.Store, id string) string {

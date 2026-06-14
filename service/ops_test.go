@@ -1151,3 +1151,45 @@ func TestOpList_UnfilteredHint(t *testing.T) {
 		t.Errorf("expected unfiltered hint containing top=10, got: %s", out)
 	}
 }
+
+func TestOpQuery_ExcerptChars(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Labels:   []string{"kind:knowledge.note"},
+		Title:    "JWT Authentication",
+		Sections: []parchment.Section{{Name: "body", Text: "JSON Web Tokens are used for stateless authentication in microservices architectures."}},
+	})
+
+	op := service.Find("query")
+	raw, _ := json.Marshal(map[string]any{"query": "JWT", "scope": "test", "excerpt_chars": 40})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "JSON Web Tokens") {
+		t.Errorf("expected excerpt containing 'JSON Web Tokens', got:\n%s", out)
+	}
+}
+
+func TestOpQuery_ExcerptCharsZeroOff(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Labels:   []string{"kind:knowledge.note"},
+		Title:    "Hidden Body",
+		Sections: []parchment.Section{{Name: "body", Text: "This body text should not appear in default query output."}},
+	})
+
+	op := service.Find("query")
+	raw, _ := json.Marshal(map[string]any{"scope": "test"})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "should not appear") {
+		t.Errorf("excerpt_chars=0 should not include body text, got:\n%s", out)
+	}
+}

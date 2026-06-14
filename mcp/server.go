@@ -169,6 +169,7 @@ type artifactInput struct {
 	ExcludeStatus  string   `json:"exclude_status,omitempty"`
 	LabelsOr       []string `json:"labels_or,omitempty"`
 	ExcludeLabels  []string `json:"exclude_labels,omitempty"`
+	ExcerptChars   int      `json:"excerpt_chars,omitempty" jsonschema:"include first N characters of most relevant section per result (0=off)"`
 
 	Field        string `json:"field,omitempty" jsonschema:"title, goal, scope, status, parent, priority, kind, depends_on, labels"`
 	Value        string `json:"value,omitempty" jsonschema:"new value (comma-separated for list fields)"`
