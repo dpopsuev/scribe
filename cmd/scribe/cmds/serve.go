@@ -20,6 +20,7 @@ import (
 	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/embed"
 	"github.com/dpopsuev/scribe/mcp"
+	"github.com/dpopsuev/scribe/migrations"
 	"github.com/dpopsuev/scribe/service"
 	"github.com/dpopsuev/scribe/web"
 	"github.com/dpopsuev/scribe/workspace"
@@ -134,6 +135,11 @@ func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, devU
 		return err
 	}
 	defer cleanup()
+
+	if err := migrations.RunPending(ctx, svc.Proto, false); err != nil {
+		slog.ErrorContext(ctx, "migration failed", slog.Any(logKeyError, err))
+		return err
+	}
 
 	// Start embedder sweep only when embedding is configured.
 	if embedFunc != nil {

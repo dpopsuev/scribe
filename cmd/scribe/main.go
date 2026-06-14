@@ -35,8 +35,7 @@ func main() {
 		cmds.SectionCmd(),
 		cmds.SearchCmd(),
 
-		cmds.MigrateIDsCmd(),
-		cmds.MigrateKindsCmd(),
+		cmds.MigrateCmd(),
 
 
 		cmds.LinkCmd(),
