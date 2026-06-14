@@ -1196,6 +1196,57 @@ func TestOpQuery_ExcerptChars(t *testing.T) {
 	}
 }
 
+func TestOpLint_FindsOrphans(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Labels: []string{"kind:knowledge.note"},
+		Title:  "Orphan Note",
+	})
+
+	op := service.Find("lint")
+	if op == nil {
+		t.Fatal("lint op not registered")
+	}
+	raw, _ := json.Marshal(map[string]any{"scope": "test"})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "orphan") {
+		t.Errorf("expected orphan finding, got: %s", out)
+	}
+	if !strings.Contains(out, "Orphan Note") {
+		t.Errorf("expected orphan note in output, got: %s", out)
+	}
+}
+
+func TestOpLint_NoIssuesWhenClean(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	parent, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Labels: []string{"kind:effort.goal"},
+		Title:  "Goal",
+	})
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Labels: []string{"kind:effort.task"},
+		Title:  "Task",
+		Parent: parent.ID,
+	})
+
+	op := service.Find("lint")
+	raw, _ := json.Marshal(map[string]any{"scope": "test"})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "orphan") {
+		t.Errorf("linked artifacts should not be orphans, got: %s", out)
+	}
+}
+
 func TestOpQuery_ExcerptCharsZeroOff(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
