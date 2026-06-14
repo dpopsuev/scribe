@@ -136,6 +136,7 @@ func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, devU
 		return err
 	}
 	defer cleanup()
+	svc.RecordSession = cfg.RecordSession
 
 	if err := migrations.RunPending(ctx, svc.Proto, false); err != nil {
 		slog.ErrorContext(ctx, "migration failed", slog.Any(logKeyError, err))

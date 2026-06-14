@@ -96,6 +96,7 @@ type Config struct {
 	SeedDir          string                 `yaml:"seed_dir,omitempty"`
 	Defaults         Defaults               `yaml:"defaults,omitempty"`
 	Embed            EmbedConfig            `yaml:"embed,omitempty"`
+	RecordSession    bool                   `yaml:"record_session,omitempty"`
 }
 
 // DBPath returns the resolved database path.

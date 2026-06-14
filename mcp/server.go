@@ -60,6 +60,7 @@ func NewServer(svc *service.Service, vocab []string, version string, stdioLabels
 		homeScopes:          svc.HomeScopes,
 		workspaceLabels:     wLabels,
 		workspaceConfigured: wConfigured,
+		recordSession:       svc.RecordSession,
 	}
 
 	// Build SDK server directly with InitializedHandler in options.
@@ -120,6 +121,8 @@ type handler struct {
 	homeScopes          []string // default scopes; narrowable at runtime
 	workspaceLabels     []string // context labels stamped on every artifact this session
 	workspaceConfigured bool     // true once workspace context has been set
+	recordSession       bool     // when true, create ctx.session/ctx.turn artifacts
+	sessionArtifactID   string   // lazily created ctx.session artifact
 }
 
 // --- consolidated input types ---

@@ -15,11 +15,12 @@ import (
 // Service wraps parchment.Protocol and provides all Scribe domain operations.
 // It is the single implementation shared by the MCP handlers and the CLI.
 type Service struct {
-	Proto       *parchment.Protocol
-	Snapshotter *parchment.Snapshotter
-	HomeScopes  []string
-	ReadLog     map[string]bool
-	SessionID   string
+	Proto         *parchment.Protocol
+	Snapshotter   *parchment.Snapshotter
+	HomeScopes    []string
+	ReadLog       map[string]bool
+	SessionID     string
+	RecordSession bool
 }
 
 // New constructs a Service.

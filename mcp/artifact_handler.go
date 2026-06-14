@@ -61,6 +61,33 @@ func stringFromMap(m map[string]any, key string) string {
 	return ""
 }
 
+func (h *handler) recordTurn(ctx context.Context, action string, raw json.RawMessage) {
+	if !h.recordSession || h.proto == nil {
+		return
+	}
+	if h.sessionArtifactID == "" {
+		sess, err := h.proto.CreateArtifact(ctx, parchment.CreateInput{
+			Title:  fmt.Sprintf("session %s", h.svc.SessionID),
+			Labels: []string{"kind:ctx.session"},
+		})
+		if err != nil {
+			slog.WarnContext(ctx, "session recording: create session failed", slog.Any(parchment.LogKeyError, err))
+			return
+		}
+		h.sessionArtifactID = sess.ID
+	}
+	input := string(raw)
+	if len(input) > 500 {
+		input = input[:500] + "…"
+	}
+	_, _ = h.proto.CreateArtifact(ctx, parchment.CreateInput{ //nolint:gosec // advisory recording
+		Title:    fmt.Sprintf("turn: %s", action),
+		Labels:   []string{"kind:ctx.turn"},
+		Parent:   h.sessionArtifactID,
+		Sections: []parchment.Section{{Name: "content", Text: input}},
+	})
+}
+
 func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolRequest, in artifactInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: value semantics intentional
 	// Workspace stamping on create/query.
 	if len(h.workspaceLabels) > 0 {
@@ -84,6 +111,9 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 
 	if op := service.Find(in.Action); op != nil {
 		raw, _ := json.Marshal(in)
+		if isWriteAction(in.Action) {
+			h.recordTurn(ctx, in.Action, raw)
+		}
 		out, err := op.Run(ctx, h.svc, raw)
 		if err != nil {
 			return nil, nil, err
