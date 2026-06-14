@@ -61,9 +61,9 @@ func TestOpSet_BulkArchiveViaScope(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task", parchment.LabelPrefixScope + "alpha"}, Title: "A"})
-	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task", parchment.LabelPrefixScope + "alpha"}, Title: "B"})
-	c, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task", parchment.LabelPrefixScope + "beta"}, Title: "C"})
+	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task", parchment.LabelPrefixScope + "alpha"}, Title: "A"})
+	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task", parchment.LabelPrefixScope + "alpha"}, Title: "B"})
+	c, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task", parchment.LabelPrefixScope + "beta"}, Title: "C"})
 
 	op := service.Find("set")
 	raw, _ := json.Marshal(map[string]any{
@@ -99,7 +99,7 @@ func TestOpSet_BulkDryRunPreview(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "T"})
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "T"})
 
 	op := service.Find("set")
 	raw, _ := json.Marshal(map[string]any{
@@ -126,7 +126,7 @@ func TestOpSet_ArchiveViaStatusField(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "T"})
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "T"})
 
 	op := service.Find("set")
 	raw, _ := json.Marshal(map[string]any{
@@ -152,9 +152,9 @@ func TestOpSet_ActivationBlockedUntilSpecRead(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	spec, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:spec"}, Title: "S"})
+	spec, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:intent.spec"}, Title: "S"})
 	task, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Labels: []string{"kind:task"}, Title: "T",
+		Labels: []string{"kind:effort.task"}, Title: "T",
 		Sections: []parchment.Section{
 			{Name: "context", Text: "ctx"}, {Name: "checklist", Text: "ok"}, {Name: "acceptance", Text: "ok"},
 		},
@@ -179,9 +179,9 @@ func TestOpSet_ActivationAllowedAfterSpecRead(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	spec, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:spec"}, Title: "S"})
+	spec, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:intent.spec"}, Title: "S"})
 	task, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Labels: []string{"kind:task", "priority:medium"}, Title: "T",
+		Labels: []string{"kind:effort.task", "priority:medium"}, Title: "T",
 		Sections: []parchment.Section{
 			{Name: "context", Text: "ctx"}, {Name: "checklist", Text: "ok"}, {Name: "acceptance", Text: "ok"},
 		},
@@ -207,7 +207,7 @@ func TestOpSet_SetsSingleField(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	art, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "old"})
+	art, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "old"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,8 +232,8 @@ func TestOpSet_SetsMultipleIDs(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "A"})
-	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "B"})
+	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "A"})
+	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "B"})
 
 	op := service.Find("set")
 	raw, _ := json.Marshal(map[string]any{
@@ -271,7 +271,7 @@ func TestOpSet_FieldErrorPropagated(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "T"})
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "T"})
 	op := service.Find("set")
 	raw, _ := json.Marshal(map[string]any{
 		"id": art.ID, "field": "status", "value": "work.complete",
@@ -295,7 +295,7 @@ func TestOpList_RankedReturnsMatchingArtifacts(t *testing.T) {
 	ctx := context.Background()
 
 	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{ //nolint:errcheck // test setup, error irrelevant to subject under test
-		Labels: []string{"kind:note"}, Title: "authentication flow",
+		Labels: []string{"kind:knowledge.note"}, Title: "authentication flow",
 	})
 
 	op := service.Find("query")
@@ -350,7 +350,7 @@ func TestOpList_HybridFallsBackToFTS_WhenNoEmbeddings(t *testing.T) {
 	ctx := context.Background()
 
 	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{ //nolint:errcheck // test setup
-		Labels: []string{"kind:note"}, Title: "authentication flow",
+		Labels: []string{"kind:knowledge.note"}, Title: "authentication flow",
 	})
 
 	op := service.Find("query")
@@ -389,8 +389,8 @@ func TestOpList_Semantic_WithEmbeddings_ReturnsResults(t *testing.T) {
 	svc := service.New(proto, nil, []string{"test"})
 	ctx := context.Background()
 
-	art, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Title: "authentication jwt token"})
-	_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Title: "ptp clock holdover"})
+	art, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:knowledge.note"}, Title: "authentication jwt token"})
+	_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:knowledge.note"}, Title: "ptp clock holdover"})
 	// Librarian manually puts embeddings
 	authVec, _ := embedFn(ctx, "authentication jwt token")
 	_ = store.PutEmbedding(ctx, art.ID, parchment.DefaultEmbedModel, "", authVec)
@@ -415,12 +415,12 @@ func TestOpList_DepthWithRelationAndDirection(t *testing.T) {
 	ctx := context.Background()
 
 	campaign, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Labels: []string{"kind:campaign"}, Title: "Q3 campaign",
+		Labels: []string{"kind:effort.campaign"}, Title: "Q3 campaign",
 		Sections: []parchment.Section{{Name: "mission", Text: "ship it"}},
 	})
-	goal, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:goal"}, Title: "core goal"})
+	goal, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.goal"}, Title: "core goal"})
 	task, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Labels: []string{"kind:task"}, Title: "write the embedder",
+		Labels: []string{"kind:effort.task"}, Title: "write the embedder",
 		Sections: []parchment.Section{{Name: "context", Text: "embed artifacts"}},
 	})
 	svc.Proto.LinkArtifacts(ctx, campaign.ID, "parent_of", []string{goal.ID}, 0) //nolint:errcheck // test setup
@@ -455,9 +455,9 @@ func TestOpReplace_SwapsEdgeTarget(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "A"})
-	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:spec"}, Title: "B"})
-	c, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:spec"}, Title: "C"})
+	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "A"})
+	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:intent.spec"}, Title: "B"})
+	c, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:intent.spec"}, Title: "C"})
 	svc.Proto.LinkArtifacts(ctx, a.ID, "implements", []string{b.ID}, 0) //nolint:errcheck // test setup, error irrelevant to subject under test
 
 	op := service.Find("link")
@@ -481,9 +481,9 @@ func TestOpQuery_TopoSort_ReturnsOrderedList(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	goal, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:goal"}, Title: "G"})
-	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "First", Parent: goal.ID})
-	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "Second", Parent: goal.ID, DependsOn: []string{a.ID}})
+	goal, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.goal"}, Title: "G"})
+	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "First", Parent: goal.ID})
+	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "Second", Parent: goal.ID, DependsOn: []string{a.ID}})
 
 	op := service.Find("query")
 	if op == nil {
@@ -511,8 +511,8 @@ func TestOpLink_ModeRemoveUnlinks(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "A"})
-	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:spec"}, Title: "B"})
+	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "A"})
+	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:intent.spec"}, Title: "B"})
 	svc.Proto.LinkArtifacts(ctx, a.ID, "implements", []string{b.ID}, 0) //nolint:errcheck // test setup, error irrelevant to subject under test
 
 	op := service.Find("link")
@@ -533,9 +533,9 @@ func TestOpLink_ModeReplaceSwapsTarget(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "A"})
-	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:spec"}, Title: "B"})
-	c, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:spec"}, Title: "C"})
+	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "A"})
+	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:intent.spec"}, Title: "B"})
+	c, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:intent.spec"}, Title: "C"})
 	svc.Proto.LinkArtifacts(ctx, a.ID, "implements", []string{b.ID}, 0) //nolint:errcheck // test setup, error irrelevant to subject under test
 
 	op := service.Find("link")
@@ -562,8 +562,8 @@ func TestOpLink_CreatesEdge(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "A"})
-	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:spec"}, Title: "B"})
+	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "A"})
+	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:intent.spec"}, Title: "B"})
 
 	op := service.Find("link")
 	if op == nil {
@@ -586,8 +586,8 @@ func TestOpUnlink_RemovesEdge(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "A"})
-	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:spec"}, Title: "B"})
+	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "A"})
+	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:intent.spec"}, Title: "B"})
 	svc.Proto.LinkArtifacts(ctx, a.ID, "implements", []string{b.ID}, 0) //nolint:errcheck // test setup, error irrelevant to subject under test
 
 	op := service.Find("link")
@@ -608,7 +608,7 @@ func TestOpGet_Summary(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Title: "N"})
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:knowledge.note"}, Title: "N"})
 
 	op := service.Find("get")
 	raw, _ := json.Marshal(map[string]any{"id": art.ID, "format": "summary"})
@@ -628,8 +628,8 @@ func TestOpGet_Briefing(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	parent, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:goal"}, Title: "G"})
-	child, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "T", Parent: parent.ID})
+	parent, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.goal"}, Title: "G"})
+	child, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "T", Parent: parent.ID})
 
 	op := service.Find("get")
 	raw, _ := json.Marshal(map[string]any{"id": parent.ID, "format": "briefing"})
@@ -649,7 +649,7 @@ func TestOpGet_Impact(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "T"})
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "T"})
 
 	op := service.Find("get")
 	raw, _ := json.Marshal(map[string]any{"id": art.ID, "format": "impact"})
@@ -669,8 +669,8 @@ func TestOpGet_Tree(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	parent, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:goal"}, Title: "G"})
-	child, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "T", Parent: parent.ID})
+	parent, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.goal"}, Title: "G"})
+	child, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "T", Parent: parent.ID})
 
 	op := service.Find("get")
 	raw, _ := json.Marshal(map[string]any{"id": parent.ID, "format": "tree"})
@@ -690,8 +690,8 @@ func TestOpGet_BulkIDs(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Title: "A"})
-	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Title: "B"})
+	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:knowledge.note"}, Title: "A"})
+	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:knowledge.note"}, Title: "B"})
 
 	op := service.Find("get")
 	raw, _ := json.Marshal(map[string]any{"ids": []string{a.ID, b.ID}})
@@ -714,8 +714,8 @@ func TestOpCreate_BatchCreate(t *testing.T) {
 	op := service.Find("create")
 	raw, _ := json.Marshal(map[string]any{
 		"artifacts": []map[string]any{
-			{"kind": "task", "title": "First", "scope": "test"},
-			{"kind": "task", "title": "Second", "scope": "test"},
+			{"kind": "effort.task", "title": "First", "scope": "test"},
+			{"kind": "effort.task", "title": "Second", "scope": "test"},
 		},
 	})
 	out, err := op.Run(ctx, svc, raw)
@@ -734,7 +734,7 @@ func TestOpCreate_Clone(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	source, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Title: "original"})
+	source, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:knowledge.note"}, Title: "original"})
 
 	op := service.Find("create")
 	raw, _ := json.Marshal(map[string]any{"clone_from": source.ID, "title": "clone", "scope": "test"})
@@ -754,7 +754,7 @@ func TestOpGet_ReturnsMarkdown(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Title: "design doc"})
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:knowledge.note"}, Title: "design doc"})
 
 	op := service.Find("get")
 	if op == nil {
@@ -777,7 +777,7 @@ func TestOpGet_RecordsRead(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Title: "N"})
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:knowledge.note"}, Title: "N"})
 
 	op := service.Find("get")
 	if op == nil {
@@ -803,7 +803,7 @@ func TestOpCreate_ReturnsID(t *testing.T) {
 	if op == nil {
 		t.Fatal("create Op not registered")
 	}
-	raw, _ := json.Marshal(map[string]any{"kind": "task", "title": "my task", "scope": "test"})
+	raw, _ := json.Marshal(map[string]any{"kind": "effort.task", "title": "my task", "scope": "test"})
 	out, err := op.Run(ctx, svc, raw)
 	if err != nil {
 		t.Fatal(err)
@@ -826,10 +826,10 @@ func TestOpCreate_WithParentShowsParent(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	goal, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:goal"}, Title: "G"})
+	goal, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.goal"}, Title: "G"})
 
 	op := service.Find("create")
-	raw, _ := json.Marshal(map[string]any{"kind": "task", "title": "child", "scope": "test", "parent": goal.ID})
+	raw, _ := json.Marshal(map[string]any{"kind": "effort.task", "title": "child", "scope": "test", "parent": goal.ID})
 	out, err := op.Run(ctx, svc, raw)
 	if err != nil {
 		t.Fatal(err)
@@ -845,26 +845,26 @@ func TestOpCreate_MissingTitleErrors(t *testing.T) {
 	// Then an error is returned
 	svc := newTestService(t)
 	op := service.Find("create")
-	raw, _ := json.Marshal(map[string]any{"kind": "task", "scope": "test"})
+	raw, _ := json.Marshal(map[string]any{"kind": "effort.task", "scope": "test"})
 	_, err := op.Run(context.Background(), svc, raw)
 	if err == nil {
 		t.Fatal("expected error for missing title, got nil")
 	}
 }
 
-func TestOpList_FamilyKnowledgeGrouped(t *testing.T) {
+func TestOpList_KindPrefixKnowledgeGrouped(t *testing.T) {
 	// Given notes and concepts exist alongside a task
-	// When list(family=knowledge, group_by=kind) is called
+	// When list(kind=knowledge, group_by=kind) is called with prefix matching
 	// Then knowledge artifacts appear but the task does not
 	svc := newTestService(t, "test")
 	ctx := context.Background()
 
-	note, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Title: "design note"})
-	concept, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:concept"}, Title: "key concept"})
-	task, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "a task"})
+	note, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:knowledge.note"}, Title: "design note"})
+	concept, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:knowledge.concept"}, Title: "key concept"})
+	task, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "a task"})
 
 	op := service.Find("query")
-	raw, _ := json.Marshal(map[string]any{"family": "knowledge", "group_by": "kind", "scope": "test"})
+	raw, _ := json.Marshal(map[string]any{"kind": "knowledge", "group_by": "kind", "scope": "test"})
 	out, err := op.Run(ctx, svc, raw)
 	if err != nil {
 		t.Fatal(err)
@@ -873,7 +873,7 @@ func TestOpList_FamilyKnowledgeGrouped(t *testing.T) {
 		t.Errorf("expected knowledge artifacts in output, got: %s", out[:min(300, len(out))])
 	}
 	if strings.Contains(out, task.ID) {
-		t.Errorf("task should not appear in knowledge family list, got: %s", out[:min(300, len(out))])
+		t.Errorf("task should not appear in knowledge prefix list, got: %s", out[:min(300, len(out))])
 	}
 }
 
@@ -886,7 +886,7 @@ func TestOpUpdate_SetsMultipleFields(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "old"})
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "old"})
 
 	op := service.Find("update")
 	if op == nil {
@@ -916,7 +916,7 @@ func TestOpUpdate_AttachesSection(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "T"})
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "T"})
 
 	op := service.Find("update")
 	raw, _ := json.Marshal(map[string]any{
@@ -943,7 +943,7 @@ func TestOpUpdate_DeletesSection(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "T"})
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "T"})
 	svc.Proto.AttachSection(ctx, art.ID, "notes", "content") //nolint:errcheck // test setup, error irrelevant to subject under test
 
 	op := service.Find("update")
@@ -970,7 +970,7 @@ func TestOpUpdate_MissingBothFieldsAndSectionsErrors(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "T"})
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "T"})
 
 	op := service.Find("update")
 	raw, _ := json.Marshal(map[string]any{"id": art.ID})
@@ -987,8 +987,8 @@ func TestOpGet_DiffAgainst(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "Alpha"})
-	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "Beta"})
+	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "Alpha"})
+	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "Beta"})
 
 	op := service.Find("get")
 	if op != nil {
@@ -1014,8 +1014,8 @@ func TestOpList_DefaultTableOutput(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "Alpha"})
-	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "Beta"})
+	a, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "Alpha"})
+	b, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "Beta"})
 
 	op := service.Find("query")
 	raw, _ := json.Marshal(map[string]any{})
@@ -1039,7 +1039,7 @@ func TestOpList_CountMode(t *testing.T) {
 	ctx := context.Background()
 
 	for range 3 {
-		svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "T"}) //nolint:errcheck // test setup, error irrelevant to subject under test
+		svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "T"}) //nolint:errcheck // test setup, error irrelevant to subject under test
 	}
 	op := service.Find("query")
 	raw, _ := json.Marshal(map[string]any{"count": true})
@@ -1060,7 +1060,7 @@ func TestOpList_TopNReturnsJSON(t *testing.T) {
 	ctx := context.Background()
 
 	for range 5 {
-		svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "T"}) //nolint:errcheck // test setup, error irrelevant to subject under test
+		svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "T"}) //nolint:errcheck // test setup, error irrelevant to subject under test
 	}
 	op := service.Find("query")
 	raw, _ := json.Marshal(map[string]any{"top": 2})
@@ -1084,7 +1084,7 @@ func TestOpList_CompactFields(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "Compact"}) //nolint:errcheck // test setup, error irrelevant to subject under test
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "Compact"}) //nolint:errcheck // test setup, error irrelevant to subject under test
 
 	op := service.Find("query")
 	raw, _ := json.Marshal(map[string]any{"fields": []string{"id", "title"}})
@@ -1117,11 +1117,11 @@ func TestOpList_FilterByKind(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	task, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "T"})
-	note, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Title: "N"})
+	task, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "T"})
+	note, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:knowledge.note"}, Title: "N"})
 
 	op := service.Find("query")
-	raw, _ := json.Marshal(map[string]any{"kind": "task"})
+	raw, _ := json.Marshal(map[string]any{"kind": "effort.task"})
 	out, err := op.Run(ctx, svc, raw)
 	if err != nil {
 		t.Fatal(err)
@@ -1141,7 +1141,7 @@ func TestOpList_UnfilteredHint(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "T"}) //nolint:errcheck // test setup, error irrelevant to subject under test
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "T"}) //nolint:errcheck // test setup, error irrelevant to subject under test
 
 	op := service.Find("query")
 	raw, _ := json.Marshal(map[string]any{})

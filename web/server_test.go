@@ -22,14 +22,14 @@ func setup(t *testing.T) *web.Server {
 
 	ctx := context.Background()
 	s.Put(ctx, &parchment.Artifact{
-		Labels: []string{"kind:task", "work.active", "scope:test"}, ID: "TASK-2026-001", Title: "Test Task",
+		Labels: []string{"kind:effort.task", "work.active", "scope:test"}, ID: "TASK-2026-001", Title: "Test Task",
 		Sections: []parchment.Section{
 			{Name: "design", Text: "## Overview\n\nThis is a **test** design."},
 		},
 	})
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:campaign", "work.active", "scope:test"}, ID: "CMP-2026-001", Title: "Test Campaign"})
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:goal", "work.active", "scope:test"}, ID: "GOL-2026-001", Title: "Test Goal"})
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:task", "work.active", "scope:test"}, ID: "TASK-2026-002", Title: "Child Task"})
+	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.campaign", "work.active", "scope:test"}, ID: "CMP-2026-001", Title: "Test Campaign"})
+	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.goal", "work.active", "scope:test"}, ID: "GOL-2026-001", Title: "Test Goal"})
+	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.active", "scope:test"}, ID: "TASK-2026-002", Title: "Child Task"})
 	s.AddEdge(ctx, parchment.Edge{From: "GOL-2026-001", To: "TASK-2026-002", Relation: parchment.RelParentOf})
 
 	proto := parchment.New(s, nil, []string{"test"}, nil, parchment.ProtocolConfig{})
@@ -67,7 +67,7 @@ func TestArtifactList(t *testing.T) {
 func TestArtifactListFiltered(t *testing.T) {
 	srv := setup(t)
 	rr := httptest.NewRecorder()
-	srv.ServeHTTP(rr, httptest.NewRequest("GET", "/artifacts?kind=campaign", http.NoBody))
+	srv.ServeHTTP(rr, httptest.NewRequest("GET", "/artifacts?kind=effort.campaign", http.NoBody))
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET /artifacts?kind=campaign = %d, want 200", rr.Code)
@@ -160,7 +160,7 @@ func TestEventFeed_EmitsSSE(t *testing.T) {
 	proto := parchment.New(s, nil, []string{"test"}, nil, parchment.ProtocolConfig{})
 	before := "1970-01-01T00:00:00Z"
 
-	art, err := proto.CreateArtifact(context.Background(), parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + "task"}, Title: "SSE test artifact"})
+	art, err := proto.CreateArtifact(context.Background(), parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + "effort.task"}, Title: "SSE test artifact"})
 	if err != nil {
 		t.Fatal(err)
 	}

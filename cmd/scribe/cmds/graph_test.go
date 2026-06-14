@@ -7,8 +7,8 @@ import (
 
 func TestLink_CreatesEdge(t *testing.T) {
 	db := newDB(t)
-	parent := strings.TrimSpace(run(t, db, "create", "--kind", "spec", "--scope", "test", "--title", "the spec"))
-	child := strings.TrimSpace(run(t, db, "create", "--kind", "task", "--scope", "test", "--title", "the task"))
+	parent := strings.TrimSpace(run(t, db, "create", "--kind", "intent.spec", "--scope", "test", "--title", "the spec"))
+	child := strings.TrimSpace(run(t, db, "create", "--kind", "effort.task", "--scope", "test", "--title", "the task"))
 
 	run(t, db, "link", child, "implements", parent)
 	out := run(t, db, "briefing", child)
@@ -17,8 +17,8 @@ func TestLink_CreatesEdge(t *testing.T) {
 
 func TestUnlink_RemovesEdge(t *testing.T) {
 	db := newDB(t)
-	parent := strings.TrimSpace(run(t, db, "create", "--kind", "spec", "--scope", "test", "--title", "the spec"))
-	child := strings.TrimSpace(run(t, db, "create", "--kind", "task", "--scope", "test", "--title", "the task"))
+	parent := strings.TrimSpace(run(t, db, "create", "--kind", "intent.spec", "--scope", "test", "--title", "the spec"))
+	child := strings.TrimSpace(run(t, db, "create", "--kind", "effort.task", "--scope", "test", "--title", "the task"))
 
 	run(t, db, "link", child, "implements", parent)
 	run(t, db, "unlink", child, "implements", parent)
@@ -28,8 +28,8 @@ func TestUnlink_RemovesEdge(t *testing.T) {
 
 func TestTree_ShowsChildren(t *testing.T) {
 	db := newDB(t)
-	parent := strings.TrimSpace(run(t, db, "create", "--kind", "goal", "--scope", "test", "--title", "the goal"))
-	child := strings.TrimSpace(run(t, db, "create", "--kind", "task", "--scope", "test", "--title", "child task", "--parent", parent))
+	parent := strings.TrimSpace(run(t, db, "create", "--kind", "effort.goal", "--scope", "test", "--title", "the goal"))
+	child := strings.TrimSpace(run(t, db, "create", "--kind", "effort.task", "--scope", "test", "--title", "child task", "--parent", parent))
 
 	out := run(t, db, "tree", parent)
 	mustContain(t, out, child)
@@ -38,15 +38,15 @@ func TestTree_ShowsChildren(t *testing.T) {
 
 func TestBriefing_ShowsContext(t *testing.T) {
 	db := newDB(t)
-	id := strings.TrimSpace(run(t, db, "create", "--kind", "task", "--scope", "test", "--title", "briefed task"))
+	id := strings.TrimSpace(run(t, db, "create", "--kind", "effort.task", "--scope", "test", "--title", "briefed task"))
 	out := run(t, db, "briefing", id)
 	mustContain(t, out, "briefed task")
 }
 
 func TestSearch_FindsByQuery(t *testing.T) {
 	db := newDB(t)
-	run(t, db, "create", "--kind", "task", "--scope", "test", "--title", "auth implementation")
-	run(t, db, "create", "--kind", "task", "--scope", "test", "--title", "database migration")
+	run(t, db, "create", "--kind", "effort.task", "--scope", "test", "--title", "auth implementation")
+	run(t, db, "create", "--kind", "effort.task", "--scope", "test", "--title", "database migration")
 
 	out := run(t, db, "search", "auth")
 	mustContain(t, out, "auth implementation")

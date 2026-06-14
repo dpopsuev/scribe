@@ -49,7 +49,7 @@ func newStressProto(t *testing.T, artifactCount int, embedFn parchment.Embedding
 		parchment.ProtocolConfig{EmbedFunc: embedFn, EmbedModel: "stress-model"})
 	ctx := context.Background()
 	for i := range artifactCount {
-		_, err := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"},
+		_, err := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:knowledge.note"},
 			Title: strings.Repeat("stress test artifact content ", 10)})
 		if err != nil {
 			t.Fatalf("create artifact %d: %v", i, err)
@@ -223,7 +223,7 @@ func TestEmbedder_Stress_LongText(t *testing.T) {
 
 	// Create an artifact with a long section.
 	ctx := context.Background()
-	art, err := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Title: "long text stress test",
+	art, err := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:knowledge.note"}, Title: "long text stress test",
 		Sections: []parchment.Section{{Name: "body", Text: longText}},
 	})
 	if err != nil {

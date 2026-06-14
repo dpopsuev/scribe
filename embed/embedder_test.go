@@ -39,7 +39,7 @@ func TestEmbedder_EncodedLabelAdded(t *testing.T) {
 	ctx := context.Background()
 	proto := newTestProto(t)
 
-	art, err := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Title: "graph physics notes"})
+	art, err := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:knowledge.note"}, Title: "graph physics notes"})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestEmbedder_EncodedLabelStrippedOnContentChange(t *testing.T) {
 	ctx := context.Background()
 	proto := newTestProto(t)
 
-	art, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Title: "original title"})
+	art, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:knowledge.note"}, Title: "original title"})
 
 	e := newEmbedder(proto)
 	e.ProcessOne(ctx, art.ID)
@@ -89,7 +89,7 @@ func TestEmbedder_StatusChangeDoesNotStripEncoded(t *testing.T) {
 	ctx := context.Background()
 	proto := newTestProto(t)
 
-	art, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Title: "stable title"})
+	art, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:knowledge.note"}, Title: "stable title"})
 
 	e := newEmbedder(proto)
 	e.ProcessOne(ctx, art.ID)
@@ -122,7 +122,7 @@ func TestEmbedder_ProcessOnePreservesExistingLabels(t *testing.T) {
 	ctx := context.Background()
 	proto := newTestProto(t)
 
-	originalLabels := []string{"kind:note", "scope:test", "architecture", "priority:high"}
+	originalLabels := []string{"kind:knowledge.note", "scope:test", "architecture", "priority:high"}
 	art, err := proto.CreateArtifact(ctx, parchment.CreateInput{
 		Labels: originalLabels,
 		Title:  "important architecture note",
@@ -145,7 +145,7 @@ func TestEmbedder_ProcessOnePreservesExistingLabels(t *testing.T) {
 	}
 
 	// All original labels must survive.
-	for _, want := range []string{"kind:note", "scope:test", "architecture", "priority:high"} {
+	for _, want := range []string{"kind:knowledge.note", "scope:test", "architecture", "priority:high"} {
 		if !slices.Contains(after.Labels, want) {
 			t.Errorf("label %q was destroyed by embedding; labels after: %v", want, after.Labels)
 		}
@@ -160,8 +160,8 @@ func TestEmbedder_SweepQueuesUnencodedArtifacts(t *testing.T) {
 	proto := newTestProto(t)
 
 	// Create two artifacts — neither has "encoded".
-	a1, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Title: "note one"})
-	a2, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Title: "note two"})
+	a1, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:knowledge.note"}, Title: "note one"})
+	a2, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:knowledge.note"}, Title: "note two"})
 
 	e := newEmbedder(proto)
 	e.Sweep(ctx)

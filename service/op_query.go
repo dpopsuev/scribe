@@ -70,7 +70,6 @@ type listInput struct {
 	Depth          int      `json:"depth,omitempty"`     // if >0, attach ArtifactTree to each result
 	Relation       string   `json:"relation,omitempty"`  // edge relation to traverse with depth; default "*" (all)
 	Direction      string   `json:"direction,omitempty"` // inbound | outbound | both (default)
-	Family         string   `json:"family,omitempty"`
 	CreatedAfter   string   `json:"created_after,omitempty"`
 	CreatedBefore  string   `json:"created_before,omitempty"`
 	UpdatedAfter   string   `json:"updated_after,omitempty"`
@@ -290,8 +289,13 @@ var opQuery = Op{
 		}
 
 		listLabels := in.Labels
+		var kindPrefix string
 		if in.Kind != "" {
-			listLabels = append([]string{parchment.LabelPrefixKind + in.Kind}, listLabels...)
+			if strings.Contains(in.Kind, ".") {
+				listLabels = append([]string{parchment.LabelPrefixKind + in.Kind}, listLabels...)
+			} else {
+				kindPrefix = in.Kind
+			}
 		}
 		if in.Status != "" {
 			listLabels = append(listLabels, statusLabelFor(in.Status))
@@ -310,10 +314,11 @@ var opQuery = Op{
 			listExclude = append(listExclude, statusLabelFor(in.ExcludeStatus))
 		}
 		li := parchment.ListInput{
-			IDPrefix: in.IDPrefix,
-			Labels:   listLabels, LabelsOr: in.LabelsOr, ExcludeLabels: listExclude,
+			IDPrefix:   in.IDPrefix,
+			KindPrefix: kindPrefix,
+			Labels:     listLabels, LabelsOr: in.LabelsOr, ExcludeLabels: listExclude,
 			GroupBy: in.GroupBy, Sort: in.Sort, Limit: in.Limit, Cursor: in.Cursor, Query: in.Query,
-			TitleContains: in.TitleContains, Family: in.Family,
+			TitleContains: in.TitleContains,
 			CreatedAfter: in.CreatedAfter, CreatedBefore: in.CreatedBefore,
 			UpdatedAfter: in.UpdatedAfter, UpdatedBefore: in.UpdatedBefore,
 			InsertedAfter: in.InsertedAfter, InsertedBefore: in.InsertedBefore,

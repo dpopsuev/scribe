@@ -26,7 +26,7 @@ func TestSyncDir_ImportsArtifacts(t *testing.T) {
 
 	writeMD(t, dir, "fix-auth.md", `---
 id: SCR-TSK-001
-kind: task
+kind: effort.task
 title: Fix auth bug
 scope: scribe
 status: draft
@@ -55,8 +55,8 @@ Given expired token, returns 401.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if art.Label(parchment.LabelPrefixKind) != "task" {
-		t.Errorf("kind = %q, want task", art.Label(parchment.LabelPrefixKind))
+	if art.Label(parchment.LabelPrefixKind) != "effort.task" {
+		t.Errorf("kind = %q, want effort.task", art.Label(parchment.LabelPrefixKind))
 	}
 	if art.Label(parchment.LabelPrefixPriority) != "high" {
 		t.Errorf("priority = %q, want high", art.Label(parchment.LabelPrefixPriority))
@@ -87,8 +87,8 @@ func TestSyncDir_PrunesDeletedFiles(t *testing.T) {
 	svc := newTestService(t)
 	dir := t.TempDir()
 
-	writeMD(t, dir, "a.md", "---\nid: SYN-A\nkind: note\ntitle: A\n---\n")
-	writeMD(t, dir, "b.md", "---\nid: SYN-B\nkind: note\ntitle: B\n---\n")
+	writeMD(t, dir, "a.md", "---\nid: SYN-A\nkind: knowledge.note\ntitle: A\n---\n")
+	writeMD(t, dir, "b.md", "---\nid: SYN-B\nkind: knowledge.note\ntitle: B\n---\n")
 
 	if _, err := svc.SyncDir(ctx, dir); err != nil {
 		t.Fatal(err)
@@ -116,8 +116,8 @@ func TestExportScope_WritesFiles(t *testing.T) {
 	svc := newTestService(t, "scribe")
 
 	_, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Labels: []string{"kind:note", "architecture"},
-		Title:  "Design notes",
+		Labels:   []string{"kind:knowledge.note", "architecture"},
+		Title:    "Design notes",
 		Sections: []parchment.Section{{Name: "body", Text: "Key insight here."}},
 	})
 	if err != nil {
@@ -139,7 +139,7 @@ func TestExportScope_WritesFiles(t *testing.T) {
 	}
 	content, _ := os.ReadFile(filepath.Join(outDir, entries[0].Name()))
 	s := string(content)
-	if !strings.Contains(s, "kind: note") {
+	if !strings.Contains(s, "kind: knowledge.note") {
 		t.Error("missing kind in frontmatter")
 	}
 	if !strings.Contains(s, "## body") {
@@ -158,8 +158,8 @@ func TestRoundTrip_ExportThenSync(t *testing.T) {
 	// Create two artifacts
 	for _, title := range []string{"Alpha note", "Beta note"} {
 		_, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-			Labels: []string{"kind:note"},
-			Title:  title,
+			Labels:   []string{"kind:knowledge.note"},
+			Title:    title,
 			Sections: []parchment.Section{{Name: "body", Text: title + " body."}},
 		})
 		if err != nil {
@@ -187,7 +187,7 @@ func TestRoundTrip_ExportThenSync(t *testing.T) {
 	}
 
 	// Both artifacts should be retrievable by ID
-	arts, _ := svc2.Proto.Store().List(ctx, parchment.Filter{Labels: []string{"kind:note"}})
+	arts, _ := svc2.Proto.Store().List(ctx, parchment.Filter{Labels: []string{"kind:knowledge.note"}})
 	if len(arts) != 2 {
 		t.Errorf("expected 2 notes after round-trip, got %d", len(arts))
 	}
@@ -210,7 +210,7 @@ func TestSyncDir_DerivedIDWhenNoFrontmatter(t *testing.T) {
 	}
 
 	// List via store directly (SyncDir sets scope=global, outside homeScopes)
-	arts, _ := svc.Proto.Store().List(ctx, parchment.Filter{Labels: []string{"kind:note"}})
+	arts, _ := svc.Proto.Store().List(ctx, parchment.Filter{Labels: []string{"kind:knowledge.note"}})
 	if len(arts) == 0 {
 		t.Fatal("no artifacts after sync")
 	}

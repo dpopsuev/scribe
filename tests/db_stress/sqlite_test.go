@@ -28,7 +28,7 @@ func TestSQLite_WALGrowth(t *testing.T) {
 	for i := 0; i < 2000; i++ {
 		art := &parchment.Artifact{
 			ID:     fmt.Sprintf("WAL-TSK-%d", i+1),
-			Labels: []string{"kind:task", "status:draft", "scope:stress"},
+			Labels: []string{"kind:effort.task", "status:draft", "scope:stress"},
 			Title:  fmt.Sprintf("WAL stress task %d with some padding text", i+1),
 			Sections: []parchment.Section{
 				{Name: "context", Text: fmt.Sprintf("Section content for artifact %d. Representative of real-world section sizes.", i+1)},
@@ -67,7 +67,7 @@ func TestSQLite_ConnectionPool(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		_ = s.Put(ctx, &parchment.Artifact{
 			ID:     fmt.Sprintf("SEED-%d", i),
-			Labels: []string{"kind:task", "status:draft", "scope:stress"},
+			Labels: []string{"kind:effort.task", "status:draft", "scope:stress"},
 			Title:  fmt.Sprintf("seed %d", i),
 		})
 	}
@@ -103,7 +103,7 @@ func TestSQLite_PragmaHardening(t *testing.T) {
 		id := fmt.Sprintf("CYC-%d", i)
 		if err := s.Put(ctx, &parchment.Artifact{
 			ID:     id,
-			Labels: []string{"kind:task", "status:draft", "scope:test"},
+			Labels: []string{"kind:effort.task", "status:draft", "scope:test"},
 			Title:  fmt.Sprintf("Cycle %d", i),
 		}); err != nil {
 			s.Close()
@@ -145,7 +145,7 @@ func TestSQLite_WriteContention(t *testing.T) {
 				id := fmt.Sprintf("W%d-TSK-%d", wIdx, i)
 				if err := s.Put(ctx, &parchment.Artifact{
 					ID:     id,
-					Labels: []string{"kind:task", "status:draft", "scope:test"},
+					Labels: []string{"kind:effort.task", "status:draft", "scope:test"},
 					Title:  fmt.Sprintf("Writer %d Task %d", wIdx, i),
 					Sections: []parchment.Section{
 						{Name: "context", Text: fmt.Sprintf("Content from writer %d, iteration %d", wIdx, i)},
@@ -163,7 +163,7 @@ func TestSQLite_WriteContention(t *testing.T) {
 	if len(writeErrors) > 0 {
 		t.Errorf("%d write errors (expected 0 with busy_timeout):\n%v", len(writeErrors), writeErrors[:min(5, len(writeErrors))])
 	}
-	all, _ := s.List(ctx, parchment.Filter{Labels: []string{"kind:task"}})
+	all, _ := s.List(ctx, parchment.Filter{Labels: []string{"kind:effort.task"}})
 	if len(all) != writers*writesPerWriter {
 		t.Errorf("expected %d artifacts, got %d", writers*writesPerWriter, len(all))
 	}

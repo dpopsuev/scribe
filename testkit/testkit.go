@@ -2,7 +2,7 @@
 // integration and E2E tests. Nothing in this package is compiled into
 // production binaries.
 //
-//nolint:gosec // weak rand throughout — all testkit code produces synthetic data, never security-sensitive values
+//nolint:gosec,goconst // weak rand throughout — all testkit code produces synthetic data, never security-sensitive values; kind name repetition is intentional test fixture data
 package testkit
 
 import (
@@ -123,7 +123,7 @@ func ParseGenerated(t *testing.T, gen *Generator) ([]ingest.NodeRecord, []ingest
 var LocusComponentShape ShapeFunc = func(i int, source, sha string) ingest.NodeRecord {
 	return ingest.NodeRecord{
 		ID:     fmt.Sprintf("%s:component:pkg/comp%d", source, i),
-		Kind:   "note",
+		Kind:   "knowledge.note",
 		Title:  fmt.Sprintf("pkg/comp%d", i),
 		Status: "active",
 		Labels: []string{"source:" + source, "kind:component", "lang:go"},
@@ -141,10 +141,10 @@ var LocusComponentShape ShapeFunc = func(i int, source, sha string) ingest.NodeR
 // JiraIssueShape produces a node shaped like a Jira issue.
 var JiraIssueShape ShapeFunc = func(i int, source, sha string) ingest.NodeRecord {
 	priorities := []string{"high", "medium", "low"}
-	types := []string{"bug", "story", "task"}
+	types := []string{"intent.bug", "story", "effort.task"}
 	return ingest.NodeRecord{
 		ID:     fmt.Sprintf("%s:PROJ-%d", source, i+1),
-		Kind:   "note",
+		Kind:   "knowledge.note",
 		Title:  fmt.Sprintf("Issue %d: synthetic Jira ticket", i+1),
 		Status: "active",
 		Labels: []string{
@@ -161,7 +161,7 @@ var GitHubPRShape ShapeFunc = func(i int, source, sha string) ingest.NodeRecord 
 	states := []string{"open", "merged", "closed"}
 	return ingest.NodeRecord{
 		ID:     fmt.Sprintf("%s:octocat/hello-world#%d", source, i+1),
-		Kind:   "note",
+		Kind:   "knowledge.note",
 		Title:  fmt.Sprintf("PR #%d: synthetic pull request", i+1),
 		Status: "active",
 		Labels: []string{"source:" + source, "kind:pr", "state:" + states[rand.IntN(len(states))]},

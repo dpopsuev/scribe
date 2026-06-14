@@ -99,7 +99,7 @@ func (s *Service) PersistReadLog(ctx context.Context, sessionID string, readLog 
 	if _, err := s.Proto.GetArtifact(ctx, artID); err != nil {
 		_, _ = s.Proto.CreateArtifact(ctx, parchment.CreateInput{
 			ExplicitID: artID,
-			Labels:     []string{parchment.LabelPrefixKind + "config", "work.active", parchment.LabelPrefixScope + readLogScope},
+			Labels:     []string{parchment.LabelPrefixKind + "support.config", "work.active", parchment.LabelPrefixScope + readLogScope},
 			Title:      readLogTitle,
 			Extra:      map[string]any{"read_ids": ids, "session_id": sessionID},
 		})

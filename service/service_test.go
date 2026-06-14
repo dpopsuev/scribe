@@ -20,8 +20,6 @@ func newTestService(t *testing.T, scopes ...string) *service.Service {
 	return service.New(proto, nil, scopes)
 }
 
-
-
 // --- ExpandLabels integration ---
 
 func TestExpandLabels_DotHierarchy(t *testing.T) {
@@ -117,8 +115,6 @@ func TestRelevanceScore_CriticalHigherThanLow(t *testing.T) {
 	}
 }
 
-
-
 // --- Inventory ---
 
 func TestInventory_CountsByKindAndStatus(t *testing.T) {
@@ -126,9 +122,9 @@ func TestInventory_CountsByKindAndStatus(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "t1"}) //nolint:errcheck // test setup
-	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "t2"}) //nolint:errcheck // test setup
-	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:note"}, Title: "n1"}) //nolint:errcheck // test setup
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "t1"})    //nolint:errcheck // test setup
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "t2"})    //nolint:errcheck // test setup
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:knowledge.note"}, Title: "n1"}) //nolint:errcheck // test setup
 
 	result, err := svc.Inventory(ctx)
 	if err != nil {
@@ -137,8 +133,8 @@ func TestInventory_CountsByKindAndStatus(t *testing.T) {
 	if result.Total < 3 {
 		t.Errorf("Inventory.Total = %d, want >= 3", result.Total)
 	}
-	if result.ByKind["task"] < 2 {
-		t.Errorf("ByKind[task] = %d, want >= 2", result.ByKind["task"])
+	if result.ByKind["effort.task"] < 2 {
+		t.Errorf("ByKind[effort.task] = %d, want >= 2", result.ByKind["effort.task"])
 	}
 }
 
@@ -149,11 +145,11 @@ func TestBulkSetField_UpdatesMatchingArtifacts(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 
-	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "alpha"}) //nolint:errcheck // test setup
-	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:task"}, Title: "beta"})  //nolint:errcheck // test setup
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "alpha"}) //nolint:errcheck // test setup
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "beta"})  //nolint:errcheck // test setup
 
 	result, err := svc.Proto.BulkSetField(ctx, parchment.BulkMutationInput{
-		Labels: []string{"kind:task"},
+		Labels: []string{"kind:effort.task"},
 	}, "title", "bulk-updated")
 	if err != nil {
 		t.Fatal(err)

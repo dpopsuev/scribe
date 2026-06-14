@@ -171,7 +171,7 @@ func writeDPO(ctx context.Context, w http.ResponseWriter, proto *parchment.Proto
 	}
 	n := 0
 	for _, a := range arts {
-		if a.Label(parchment.LabelPrefixKind) != "decision" || !exportable(a) {
+		if a.Label(parchment.LabelPrefixKind) != "intent.decision" || !exportable(a) {
 			continue
 		}
 		var prompt, chosen, rejected string

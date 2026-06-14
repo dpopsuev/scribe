@@ -76,7 +76,6 @@ type crdArtifactSection struct {
 type crdSpec struct {
 	Lifecycle        *crdLifecycle `yaml:"lifecycle,omitempty"`
 	Sections         *crdSections  `yaml:"sections,omitempty"`
-	Family           string        `yaml:"family,omitempty"`
 	AllowedChildren  []string      `yaml:"allowedChildren,omitempty"`
 	IsContainerKind  bool          `yaml:"isContainerKind,omitempty"`
 
@@ -265,7 +264,6 @@ func applyLabelDefinitionCRD(ctx context.Context, s parchment.Store, r *crdResou
 		"eviction_policy":   r.Spec.EvictionPolicy,
 		"half_life_days":    int(r.Spec.HalfLifeDays),
 		"always_apply":      r.Spec.AlwaysApply,
-		"family":            r.Spec.Family,
 		"is_container_kind": r.Spec.IsContainerKind,
 	}
 	if r.Spec.Lifecycle != nil {

@@ -22,7 +22,7 @@ func TestListSections_ReturnsSectionNamesOnly(t *testing.T) {
 	call := newQoLSetup(t)
 
 	out := call(map[string]any{
-		"action": "create", "kind": "task", "title": "sectioned",
+		"action": "create", "kind": "effort.task", "title": "sectioned",
 		"scope": "test", "status": "work.draft",
 		"sections": []map[string]string{
 			{"name": "context", "text": "the full context text"},
@@ -46,7 +46,7 @@ func TestListSections_EmptySections(t *testing.T) {
 	call := newQoLSetup(t)
 
 	out := call(map[string]any{
-		"action": "create", "kind": "task", "title": "no sections",
+		"action": "create", "kind": "effort.task", "title": "no sections",
 		"scope": "test", "status": "work.draft",
 	})
 	id := qolExtractID(t, out)
@@ -64,12 +64,12 @@ func TestSearchSections_FindsTextInSection(t *testing.T) {
 	call := newQoLSetup(t)
 
 	call(map[string]any{
-		"action": "create", "kind": "task", "title": "has the phrase",
+		"action": "create", "kind": "effort.task", "title": "has the phrase",
 		"scope": "test", "status": "work.draft",
 		"sections": []map[string]string{{"name": "context", "text": "unique phrase xyz987"}},
 	})
 	call(map[string]any{
-		"action": "create", "kind": "task", "title": "does not have it",
+		"action": "create", "kind": "effort.task", "title": "does not have it",
 		"scope": "test", "status": "work.draft",
 		"sections": []map[string]string{{"name": "context", "text": "completely different content"}},
 	})
@@ -89,11 +89,11 @@ func TestSearchSections_FindsTextInSection(t *testing.T) {
 func TestTitleContains_FiltersToMatchingTitles(t *testing.T) {
 	call := newQoLSetup(t)
 
-	call(map[string]any{"action": "create", "kind": "task", "title": "Alpha implementation", "scope": "test", "status": "work.draft"})
-	call(map[string]any{"action": "create", "kind": "task", "title": "Beta implementation", "scope": "test", "status": "work.draft"})
-	call(map[string]any{"action": "create", "kind": "task", "title": "Alpha testing", "scope": "test", "status": "work.draft"})
+	call(map[string]any{"action": "create", "kind": "effort.task", "title": "Alpha implementation", "scope": "test", "status": "work.draft"})
+	call(map[string]any{"action": "create", "kind": "effort.task", "title": "Beta implementation", "scope": "test", "status": "work.draft"})
+	call(map[string]any{"action": "create", "kind": "effort.task", "title": "Alpha testing", "scope": "test", "status": "work.draft"})
 
-	result := call(map[string]any{"action": "query", "scope": "test", "kind": "task", "title_contains": "Alpha"})
+	result := call(map[string]any{"action": "query", "scope": "test", "kind": "effort.task", "title_contains": "Alpha"})
 	if !strings.Contains(result, "Alpha implementation") {
 		t.Errorf("title_contains=Alpha: want 'Alpha implementation', got: %s", result)
 	}
@@ -110,9 +110,9 @@ func TestTitleContains_FiltersToMatchingTitles(t *testing.T) {
 func TestBatchUpdate_SetsPriorityAcrossAll(t *testing.T) {
 	call := newQoLSetup(t)
 
-	id1 := qolExtractID(t, call(map[string]any{"action": "create", "kind": "task", "title": "BU one", "scope": "test", "status": "work.draft"}))
-	id2 := qolExtractID(t, call(map[string]any{"action": "create", "kind": "task", "title": "BU two", "scope": "test", "status": "work.draft"}))
-	id3 := qolExtractID(t, call(map[string]any{"action": "create", "kind": "task", "title": "BU three", "scope": "test", "status": "work.draft"}))
+	id1 := qolExtractID(t, call(map[string]any{"action": "create", "kind": "effort.task", "title": "BU one", "scope": "test", "status": "work.draft"}))
+	id2 := qolExtractID(t, call(map[string]any{"action": "create", "kind": "effort.task", "title": "BU two", "scope": "test", "status": "work.draft"}))
+	id3 := qolExtractID(t, call(map[string]any{"action": "create", "kind": "effort.task", "title": "BU three", "scope": "test", "status": "work.draft"}))
 
 	// batch_update → update with ids + patch
 	result := call(map[string]any{
@@ -133,8 +133,8 @@ func TestBatchUpdate_SetsPriorityAcrossAll(t *testing.T) {
 func TestBatchUpdate_SetsStatusWithForce(t *testing.T) {
 	call := newQoLSetup(t)
 
-	id1 := qolExtractID(t, call(map[string]any{"action": "create", "kind": "task", "title": "BU status A", "scope": "test", "status": "work.draft"}))
-	id2 := qolExtractID(t, call(map[string]any{"action": "create", "kind": "task", "title": "BU status B", "scope": "test", "status": "work.draft"}))
+	id1 := qolExtractID(t, call(map[string]any{"action": "create", "kind": "effort.task", "title": "BU status A", "scope": "test", "status": "work.draft"}))
+	id2 := qolExtractID(t, call(map[string]any{"action": "create", "kind": "effort.task", "title": "BU status B", "scope": "test", "status": "work.draft"}))
 
 	// batch_update → update with ids + patch + force
 	call(map[string]any{

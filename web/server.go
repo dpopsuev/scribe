@@ -157,8 +157,13 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	queryParams := r.URL.Query()
 	var listLabels []string
+	var kindPrefix string
 	if kind := queryParams.Get("kind"); kind != "" {
-		listLabels = append(listLabels, parchment.LabelPrefixKind+kind)
+		if strings.Contains(kind, ".") {
+			listLabels = append(listLabels, parchment.LabelPrefixKind+kind)
+		} else {
+			kindPrefix = kind
+		}
 	}
 	if status := queryParams.Get("status"); status != "" {
 		if parchment.IsDomainStatusLabel(status) {
@@ -171,7 +176,8 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		listLabels = append(listLabels, parchment.LabelPrefixScope+sc)
 	}
 	in := parchment.ListInput{
-		Labels: listLabels,
+		Labels:     listLabels,
+		KindPrefix: kindPrefix,
 	}
 	arts, err := s.proto.ListArtifacts(r.Context(), in)
 	if err != nil {

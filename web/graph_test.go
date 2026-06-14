@@ -26,9 +26,9 @@ func setupGraph(t *testing.T) *web.Server {
 
 	// Two scopes: alpha (2 tasks) and beta (1 spec).
 	for _, art := range []*parchment.Artifact{
-		{ID: "TSK-A1", Labels: []string{"kind:task", "status:active", "scope:alpha"}, Title: "Alpha task 1"},
-		{ID: "TSK-A2", Labels: []string{"kind:task", "status:draft", "scope:alpha"}, Title: "Alpha task 2"},
-		{ID: "SPC-B1", Labels: []string{"kind:spec", "status:active", "scope:beta"}, Title: "Beta spec 1"},
+		{ID: "TSK-A1", Labels: []string{"kind:effort.task", "status:active", "scope:alpha"}, Title: "Alpha task 1"},
+		{ID: "TSK-A2", Labels: []string{"kind:effort.task", "status:draft", "scope:alpha"}, Title: "Alpha task 2"},
+		{ID: "SPC-B1", Labels: []string{"kind:intent.spec", "status:active", "scope:beta"}, Title: "Beta spec 1"},
 	} {
 		if err := s.Put(ctx, art); err != nil {
 			t.Fatal(err)
@@ -135,8 +135,8 @@ func TestAPIGraphKinds_ReturnsKindNodes(t *testing.T) {
 	if data.Nodes[0].Kind != "kind-group" {
 		t.Errorf("expected kind-group, got %q", data.Nodes[0].Kind)
 	}
-	if data.Nodes[0].Group != "task" {
-		t.Errorf("expected group=task, got %q", data.Nodes[0].Group)
+	if data.Nodes[0].Group != "effort.task" {
+		t.Errorf("expected group=effort.task, got %q", data.Nodes[0].Group)
 	}
 }
 
@@ -248,7 +248,7 @@ func TestAPIScopes_ReturnsScopeList(t *testing.T) {
 
 func TestAPICreateArtifact_CreatesAndReturns(t *testing.T) {
 	srv := setupGraph(t)
-	body := `{"kind":"note","title":"new note","scope":"alpha"}`
+	body := `{"kind":"knowledge.note","title":"new note","scope":"alpha"}`
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/artifacts", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")

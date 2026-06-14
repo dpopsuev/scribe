@@ -62,7 +62,7 @@ func (s *Service) SyncDir(ctx context.Context, path string) (int, error) {
 		// ParseMDFile no longer defaults the kind — sync treats all markdown as notes
 		// unless the frontmatter specifies otherwise.
 		if art.Label(parchment.LabelPrefixKind) == "" {
-			art.Labels = append(art.Labels, parchment.LabelPrefixKind+"note")
+			art.Labels = append(art.Labels, parchment.LabelPrefixKind+"knowledge.note")
 		}
 		if art.Label(parchment.LabelPrefixScope) == "" {
 			art.Labels = append(art.Labels, parchment.LabelPrefixScope+"global")
@@ -73,7 +73,7 @@ func (s *Service) SyncDir(ctx context.Context, path string) (int, error) {
 			art.Labels = appendIfMissing(art.Labels, k)
 			for i, l := range art.Labels {
 				if l == parchment.LabelPrefixKind+k {
-					art.Labels[i] = parchment.LabelPrefixKind + "note"
+					art.Labels[i] = parchment.LabelPrefixKind + "knowledge.note"
 					break
 				}
 			}

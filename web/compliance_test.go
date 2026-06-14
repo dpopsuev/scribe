@@ -19,7 +19,7 @@ import (
 )
 
 func TestViolationCount_NoLabels(t *testing.T) {
-	a := &parchment.Artifact{Labels: []string{"kind:task"}, ID: "T-1"}
+	a := &parchment.Artifact{Labels: []string{"kind:effort.task"}, ID: "T-1"}
 	if got := web.ViolationCount(a); got != 0 {
 		t.Errorf("no labels → want 0, got %d", got)
 	}
@@ -28,7 +28,7 @@ func TestViolationCount_NoLabels(t *testing.T) {
 func TestViolationCount_CompliantLabel(t *testing.T) {
 	a := &parchment.Artifact{
 		ID:     "T-1",
-		Labels: []string{"kind:task", "compliance:ok"},
+		Labels: []string{"kind:effort.task", "compliance:ok"},
 	}
 	if got := web.ViolationCount(a); got != 0 {
 		t.Errorf("compliance:ok → want 0, got %d", got)
@@ -86,18 +86,18 @@ func complianceServer(t *testing.T) *httptest.Server {
 	ctx := context.Background()
 	s.Put(ctx, &parchment.Artifact{ //nolint:errcheck // test setup
 		ID:    "TSK-OK",
-		Title: "Compliant", Labels: []string{"kind:task", "status:active", "compliance:ok", "kind:task", "scope:test"},
+		Title: "Compliant", Labels: []string{"kind:effort.task", "status:active", "compliance:ok", "kind:effort.task", "scope:test"},
 	})
 	s.Put(ctx, &parchment.Artifact{ //nolint:errcheck // test setup
 		ID:     "TSK-WARN",
 		Title:  "Warning",
-		Labels: []string{"kind:task", "status:active", "compliance:violation", "kind:task", "scope:test"},
+		Labels: []string{"kind:effort.task", "status:active", "compliance:violation", "kind:effort.task", "scope:test"},
 		Extra:  map[string]any{parchment.ExtraKeyComplianceViolations: []any{"m1", "m2"}},
 	})
 	s.Put(ctx, &parchment.Artifact{ //nolint:errcheck // test setup
 		ID:     "TSK-CRIT",
 		Title:  "Critical",
-		Labels: []string{"kind:task", "status:active", "compliance:violation", "kind:task", "scope:test"},
+		Labels: []string{"kind:effort.task", "status:active", "compliance:violation", "kind:effort.task", "scope:test"},
 		Extra:  map[string]any{parchment.ExtraKeyComplianceViolations: []any{"m1", "m2", "m3", "m4"}},
 	})
 

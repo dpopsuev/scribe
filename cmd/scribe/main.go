@@ -36,6 +36,7 @@ func main() {
 		cmds.SearchCmd(),
 
 		cmds.MigrateIDsCmd(),
+		cmds.MigrateKindsCmd(),
 
 
 		cmds.LinkCmd(),

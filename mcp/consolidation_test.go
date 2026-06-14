@@ -73,7 +73,7 @@ func TestConsolidation_ArtifactCreateNote(t *testing.T) {
 
 	out := callArtifact(map[string]any{
 		"action": "create",
-		"kind":   "note",
+		"kind":   "knowledge.note",
 		"title":  "SetField rejects unknown fields",
 		"scope":  "test",
 		"sections": []map[string]string{
@@ -87,27 +87,27 @@ func TestConsolidation_ArtifactCreateNote(t *testing.T) {
 	}
 }
 
-// TestConsolidation_ArtifactListKnowledgeFamily verifies that knowledge artifacts
-// can be listed via artifact(action=query, family=knowledge).
-func TestConsolidation_ArtifactListKnowledgeFamily(t *testing.T) {
+// TestConsolidation_ArtifactListKnowledgePrefix verifies that knowledge artifacts
+// can be listed via artifact(action=query, kind=knowledge) using prefix matching.
+func TestConsolidation_ArtifactListKnowledgePrefix(t *testing.T) {
 	proto, callArtifact := newConsolidatedServer(t)
 	ctx := context.Background()
 
-	_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + "note"}, Title: "a fleeting note"})
-	_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + "task"}, Title: "a task"})
+	_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + "knowledge.note"}, Title: "a fleeting note"})
+	_, _ = proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + "effort.task"}, Title: "a task"})
 
 	out := callArtifact(map[string]any{
 		"action": "query",
 		"scope":  "test",
-		"family": "knowledge",
+		"kind":   "knowledge",
 	})
 
 	if strings.Contains(strings.ToLower(out), "unknown") {
-		t.Fatalf("artifact(list, family=knowledge) not implemented: %s", out)
+		t.Fatalf("artifact(list, kind=knowledge) not implemented: %s", out)
 	}
 	// Must include the note, must not include the task
 	if !strings.Contains(strings.ToLower(out), "fleeting note") && !strings.Contains(out, "note") {
-		t.Errorf("artifact(list, family=knowledge) must show knowledge artifacts\nGot: %s", out)
+		t.Errorf("artifact(list, kind=knowledge) must show knowledge artifacts\nGot: %s", out)
 	}
 }
 
@@ -120,8 +120,8 @@ func TestConsolidation_BatchCreate_Folded(t *testing.T) {
 	out := callArtifact(map[string]any{
 		"action": "create",
 		"artifacts": []map[string]any{
-			{"kind": "note", "title": "note one", "scope": "test"},
-			{"kind": "note", "title": "note two", "scope": "test"},
+			{"kind": "knowledge.note", "title": "note one", "scope": "test"},
+			{"kind": "knowledge.note", "title": "note two", "scope": "test"},
 		},
 	})
 

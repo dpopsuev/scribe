@@ -66,7 +66,7 @@ func startServer(t *testing.T) *httptest.Server {
 	for i := range 40 {
 		scope := []string{"alpha", "beta", "gamma"}[i%3]
 		_ = s.Put(ctx, &parchment.Artifact{
-			ID: fmt.Sprintf("%s-%03d", scope, i), Kind: "task",
+			ID: fmt.Sprintf("%s-%03d", scope, i), Kind: "effort.task",
 			Scope: scope, Status: "active",
 			Title: fmt.Sprintf("artifact %d", i),
 		})

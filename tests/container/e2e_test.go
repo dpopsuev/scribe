@@ -321,14 +321,14 @@ func TestE2E_Deterministic(t *testing.T) {
 
 	t.Run("create_and_list", func(t *testing.T) {
 		text := mcpCall(t, sid, next(), "artifact", map[string]any{
-			"action": "create", "kind": "task", "title": "E2E task 1", "scope": "e2e", "priority": "high",
+			"action": "create", "kind": "effort.task", "title": "E2E task 1", "scope": "e2e", "priority": "high",
 		})
 		if !strings.Contains(text, "E2E task 1") {
 			t.Fatalf("create missing title:\n%s", truncate(text, 300))
 		}
 
 		text = mcpCall(t, sid, next(), "artifact", map[string]any{
-			"action": "query", "kind": "task", "scope": "e2e",
+			"action": "query", "kind": "effort.task", "scope": "e2e",
 		})
 		if !strings.Contains(text, "E2E task 1") {
 			t.Fatalf("list missing task:\n%s", truncate(text, 300))
@@ -338,15 +338,15 @@ func TestE2E_Deterministic(t *testing.T) {
 	t.Run("bulk_get_and_section_filter", func(t *testing.T) {
 		// Create two tasks
 		mcpCall(t, sid, next(), "artifact", map[string]any{
-			"action": "create", "kind": "task", "title": "Bulk A", "scope": "e2e", "priority": "medium",
+			"action": "create", "kind": "effort.task", "title": "Bulk A", "scope": "e2e", "priority": "medium",
 		})
 		mcpCall(t, sid, next(), "artifact", map[string]any{
-			"action": "create", "kind": "task", "title": "Bulk B", "scope": "e2e", "priority": "low",
+			"action": "create", "kind": "effort.task", "title": "Bulk B", "scope": "e2e", "priority": "low",
 		})
 
 		// List to get IDs
 		listText := mcpCall(t, sid, next(), "artifact", map[string]any{
-			"action": "query", "kind": "task", "scope": "e2e",
+			"action": "query", "kind": "effort.task", "scope": "e2e",
 			"fields": []string{"id", "title"},
 		})
 		if !strings.Contains(listText, "Bulk A") || !strings.Contains(listText, "Bulk B") {
@@ -357,11 +357,11 @@ func TestE2E_Deterministic(t *testing.T) {
 	t.Run("diff", func(t *testing.T) {
 		// Create two specs with different content
 		text1 := mcpCall(t, sid, next(), "artifact", map[string]any{
-			"action": "create", "kind": "spec", "title": "Spec Alpha", "scope": "e2e",
+			"action": "create", "kind": "intent.spec", "title": "Spec Alpha", "scope": "e2e",
 		})
 		id1 := extractFirstID(t, text1, "EEE-SPC-")
 		text2 := mcpCall(t, sid, next(), "artifact", map[string]any{
-			"action": "create", "kind": "spec", "title": "Spec Beta", "scope": "e2e",
+			"action": "create", "kind": "intent.spec", "title": "Spec Beta", "scope": "e2e",
 		})
 		id2 := extractFirstID(t, text2, "EEE-SPC-")
 
@@ -376,18 +376,18 @@ func TestE2E_Deterministic(t *testing.T) {
 	t.Run("graph_link_and_topo_sort", func(t *testing.T) {
 		// Create a goal with tasks — query(sort=topo) returns dependency order
 		goalText := mcpCall(t, sid, next(), "artifact", map[string]any{
-			"action": "create", "kind": "goal", "title": "E2E Topo Goal", "scope": "e2e",
+			"action": "create", "kind": "effort.goal", "title": "E2E Topo Goal", "scope": "e2e",
 		})
 		goalID := extractFirstID(t, goalText, "EEE-GOL-")
 
 		t1Text := mcpCall(t, sid, next(), "artifact", map[string]any{
-			"action": "create", "kind": "task", "title": "Step 1", "scope": "e2e",
+			"action": "create", "kind": "effort.task", "title": "Step 1", "scope": "e2e",
 			"parent": goalID, "priority": "high",
 		})
 		t1ID := extractFirstID(t, t1Text, "EEE-TSK-")
 
 		mcpCall(t, sid, next(), "artifact", map[string]any{
-			"action": "create", "kind": "task", "title": "Step 2", "scope": "e2e",
+			"action": "create", "kind": "effort.task", "title": "Step 2", "scope": "e2e",
 			"parent": goalID, "priority": "medium", "depends_on": []string{t1ID},
 		})
 
@@ -407,12 +407,12 @@ func TestE2E_Deterministic(t *testing.T) {
 	t.Run("bulk_link_and_impact", func(t *testing.T) {
 		// Create spec and tasks
 		specText := mcpCall(t, sid, next(), "artifact", map[string]any{
-			"action": "create", "kind": "spec", "title": "Impact Spec", "scope": "e2e",
+			"action": "create", "kind": "intent.spec", "title": "Impact Spec", "scope": "e2e",
 		})
 		specID := extractFirstID(t, specText, "EEE-SPC-")
 
 		t1Text := mcpCall(t, sid, next(), "artifact", map[string]any{
-			"action": "create", "kind": "task", "title": "Impl Task", "scope": "e2e", "priority": "high",
+			"action": "create", "kind": "effort.task", "title": "Impl Task", "scope": "e2e", "priority": "high",
 		})
 		t1ID := extractFirstID(t, t1Text, "EEE-TSK-")
 
@@ -436,17 +436,17 @@ func TestE2E_Deterministic(t *testing.T) {
 	t.Run("move_and_replace", func(t *testing.T) {
 		// Create two goals and a task
 		g1Text := mcpCall(t, sid, next(), "artifact", map[string]any{
-			"action": "create", "kind": "goal", "title": "Goal A", "scope": "e2e",
+			"action": "create", "kind": "effort.goal", "title": "Goal A", "scope": "e2e",
 		})
 		g1ID := extractFirstID(t, g1Text, "EEE-GOL-")
 
 		g2Text := mcpCall(t, sid, next(), "artifact", map[string]any{
-			"action": "create", "kind": "goal", "title": "Goal B", "scope": "e2e",
+			"action": "create", "kind": "effort.goal", "title": "Goal B", "scope": "e2e",
 		})
 		g2ID := extractFirstID(t, g2Text, "EEE-GOL-")
 
 		taskText := mcpCall(t, sid, next(), "artifact", map[string]any{
-			"action": "create", "kind": "task", "title": "Moveable Task", "scope": "e2e",
+			"action": "create", "kind": "effort.task", "title": "Moveable Task", "scope": "e2e",
 			"parent": g1ID, "priority": "medium",
 		})
 		taskID := extractFirstID(t, taskText, "EEE-TSK-")

@@ -12,7 +12,7 @@ func TestRunOp_RoutesToSetOp(t *testing.T) {
 	// When RunOp("set", {id, field, value}) is called via the CLI set command
 	// Then the output reflects the field change
 	db := newDB(t)
-	id := strings.TrimSpace(run(t, db, "create", "--kind", "task", "--scope", "test", "--title", "before"))
+	id := strings.TrimSpace(run(t, db, "create", "--kind", "effort.task", "--scope", "test", "--title", "before"))
 
 	out := run(t, db, "set", id, "title", "after")
 	mustContain(t, out, id+".title = after")
@@ -26,8 +26,8 @@ func TestRunOp_UnknownOpReturnsError(t *testing.T) {
 	// are caught at the registry level. Direct RunOp call tested via cmds_test helper.
 	db := newDB(t)
 	// Verify list Op routes correctly (registry path)
-	run(t, db, "create", "--kind", "task", "--scope", "test", "--title", "T1")
-	out := run(t, db, "list", "--kind", "task")
+	run(t, db, "create", "--kind", "effort.task", "--scope", "test", "--title", "T1")
+	out := run(t, db, "list", "--kind", "effort.task")
 	mustContain(t, out, "T1")
 }
 
@@ -36,10 +36,10 @@ func TestRunOp_ListFilterKindRoutesThroughRegistry(t *testing.T) {
 	// When 'scribe list --kind task' is called
 	// Then only the task appears (list Op filter works end-to-end)
 	db := newDB(t)
-	run(t, db, "create", "--kind", "task", "--scope", "test", "--title", "the task")
-	run(t, db, "create", "--kind", "note", "--scope", "test", "--title", "the note")
+	run(t, db, "create", "--kind", "effort.task", "--scope", "test", "--title", "the task")
+	run(t, db, "create", "--kind", "knowledge.note", "--scope", "test", "--title", "the note")
 
-	out := run(t, db, "list", "--kind", "task")
+	out := run(t, db, "list", "--kind", "effort.task")
 	mustContain(t, out, "the task")
 	mustNotContain(t, out, "the note")
 }
@@ -49,10 +49,10 @@ func TestRunOp_SetAndListRoundTrip(t *testing.T) {
 	// When set changes priority to high
 	// Then list shows the updated priority
 	db := newDB(t)
-	id := strings.TrimSpace(run(t, db, "create", "--kind", "task", "--scope", "test", "--title", "priority test"))
+	id := strings.TrimSpace(run(t, db, "create", "--kind", "effort.task", "--scope", "test", "--title", "priority test"))
 
 	run(t, db, "set", id, "priority", "high")
 
-	out := run(t, db, "list", "--kind", "task")
+	out := run(t, db, "list", "--kind", "effort.task")
 	mustContain(t, out, id)
 }

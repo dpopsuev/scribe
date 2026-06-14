@@ -164,7 +164,7 @@ func TestArtifact_Create_TemplatePartialDraft_Accepted(t *testing.T) {
 	// First create the template
 	tplOut := callTool(t, cs, "artifact", map[string]any{
 		"action": "create",
-		"kind":   "template",
+		"kind":   "support.template",
 		"title":  "strict-need",
 		"scope":  "test",
 		"sections": []map[string]string{
@@ -188,7 +188,7 @@ func TestArtifact_Create_TemplatePartialDraft_Accepted(t *testing.T) {
 		// Try to find ID in text
 		_ = ctx
 		arts, _ := parchment.New(s, nil, []string{"test"}, nil, parchment.ProtocolConfig{}).
-			ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + "template"}})
+			ListArtifacts(ctx, parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + "support.template"}})
 		if len(arts) > 0 {
 			tplID = arts[0].ID
 		}
@@ -230,7 +230,7 @@ func TestArtifact_Promote_TemplateConformanceEnforced(t *testing.T) {
 	proto := parchment.New(s, nil, []string{"test"}, nil, parchment.ProtocolConfig{})
 
 	// Create a template with a required section
-	tpl, err := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + "template"},
+	tpl, err := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + "support.template"},
 		Title: "need-tpl",
 
 		Sections: []parchment.Section{
