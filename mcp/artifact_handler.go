@@ -2,9 +2,11 @@ package mcp
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/service"
@@ -60,7 +62,7 @@ func stringFromMap(m map[string]any, key string) string {
 }
 
 func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolRequest, in artifactInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: value semantics intentional
-	// Stamper: merge workspace labels into create/query operations.
+	// Workspace stamping on create/query.
 	if len(h.workspaceLabels) > 0 {
 		switch in.Action {
 		case actionCreate:
@@ -72,19 +74,90 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		}
 	}
 
+	// Attachment actions are handled here; they do not go through service.Find.
+	switch in.Action {
+	case "attach":
+		return h.handleAttach(ctx, &in)
+	case "detach":
+		return h.handleDetach(ctx, &in)
+	}
+
 	if op := service.Find(in.Action); op != nil {
 		raw, _ := json.Marshal(in)
 		out, err := op.Run(ctx, h.svc, raw)
 		if err != nil {
 			return nil, nil, err
 		}
-		// Warn on write operations only — read responses carry content that must not be polluted.
+		// For get: append image content blocks when attachments exist.
+		if in.Action == "get" && in.ID != "" {
+			return h.buildGetResult(ctx, in.ID, out)
+		}
+		// Warn on write operations only — read responses must not be polluted.
 		if !h.workspaceConfigured && isWriteAction(in.Action) {
 			out += workspaceUnconfiguredSuffix
 		}
 		return text(out), nil, nil
 	}
 	return nil, nil, fmt.Errorf("unknown artifact action %q", in.Action) //nolint:err113 // agent-facing hint
+}
+
+// handleAttach stores a base64-encoded binary blob as a named attachment.
+func (h *handler) handleAttach(ctx context.Context, in *artifactInput) (*sdkmcp.CallToolResult, any, error) {
+	if in.ID == "" || in.Name == "" || in.Data == "" || in.ContentType == "" {
+		return nil, nil, fmt.Errorf("attach requires id, name, content_type, and data") //nolint:err113 // agent-facing
+	}
+	decoded, err := base64.StdEncoding.DecodeString(in.Data)
+	if err != nil {
+		// Try raw base64 without padding.
+		decoded, err = base64.RawStdEncoding.DecodeString(in.Data)
+		if err != nil {
+			return nil, nil, fmt.Errorf("attach: data must be base64-encoded: %w", err)
+		}
+	}
+	if err := h.svc.Proto.Store().PutAttachment(ctx, in.ID, in.Name, in.ContentType, decoded); err != nil {
+		return nil, nil, err
+	}
+	out := fmt.Sprintf("attached %s (%s, %d bytes) to %s", in.Name, in.ContentType, len(decoded), in.ID)
+	if !h.workspaceConfigured {
+		out += workspaceUnconfiguredSuffix
+	}
+	return text(out), nil, nil
+}
+
+// handleDetach removes a named attachment from an artifact.
+func (h *handler) handleDetach(ctx context.Context, in *artifactInput) (*sdkmcp.CallToolResult, any, error) {
+	if in.ID == "" || in.Name == "" {
+		return nil, nil, fmt.Errorf("detach requires id and name") //nolint:err113 // agent-facing
+	}
+	if err := h.svc.Proto.Store().DeleteAttachment(ctx, in.ID, in.Name); err != nil {
+		return nil, nil, err
+	}
+	out := fmt.Sprintf("detached %s from %s", in.Name, in.ID)
+	if !h.workspaceConfigured {
+		out += workspaceUnconfiguredSuffix
+	}
+	return text(out), nil, nil
+}
+
+// buildGetResult assembles a mixed MCP content result for action=get.
+// Text sections are in the first TextContent block; each image attachment
+// becomes an ImageContent block so vision-capable models see them inline.
+func (h *handler) buildGetResult(ctx context.Context, id, textOut string) (*sdkmcp.CallToolResult, any, error) {
+	attachments, err := h.svc.Proto.Store().GetAttachments(ctx, id)
+	if err != nil || len(attachments) == 0 {
+		return text(textOut), nil, nil
+	}
+	content := []sdkmcp.Content{&sdkmcp.TextContent{Text: textOut}}
+	for _, a := range attachments {
+		if !strings.HasPrefix(a.ContentType, "image/") {
+			continue // non-image MIME types are not passed to the model
+		}
+		content = append(content, &sdkmcp.ImageContent{
+			MIMEType: a.ContentType,
+			Data:     a.Data,
+		})
+	}
+	return &sdkmcp.CallToolResult{Content: content}, nil, nil
 }
 
 // isWriteAction reports whether the action mutates the graph.

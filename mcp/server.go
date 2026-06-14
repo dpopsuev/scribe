@@ -203,6 +203,11 @@ type artifactInput struct {
 	Targets   []string    `json:"targets,omitempty"`
 	OldTarget string      `json:"old_target,omitempty"`
 	Edges     []edgeInput `json:"edges,omitempty" jsonschema:"link/unlink bulk mode: [{from, relation, to}]"`
+
+	// Attachment fields — used by attach and detach actions.
+	// Name (shared with section operations) is the attachment filename.
+	ContentType string `json:"content_type,omitempty" jsonschema:"MIME type for attach action — e.g. image/png, image/svg+xml"`
+	Data        string `json:"data,omitempty"         jsonschema:"base64-encoded binary content for attach action"`
 }
 
 type edgeInput struct {

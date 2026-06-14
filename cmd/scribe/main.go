@@ -37,6 +37,10 @@ func main() {
 
 		cmds.MigrateCmd(),
 
+		cmds.AttachCmd(),
+		cmds.DetachCmd(),
+		cmds.AttachmentsCmd(),
+
 		cmds.LinkCmd(),
 		cmds.UnlinkCmd(),
 		cmds.OverlapsCmd(),
