@@ -97,6 +97,34 @@ func MigrateKindsCmd() *cobra.Command {
 			}
 
 			fmt.Printf("\n%d migrated, %d skipped (already namespaced or no kind)\n", migrated, skipped)
+
+			// Remove stale LDEF-kind:X artifacts left over from the rename.
+			// These are schema artifacts whose IDs encode the old flat kind name;
+			// they pollute the vocab and must be deleted explicitly.
+			ldefPrefix := "LDEF-kind:"
+			var pruned int
+			for _, art := range all {
+				if !strings.HasPrefix(art.ID, ldefPrefix) {
+					continue
+				}
+				oldName := art.ID[len(ldefPrefix):]
+				if _, isOld := kindRenameMap[oldName]; !isOld {
+					continue
+				}
+				if dryRun {
+					fmt.Printf("would delete stale LDEF %s\n", art.ID)
+					pruned++
+					continue
+				}
+				if err := svc.Proto.Store().Delete(ctx, art.ID); err != nil {
+					return fmt.Errorf("delete stale LDEF %s: %w", art.ID, err)
+				}
+				fmt.Printf("deleted stale LDEF %s\n", art.ID)
+				pruned++
+			}
+			if pruned > 0 {
+				fmt.Printf("%d stale LDEF-kind artifacts pruned\n", pruned)
+			}
 			return nil
 		},
 	}
