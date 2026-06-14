@@ -877,8 +877,6 @@ func TestOpList_KindPrefixKnowledgeGrouped(t *testing.T) {
 	}
 }
 
-
-
 func TestOpUpdate_SetsMultipleFields(t *testing.T) {
 	// Given a task exists
 	// When update(id=X, title=new, priority=high) is called

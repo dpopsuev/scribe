@@ -87,7 +87,6 @@ func (s *Service) Recall(ctx context.Context, query, scope string, top int) ([]R
 		scope = s.HomeScopes[0]
 	}
 
-
 	seen := make(map[string]bool)
 	var candidates []*parchment.Artifact
 	for _, q := range BuildFTSPasses(query) {

@@ -12,7 +12,6 @@ import (
 	"testing"
 )
 
-
 // oklchToLinearRGB converts Oklch to linear sRGB components.
 // Returns values that may exceed [0,1] — clamp before use.
 func oklchToLinearRGB(l, c, hDeg float64) (r, g, b float64) {
@@ -88,7 +87,6 @@ func generateNodeColor(hue, bgLuminance float64) (nodeLuminance float64) {
 	return linearLuminance(r, g, b)
 }
 
-
 // kindHues mirrors KIND_HUES in layout.html exactly.
 var kindHues = map[string]float64{
 	"task": 220, "spec": 270, "bug": 12, "goal": 52,
@@ -108,7 +106,6 @@ var testBackgrounds = []struct {
 	{"light white", "#ffffff", 3.0},
 	{"light gray (pico page)", "#f4f4f4", 3.0},
 }
-
 
 // TestColorContrast_NodeOnBackground asserts that every kind color generated
 // by the algorithm passes WCAG 3:1 on both dark and light backgrounds.

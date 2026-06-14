@@ -74,10 +74,10 @@ type crdArtifactSection struct {
 }
 
 type crdSpec struct {
-	Lifecycle        *crdLifecycle `yaml:"lifecycle,omitempty"`
-	Sections         *crdSections  `yaml:"sections,omitempty"`
-	AllowedChildren  []string      `yaml:"allowedChildren,omitempty"`
-	IsContainerKind  bool          `yaml:"isContainerKind,omitempty"`
+	Lifecycle       *crdLifecycle `yaml:"lifecycle,omitempty"`
+	Sections        *crdSections  `yaml:"sections,omitempty"`
+	AllowedChildren []string      `yaml:"allowedChildren,omitempty"`
+	IsContainerKind bool          `yaml:"isContainerKind,omitempty"`
 
 	WhenToUse        string        `yaml:"whenToUse,omitempty"`
 	AgentNote        string        `yaml:"agentNote,omitempty"`
@@ -306,8 +306,6 @@ func applyLabelDefinitionCRD(ctx context.Context, s parchment.Store, r *crdResou
 	}
 	return s.Put(ctx, art)
 }
-
-
 
 func cleanExtra(m map[string]any) {
 	for k, v := range m {

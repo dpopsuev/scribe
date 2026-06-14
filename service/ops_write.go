@@ -416,7 +416,7 @@ var opSet = Op{
 		if len(ids) == 0 {
 			return "", fmt.Errorf("provide id, ids, or filter params (scope, kind, status)") //nolint:err113 // user-facing hint
 		}
-		if in.Field == parchment.FieldStatus && in.Value == "work.active" && !in.Force {
+		if in.Field == parchment.FieldStatus && in.Value == statusWorkActive && !in.Force {
 			for _, id := range ids {
 				art, err := svc.Proto.GetArtifact(ctx, id)
 				if err != nil || art.Label(parchment.LabelPrefixKind) != "effort.task" {

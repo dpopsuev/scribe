@@ -41,41 +41,41 @@ func SortArtifacts(arts []*parchment.Artifact, field string) {
 }
 
 type listInput struct {
-	ID             string   `json:"id,omitempty"`
-	Unblocked      bool     `json:"unblocked,omitempty"`
-	Kind           string   `json:"kind,omitempty"`
-	Scope          string   `json:"scope,omitempty"`
-	Status         string   `json:"status,omitempty"`
-	Sprint         string   `json:"sprint,omitempty"`
-	IDPrefix       string   `json:"id_prefix,omitempty"`
-	ExcludeKind    string   `json:"exclude_kind,omitempty"`
-	ExcludeStatus  string   `json:"exclude_status,omitempty"`
-	Labels         []string `json:"labels,omitempty"`
-	LabelsOr       []string `json:"labels_or,omitempty"`
-	ExcludeLabels  []string `json:"exclude_labels,omitempty"`
-	Query          string   `json:"query,omitempty"`
-	TitleContains  string   `json:"title_contains,omitempty"`
-	GroupBy        string   `json:"group_by,omitempty"`
-	Sort           string   `json:"sort,omitempty"`
-	Limit          int      `json:"limit,omitempty"`
-	Cursor         string   `json:"cursor,omitempty"` // pagination cursor from previous list response
-	Top            int      `json:"top,omitempty"`
-	Count          bool     `json:"count,omitempty"`
-	Fields         []string `json:"fields,omitempty"`
-	Format         string   `json:"format,omitempty"`
-	Ranked         bool     `json:"ranked,omitempty"`
+	ID            string   `json:"id,omitempty"`
+	Unblocked     bool     `json:"unblocked,omitempty"`
+	Kind          string   `json:"kind,omitempty"`
+	Scope         string   `json:"scope,omitempty"`
+	Status        string   `json:"status,omitempty"`
+	Sprint        string   `json:"sprint,omitempty"`
+	IDPrefix      string   `json:"id_prefix,omitempty"`
+	ExcludeKind   string   `json:"exclude_kind,omitempty"`
+	ExcludeStatus string   `json:"exclude_status,omitempty"`
+	Labels        []string `json:"labels,omitempty"`
+	LabelsOr      []string `json:"labels_or,omitempty"`
+	ExcludeLabels []string `json:"exclude_labels,omitempty"`
+	Query         string   `json:"query,omitempty"`
+	TitleContains string   `json:"title_contains,omitempty"`
+	GroupBy       string   `json:"group_by,omitempty"`
+	Sort          string   `json:"sort,omitempty"`
+	Limit         int      `json:"limit,omitempty"`
+	Cursor        string   `json:"cursor,omitempty"` // pagination cursor from previous list response
+	Top           int      `json:"top,omitempty"`
+	Count         bool     `json:"count,omitempty"`
+	Fields        []string `json:"fields,omitempty"`
+	Format        string   `json:"format,omitempty"`
+	Ranked        bool     `json:"ranked,omitempty"`
 
-	Mode           string   `json:"mode,omitempty"`      // fts (default) | semantic | hybrid
-	Session        string   `json:"session,omitempty"`   // shorthand for labels=["session:<value>"]
-	Depth          int      `json:"depth,omitempty"`     // if >0, attach ArtifactTree to each result
-	Relation       string   `json:"relation,omitempty"`  // edge relation to traverse with depth; default "*" (all)
-	Direction      string   `json:"direction,omitempty"` // inbound | outbound | both (default)
-	CreatedAfter   string   `json:"created_after,omitempty"`
-	CreatedBefore  string   `json:"created_before,omitempty"`
-	UpdatedAfter   string   `json:"updated_after,omitempty"`
-	UpdatedBefore  string   `json:"updated_before,omitempty"`
-	InsertedAfter  string   `json:"inserted_after,omitempty"`
-	InsertedBefore string   `json:"inserted_before,omitempty"`
+	Mode           string `json:"mode,omitempty"`      // fts (default) | semantic | hybrid
+	Session        string `json:"session,omitempty"`   // shorthand for labels=["session:<value>"]
+	Depth          int    `json:"depth,omitempty"`     // if >0, attach ArtifactTree to each result
+	Relation       string `json:"relation,omitempty"`  // edge relation to traverse with depth; default "*" (all)
+	Direction      string `json:"direction,omitempty"` // inbound | outbound | both (default)
+	CreatedAfter   string `json:"created_after,omitempty"`
+	CreatedBefore  string `json:"created_before,omitempty"`
+	UpdatedAfter   string `json:"updated_after,omitempty"`
+	UpdatedBefore  string `json:"updated_before,omitempty"`
+	InsertedAfter  string `json:"inserted_after,omitempty"`
+	InsertedBefore string `json:"inserted_before,omitempty"`
 }
 
 func resolveIDs(ids []string, id string) []string {
@@ -319,7 +319,7 @@ var opQuery = Op{
 			Labels:     listLabels, LabelsOr: in.LabelsOr, ExcludeLabels: listExclude,
 			GroupBy: in.GroupBy, Sort: in.Sort, Limit: in.Limit, Cursor: in.Cursor, Query: in.Query,
 			TitleContains: in.TitleContains,
-			CreatedAfter: in.CreatedAfter, CreatedBefore: in.CreatedBefore,
+			CreatedAfter:  in.CreatedAfter, CreatedBefore: in.CreatedBefore,
 			UpdatedAfter: in.UpdatedAfter, UpdatedBefore: in.UpdatedBefore,
 			InsertedAfter: in.InsertedAfter, InsertedBefore: in.InsertedBefore,
 		}

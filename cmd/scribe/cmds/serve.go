@@ -18,6 +18,7 @@ import (
 	"time"
 
 	parchment "github.com/dpopsuev/parchment"
+	"github.com/dpopsuev/scribe/config"
 	"github.com/dpopsuev/scribe/embed"
 	"github.com/dpopsuev/scribe/mcp"
 	"github.com/dpopsuev/scribe/migrations"
@@ -148,37 +149,11 @@ func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, devU
 		defer embedder.Stop()
 	}
 
-	// Seed once on first run; skip if templates already exist.
-	if cfg.SeedDir != "" {
-		templates, _ := svc.Proto.ListArtifacts(context.Background(), parchment.ListInput{Labels: []string{parchment.LabelPrefixKind + "support.template"}})
-		if len(templates) == 0 {
-			result, seedErr := svc.Proto.Seed(context.Background(), cfg.SeedDir)
-			if seedErr != nil {
-				slog.WarnContext(ctx, "auto-seed failed", slog.String(logKeyDir, cfg.SeedDir), slog.Any(logKeyError, seedErr))
-			} else if len(result.Created) > 0 {
-				slog.InfoContext(ctx, "auto-seed completed", slog.String(logKeyDir, cfg.SeedDir), slog.Int(logKeyCreated, len(result.Created)))
-			}
-		}
-	}
+	runSeedDir(ctx, svc.Proto, cfg)
+	applyScopeLabels(svc.Proto.Store(), cfg)
 
-	// Apply scope labels from config.
-	if len(cfg.ScopeConfigs) > 0 {
-		store := svc.Proto.Store()
-		for name, sc := range cfg.ScopeConfigs {
-			if len(sc.Labels) > 0 {
-				_ = store.SetScopeLabels(context.Background(), name, sc.Labels)
-			}
-		}
-	}
-
-	activeTransport := cfg.Transport
-	if cmd.Flags().Changed("transport") {
-		activeTransport = transport
-	}
-	activeAddr := cfg.Addr
-	if cmd.Flags().Changed("addr") {
-		activeAddr = addr
-	}
+	activeTransport := flagOrDefault(cmd, "transport", transport, cfg.Transport)
+	activeAddr := flagOrDefault(cmd, "addr", addr, cfg.Addr)
 
 	srv, _ := mcp.NewServer(svc, nil, Version, stdioWorkspaceLabels...)
 
@@ -270,6 +245,42 @@ func runHTTP(sigCtx, logCtx context.Context, cmd *cobra.Command, srvFactory func
 	}
 	slog.InfoContext(logCtx, "server stopped, closing store")
 	return nil
+}
+
+// runSeedDir seeds templates on first run. Skips if templates already exist.
+func runSeedDir(ctx context.Context, proto *parchment.Protocol, cfg *config.Config) {
+	if cfg.SeedDir == "" {
+		return
+	}
+	templates, _ := proto.ListArtifacts(context.Background(), parchment.ListInput{
+		Labels: []string{parchment.LabelPrefixKind + "support.template"},
+	})
+	if len(templates) > 0 {
+		return
+	}
+	result, err := proto.Seed(context.Background(), cfg.SeedDir)
+	if err != nil {
+		slog.WarnContext(ctx, "auto-seed failed", slog.String(logKeyDir, cfg.SeedDir), slog.Any(logKeyError, err))
+	} else if len(result.Created) > 0 {
+		slog.InfoContext(ctx, "auto-seed completed", slog.String(logKeyDir, cfg.SeedDir), slog.Int(logKeyCreated, len(result.Created)))
+	}
+}
+
+// applyScopeLabels pushes scope labels from config into the store.
+func applyScopeLabels(store parchment.Store, cfg *config.Config) {
+	for name, sc := range cfg.ScopeConfigs {
+		if len(sc.Labels) > 0 {
+			_ = store.SetScopeLabels(context.Background(), name, sc.Labels)
+		}
+	}
+}
+
+// flagOrDefault returns flagValue if the named flag was explicitly set, otherwise defaultVal.
+func flagOrDefault(cmd *cobra.Command, name, flagValue, defaultVal string) string {
+	if cmd.Flags().Changed(name) {
+		return flagValue
+	}
+	return defaultVal
 }
 
 func ToolsCmd() *cobra.Command {

@@ -33,7 +33,6 @@ import (
 	"github.com/dpopsuev/scribe/embed"
 )
 
-
 var fitnessVocab = []string{
 	// Work tracking
 	"task", "spec", "bug", "goal", "campaign", "milestone", "deadline", "priority",
@@ -49,7 +48,6 @@ var fitnessVocab = []string{
 	// Knowledge
 	"concept", "note", "source", "citation", "elaborates", "synthesizes", "knowledge",
 }
-
 
 type fitnessChallenge struct {
 	name        string
@@ -163,7 +161,6 @@ var fitnessChallenges = []fitnessChallenge{
 	},
 }
 
-
 type challengeResult struct {
 	name      string
 	domain    string
@@ -237,7 +234,6 @@ func runChallenge(t *testing.T, embedFn parchment.EmbeddingFunc, c fitnessChalle
 		flagRanks: flagRanks,
 	}
 }
-
 
 func TestEmbedding_FitnessSuite_SemanticEmbedFunc(t *testing.T) {
 	// Deterministic baseline using SemanticEmbeddingFunc.

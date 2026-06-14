@@ -18,6 +18,8 @@ import (
 	"github.com/yuin/goldmark/renderer/html"
 )
 
+const tmplKeyTitle = "Title"
+
 //go:embed templates/*.html
 var templateFS embed.FS
 
@@ -124,7 +126,7 @@ func NewServer(proto *parchment.Protocol, version, devPath string) *Server {
 		if r.URL.RawQuery != "" {
 			target += "?" + r.URL.RawQuery
 		}
-		http.Redirect(w, r, target, http.StatusMovedPermanently)
+		http.Redirect(w, r, target, http.StatusMovedPermanently) //nolint:gosec // G710: target is built from fixed prefix + request path, not user-controlled input
 	}
 	for _, pattern := range []string{
 		"GET /api/graph/scopes", "GET /api/graph/kinds", "GET /api/graph",
@@ -149,8 +151,8 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, "dashboard.html", map[string]any{
-		"Title":     "Dashboard",
-		"Inventory": inv,
+		tmplKeyTitle: "Dashboard",
+		"Inventory":  inv,
 	})
 }
 
@@ -185,7 +187,7 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, "list.html", map[string]any{
-		"Title":       "Artifacts",
+		tmplKeyTitle:  "Artifacts",
 		"Artifacts":   arts,
 		"Filter":      in,
 		"ScopeFilter": queryParams.Get("scope"),
@@ -200,8 +202,8 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, "detail.html", map[string]any{
-		"Title":    art.Title,
-		"Artifact": art,
+		tmplKeyTitle: art.Title,
+		"Artifact":   art,
 	})
 }
 
@@ -213,8 +215,8 @@ func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, "tree.html", map[string]any{
-		"Title": "Tree: " + id,
-		"Root":  tree,
+		tmplKeyTitle: "Tree: " + id,
+		"Root":       tree,
 	})
 }
 
@@ -230,9 +232,9 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.render(w, "search.html", map[string]any{
-		"Title":   "Search",
-		"Query":   searchQuery,
-		"Results": results,
+		tmplKeyTitle: "Search",
+		"Query":      searchQuery,
+		"Results":    results,
 	})
 }
 

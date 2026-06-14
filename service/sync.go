@@ -35,57 +35,8 @@ func (s *Service) SyncDir(ctx context.Context, path string) (int, error) {
 	var arts []*parchment.Artifact
 	currentIDs := make(map[string]bool)
 
-	err = filepath.Walk(abs, func(p string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil // skip unreadable paths
-		}
-		if info.IsDir() {
-			if strings.HasPrefix(info.Name(), ".") {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(info.Name(), ".md") {
-			return nil
-		}
-
-		art, err := parchment.ParseMDFile(p)
-		if err != nil {
-			slog.WarnContext(ctx, "sync: parse failed", slog.String(logKeySyncPath, p), slog.Any(logKeySyncError, err))
-			return nil
-		}
-
-		if art.ID == "" {
-			rel, _ := filepath.Rel(abs, p)
-			art.ID = syncDerivedID(rel)
-		}
-		// ParseMDFile no longer defaults the kind — sync treats all markdown as notes
-		// unless the frontmatter specifies otherwise.
-		if art.Label(parchment.LabelPrefixKind) == "" {
-			art.Labels = append(art.Labels, parchment.LabelPrefixKind+"knowledge.note")
-		}
-		if art.Label(parchment.LabelPrefixScope) == "" {
-			art.Labels = append(art.Labels, parchment.LabelPrefixScope+"global")
-		}
-		switch art.Label(parchment.LabelPrefixKind) {
-		case "rule", "skill":
-			k := art.Label(parchment.LabelPrefixKind)
-			art.Labels = appendIfMissing(art.Labels, k)
-			for i, l := range art.Labels {
-				if l == parchment.LabelPrefixKind+k {
-					art.Labels[i] = parchment.LabelPrefixKind + "knowledge.note"
-					break
-				}
-			}
-		}
-		if art.Extra == nil {
-			art.Extra = make(map[string]any)
-		}
-		art.Extra[syncSourceKey] = abs
-
-		currentIDs[art.ID] = true
-		arts = append(arts, art)
-		return nil
+	err = filepath.Walk(abs, func(p string, info os.FileInfo, walkErr error) error {
+		return s.syncWalkFn(ctx, abs, p, info, walkErr, currentIDs, &arts)
 	})
 	if err != nil {
 		return 0, fmt.Errorf("walk %s: %w", abs, err)
@@ -119,7 +70,56 @@ func (s *Service) SyncDir(ctx context.Context, path string) (int, error) {
 	return len(arts), nil
 }
 
-// syncDerivedID returns a deterministic artifact ID from a relative file path.
+// syncWalkFn is the filepath.Walk callback for SyncDir.
+// It parses each .md file and appends the resulting artifact to arts.
+func (s *Service) syncWalkFn(ctx context.Context, abs, p string, info os.FileInfo, walkErr error, currentIDs map[string]bool, arts *[]*parchment.Artifact) error {
+	if walkErr != nil {
+		return nil // skip unreadable paths
+	}
+	if info.IsDir() {
+		if strings.HasPrefix(info.Name(), ".") {
+			return filepath.SkipDir
+		}
+		return nil
+	}
+	if !strings.HasSuffix(info.Name(), ".md") {
+		return nil
+	}
+	art, err := parchment.ParseMDFile(p)
+	if err != nil {
+		slog.WarnContext(ctx, "sync: parse failed", slog.String(logKeySyncPath, p), slog.Any(logKeySyncError, err))
+		return nil
+	}
+	if art.ID == "" {
+		rel, _ := filepath.Rel(abs, p)
+		art.ID = syncDerivedID(rel)
+	}
+	if art.Label(parchment.LabelPrefixKind) == "" {
+		art.Labels = append(art.Labels, parchment.LabelPrefixKind+"knowledge.note")
+	}
+	if art.Label(parchment.LabelPrefixScope) == "" {
+		art.Labels = append(art.Labels, parchment.LabelPrefixScope+"global")
+	}
+	// Behavioral labels ("rule", "skill") are not registered kinds; convert to knowledge.note.
+	if k := art.Label(parchment.LabelPrefixKind); k == "rule" || k == "skill" {
+		art.Labels = appendIfMissing(art.Labels, k)
+		for i, l := range art.Labels {
+			if l == parchment.LabelPrefixKind+k {
+				art.Labels[i] = parchment.LabelPrefixKind + "knowledge.note"
+				break
+			}
+		}
+	}
+	if art.Extra == nil {
+		art.Extra = make(map[string]any)
+	}
+	art.Extra[syncSourceKey] = abs
+	currentIDs[art.ID] = true
+	*arts = append(*arts, art)
+	return nil
+}
+
+// appendIfMissing returns labels with label appended if it is not already present.
 func appendIfMissing(labels []string, label string) []string {
 	for _, l := range labels {
 		if l == label {
@@ -195,8 +195,6 @@ func serializeArtifact(art *parchment.Artifact) ([]byte, error) {
 	if len(art.Labels) > 0 {
 		fm["labels"] = art.Labels
 	}
-
-
 
 	fmBytes, err := yaml.Marshal(fm)
 	if err != nil {

@@ -12,7 +12,6 @@ import (
 	"github.com/dpopsuev/scribe/web"
 )
 
-
 func setupGraph(t *testing.T) *web.Server {
 	t.Helper()
 	dir := t.TempDir()
@@ -50,7 +49,6 @@ func setupGraph(t *testing.T) *web.Server {
 	proto := parchment.New(s, nil, []string{"alpha", "beta"}, nil, parchment.ProtocolConfig{})
 	return web.NewServer(proto, "dev", "")
 }
-
 
 func TestAPIGraphScopes_ReturnsScopeNodes(t *testing.T) {
 	srv := setupGraph(t)
@@ -109,7 +107,6 @@ func TestAPIGraphScopes_ExcludesSchemaScope(t *testing.T) {
 	}
 }
 
-
 func TestAPIGraphKinds_ReturnsKindNodes(t *testing.T) {
 	srv := setupGraph(t)
 	w := httptest.NewRecorder()
@@ -157,7 +154,6 @@ func TestAPIGraphKinds_CrossKindLinks(t *testing.T) {
 		t.Errorf("intra-kind edge should not appear in kind graph, got %d links", len(data.Links))
 	}
 }
-
 
 func TestAPIGraph_ReturnsArtifactNodes(t *testing.T) {
 	srv := setupGraph(t)
@@ -224,7 +220,6 @@ func TestAPIGraph_RelationFilter(t *testing.T) {
 	}
 }
 
-
 func TestAPIScopes_ReturnsScopeList(t *testing.T) {
 	srv := setupGraph(t)
 	w := httptest.NewRecorder()
@@ -244,7 +239,6 @@ func TestAPIScopes_ReturnsScopeList(t *testing.T) {
 		}
 	}
 }
-
 
 func TestAPICreateArtifact_CreatesAndReturns(t *testing.T) {
 	srv := setupGraph(t)
@@ -316,7 +310,6 @@ func TestAPIDeleteEdge_DeletesEdge(t *testing.T) {
 		t.Errorf("expected 204, got %d", w.Code)
 	}
 }
-
 
 func TestFragmentArtifact_ReturnsHTML(t *testing.T) {
 	srv := setupGraph(t)

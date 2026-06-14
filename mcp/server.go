@@ -13,6 +13,8 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+const toolNameArtifact = "artifact"
+
 // baseInstructions is the core MCP server instructions shown to clients.
 const baseInstructions = "Labeled Artifact Graph. " +
 	"SCHEMA: artifact(action=query, kind=label_definition, scope=_schema) to learn available kinds and labels."
@@ -80,14 +82,14 @@ func NewServer(svc *service.Service, vocab []string, version string, stdioLabels
 	_ = json.Unmarshal(schemaFor[artifactInput](), &artifactSchema)
 	patchSchemaFromRegistry(artifactSchema, h)
 	sdk.AddTool(&sdkmcp.Tool{
-		Name:        "artifact",
+		Name:        toolNameArtifact,
 		Title:       "Artifact",
 		Description: artifactDesc,
 		InputSchema: artifactSchema,
 		Annotations: &sdkmcp.ToolAnnotations{DestructiveHint: &destructiveHint},
 	}, bindHandler(h.handleArtifact))
 	reg.register(ToolMeta{
-		Name: "artifact", Description: artifactDesc,
+		Name: toolNameArtifact, Description: artifactDesc,
 		Keywords:   []string{"create", "get", "query", "set", "update", "link", "unlink", "edge", "artifact"},
 		Categories: []string{"crud", "graph"},
 	})
@@ -276,15 +278,18 @@ func schemaFor[T any]() json.RawMessage {
 	return data
 }
 
+const hintIDArray = `JSON array of strings — e.g. ["TASK-1", "TASK-2"]`
+const hintLabelArray = `JSON array of strings — e.g. ["label1", "label2"]`
+
 // arrayTypeHints maps struct field names to their expected JSON wire format.
 // Used by unmarshalInput to produce actionable error messages when the caller
 // passes the wrong type (e.g. a comma-separated string where a JSON array is required).
 var arrayTypeHints = map[string]string{
-	"depends_on":     `JSON array of strings — e.g. ["TASK-1", "TASK-2"]`,
-	"ids":            `JSON array of strings — e.g. ["TASK-1", "TASK-2"]`,
-	"labels":         `JSON array of strings — e.g. ["label1", "label2"]`,
-	"labels_or":      `JSON array of strings — e.g. ["label1", "label2"]`,
-	"exclude_labels": `JSON array of strings — e.g. ["label1", "label2"]`,
+	"depends_on":     hintIDArray,
+	"ids":            hintIDArray,
+	"labels":         hintLabelArray,
+	"labels_or":      hintLabelArray,
+	"exclude_labels": hintLabelArray,
 	"fields":         `JSON array of strings — e.g. ["id", "title", "status"]`,
 	"section_filter": `JSON array of strings — e.g. ["summary", "source"]`,
 	"targets":        `JSON array of strings — e.g. ["REF-1", "REF-2"]`,

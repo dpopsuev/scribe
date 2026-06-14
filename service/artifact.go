@@ -51,7 +51,7 @@ func FilterSections(art *parchment.Artifact, filter []string) {
 func RelevanceScore(art *parchment.Artifact) float64 {
 	score := 0.0
 	switch parchment.StatusFromLabels(art.Labels) {
-	case "work.active", "decision.proposed":
+	case statusWorkActive, "decision.proposed":
 		score += 3.0
 	case "work.draft", "note.fleeting":
 		score += 1.0
@@ -73,6 +73,7 @@ func RelevanceScore(art *parchment.Artifact) float64 {
 
 const readLogScope = "scribe-session"
 const readLogTitle = "readlog"
+const statusWorkActive = "work.active"
 
 // NewSessionID generates a random 8-byte hex session identifier.
 func NewSessionID() string {
@@ -99,7 +100,7 @@ func (s *Service) PersistReadLog(ctx context.Context, sessionID string, readLog 
 	if _, err := s.Proto.GetArtifact(ctx, artID); err != nil {
 		_, _ = s.Proto.CreateArtifact(ctx, parchment.CreateInput{
 			ExplicitID: artID,
-			Labels:     []string{parchment.LabelPrefixKind + "support.config", "work.active", parchment.LabelPrefixScope + readLogScope},
+			Labels:     []string{parchment.LabelPrefixKind + "support.config", statusWorkActive, parchment.LabelPrefixScope + readLogScope},
 			Title:      readLogTitle,
 			Extra:      map[string]any{"read_ids": ids, "session_id": sessionID},
 		})

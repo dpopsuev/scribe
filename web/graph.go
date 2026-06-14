@@ -346,9 +346,8 @@ func (s *Server) handleFragmentArtifact(w http.ResponseWriter, r *http.Request) 
 // GET /graph
 func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	s.render(w, "graph.html", map[string]any{"Title": "Graph", "Version": s.version})
+	s.render(w, "graph.html", map[string]any{tmplKeyTitle: "Graph", "Version": s.version})
 }
-
 
 const defaultStatuses = "active,draft,current,proposed,in_progress,in_review,fleeting"
 

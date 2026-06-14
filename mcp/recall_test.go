@@ -98,7 +98,7 @@ func TestRecall_CompletedTaskIsMemory(t *testing.T) {
 	// Create and complete a task
 	task, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + "effort.task"}, Title: "Remove SetField Extra fallback — error on unknown fields",
 
-		Goal:  "SetField must reject unknown fields instead of writing silently to Extra"})
+		Goal: "SetField must reject unknown fields instead of writing silently to Extra"})
 	_, _ = proto.SetField(ctx, []string{task.ID}, parchment.FieldStatus, "work.complete", parchment.SetFieldOptions{Force: true})
 
 	out := call(map[string]any{
@@ -120,7 +120,7 @@ func TestRecall_CompletedDecisionIsMemory(t *testing.T) {
 
 	decision, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + "intent.decision"}, Title: "Template conformance fires on promote not create",
 
-		Goal:  "Partial drafts accepted at create time, full validation deferred to promote"})
+		Goal: "Partial drafts accepted at create time, full validation deferred to promote"})
 	_, _ = proto.SetField(ctx, []string{decision.ID}, parchment.FieldStatus, "decision.accepted", parchment.SetFieldOptions{Force: true})
 
 	out := call(map[string]any{

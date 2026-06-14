@@ -10,6 +10,9 @@ import (
 	parchment "github.com/dpopsuev/parchment"
 )
 
+const datasetFormatSFT = "sft"
+const datasetFormatKG = "kg"
+const datasetFormatDPO = "dpo"
 
 // sftExample is one supervised fine-tuning training example (OpenAI chat format).
 type sftExample struct {
@@ -56,7 +59,6 @@ type datasetCard struct {
 	TotalRows   int      `json:"total_rows"`
 }
 
-
 // exportable returns true when an artifact meets the quality bar for training.
 // Only complete, active, or evergreen artifacts with no compliance violations.
 func exportable(a *parchment.Artifact) bool {
@@ -85,7 +87,6 @@ func sectionText(a *parchment.Artifact) string {
 	}
 	return buf
 }
-
 
 // writeSFT streams SFT examples: one per artifact, using the artifact's
 // structured fields as an assistant response to a synthetic user prompt.
@@ -214,8 +215,8 @@ func writeCard(ctx context.Context, w http.ResponseWriter, proto *parchment.Prot
 		Name:        "scribe-artifacts",
 		Description: "Structured knowledge artifacts from the Scribe artifact store. Human-validated, graph-linked, multi-format.",
 		License:     "mit",
-		Tags:        []string{"scribe", "knowledge-graph", "instruction-tuning", "dpo", "fine-tuning"},
-		Formats:     []string{"sft", "kg", "dpo"},
+		Tags:        []string{"scribe", "knowledge-graph", "instruction-tuning", datasetFormatDPO, "fine-tuning"},
+		Formats:     []string{datasetFormatSFT, datasetFormatKG, datasetFormatDPO},
 		TotalRows:   exportableCount,
 	}
 	b, _ := json.Marshal(card)
@@ -223,13 +224,12 @@ func writeCard(ctx context.Context, w http.ResponseWriter, proto *parchment.Prot
 	return 1, err
 }
 
-
 // handleExportDataset streams a JSONL training dataset.
 // GET /api/v1/export/dataset?format=sft|kg|dpo|card
 func (s *Server) handleExportDataset(w http.ResponseWriter, r *http.Request) {
 	format := r.URL.Query().Get("format")
 	if format == "" {
-		format = "sft"
+		format = datasetFormatSFT
 	}
 
 	w.Header().Set("Content-Type", "application/x-ndjson")
@@ -244,11 +244,11 @@ func (s *Server) handleExportDataset(w http.ResponseWriter, r *http.Request) {
 		err error
 	)
 	switch format {
-	case "sft":
+	case datasetFormatSFT:
 		n, err = writeSFT(ctx, w, s.proto)
-	case "kg":
+	case datasetFormatKG:
 		n, err = writeKG(ctx, w, s.proto)
-	case "dpo":
+	case datasetFormatDPO:
 		n, err = writeDPO(ctx, w, s.proto)
 	case "card":
 		n, err = writeCard(ctx, w, s.proto)

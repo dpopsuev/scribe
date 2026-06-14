@@ -22,7 +22,6 @@ import (
 	"github.com/dpopsuev/scribe/internal/ingest"
 )
 
-
 // ShapeFunc produces one NodeRecord for index i.
 type ShapeFunc func(i int, source, scanSHA string) ingest.NodeRecord
 
@@ -118,7 +117,6 @@ func ParseGenerated(t *testing.T, gen *Generator) ([]ingest.NodeRecord, []ingest
 	return nodes, edges
 }
 
-
 // LocusComponentShape produces a node shaped like a Locus ArchService.
 var LocusComponentShape ShapeFunc = func(i int, source, sha string) ingest.NodeRecord {
 	return ingest.NodeRecord{
@@ -168,7 +166,6 @@ var GitHubPRShape ShapeFunc = func(i int, source, sha string) ingest.NodeRecord 
 		Extra:  map[string]any{"number": i + 1, "scan_sha": sha},
 	}
 }
-
 
 // ScriptedTurn is one exchange in a scripted conversation.
 type ScriptedTurn struct {
