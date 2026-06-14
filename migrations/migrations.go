@@ -49,6 +49,11 @@ var All = []Migration{
 		Description: "Rename flat kind labels to dot-namespaced (task → effort.task)",
 		Run:         migrateKindNamespace,
 	},
+	{
+		ID:          "0003_investigation_case",
+		Description: "Rename tautological kind investigation.investigation → investigation.case",
+		Run:         migrateInvestigationCase,
+	},
 }
 
 // RunPending applies all migrations that have not yet been recorded as applied.

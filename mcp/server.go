@@ -106,10 +106,10 @@ func ToolRegistry() *Registry {
 
 // NewServerFromStore constructs a Server from a raw store + config — used by
 // tests that open a store directly rather than going through service.Open.
-func NewServerFromStore(s parchment.Store, homeScopes []string, idc parchment.ProtocolConfig, version string) (*sdkmcp.Server, *Registry) {
+func NewServerFromStore(s parchment.Store, homeScopes []string, idc parchment.ProtocolConfig, version string, workspaceLabels ...string) (*sdkmcp.Server, *Registry) {
 	proto := parchment.New(s, nil, homeScopes, nil, idc)
 	svc := service.New(proto, nil, homeScopes)
-	return NewServer(svc, nil, version)
+	return NewServer(svc, nil, version, workspaceLabels...)
 }
 
 type handler struct {

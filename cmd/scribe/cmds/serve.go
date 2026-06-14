@@ -157,7 +157,8 @@ func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, devU
 
 	srv, _ := mcp.NewServer(svc, nil, Version, stdioWorkspaceLabels...)
 
-	// Per-request factory for HTTP transport: resolves ?workspace= to a scoped server.
+	// Per-request factory for HTTP transport: resolves workspace from URL param or
+	// X-Workspace-* headers (set by HTTP MCP clients that cannot send init meta).
 	// The store is shared; Protocol and Service are created per session.
 	store := svc.Proto.Store()
 	idc := cfg.ProtocolIDConfig()
@@ -166,7 +167,8 @@ func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, devU
 		if ws := r.URL.Query().Get("workspace"); ws != "" {
 			requestScopes = cfg.WorkspaceScopesFor(ws)
 		}
-		perConnSrv, _ := mcp.NewServerFromStore(store, requestScopes, idc, Version)
+		wLabels := workspaceLabelsFromHeaders(r)
+		perConnSrv, _ := mcp.NewServerFromStore(store, requestScopes, idc, Version, wLabels...)
 		return perConnSrv
 	}
 
@@ -245,6 +247,21 @@ func runHTTP(sigCtx, logCtx context.Context, cmd *cobra.Command, srvFactory func
 	}
 	slog.InfoContext(logCtx, "server stopped, closing store")
 	return nil
+}
+
+// workspaceLabelsFromHeaders derives workspace context labels from X-Workspace-*
+// HTTP headers. Clients that cannot send MCP init _meta (e.g. OpenCode remote
+// MCP) set these headers via their static config instead.
+func workspaceLabelsFromHeaders(r *http.Request) []string {
+	cwd := r.Header.Get("X-Workspace-CWD")
+	if cwd == "" {
+		return nil
+	}
+	inputs := workspace.WorkspaceInputs{
+		CWD:       cwd,
+		GitRemote: r.Header.Get("X-Workspace-Git-Remote"),
+	}
+	return workspace.Detect(inputs, workspace.DefaultDetectors())
 }
 
 // runSeedDir seeds templates on first run. Skips if templates already exist.
