@@ -1175,6 +1175,46 @@ func TestReciprocalRankFusion(t *testing.T) {
 	}
 }
 
+func TestOpSynthesize_CreatesNoteWithCitations(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	src1, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Labels: []string{"kind:knowledge.source"}, Title: "Source Alpha",
+	})
+	src2, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Labels: []string{"kind:knowledge.source"}, Title: "Source Beta",
+	})
+
+	op := service.Find("synthesize")
+	if op == nil {
+		t.Fatal("synthesize op not registered")
+	}
+	raw, _ := json.Marshal(map[string]any{
+		"title":   "Synthesis of Alpha and Beta",
+		"body":    "Combining insights from both sources...",
+		"sources": []string{src1.ID, src2.ID},
+		"scope":   "test",
+	})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "cited 2 source(s)") {
+		t.Errorf("expected citation count in output, got: %s", out)
+	}
+}
+
+func TestOpSynthesize_RequiresTitleAndBody(t *testing.T) {
+	svc := newTestService(t)
+	op := service.Find("synthesize")
+	raw, _ := json.Marshal(map[string]any{"title": "Only title"})
+	_, err := op.Run(context.Background(), svc, raw)
+	if err == nil {
+		t.Fatal("expected error for missing body")
+	}
+}
+
 func TestOpQuery_ExcerptChars(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
