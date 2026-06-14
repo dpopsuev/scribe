@@ -159,6 +159,10 @@ func (s *Service) ExportScope(ctx context.Context, scope, outDir string) (int, e
 
 	for _, art := range arts {
 		slug := toSlug(art.Title)
+		if len(slug) > 80 {
+			slug = slug[:80]
+		}
+		slug = strings.TrimRight(slug, "-")
 		filename := fmt.Sprintf("%s--%s.md", art.ID, slug)
 		path := filepath.Join(outDir, filename)
 
