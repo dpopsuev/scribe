@@ -256,9 +256,27 @@ func (e *Embedder) ProcessOne(ctx context.Context, id string) {
 			slog.String(parchment.LogKeyID, id), slog.Any(parchment.LogKeyError, err))
 		return
 	}
+
+	e.embedSections(ctx, art)
+
 	if err := e.proto.AppendLabel(ctx, id, parchment.LabelEncoded(e.model)); err != nil {
 		slog.WarnContext(ctx, "embed: append label failed",
 			slog.String(parchment.LogKeyID, id), slog.Any(parchment.LogKeyError, err))
+	}
+}
+
+func (e *Embedder) embedSections(ctx context.Context, art *parchment.Artifact) {
+	store := e.proto.Store()
+	for _, sec := range art.Sections {
+		text := strings.TrimSpace(sec.Text)
+		if len(text) < 20 {
+			continue
+		}
+		vec, err := e.embedFunc(ctx, text)
+		if err != nil {
+			continue
+		}
+		_ = store.PutSectionEmbedding(ctx, art.ID, sec.Name, e.model, "", vec)
 	}
 }
 
