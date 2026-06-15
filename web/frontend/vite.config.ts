@@ -8,5 +8,9 @@ export default defineConfig({
 		proxy: {
 			'/api': 'http://localhost:8083'
 		}
+	},
+	test: {
+		include: ['src/**/*.test.ts'],
+		environment: 'jsdom',
 	}
 });
