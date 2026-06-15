@@ -234,7 +234,7 @@ export function fibonacciSphere(n, radius) {
 
 /**
  * Weighted centroid of a node array. Weight = node.val (sphere size).
- * Nodes with kind 'scope' or 'kind-group' are the structural parents;
+ * Nodes with kind 'project' or 'kind-group' are the structural parents;
  * passing them as `pool` ensures leaf nodes don't influence the camera target.
  *
  * @param {Array<{x?,y?,z?,val?}>} nodes
@@ -258,12 +258,12 @@ export function weightedCentroid(nodes) {
 
 /**
  * Extracts the parent-level nodes from a full node list.
- * Parent nodes are those with kind 'scope' or 'kind-group'.
+ * Parent nodes are those with kind 'project' or 'kind-group'.
  * Falls back to all nodes if no parents exist.
  */
 export function parentNodes(nodes) {
   const parents = (nodes || []).filter(
-    n => n.kind === 'scope' || n.kind === 'kind-group'
+    n => n.kind === 'project' || n.kind === 'kind-group'
   );
   return parents.length ? parents : (nodes || []);
 }

@@ -49,7 +49,7 @@ export function glowConfig(violations) {
  * @param {number} violations — violation count from node.violations
  */
 export function glowColor(culori, nodeKind, violations) {
-  if (nodeKind === 'scope' || nodeKind === 'kind-group') return null;
+  if (nodeKind === 'project' || nodeKind === 'kind-group') return null;
   const h = glowHue(violations);
   return culori.formatHex({ mode: 'oklch', l: 0.80, c: 0.20, h });
 }

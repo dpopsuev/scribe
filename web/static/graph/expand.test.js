@@ -5,11 +5,11 @@ describe('expand behavior — parent node persistence', () => {
   it('scope node remains in macroData after expansion', () => {
     const state = createGraphState();
     state.macroData.nodes = [
-      { id: 'scope:hegemony', kind: 'scope', name: 'hegemony', val: 10 },
-      { id: 'scope:alef', kind: 'scope', name: 'alef', val: 5 },
+      { id: 'project:hegemony', kind: 'project', name: 'hegemony', val: 10 },
+      { id: 'project:alef', kind: 'project', name: 'alef', val: 5 },
     ];
     state.macroData.links = [
-      { source: 'scope:hegemony', target: 'scope:alef', relation: 'cross-scope' },
+      { source: 'project:hegemony', target: 'project:alef', relation: 'cross-scope' },
     ];
 
     // Simulate expandScope: add kind-group children WITHOUT removing scope node
@@ -23,7 +23,7 @@ describe('expand behavior — parent node persistence', () => {
 
     // Add contains links from scope to children
     for (const n of kindData.nodes) {
-      kindData.links.push({ source: 'scope:hegemony', target: n.id, relation: 'contains' });
+      kindData.links.push({ source: 'project:hegemony', target: n.id, relation: 'contains' });
     }
 
     state.expandedScopes.set('hegemony', kindData);
@@ -37,9 +37,9 @@ describe('expand behavior — parent node persistence', () => {
     }
 
     // Scope node must still be present
-    const scopeNode = nodes.find(n => n.id === 'scope:hegemony');
+    const scopeNode = nodes.find(n => n.id === 'project:hegemony');
     expect(scopeNode).toBeTruthy();
-    expect(scopeNode.kind).toBe('scope');
+    expect(scopeNode.kind).toBe('project');
 
     // Kind-group children must be present
     const kindNodes = nodes.filter(n => n.kind === 'kind-group');
@@ -48,13 +48,13 @@ describe('expand behavior — parent node persistence', () => {
     // Contains edges must connect scope to children
     const containsLinks = links.filter(l => l.relation === 'contains');
     expect(containsLinks).toHaveLength(2);
-    expect(containsLinks.every(l => l.source === 'scope:hegemony')).toBe(true);
+    expect(containsLinks.every(l => l.source === 'project:hegemony')).toBe(true);
   });
 
   it('kind-group node remains after artifact expansion', () => {
     const state = createGraphState();
     state.macroData.nodes = [
-      { id: 'scope:hegemony', kind: 'scope', name: 'hegemony', val: 10 },
+      { id: 'project:hegemony', kind: 'project', name: 'hegemony', val: 10 },
     ];
 
     const kindData = {
@@ -62,7 +62,7 @@ describe('expand behavior — parent node persistence', () => {
         { id: 'kind:hegemony:effort.task', kind: 'kind-group', group: 'effort.task', val: 3 },
       ],
       links: [
-        { source: 'scope:hegemony', target: 'kind:hegemony:effort.task', relation: 'contains' },
+        { source: 'project:hegemony', target: 'kind:hegemony:effort.task', relation: 'contains' },
       ],
     };
     state.expandedScopes.set('hegemony', kindData);
@@ -105,13 +105,13 @@ describe('expand behavior — parent node persistence', () => {
     expect(containsLinks).toHaveLength(2);
 
     // The scope node is still there too
-    expect(nodes.find(n => n.id === 'scope:hegemony')).toBeTruthy();
+    expect(nodes.find(n => n.id === 'project:hegemony')).toBeTruthy();
   });
 
   it('expanded scope has no orphan nodes — all children connected', () => {
     const state = createGraphState();
     state.macroData.nodes = [
-      { id: 'scope:test', kind: 'scope', name: 'test', val: 5 },
+      { id: 'project:test', kind: 'project', name: 'test', val: 5 },
     ];
 
     const kindData = {
@@ -123,7 +123,7 @@ describe('expand behavior — parent node persistence', () => {
 
     // The fix ensures contains links are added
     for (const n of kindData.nodes) {
-      kindData.links.push({ source: 'scope:test', target: n.id, relation: 'contains' });
+      kindData.links.push({ source: 'project:test', target: n.id, relation: 'contains' });
     }
     state.expandedScopes.set('test', kindData);
 
@@ -143,7 +143,7 @@ describe('expand behavior — parent node persistence', () => {
     }
 
     for (const n of nodes) {
-      if (n.kind !== 'scope') {
+      if (n.kind !== 'project') {
         expect(connected.has(n.id)).toBe(true);
       }
     }

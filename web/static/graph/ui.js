@@ -7,7 +7,7 @@
 
 
 const DEPTH_LABELS = {
-  scope:    'universe · scope view',
+  project:  'universe · project view',
   kind:     'depth 1 · kind view',
   artifact: 'depth 2 · artifact view',
 };
@@ -15,7 +15,7 @@ const DEPTH_LABELS = {
 /**
  * Update the mode badge text based on current depth.
  * @param {Element} el
- * @param {'scope'|'kind'|'artifact'} depth
+ * @param {'project'|'kind'|'artifact'} depth
  */
 export function setModeBadge(el, depth) {
   if (el) el.textContent = DEPTH_LABELS[depth] || depth;
@@ -27,7 +27,7 @@ export function setModeBadge(el, depth) {
 export function depthFromExpanded(expandedScopeCount, expandedKindCount) {
   if (expandedKindCount > 0) return 'artifact';
   if (expandedScopeCount > 0) return 'kind';
-  return 'scope';
+  return 'project';
 }
 
 

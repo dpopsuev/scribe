@@ -84,7 +84,7 @@ describe('weightedCentroid', () => {
 
 describe('parentNodes', () => {
   const mixed = [
-    { id: 'S1', kind: 'scope' },
+    { id: 'S1', kind: 'project' },
     { id: 'K1', kind: 'kind-group' },
     { id: 'T1', kind: 'task' },
     { id: 'N1', kind: 'note' },
@@ -93,7 +93,7 @@ describe('parentNodes', () => {
   it('returns only scope and kind-group nodes', () => {
     const result = parentNodes(mixed);
     expect(result).toHaveLength(2);
-    expect(result.every(n => n.kind === 'scope' || n.kind === 'kind-group')).toBe(true);
+    expect(result.every(n => n.kind === 'project' || n.kind === 'kind-group')).toBe(true);
   });
 
   it('falls back to all nodes when no parents', () => {
@@ -112,7 +112,7 @@ describe('parentNodes', () => {
 describe('centerOfMass', () => {
   it('ignores leaf nodes, uses only scope parents', () => {
     const nodes = [
-      { kind: 'scope', x: 100, y: 0, z: 0, val: 1 },
+      { kind: 'project', x: 100, y: 0, z: 0, val: 1 },
       { kind: 'task',  x: 0,   y: 0, z: 0, val: 100 }, // heavy but leaf
     ];
     const { x } = centerOfMass(nodes);

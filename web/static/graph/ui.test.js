@@ -7,7 +7,7 @@ import {
 // ── depthFromExpanded ─────────────────────────────────────────────────────────
 
 describe('depthFromExpanded', () => {
-  it('no expansions → scope', () => expect(depthFromExpanded(0, 0)).toBe('scope'));
+  it('no expansions → scope', () => expect(depthFromExpanded(0, 0)).toBe('project'));
   it('scope expanded → kind', () => expect(depthFromExpanded(1, 0)).toBe('kind'));
   it('kind expanded → artifact', () => expect(depthFromExpanded(0, 1)).toBe('artifact'));
   it('kind takes priority over scope', () => expect(depthFromExpanded(1, 1)).toBe('artifact'));
@@ -18,8 +18,8 @@ describe('depthFromExpanded', () => {
 describe('setModeBadge', () => {
   it('sets textContent to scope label', () => {
     const el = { textContent: '' };
-    setModeBadge(el, 'scope');
-    expect(el.textContent).toBe('universe · scope view');
+    setModeBadge(el, 'project');
+    expect(el.textContent).toBe('universe · project view');
   });
   it('sets kind label', () => {
     const el = { textContent: '' };
@@ -32,7 +32,7 @@ describe('setModeBadge', () => {
     expect(el.textContent).toBe('depth 2 · artifact view');
   });
   it('handles null element gracefully', () => {
-    expect(() => setModeBadge(null, 'scope')).not.toThrow();
+    expect(() => setModeBadge(null, 'project')).not.toThrow();
   });
 });
 

@@ -182,7 +182,7 @@ export class KindColorRenderer extends BaseRenderer {
   }
 
   _nodeColor(node) {
-    if (node.kind === 'scope') return '#c8d0dc';
+    if (node.kind === 'project') return '#c8d0dc';
     if (node.kind === 'kind-group') {
       this._buildPalette(this._bg);
       const culori = typeof window !== 'undefined' && window.culori;

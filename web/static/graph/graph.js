@@ -270,7 +270,7 @@ function updateModeBadge() {
 
 async function loadMacro() {
   if (state.els.stats) state.els.stats.textContent = 'Loading universe…';
-  setModeBadge(state.els.modeBadge, 'scope');
+  setModeBadge(state.els.modeBadge, 'project');
 
   let data;
   try {
@@ -429,8 +429,8 @@ async function collapseScope(scopeName) {
   const stillExpanded = new Set(state.expandedScopes.keys());
   state.macroData.nodes = fresh.nodes.filter(n => !stillExpanded.has(n.scope));
   state.macroData.links = fresh.links.filter(l => {
-    const fs = (l.source?.id || l.source)?.replace('scope:', '');
-    const ts = (l.target?.id || l.target)?.replace('scope:', '');
+    const fs = (l.source?.id || l.source)?.replace('project:', '');
+    const ts = (l.target?.id || l.target)?.replace('project:', '');
     return !stillExpanded.has(fs) && !stillExpanded.has(ts);
   });
   applyGraphData();
@@ -585,11 +585,11 @@ function onNodeClickWithDbl(node, event) {
   const now = Date.now();
   if (state.lastClick.node === node && now - state.lastClick.time < DOUBLE_CLICK_MAX_MS) {
     state.lastClick.node = null;
-    if (node.kind !== 'scope' && node.scope) collapseScope(node.scope);
+    if (node.kind !== 'project' && node.scope) collapseScope(node.scope);
     return;
   }
   state.lastClick.node = node; state.lastClick.time = now;
-  if (node.kind === 'scope')      { expandScope(node.scope || node.name); return; }
+  if (node.kind === 'project')      { expandScope(node.scope || node.name); return; }
   if (node.kind === 'kind-group') { expandKind(node.scope, node.group); return; }
   openSidebar(state.els.sidebar, state.els.sidebarContent, deps.fetch, deps.htmx, node.id);
   const ctrl = Graph.controls();
@@ -607,7 +607,7 @@ function onNodeClickWithDbl(node, event) {
 function onNodeRightClick(node, event) {
   event.preventDefault();
   let items;
-  if (node.kind === 'scope') {
+  if (node.kind === 'project') {
     items = [{ label: '🔭 Expand (kinds)', action: () => expandScope(node.scope || node.name) }];
   } else if (node.kind === 'kind-group') {
     items = [
@@ -645,7 +645,7 @@ function filterGraphData(data) {
   }
   if (kinds.length > 0) {
     nodes = nodes.filter(n => {
-      if (n.kind === 'scope' || n.kind === 'kind-group') return true;
+      if (n.kind === 'project' || n.kind === 'kind-group') return true;
       return kinds.some(k => n.kind?.startsWith(k));
     });
   }
@@ -658,7 +658,7 @@ function filterGraphData(data) {
       degree[tgt] = (degree[tgt] || 0) + 1;
     });
     nodes = nodes.filter(n => {
-      if (n.kind === 'scope' || n.kind === 'kind-group') return true;
+      if (n.kind === 'project' || n.kind === 'kind-group') return true;
       return (degree[n.id] || 0) >= minRefs;
     });
   }
@@ -766,7 +766,7 @@ export function initGraph(injectedDeps) {
   Graph = window._Graph = graphBuilder
     .nodeLabel(n => {
       let title;
-      if (n.kind === 'scope') {
+      if (n.kind === 'project') {
         title = `<strong>${n.name}</strong><br><span style="opacity:0.7">${n.val} artifacts — click to expand</span>`;
       } else if (n.kind === 'kind-group') {
         title = `<strong>${n.group || n.name}</strong><br><span style="opacity:0.7">${n.val} artifacts</span>`;

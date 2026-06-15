@@ -56,15 +56,15 @@ func buildScopeGraph(ctx context.Context, proto *parchment.Protocol) (graphData,
 			continue
 		}
 		nodes = append(nodes, graphNode{
-			ID: "scope:" + sc.Scope, Name: sc.Scope,
-			Kind: "scope", Scope: sc.Scope,
+			ID: "project:" + sc.Scope, Name: sc.Scope,
+			Kind: "project", Scope: sc.Scope,
 			Val: max(3, sc.Count/20),
 		})
 	}
 	links := make([]graphLink, 0, len(weights))
 	for _, w := range weights {
 		links = append(links, graphLink{
-			Source: "scope:" + w.FromScope, Target: "scope:" + w.ToScope,
+			Source: "project:" + w.FromScope, Target: "project:" + w.ToScope,
 			Relation: "cross-scope", Weight: float64(w.Weight),
 		})
 	}

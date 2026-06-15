@@ -51,8 +51,8 @@ describe('glowConfig', () => {
 
 describe('glowColor', () => {
   it('scope nodes return null (no glow)', () => {
-    expect(glowColor(culori, 'scope', 0)).toBeNull();
-    expect(glowColor(culori, 'scope', 3)).toBeNull();
+    expect(glowColor(culori, 'project', 0)).toBeNull();
+    expect(glowColor(culori, 'project', 3)).toBeNull();
   });
 
   it('kind-group nodes return null (no glow)', () => {

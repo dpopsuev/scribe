@@ -74,10 +74,10 @@ func TestAPIGraphScopes_ReturnsScopeNodes(t *testing.T) {
 		t.Errorf("expected 2 scope nodes, got %d", len(data.Nodes))
 	}
 	for _, n := range data.Nodes {
-		if n.Kind != "scope" {
+		if n.Kind != "project" {
 			t.Errorf("node %s has kind %q, want scope", n.ID, n.Kind)
 		}
-		if !strings.HasPrefix(n.ID, "scope:") {
+		if !strings.HasPrefix(n.ID, "project:") {
 			t.Errorf("scope node ID should start with scope:, got %q", n.ID)
 		}
 	}

@@ -38,7 +38,7 @@ describe('KindColorRenderer health color', () => {
 
   it('scope nodes → neutral silver (not kind color)', () => {
     const r = renderer();
-    const color = r._nodeColor({ kind: 'scope' });
+    const color = r._nodeColor({ kind: 'project' });
     expect(color).toBe('#c8d0dc');
   });
 
