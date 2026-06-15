@@ -300,6 +300,8 @@ func (e *Embedder) Sweep(ctx context.Context) {
 	}
 }
 
+const maxEmbedChars = 28000 // ~7K tokens; leaves headroom below qwen3's 32K context
+
 func embeddingText(art *parchment.Artifact) string {
 	parts := make([]string, 0, 2+len(art.Sections))
 	parts = append(parts, art.Title)
@@ -309,5 +311,9 @@ func embeddingText(art *parchment.Artifact) string {
 	for _, s := range art.Sections {
 		parts = append(parts, s.Text)
 	}
-	return strings.Join(parts, "\n")
+	text := strings.Join(parts, "\n")
+	if len(text) > maxEmbedChars {
+		text = text[:maxEmbedChars]
+	}
+	return text
 }
