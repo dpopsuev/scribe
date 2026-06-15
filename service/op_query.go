@@ -139,144 +139,150 @@ func listCompact(arts []*parchment.Artifact, fields []string, li *parchment.List
 	return b.String(), nil
 }
 
+func runTopoQuery(ctx context.Context, svc *Service, in *listInput) (string, error) {
+	if in.ID == "" {
+		return "", fmt.Errorf("id required for sort=topo") //nolint:err113 // user-facing hint
+	}
+	entries, err := svc.Proto.TopoSort(ctx, in.ID)
+	if err != nil && len(entries) == 0 {
+		return "", err
+	}
+	if in.Unblocked {
+		entries = filterUnblocked(ctx, svc, entries, in.Depth)
+		if len(entries) == 0 {
+			return "no unblocked tasks found", nil
+		}
+	}
+	if in.Format == "json" {
+		data, _ := json.Marshal(entries)
+		return string(data), nil
+	}
+	var b strings.Builder
+	for i, e := range entries {
+		fmt.Fprintf(&b, "%d. %s [%s] %s", i+1, e.ID, parchment.StatusFromLabels(e.Labels), e.Title)
+		if e.Priority != "" && e.Priority != "none" {
+			fmt.Fprintf(&b, " (%s)", e.Priority)
+		}
+		b.WriteString("\n")
+	}
+	if err != nil {
+		fmt.Fprintf(&b, "\n%s\n", err)
+	}
+	return b.String(), nil
+}
+
+func filterUnblocked(ctx context.Context, svc *Service, entries []parchment.TopoEntry, depth int) []parchment.TopoEntry {
+	limit := depth
+	if limit <= 0 {
+		limit = 5
+	}
+	var ready []parchment.TopoEntry
+	for _, e := range entries {
+		if svc.Proto.IsTerminal(parchment.StatusFromLabels(e.Labels)) {
+			continue
+		}
+		art, _ := svc.Proto.GetArtifact(ctx, e.ID)
+		if art == nil {
+			continue
+		}
+		blocked := false
+		depEdges, _ := svc.Proto.Store().Neighbors(ctx, art.ID, parchment.RelDependsOn, parchment.Outgoing)
+		for _, de := range depEdges {
+			dep, _ := svc.Proto.GetArtifact(ctx, de.To)
+			if dep != nil && !svc.Proto.IsTerminal(parchment.StatusFromLabels(dep.Labels)) {
+				blocked = true
+				break
+			}
+		}
+		if !blocked {
+			ready = append(ready, e)
+			if len(ready) >= limit {
+				break
+			}
+		}
+	}
+	return ready
+}
+
+func runSemanticQuery(ctx context.Context, svc *Service, in *listInput) (string, error) {
+	if in.Query == "" {
+		return "", fmt.Errorf("query required for %s search", in.Mode) //nolint:err113 // user-facing hint
+	}
+	semLabels := in.Labels
+	if in.Kind != "" {
+		semLabels = append([]string{parchment.LabelPrefixKind + in.Kind}, semLabels...)
+	}
+	if in.Scope != "" {
+		semLabels = append(semLabels, parchment.LabelPrefixScope+in.Scope)
+	}
+	li := parchment.ListInput{Limit: in.Limit, Labels: semLabels}
+	scored, semErr := svc.Proto.SearchSemantic(ctx, in.Query, li)
+	if semErr != nil && in.Mode == "semantic" {
+		return "", fmt.Errorf("semantic search requires an embedding backend: %w", semErr)
+	}
+	if in.Mode == "hybrid" {
+		ftsResults, _ := svc.Proto.SearchArtifacts(ctx, in.Query, li)
+		scored = ReciprocalRankFusion(scored, ftsResults)
+	}
+	if semErr != nil {
+		results, ferr := svc.Recall(ctx, in.Query, in.Scope, in.Top)
+		if ferr != nil {
+			return "", fmt.Errorf("hybrid search: FTS fallback failed: %w", ferr)
+		}
+		scored = make([]parchment.ScoredArtifact, len(results))
+		for i, r := range results {
+			scored[i] = parchment.ScoredArtifact{Artifact: r.Art}
+		}
+	}
+	if len(scored) == 0 {
+		return fmt.Sprintf("no results for %q", in.Query), nil
+	}
+	if in.Depth > 0 {
+		arts := make([]*parchment.Artifact, len(scored))
+		for i, s := range scored {
+			arts[i] = s.Artifact
+		}
+		return renderWithBriefing(ctx, svc, arts, BriefingOpts{Depth: in.Depth, Relation: in.Relation, Direction: in.Direction}), nil
+	}
+	return renderScoredTable(scored), nil
+}
+
+func runRankedQuery(ctx context.Context, svc *Service, in *listInput) (string, error) {
+	if in.Query == "" {
+		return "", fmt.Errorf("query required for ranked list") //nolint:err113 // user-facing hint
+	}
+	results, err := svc.Recall(ctx, in.Query, in.Scope, in.Top)
+	if err != nil {
+		return "", err
+	}
+	if len(results) == 0 {
+		return fmt.Sprintf("no results for %q", in.Query), nil
+	}
+	arts := make([]*parchment.Artifact, len(results))
+	for i, r := range results {
+		arts[i] = r.Art
+	}
+	return parchment.RenderTable(arts), nil
+}
+
 var opQuery = Op{
 	Name: "query",
-	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) { //nolint:cyclop // multi-mode list: count|top|compact|grouped|default
+	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
 		var in listInput
 		if err := json.Unmarshal(raw, &in); err != nil {
 			return "", err
 		}
-		// sort=topo: topological dependency order rooted at id=.
 		if in.Sort == "topo" {
-			if in.ID == "" {
-				return "", fmt.Errorf("id required for sort=topo") //nolint:err113 // user-facing hint
-			}
-			entries, err := svc.Proto.TopoSort(ctx, in.ID)
-			if err != nil && len(entries) == 0 {
-				return "", err
-			}
-			if in.Unblocked {
-				limit := in.Depth
-				if limit <= 0 {
-					limit = 5
-				}
-				var ready []parchment.TopoEntry
-				for _, e := range entries {
-					if svc.Proto.IsTerminal(parchment.StatusFromLabels(e.Labels)) {
-						continue
-					}
-					art, _ := svc.Proto.GetArtifact(ctx, e.ID)
-					if art == nil {
-						continue
-					}
-					blocked := false
-					depEdges, _ := svc.Proto.Store().Neighbors(ctx, art.ID, parchment.RelDependsOn, parchment.Outgoing)
-					for _, de := range depEdges {
-						dep, _ := svc.Proto.GetArtifact(ctx, de.To)
-						if dep != nil && !svc.Proto.IsTerminal(parchment.StatusFromLabels(dep.Labels)) {
-							blocked = true
-							break
-						}
-					}
-					if !blocked {
-						ready = append(ready, e)
-						if len(ready) >= limit {
-							break
-						}
-					}
-				}
-				if len(ready) == 0 {
-					return "no unblocked tasks found", nil
-				}
-				entries = ready
-			}
-			if in.Format == "json" {
-				data, _ := json.Marshal(entries)
-				return string(data), nil
-			}
-			var b strings.Builder
-			for i, e := range entries {
-				fmt.Fprintf(&b, "%d. %s [%s] %s", i+1, e.ID, parchment.StatusFromLabels(e.Labels), e.Title)
-				if e.Priority != "" && e.Priority != "none" {
-					fmt.Fprintf(&b, " (%s)", e.Priority)
-				}
-				b.WriteString("\n")
-			}
-			if err != nil {
-				fmt.Fprintf(&b, "\n%s\n", err)
-			}
-			return b.String(), nil
+			return runTopoQuery(ctx, svc, &in)
 		}
-
-		const modeSemantic = "semantic"
-		const modeHybrid = "hybrid"
-		mode := in.Mode
-		// Session shorthand: prepend "session:<value>" to labels filter.
 		if in.Session != "" {
 			in.Labels = append([]string{"session:" + in.Session}, in.Labels...)
 		}
-
-		if mode == modeSemantic || mode == modeHybrid {
-			if in.Query == "" {
-				return "", fmt.Errorf("query required for %s search", mode) //nolint:err113 // user-facing hint
-			}
-			semLabels := in.Labels
-			if in.Kind != "" {
-				semLabels = append([]string{parchment.LabelPrefixKind + in.Kind}, semLabels...)
-			}
-			if in.Scope != "" {
-				semLabels = append(semLabels, parchment.LabelPrefixScope+in.Scope)
-			}
-			li := parchment.ListInput{Limit: in.Limit, Labels: semLabels}
-			var scored []parchment.ScoredArtifact
-			var semErr error
-			scored, semErr = svc.Proto.SearchSemantic(ctx, in.Query, li)
-			if semErr != nil && mode == modeSemantic {
-				return "", fmt.Errorf("semantic search requires an embedding backend: %w", semErr)
-			}
-			if mode == modeHybrid {
-				ftsResults, _ := svc.Proto.SearchArtifacts(ctx, in.Query, li)
-				scored = ReciprocalRankFusion(scored, ftsResults)
-			}
-			if semErr != nil {
-				// Semantic unavailable in hybrid mode — fell back to FTS only.
-				results, ferr := svc.Recall(ctx, in.Query, in.Scope, in.Top)
-				if ferr != nil {
-					return "", fmt.Errorf("hybrid search: FTS fallback failed: %w", ferr)
-				}
-				scored = make([]parchment.ScoredArtifact, len(results))
-				for i, r := range results {
-					scored[i] = parchment.ScoredArtifact{Artifact: r.Art}
-				}
-			}
-			if len(scored) == 0 {
-				return fmt.Sprintf("no results for %q", in.Query), nil
-			}
-			if in.Depth > 0 {
-				arts := make([]*parchment.Artifact, len(scored))
-				for i, s := range scored {
-					arts[i] = s.Artifact
-				}
-				return renderWithBriefing(ctx, svc, arts, BriefingOpts{Depth: in.Depth, Relation: in.Relation, Direction: in.Direction}), nil
-			}
-			return renderScoredTable(scored), nil
+		if in.Mode == "semantic" || in.Mode == "hybrid" {
+			return runSemanticQuery(ctx, svc, &in)
 		}
 		if in.Ranked {
-			if in.Query == "" {
-				return "", fmt.Errorf("query required for ranked list") //nolint:err113 // user-facing hint
-			}
-			results, err := svc.Recall(ctx, in.Query, in.Scope, in.Top)
-			if err != nil {
-				return "", err
-			}
-			if len(results) == 0 {
-				return fmt.Sprintf("no results for %q", in.Query), nil
-			}
-			arts := make([]*parchment.Artifact, len(results))
-			for i, r := range results {
-				arts[i] = r.Art
-			}
-			return parchment.RenderTable(arts), nil
+			return runRankedQuery(ctx, svc, &in)
 		}
 
 		listLabels := in.Labels
