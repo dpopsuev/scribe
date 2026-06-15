@@ -17,7 +17,9 @@ const toolNameArtifact = "artifact"
 
 // baseInstructions is the core MCP server instructions shown to clients.
 const baseInstructions = "Labeled Artifact Graph. " +
-	"SCHEMA: artifact(action=query, kind=label_definition, scope=_schema) to learn available kinds and labels."
+	"SCHEMA: artifact(action=query, kind=label_definition, scope=_schema) to learn available kinds and labels. " +
+	"ORGANIZE: project: labels = git repos. Group artifacts with parent_of edges and knowledge.context containers, not sub-projects. " +
+	"Labels: project: (repo), area: (responsibility), context: (temporary), domain: (knowledge category)."
 
 // workspaceUnconfiguredWarning is prepended to instructions when the client
 // has not declared workspace context in the initialize params.
@@ -73,12 +75,15 @@ func NewServer(svc *service.Service, vocab []string, version string, stdioLabels
 	)
 	destructiveHint := true
 
-	artifactDesc := "Labeled Artifact Graph — nodes and edges. " +
+	artifactDesc := "Labeled Artifact Graph. " +
 		"FIND: query(query=) for FTS; query(ranked=true, query=) for scored recall; query(mode=semantic, query=) for vector similarity. " +
 		"READ: get(id=) full artifact. " +
 		"WRITE: create, set (single field), update (sections/extra patch). " +
 		"EDGES: link(id=, relation=, targets=[]) to add; link(mode=unlink) to remove; link(edges=[{from,relation,to}]) for bulk. " +
-		"PLAN: query(id=, sort=topo) for dependency order; query(id=, sort=topo, unblocked=true) for ready queue."
+		"PLAN: query(id=, sort=topo) for dependency order; query(id=, sort=topo, unblocked=true) for ready queue. " +
+		"ORGANIZE: project: labels map to git repos (auto-detected). " +
+		"For grouping related artifacts within a project, use parent_of edges and kind:knowledge.context as containers — NOT sub-projects. " +
+		"Use area:/context:/domain: labels for cross-cutting concerns."
 	var artifactSchema any
 	_ = json.Unmarshal(schemaFor[artifactInput](), &artifactSchema)
 	patchSchemaFromRegistry(artifactSchema, h)
