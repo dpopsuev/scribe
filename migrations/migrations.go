@@ -59,6 +59,11 @@ var All = []Migration{
 		Description: "Assign kind:knowledge.note to legacy artifacts with no kind label",
 		Run:         migrateUnkindedLegacy,
 	},
+	{
+		ID:          "0005_fix_timestamps",
+		Description: "Convert space-separated timestamps to RFC3339 format",
+		Run:         migrateFixTimestamps,
+	},
 }
 
 // RunPending applies all migrations that have not yet been recorded as applied.
