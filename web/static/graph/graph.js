@@ -674,7 +674,17 @@ const hiddenNodes = new Set();
 function hideNode(id) {
   hiddenNodes.add(id);
   applyGraphData();
+  updateHiddenPanel();
   log.info('hideNode id=%s hidden=%d', id, hiddenNodes.size);
+}
+
+function updateHiddenPanel() {
+  const panel = document.getElementById('hidden-panel');
+  const count = document.getElementById('hidden-count');
+  if (panel && count) {
+    panel.style.display = hiddenNodes.size > 0 ? '' : 'none';
+    count.textContent = String(hiddenNodes.size);
+  }
 }
 
 function filterGraphData(data) {
@@ -758,6 +768,11 @@ export function initGraph(injectedDeps) {
   document.querySelectorAll('.rel-toggle[data-kind]').forEach(el => {
     el.onclick = () => { el.classList.toggle('active'); applyGraphData(); };
   });
+  const hiddenClear = document.getElementById('hidden-clear');
+  if (hiddenClear) {
+    hiddenClear.onclick = () => { hiddenNodes.clear(); applyGraphData(); updateHiddenPanel(); };
+  }
+
   const minrefsSlider = document.getElementById('minrefs-slider');
   const minrefsVal = document.getElementById('minrefs-val');
   if (minrefsSlider && minrefsVal) {
