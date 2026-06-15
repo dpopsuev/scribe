@@ -240,6 +240,94 @@ func (s *Server) handleAPIGraph(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, data)
 }
 
+// handleAPIGraphLocal serves a local neighborhood graph rooted at one artifact.
+// GET /api/v1/graph/local?id=&hops=2
+func (s *Server) handleAPIGraphLocal(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	id := q.Get("id")
+	if id == "" {
+		http.Error(w, "id parameter required", http.StatusBadRequest)
+		return
+	}
+	hops, _ := strconv.Atoi(q.Get("hops"))
+	if hops <= 0 {
+		hops = 2
+	}
+	data, err := buildLocalGraph(r.Context(), s.proto, id, hops)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, data)
+}
+
+func buildLocalGraph(ctx context.Context, proto *parchment.Protocol, rootID string, hops int) (graphData, error) {
+	collected := make(map[string]*parchment.Artifact)
+	var edges []parchment.Edge
+
+	root, err := proto.GetArtifact(ctx, rootID)
+	if err != nil {
+		return graphData{}, err
+	}
+	collected[root.ID] = root
+
+	frontier := []string{rootID}
+	for depth := range hops {
+		_ = depth
+		var nextFrontier []string
+		for _, id := range frontier {
+			neighbors, _ := proto.Store().Neighbors(ctx, id, "", parchment.Both)
+			for _, e := range neighbors {
+				edges = append(edges, e)
+				peerID := e.To
+				if peerID == id {
+					peerID = e.From
+				}
+				if _, ok := collected[peerID]; !ok {
+					peer, err := proto.GetArtifact(ctx, peerID)
+					if err != nil {
+						continue
+					}
+					collected[peerID] = peer
+					nextFrontier = append(nextFrontier, peerID)
+				}
+			}
+		}
+		frontier = nextFrontier
+	}
+
+	nodes := make([]graphNode, 0, len(collected))
+	for _, a := range collected {
+		nodes = append(nodes, graphNode{
+			ID:     a.ID,
+			Name:   a.Title,
+			Kind:   a.Label(parchment.LabelPrefixKind),
+			Status: parchment.StatusFromLabels(a.Labels),
+			Scope:  a.Label(parchment.LabelPrefixScope),
+			Val:    1,
+		})
+	}
+
+	seen := make(map[string]bool)
+	links := make([]graphLink, 0, len(edges))
+	for _, e := range edges {
+		if collected[e.From] == nil || collected[e.To] == nil {
+			continue
+		}
+		key := e.From + "|" + e.Relation + "|" + e.To
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		links = append(links, graphLink{
+			Source: e.From, Target: e.To,
+			Relation: e.Relation, Weight: e.Weight,
+		})
+	}
+
+	return graphData{Nodes: nodes, Links: links}, nil
+}
+
 // handleAPIScopes returns the distinct non-schema scopes present in the store.
 // GET /api/scopes
 func (s *Server) handleAPIScopes(w http.ResponseWriter, r *http.Request) {

@@ -479,3 +479,43 @@ func TestArtifactGraph_StressLargeScope(t *testing.T) {
 	}
 	t.Logf("stress: 3000 artifacts → %d nodes, %d links (capped at 500)", len(data.Nodes), len(data.Links))
 }
+
+func TestLocalGraph_NHopNeighborhood(t *testing.T) {
+	srv := setupGraph(t)
+	req := httptest.NewRequest("GET", "/api/v1/graph/local?id=TSK-A1&hops=1", http.NoBody)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	var data struct {
+		Nodes []struct{ ID string }       `json:"nodes"`
+		Links []struct{ Relation string } `json:"links"`
+	}
+	json.NewDecoder(w.Body).Decode(&data)
+
+	ids := make(map[string]bool)
+	for _, n := range data.Nodes {
+		ids[n.ID] = true
+	}
+	if !ids["TSK-A1"] {
+		t.Error("root node TSK-A1 must be in results")
+	}
+	if !ids["TSK-A2"] {
+		t.Error("1-hop neighbor TSK-A2 must be in results (depends_on)")
+	}
+	if !ids["SPC-B1"] {
+		t.Error("1-hop neighbor SPC-B1 must be in results (implements)")
+	}
+}
+
+func TestLocalGraph_RequiresID(t *testing.T) {
+	srv := setupGraph(t)
+	req := httptest.NewRequest("GET", "/api/v1/graph/local?hops=1", http.NoBody)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != 400 {
+		t.Errorf("expected 400 for missing id, got %d", w.Code)
+	}
+}

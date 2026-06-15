@@ -119,6 +119,7 @@ func NewServer(proto *parchment.Protocol, version, devPath string) *Server {
 
 	// JSON API v1 — artifact list
 	s.mux.HandleFunc("GET /api/v1/artifacts", s.handleAPIListArtifacts)
+	s.mux.HandleFunc("GET /api/v1/graph/local", s.handleAPIGraphLocal)
 
 	// JSON API v1 — graph read
 	s.mux.HandleFunc("GET /api/v1/graph/scopes", s.handleAPIGraphScopes)
