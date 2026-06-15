@@ -196,13 +196,13 @@ func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, devU
 	defer stop()
 
 	if activeTransport == "http" {
-		return runHTTP(sigCtx, ctx, cmd, srvFactory, activeAddr, pprofAddr, enablePprof)
+		return runHTTP(sigCtx, ctx, cmd, srvFactory, store, activeAddr, pprofAddr, enablePprof)
 	}
 	slog.InfoContext(ctx, "serving via stdio")
 	return srv.Run(sigCtx, &sdkmcp.StdioTransport{})
 }
 
-func runHTTP(sigCtx, logCtx context.Context, cmd *cobra.Command, srvFactory func(*http.Request) *sdkmcp.Server, addr, pprofAddr string, enablePprof bool) error {
+func runHTTP(sigCtx, logCtx context.Context, cmd *cobra.Command, srvFactory func(*http.Request) *sdkmcp.Server, store parchment.Store, addr, pprofAddr string, enablePprof bool) error {
 	handler := sdkmcp.NewStreamableHTTPHandler(
 		srvFactory,
 		&sdkmcp.StreamableHTTPOptions{
@@ -224,9 +224,23 @@ func runHTTP(sigCtx, logCtx context.Context, cmd *cobra.Command, srvFactory func
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"version":%q}`, Version)
 	})
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		var dbSize int64
+		if sizer, ok := store.(parchment.DBSizer); ok {
+			dbSize, _ = sizer.DBSizeBytes(r.Context())
+		}
+		fmt.Fprintf(w, `{"status":"ok","version":%q,"db_bytes":%d}`, Version, dbSize)
+	})
 	mux.Handle("/", handler)
 
-	httpSrv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second} //nolint:mnd // standard timeout
+	var httpHandler http.Handler = mux
+	if token := os.Getenv("SCRIBE_AUTH_TOKEN"); token != "" {
+		httpHandler = authMiddleware(token, mux)
+		slog.InfoContext(logCtx, "auth enabled via SCRIBE_AUTH_TOKEN")
+	}
+
+	httpSrv := &http.Server{Addr: addr, Handler: httpHandler, ReadHeaderTimeout: 10 * time.Second} //nolint:mnd // standard timeout
 	go func() {
 		<-sigCtx.Done()
 		slog.InfoContext(logCtx, "shutdown signal received, draining connections")
@@ -248,6 +262,21 @@ func runHTTP(sigCtx, logCtx context.Context, cmd *cobra.Command, srvFactory func
 	}
 	slog.InfoContext(logCtx, "server stopped, closing store")
 	return nil
+}
+
+func authMiddleware(token string, next http.Handler) http.Handler {
+	bearer := "Bearer " + token
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if r.Header.Get("Authorization") != bearer {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // workspaceLabelsFromHeaders derives workspace context labels from X-Workspace-*
