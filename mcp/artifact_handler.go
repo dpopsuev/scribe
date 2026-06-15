@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/service"
@@ -89,6 +90,13 @@ func (h *handler) recordTurn(ctx context.Context, action string, raw json.RawMes
 }
 
 func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolRequest, in artifactInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: value semantics intentional
+	start := time.Now()
+	defer func() {
+		slog.InfoContext(ctx, "mcp",
+			slog.String(parchment.LogKeyOp, in.Action),
+			slog.String("dur", time.Since(start).Round(time.Microsecond).String()), //nolint:sloglint // request-scoped timing
+		)
+	}()
 	// Workspace stamping on create/query.
 	if len(h.workspaceLabels) > 0 {
 		switch in.Action {

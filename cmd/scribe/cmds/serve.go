@@ -234,9 +234,9 @@ func runHTTP(sigCtx, logCtx context.Context, cmd *cobra.Command, srvFactory func
 	})
 	mux.Handle("/", handler)
 
-	var httpHandler http.Handler = mux
+	httpHandler := requestLogMiddleware(mux)
 	if token := os.Getenv("SCRIBE_AUTH_TOKEN"); token != "" {
-		httpHandler = authMiddleware(token, mux)
+		httpHandler = authMiddleware(token, httpHandler)
 		slog.InfoContext(logCtx, "auth enabled via SCRIBE_AUTH_TOKEN")
 	}
 
@@ -262,6 +262,34 @@ func runHTTP(sigCtx, logCtx context.Context, cmd *cobra.Command, srvFactory func
 	}
 	slog.InfoContext(logCtx, "server stopped, closing store")
 	return nil
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
+func requestLogMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rec := &statusRecorder{ResponseWriter: w, status: 200}
+		next.ServeHTTP(rec, r)
+		dur := time.Since(start)
+		if r.URL.Path == "/healthz" {
+			return
+		}
+		slog.InfoContext(r.Context(), "http",
+			slog.String("method", r.Method), //nolint:sloglint // HTTP-specific key
+			slog.String(logKeyPath, r.URL.Path),
+			slog.Int("status", rec.status),                           //nolint:sloglint // "status" is HTTP-specific, no shared constant
+			slog.String("dur", dur.Round(time.Microsecond).String()), //nolint:sloglint // "dur" is local timing
+		)
+	})
 }
 
 func authMiddleware(token string, next http.Handler) http.Handler {
