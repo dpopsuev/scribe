@@ -8,6 +8,9 @@ web/static/graph/package-lock.json
 !web/static/graph/vendor/
 web/static/graph/test-results/
 eval/results/
+web/frontend/node_modules/
+web/frontend/.svelte-kit/
+web/frontend/build/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm

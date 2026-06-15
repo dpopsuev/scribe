@@ -106,6 +106,9 @@ func NewServer(proto *parchment.Protocol, version, devPath string) *Server {
 	// Dataset export (streaming JSONL)
 	s.mux.HandleFunc("GET /api/v1/export/dataset", s.handleExportDataset)
 
+	// JSON API v1 — artifact list
+	s.mux.HandleFunc("GET /api/v1/artifacts", s.handleAPIListArtifacts)
+
 	// JSON API v1 — graph read
 	s.mux.HandleFunc("GET /api/v1/graph/scopes", s.handleAPIGraphScopes)
 	s.mux.HandleFunc("GET /api/v1/graph/kinds", s.handleAPIGraphKinds)
@@ -367,4 +370,54 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Fprintf(w, "data: %s\n\n", data)
 	}
+}
+
+func (s *Server) handleAPIListArtifacts(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	var labels []string
+	if kind := q.Get("kind"); kind != "" {
+		labels = append(labels, parchment.LabelPrefixKind+kind)
+	}
+	if scope := q.Get("scope"); scope != "" {
+		labels = append(labels, parchment.LabelPrefixScope+scope)
+	}
+	if status := q.Get("status"); status != "" {
+		if parchment.IsDomainStatusLabel(status) {
+			labels = append(labels, status)
+		} else {
+			labels = append(labels, parchment.LabelPrefixStatus+status)
+		}
+	}
+	var kindPrefix string
+	if kp := q.Get("kind_prefix"); kp != "" {
+		kindPrefix = kp
+	}
+	arts, err := s.proto.ListArtifacts(r.Context(), parchment.ListInput{
+		Labels: labels, KindPrefix: kindPrefix,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	type cardJSON struct {
+		ID     string  `json:"id"`
+		Title  string  `json:"title"`
+		Kind   string  `json:"kind"`
+		Status string  `json:"status"`
+		Scope  string  `json:"scope"`
+		Score  float64 `json:"score"`
+	}
+	cards := make([]cardJSON, len(arts))
+	for i, a := range arts {
+		cards[i] = cardJSON{
+			ID:     a.ID,
+			Title:  a.Title,
+			Kind:   a.Label(parchment.LabelPrefixKind),
+			Status: parchment.StatusFromLabels(a.Labels),
+			Scope:  a.Label(parchment.LabelPrefixScope),
+			Score:  s.proto.CompletionScore(r.Context(), a),
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(cards)
 }
