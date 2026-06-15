@@ -9,6 +9,14 @@ import (
 	parchment "github.com/dpopsuev/parchment"
 )
 
+// Common label queries used across ops — DRY: define once, use everywhere.
+var (
+	labelCampaign     = parchment.LabelPrefixKind + "effort.campaign"
+	labelGoal         = parchment.LabelPrefixKind + "effort.goal"
+	labelTask         = parchment.LabelPrefixKind + "effort.task"
+	labelStatusActive = "work.active"
+)
+
 // labelVal extracts the value after prefix from the first matching label in labels.
 func labelVal(labels []string, prefix string) string {
 	for _, l := range labels {

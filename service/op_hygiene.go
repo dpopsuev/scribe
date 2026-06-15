@@ -36,18 +36,18 @@ var opHygiene = Op{
 		}
 
 		campaigns, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{
-			Labels: append(labels, parchment.LabelPrefixKind+"effort.campaign"),
+			Labels: append(labels, labelCampaign),
 		})
 		for _, c := range campaigns {
 			status := parchment.StatusFromLabels(c.Labels)
-			if status != "work.active" {
+			if status != labelStatusActive {
 				continue
 			}
 			children, _ := svc.Proto.Store().Neighbors(ctx, c.ID, parchment.RelParentOf, parchment.Outgoing)
 			activeGoals := 0
 			for _, e := range children {
 				goal, _ := svc.Proto.GetArtifact(ctx, e.To)
-				if goal != nil && parchment.StatusFromLabels(goal.Labels) == "work.active" {
+				if goal != nil && parchment.StatusFromLabels(goal.Labels) == labelStatusActive {
 					activeGoals++
 				}
 			}
@@ -60,12 +60,12 @@ var opHygiene = Op{
 		}
 
 		tasks, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{
-			Labels: append(labels, parchment.LabelPrefixKind+"effort.task"),
+			Labels: append(labels, labelTask),
 		})
 		now := time.Now()
 		for _, t := range tasks {
 			status := parchment.StatusFromLabels(t.Labels)
-			if status != "work.active" {
+			if status != labelStatusActive {
 				continue
 			}
 			if !t.UpdatedAt.IsZero() && now.Sub(t.UpdatedAt) > 14*24*time.Hour {

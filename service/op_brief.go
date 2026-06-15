@@ -29,7 +29,7 @@ var opBrief = Op{
 		fmt.Fprintf(&b, "# Project: %s\n\n", in.Scope)
 
 		campaigns, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{
-			Labels: []string{scopeLabel, parchment.LabelPrefixKind + "effort.campaign"},
+			Labels: []string{scopeLabel, labelCampaign},
 		})
 		if len(campaigns) > 0 {
 			b.WriteString("## Campaigns\n")
@@ -42,7 +42,7 @@ var opBrief = Op{
 		}
 
 		activeGoals, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{
-			Labels: []string{scopeLabel, parchment.LabelPrefixKind + "effort.goal", "work.active"},
+			Labels: []string{scopeLabel, labelGoal, labelStatusActive},
 		})
 		if len(activeGoals) > 0 {
 			b.WriteString("## Active Goals\n")
@@ -54,7 +54,7 @@ var opBrief = Op{
 		}
 
 		activeTasks, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{
-			Labels: []string{scopeLabel, parchment.LabelPrefixKind + "effort.task", "work.active"},
+			Labels: []string{scopeLabel, labelTask, labelStatusActive},
 		})
 		if len(activeTasks) > 0 {
 			b.WriteString("## Active Tasks\n")

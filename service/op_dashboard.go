@@ -14,7 +14,7 @@ var opDashboard = Op{
 	Name: "dashboard",
 	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
 		campaigns, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{
-			Labels: []string{parchment.LabelPrefixKind + "effort.campaign"},
+			Labels: []string{labelCampaign},
 		})
 
 		type campStats struct {
