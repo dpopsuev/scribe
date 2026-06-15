@@ -54,6 +54,11 @@ var All = []Migration{
 		Description: "Rename tautological kind investigation.investigation → investigation.case",
 		Run:         migrateInvestigationCase,
 	},
+	{
+		ID:          "0004_unkinded_legacy",
+		Description: "Assign kind:knowledge.note to legacy artifacts with no kind label",
+		Run:         migrateUnkindedLegacy,
+	},
 }
 
 // RunPending applies all migrations that have not yet been recorded as applied.
