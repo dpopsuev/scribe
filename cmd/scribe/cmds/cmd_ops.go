@@ -69,6 +69,29 @@ func AuditCmd() *cobra.Command {
 	return cmd
 }
 
+func HygieneCmd() *cobra.Command {
+	var scope string
+	cmd := &cobra.Command{
+		Use:   "hygiene",
+		Short: "Run hygiene checks: zombie campaigns, stale tasks, orphans",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return RunOp("hygiene", map[string]string{"scope": scope})
+		},
+	}
+	cmd.Flags().StringVar(&scope, "scope", "", "scope to check (empty = all)")
+	return cmd
+}
+
+func DashboardCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "dashboard",
+		Short: "Campaign health overview: goals, tasks, completion scores",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return RunOp("dashboard", map[string]string{})
+		},
+	}
+}
+
 func BulkDeleteCmd() *cobra.Command {
 	var kind, scope, status, query string
 	var dryRun, force bool
