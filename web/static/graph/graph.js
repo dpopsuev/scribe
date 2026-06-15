@@ -708,13 +708,38 @@ export function initGraph(injectedDeps) {
     el.onclick = () => { el.classList.toggle('active'); };
   });
   document.querySelectorAll('.rel-toggle[data-kind]').forEach(el => {
-    el.onclick = () => { el.classList.toggle('active'); };
+    el.onclick = () => { el.classList.toggle('active'); applyGraphData(); };
   });
   const minrefsSlider = document.getElementById('minrefs-slider');
   const minrefsVal = document.getElementById('minrefs-val');
   if (minrefsSlider && minrefsVal) {
-    minrefsSlider.oninput = () => { minrefsVal.textContent = minrefsSlider.value; };
+    minrefsSlider.oninput = () => {
+      minrefsVal.textContent = minrefsSlider.value;
+      applyGraphData();
+    };
   }
+
+  function wirePhysicsSlider(id, valId, applyFn) {
+    const slider = document.getElementById(id);
+    const val = document.getElementById(valId);
+    if (slider && val) {
+      slider.oninput = () => {
+        val.textContent = slider.value;
+        applyFn(parseFloat(slider.value));
+      };
+    }
+  }
+  wirePhysicsSlider('nodesize-slider', 'nodesize-val', v => {
+    Graph.nodeRelSize(v);
+  });
+  wirePhysicsSlider('linkdist-slider', 'linkdist-val', v => {
+    Graph.d3Force('link')?.distance(v);
+    Graph.d3ReheatSimulation();
+  });
+  wirePhysicsSlider('repulsion-slider', 'repulsion-val', v => {
+    Graph.d3Force('charge')?.strength(v);
+    Graph.d3ReheatSimulation();
+  });
 
   // Renderer: swap this one line to change node appearance.
   // KindColorRenderer — hardcoded kind colors, opacity 0.9 (v1 exact)
