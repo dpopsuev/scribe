@@ -69,6 +69,16 @@ var All = []Migration{
 		Description: "Rename legacy statuses (active→work.active, done→work.complete) per kind lifecycle",
 		Run:         migrateStatusNamespace,
 	},
+	{
+		ID:          "0007_schema_kinds",
+		Description: "Rename old schema kinds (rule→knowledge.concept, definition→support.config, skill→support.template)",
+		Run:         migrateSchemaKinds,
+	},
+	{
+		ID:          "0008_resolve_legacy_ids",
+		Description: "Replace stale HGM-*/LCS-*/SCR-* ID references in sections with UUIDs via alias table",
+		Run:         migrateResolveLegacyIDs,
+	},
 }
 
 // RunPending applies all migrations that have not yet been recorded as applied.
