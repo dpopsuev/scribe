@@ -397,29 +397,60 @@ async function expandKind(scopeName, kindName) {
   const relations = activeRelations();
   if (state.els.stats) state.els.stats.textContent = `Loading ${scopeName}/${kindName}…`;
 
+  const EXPAND_CAP = 150;
   let artData;
   try {
-    artData = await fetchArtifactGraph(deps.fetch, scopeName, status.split(','), relations);
+    artData = await fetchArtifactGraph(deps.fetch, scopeName, status.split(','), relations, EXPAND_CAP);
   } catch (err) {
     log.error('expandKind scope=%s kind=%s error=%s', scopeName, kindName, err.message);
     return;
   }
-  log.info('expandKind scope=%s kind=%s artifacts=%d', scopeName, kindName, artData.nodes.length);
   artData.nodes = artData.nodes.filter(n => n.kind === kindName);
   const nodeIds = new Set(artData.nodes.map(n => n.id));
   artData.links = artData.links.filter(l => nodeIds.has(l.source) && nodeIds.has(l.target));
+  log.info('expandKind scope=%s kind=%s artifacts=%d (capped %d)', scopeName, kindName, artData.nodes.length, EXPAND_CAP);
 
   const kindNodeId = `kind:${key}`;
-
   const anchor = state.scopeSpherePos.get(kindNodeId) || state.scopeSpherePos.get(scopeName) || { x: 0, y: 0, z: 0 };
   artData.nodes = placeInMiniSphere(artData.nodes, artData.links, anchor, ARTIFACT_SPHERE_RADIUS);
   for (const n of artData.nodes) {
     artData.links.push({ source: kindNodeId, target: n.id, relation: 'contains' });
   }
 
-  state.expandedKinds.set(key, artData);
-  createBubble(`kind:${key}`, ARTIFACT_SPHERE_RADIUS + 10);
-  applyGraphData();
+  // Progressive rendering: add nodes in batches to avoid frame freeze
+  const BATCH = 50;
+  if (artData.nodes.length > BATCH) {
+    const allNodes = artData.nodes;
+    const allLinks = artData.links;
+    artData.nodes = allNodes.slice(0, BATCH);
+    artData.links = allLinks.filter(l => {
+      const ids = new Set(artData.nodes.map(n => n.id));
+      ids.add(kindNodeId);
+      const src = typeof l.source === 'object' ? l.source.id : l.source;
+      const tgt = typeof l.target === 'object' ? l.target.id : l.target;
+      return ids.has(src) && ids.has(tgt);
+    });
+    state.expandedKinds.set(key, artData);
+    createBubble(`kind:${key}`, ARTIFACT_SPHERE_RADIUS + 10);
+    applyGraphData();
+
+    for (let i = BATCH; i < allNodes.length; i += BATCH) {
+      await new Promise(r => setTimeout(r, 80));
+      const batch = allNodes.slice(i, i + BATCH);
+      const batchIds = new Set([...artData.nodes.map(n => n.id), ...batch.map(n => n.id), kindNodeId]);
+      artData.nodes.push(...batch);
+      artData.links = allLinks.filter(l => {
+        const src = typeof l.source === 'object' ? l.source.id : l.source;
+        const tgt = typeof l.target === 'object' ? l.target.id : l.target;
+        return batchIds.has(src) && batchIds.has(tgt);
+      });
+      applyGraphData();
+    }
+  } else {
+    state.expandedKinds.set(key, artData);
+    createBubble(`kind:${key}`, ARTIFACT_SPHERE_RADIUS + 10);
+    applyGraphData();
+  }
   updateModeBadge();
 }
 
@@ -777,15 +808,15 @@ export function initGraph(injectedDeps) {
     .nodeLabel(n => {
       let title;
       if (n.kind === 'project') {
-        title = `<strong>${n.name}</strong><br><span style="opacity:0.7">${n.val} artifacts — click to expand</span>`;
+        title = `<strong>${n.name}</strong><br><span style="opacity:0.7">${n.val} artifacts — click to expand/collapse</span>`;
       } else if (n.kind === 'kind-group') {
-        title = `<strong>${n.group || n.name}</strong><br><span style="opacity:0.7">${n.val} artifacts</span>`;
+        title = `<strong>${n.group || n.name}</strong><br><span style="opacity:0.5">${n.scope}</span><br><span style="opacity:0.7">${n.val} artifacts</span>`;
       } else {
         const kind = n.kind?.split('.').pop() || '';
         const status = n.status?.split('.').pop() || '';
-        title = `<strong>${n.name}</strong><br><span style="opacity:0.5">${kind} · ${status}</span>`;
+        title = `<strong>${n.name}</strong><br><span style="opacity:0.5">${n.scope} · ${kind} · ${status}</span>`;
       }
-      return `<div style="background:rgba(0,0,0,0.9);color:#e2e8f0;padding:6px 10px;border-radius:6px;font-size:12px;pointer-events:none;max-width:280px;line-height:1.4">${title}</div>`;
+      return `<div style="background:rgba(0,0,0,0.92);color:#e2e8f0;padding:6px 10px;border-radius:6px;font-size:12px;pointer-events:none;max-width:300px;line-height:1.4">${title}</div>`;
     })
     .nodeResolution(12)
     // link appearance owned by renderer
@@ -806,7 +837,7 @@ export function initGraph(injectedDeps) {
       return 0;
     })
     .d3VelocityDecay(0.3)
-    .warmupTicks(300)
+    .warmupTicks(100)
     .cooldownTime(Infinity)
     .onNodeClick(onNodeClickWithDbl)
     .onNodeRightClick(onNodeRightClick)

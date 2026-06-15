@@ -57,8 +57,8 @@ export async function fetchKindGraph(fetch, scope, statuses, relations, baseURL 
 }
 
 /** @returns {Promise<GraphData>} */
-export async function fetchArtifactGraph(fetch, scope, statuses, relations, baseURL = '') {
-  const params = new URLSearchParams({ scope, status: statuses.join(',') });
+export async function fetchArtifactGraph(fetch, scope, statuses, relations, maxNodes = 200, baseURL = '') {
+  const params = new URLSearchParams({ scope, status: statuses.join(','), max_nodes: String(maxNodes) });
   if (relations?.length) params.set('relations', relations.join(','));
   const res = await fetch(`${baseURL}/api/v1/graph?${params}`);
   if (!res.ok) throw new Error(`/api/graph: ${res.status}`);
