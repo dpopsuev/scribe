@@ -36,10 +36,16 @@ describe('KindColorRenderer health color', () => {
     expect(color).toBe('#ef4444');
   });
 
-  it('undefined violations → kind color', () => {
+  it('scope nodes → neutral silver (not kind color)', () => {
     const r = renderer();
     const color = r._nodeColor({ kind: 'scope' });
-    expect(color).toBe(FALLBACK_KIND_COLORS['scope']);
+    expect(color).toBe('#c8d0dc');
+  });
+
+  it('artifact nodes → kind color', () => {
+    const r = renderer();
+    const color = r._nodeColor({ kind: 'task' });
+    expect(color).toBe(FALLBACK_KIND_COLORS['task']);
   });
 });
 

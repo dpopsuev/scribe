@@ -181,6 +181,17 @@ export class KindColorRenderer extends BaseRenderer {
   }
 
   _nodeColor(node) {
+    if (node.kind === 'scope') return '#c8d0dc';
+    if (node.kind === 'kind-group') {
+      this._buildPalette(this._bg);
+      const culori = typeof window !== 'undefined' && window.culori;
+      const baseKind = node.group?.split('.')?.pop() || node.name;
+      if (culori) {
+        const hue = this._palette?.kinds?.[baseKind]?.hue ?? 210;
+        return culori.formatHex({ mode: 'oklch', l: 0.55, c: 0.12, h: hue });
+      }
+      return FALLBACK_KIND_COLORS[baseKind] || '#6b7280';
+    }
     const hue = healthHue(node.violations);
     if (hue !== null) {
       this._buildPalette(this._bg);
@@ -188,7 +199,8 @@ export class KindColorRenderer extends BaseRenderer {
       if (culori) return culori.formatHex({ mode: 'oklch', l: 0.75, c: 0.2, h: hue });
       return hue === HEALTH_HUES.warn ? '#f59e0b' : '#ef4444';
     }
-    return this._kindColor(node.kind);
+    const artKind = node.kind?.split('.')?.pop() || node.kind;
+    return this._kindColor(artKind);
   }
 
   // Smooth cube-root normalisation: [minVal, maxVal] → [minSize, maxSize]
