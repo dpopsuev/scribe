@@ -144,10 +144,10 @@ const SCROLL_ZOOM_IMPULSE  = 0.05;  // log-space speed added per scroll tick
 const SCROLL_ZOOM_COAST    = 0.88;  // fraction of speed kept each frame (~400 ms to stop)
 
 // ── Label rendering ────────────────────────────────────────────────────────
-const LABEL_UPDATE_EVERY_N_FRAMES = 4;    // ~15 fps updates — imperceptible at human refresh rate
+const LABEL_UPDATE_EVERY_N_FRAMES = 2;    // ~30 fps updates — responsive label pop-in
 const LABEL_OPACITY_EPSILON       = 0.02; // skip GPU write if opacity change < 2%
-const LABEL_FADE_START_DIST       = 150;  // world units — full opacity within this distance
-const LABEL_FADE_END_DIST         = 500;  // world units — fully transparent beyond this distance
+const LABEL_FADE_START_DIST       = 80;   // world units — full opacity within this distance
+const LABEL_FADE_END_DIST         = 250;  // world units — fully transparent beyond this distance
 
 // ── Frame budget ───────────────────────────────────────────────────────────
 const FRAME_BUDGET_MS      = 8;    // JS budget per frame — headroom for Three.js + browser
@@ -808,15 +808,14 @@ export function initGraph(injectedDeps) {
     .nodeLabel(n => {
       let title;
       if (n.kind === 'project') {
-        title = `<strong>${n.name}</strong><br><span style="opacity:0.7">${n.val} artifacts — click to expand/collapse</span>`;
+        title = `<strong>${n.name}</strong><br><span style="opacity:0.6">${n.val} artifacts — click to expand/collapse</span>`;
       } else if (n.kind === 'kind-group') {
-        title = `<strong>${n.group || n.name}</strong><br><span style="opacity:0.5">${n.scope}</span><br><span style="opacity:0.7">${n.val} artifacts</span>`;
+        title = `<span style="opacity:0.45">${n.scope} ›</span> <strong>${n.group || n.name}</strong><br><span style="opacity:0.6">${n.val} artifacts — click to expand/collapse</span>`;
       } else {
-        const kind = n.kind?.split('.').pop() || '';
         const status = n.status?.split('.').pop() || '';
-        title = `<strong>${n.name}</strong><br><span style="opacity:0.5">${n.scope} · ${kind} · ${status}</span>`;
+        title = `<span style="opacity:0.4">${n.scope} › ${n.kind} ›</span><br><strong>${n.name}</strong><br><span style="opacity:0.5">${status}</span>`;
       }
-      return `<div style="background:rgba(0,0,0,0.92);color:#e2e8f0;padding:6px 10px;border-radius:6px;font-size:12px;pointer-events:none;max-width:300px;line-height:1.4">${title}</div>`;
+      return `<div style="background:rgba(0,0,0,0.93);color:#e2e8f0;padding:7px 11px;border-radius:6px;font-size:12px;pointer-events:none;max-width:320px;line-height:1.5">${title}</div>`;
     })
     .nodeResolution(12)
     // link appearance owned by renderer
