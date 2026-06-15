@@ -328,6 +328,16 @@ func buildLocalGraph(ctx context.Context, proto *parchment.Protocol, rootID stri
 	return graphData{Nodes: nodes, Links: links}, nil
 }
 
+func (s *Server) handleAPIGetArtifact(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	art, err := s.proto.GetArtifact(r.Context(), id)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, art)
+}
+
 // handleAPIScopes returns the distinct non-schema scopes present in the store.
 // GET /api/scopes
 func (s *Server) handleAPIScopes(w http.ResponseWriter, r *http.Request) {
