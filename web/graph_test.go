@@ -398,3 +398,84 @@ func TestAPIGraphScopes_ContractMatchesFixture(t *testing.T) {
 		}
 	}
 }
+
+func TestArtifactGraph_MaxNodes(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	s, err := parchment.OpenSQLite(dir + "/maxnodes.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+
+	proto := parchment.New(s, nil, []string{"stress"}, nil, parchment.ProtocolConfig{})
+	for i := range 100 {
+		proto.CreateArtifact(ctx, parchment.CreateInput{
+			Title:  "node-" + strings.Repeat("x", 3) + string(rune('A'+i%26)),
+			Labels: []string{"kind:effort.task", "scope:stress"},
+		})
+	}
+
+	srv := web.NewServer(proto, "test", "")
+	req := httptest.NewRequest("GET", "/api/v1/graph?scope=stress&max_nodes=10", http.NoBody)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	var data struct {
+		Nodes []map[string]any `json:"nodes"`
+	}
+	json.NewDecoder(w.Body).Decode(&data)
+	if len(data.Nodes) > 10 {
+		t.Errorf("expected ≤10 nodes with max_nodes=10, got %d", len(data.Nodes))
+	}
+}
+
+func TestArtifactGraph_StressLargeScope(t *testing.T) {
+	if testing.Short() {
+		t.Skip("stress test")
+	}
+	t.Parallel()
+	dir := t.TempDir()
+	s, err := parchment.OpenSQLite(dir + "/stress.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+
+	proto := parchment.New(s, nil, []string{"big"}, nil, parchment.ProtocolConfig{})
+	ids := make([]string, 3000)
+	for i := range 3000 {
+		art, _ := proto.CreateArtifact(ctx, parchment.CreateInput{
+			Title:  "stress-" + string(rune('A'+i%26)) + strings.Repeat("x", i%10),
+			Labels: []string{"kind:effort.task", "scope:big"},
+		})
+		ids[i] = art.ID
+	}
+	for i := 1; i < len(ids); i += 3 {
+		s.AddEdge(ctx, parchment.Edge{From: ids[i-1], To: ids[i], Relation: "depends_on"})
+	}
+
+	srv := web.NewServer(proto, "test", "")
+
+	req := httptest.NewRequest("GET", "/api/v1/graph?scope=big&max_nodes=500", http.NoBody)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status %d", w.Code)
+	}
+	var data struct {
+		Nodes []map[string]any `json:"nodes"`
+		Links []map[string]any `json:"links"`
+	}
+	json.NewDecoder(w.Body).Decode(&data)
+	if len(data.Nodes) > 500 {
+		t.Errorf("expected ≤500 nodes, got %d", len(data.Nodes))
+	}
+	t.Logf("stress: 3000 artifacts → %d nodes, %d links (capped at 500)", len(data.Nodes), len(data.Links))
+}

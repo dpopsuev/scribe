@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
 
 	parchment "github.com/dpopsuev/parchment"
@@ -112,7 +114,7 @@ func buildKindGraph(ctx context.Context, proto *parchment.Protocol, scope string
 
 // buildArtifactGraph returns individual artifact nodes and their edges,
 // filtered by scope, statuses, and relation types.
-func buildArtifactGraph(ctx context.Context, proto *parchment.Protocol, scope string, statuses, relations []string) (graphData, error) {
+func buildArtifactGraph(ctx context.Context, proto *parchment.Protocol, scope string, statuses, relations []string, maxNodes int) (graphData, error) {
 	arts, err := fetchArtifacts(ctx, proto, scope, statuses)
 	if err != nil {
 		return graphData{}, err
@@ -144,8 +146,21 @@ func buildArtifactGraph(ctx context.Context, proto *parchment.Protocol, scope st
 		})
 	}
 
+	if maxNodes > 0 && len(nodes) > maxNodes {
+		sort.Slice(nodes, func(i, j int) bool { return nodes[i].Val > nodes[j].Val })
+		nodes = nodes[:maxNodes]
+	}
+
+	kept := make(map[string]bool, len(nodes))
+	for _, n := range nodes {
+		kept[n.ID] = true
+	}
+
 	links := make([]graphLink, 0, len(edges))
 	for _, e := range edges {
+		if !kept[e.From] || !kept[e.To] {
+			continue
+		}
 		links = append(links, graphLink{
 			Source:   e.From,
 			Target:   e.To,
@@ -212,8 +227,12 @@ func (s *Server) handleAPIGraph(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	scope := q.Get("scope")
 	statuses, relations := parseFilters(q.Get("status"), q.Get("relations"))
+	maxNodes, _ := strconv.Atoi(q.Get("max_nodes"))
+	if maxNodes <= 0 {
+		maxNodes = 2000
+	}
 
-	data, err := buildArtifactGraph(r.Context(), s.proto, scope, statuses, relations)
+	data, err := buildArtifactGraph(r.Context(), s.proto, scope, statuses, relations, maxNodes)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
