@@ -1,0 +1,1 @@
+import"../chunks/Bzak7iHL.js";import"../chunks/CKZjACF8.js";import{a as e,f as o}from"../chunks/B38AHIzq.js";import{s as m}from"../chunks/Dk1ATTpv.js";var p=o('<iframe title="Scribe Graph" class="graph-frame svelte-315y67"></iframe>');function n(a){const t="/graph";var r=p();m(r,"src",t),e(a,r)}export{n as component};

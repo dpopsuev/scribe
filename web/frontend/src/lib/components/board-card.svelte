@@ -7,57 +7,65 @@
 	let scorePercent = $derived(Math.round(artifact.score * 100));
 </script>
 
-<a
-	href="/app/doc/{artifact.id}"
-	class="board-card"
->
-	<div class="board-card-title">{artifact.title}</div>
-	<div class="board-card-meta">
-		<span>{kindShort}</span>
-		<span>{artifact.scope}</span>
+<a href="/app/doc/{artifact.id}" class="card">
+	<div class="card-title">{artifact.title}</div>
+	<div class="card-meta">
+		<span class="card-kind">{kindShort}</span>
+		<span class="card-scope">{artifact.scope}</span>
 	</div>
 	{#if artifact.score > 0}
-		<div class="board-card-progress">
-			<div class="board-card-progress-fill" style="width:{scorePercent}%"></div>
+		<div class="card-progress">
+			<div class="card-progress-fill" style="width:{scorePercent}%"></div>
 		</div>
 	{/if}
 </a>
 
 <style>
-	.board-card {
+	.card {
 		display: block;
-		padding: 0.75rem;
-		background: var(--bg-card);
-		border: 1px solid var(--border);
-		border-radius: 6px;
+		padding: var(--space-3);
+		background: var(--bg-surface);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius);
 		text-decoration: none;
 		color: inherit;
-		transition: border-color 0.15s;
+		transition: var(--transition);
 	}
-	.board-card:hover {
+	.card:hover {
 		border-color: var(--accent);
+		box-shadow: 0 0 0 1px var(--accent-subtle);
+		transform: translateY(-1px);
 	}
-	.board-card-title {
-		font-size: 0.875rem;
+	.card-title {
+		font-size: 13px;
 		font-weight: 500;
-		line-height: 1.3;
-		margin-bottom: 0.25rem;
+		line-height: 1.35;
+		margin-bottom: var(--space-1);
+		color: var(--text);
 	}
-	.board-card-meta {
+	.card-meta {
 		display: flex;
 		justify-content: space-between;
-		font-size: 0.72rem;
+		font-size: 11px;
 		color: var(--text-muted);
 	}
-	.board-card-progress {
-		margin-top: 0.5rem;
+	.card-kind {
+		background: var(--accent-subtle);
+		color: var(--accent);
+		padding: 1px 6px;
+		border-radius: var(--radius-s);
+		font-weight: 500;
+	}
+	.card-progress {
+		margin-top: var(--space-2);
 		height: 2px;
 		background: var(--border);
 		border-radius: 1px;
 	}
-	.board-card-progress-fill {
+	.card-progress-fill {
 		height: 100%;
-		background: #22c55e;
+		background: var(--success);
 		border-radius: 1px;
+		transition: width 0.3s ease;
 	}
 </style>

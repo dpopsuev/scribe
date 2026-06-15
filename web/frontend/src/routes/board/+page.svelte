@@ -95,26 +95,33 @@
 	.board-toolbar {
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
-		padding: 0.75rem 1rem;
+		gap: var(--space-3);
+		padding: var(--space-3) var(--space-4);
 		border-bottom: 1px solid var(--border);
+		background: var(--bg-surface);
 	}
 	.board-select {
-		background: var(--bg-column);
+		background: var(--bg-raised);
 		border: 1px solid var(--border);
 		color: var(--text);
-		font-size: 0.875rem;
-		border-radius: 4px;
-		padding: 0.25rem 0.5rem;
+		font-size: 13px;
+		border-radius: var(--radius);
+		padding: var(--space-1) var(--space-3);
+		transition: var(--transition);
+	}
+	.board-select:focus {
+		outline: none;
+		border-color: var(--accent);
+		box-shadow: 0 0 0 2px var(--accent-subtle);
 	}
 	.board-count {
-		font-size: 0.75rem;
+		font-size: 11px;
 		color: var(--text-muted);
 	}
 	.board-columns {
 		display: flex;
-		gap: 0.75rem;
-		padding: 1rem;
+		gap: var(--space-3);
+		padding: var(--space-4);
 		overflow-x: auto;
 		height: calc(100vh - 120px);
 		align-items: flex-start;

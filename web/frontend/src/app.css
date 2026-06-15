@@ -1,26 +1,101 @@
 @import 'tailwindcss';
 
+/* ── Design Tokens ──────────────────────────────────────────────────────
+   Inspired by SiYuan's midnight/daylight themes.
+   Two modes: dark (default) and light (via data-theme="light" on html).
+
+   Laws applied:
+     Aesthetic-Usability Effect — coherent palette signals quality
+     Law of Common Region — surfaces at different elevations
+     Doherty Threshold — all transitions under 200ms
+────────────────────────────────────────────────────────────────────── */
+
 :root {
-	--bg: #0a0a0f;
-	--bg-card: #12121a;
-	--bg-column: #0e0e16;
-	--border: #1e1e2e;
-	--text: #e4e4ef;
-	--text-muted: #6b6b80;
-	--accent: #6366f1;
+	/* ── Dark mode (default) ── */
+	--bg-base:    #1a1a24;
+	--bg-surface: #22222e;
+	--bg-raised:  #2a2a38;
+	--bg-overlay: rgba(10,10,20,0.92);
+	--border:     #333346;
+	--border-subtle: #2a2a3a;
+
+	--text:       #e4e4ef;
+	--text-secondary: #a0a0b8;
+	--text-muted: #6b6b82;
+
+	--accent:     #6366f1;
+	--accent-hover: #818cf8;
+	--accent-subtle: rgba(99,102,241,0.15);
+
+	--success:    #22c55e;
+	--warning:    #f59e0b;
+	--error:      #ef4444;
+
+	--radius-s:   4px;
+	--radius:     6px;
+	--radius-l:   10px;
+
+	--transition: all 0.15s cubic-bezier(0, 0, 0.2, 1);
+	--transition-slow: all 0.25s cubic-bezier(0, 0, 0.2, 1);
+
+	--font-sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
+	--font-mono: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+
+	--space-1: 4px;
+	--space-2: 8px;
+	--space-3: 12px;
+	--space-4: 16px;
+	--space-5: 24px;
+	--space-6: 32px;
+}
+
+/* ── Light mode ── */
+[data-theme="light"] {
+	--bg-base:    #f8f8fa;
+	--bg-surface: #ffffff;
+	--bg-raised:  #f0f0f4;
+	--bg-overlay: rgba(255,255,255,0.95);
+	--border:     #e0e0e8;
+	--border-subtle: #ececf0;
+
+	--text:       #1a1a2e;
+	--text-secondary: #4a4a60;
+	--text-muted: #8888a0;
+
+	--accent:     #4f46e5;
+	--accent-hover: #6366f1;
+	--accent-subtle: rgba(79,70,229,0.1);
 }
 
 body {
-	background: var(--bg);
+	background: var(--bg-base);
 	color: var(--text);
-	font-family: system-ui, -apple-system, sans-serif;
+	font-family: var(--font-sans);
+	font-size: 14px;
+	line-height: 1.5;
 	margin: 0;
+	-webkit-font-smoothing: antialiased;
 }
 
 a {
 	color: var(--accent);
 	text-decoration: none;
+	transition: var(--transition);
 }
 a:hover {
-	text-decoration: underline;
+	color: var(--accent-hover);
 }
+
+code {
+	font-family: var(--font-mono);
+	font-size: 0.85em;
+	background: var(--bg-raised);
+	padding: 0.1em 0.35em;
+	border-radius: var(--radius-s);
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
