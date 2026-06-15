@@ -659,6 +659,8 @@ export function initGraph(injectedDeps) {
   state.els.sidebar       = document.getElementById('sidebar');
   state.els.sidebarContent = document.getElementById('sidebar-content');
   state.els.ctxMenu       = document.getElementById('ctx-menu');
+  const sidebarCloseBtn   = document.getElementById('sidebar-close');
+  if (sidebarCloseBtn) sidebarCloseBtn.onclick = () => closeSidebar(state.els.sidebar);
 
   // Renderer: swap this one line to change node appearance.
   // KindColorRenderer — hardcoded kind colors, opacity 0.9 (v1 exact)
