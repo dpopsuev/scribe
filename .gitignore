@@ -11,7 +11,6 @@ eval/results/
 web/frontend/node_modules/
 web/frontend/.svelte-kit/
 web/frontend/build/
-web/static/app/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
