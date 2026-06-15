@@ -75,7 +75,8 @@ func OllamaFunc(ollamaURL, model string) parchment.EmbeddingFunc {
 		body, _ := json.Marshal(map[string]any{
 			"model":      model,
 			"prompt":     text,
-			"keep_alive": -1, // pin model in memory; never unload between calls
+			"keep_alive": -1,                               // pin model in memory; never unload between calls
+			"options":    map[string]any{"num_ctx": 32768}, // use full context window
 		})
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/api/embeddings", bytes.NewReader(body))
 		if err != nil {
@@ -271,6 +272,9 @@ func (e *Embedder) embedSections(ctx context.Context, art *parchment.Artifact) {
 		text := strings.TrimSpace(sec.Text)
 		if len(text) < 20 {
 			continue
+		}
+		if len(text) > maxEmbedChars {
+			text = text[:maxEmbedChars]
 		}
 		vec, err := e.embedFunc(ctx, text)
 		if err != nil {
