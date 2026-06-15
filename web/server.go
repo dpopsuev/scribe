@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"io/fs"
 	"net/http"
 	"strings"
 	"time"
@@ -88,6 +89,16 @@ func NewServer(proto *parchment.Protocol, version, devPath string) *Server {
 		s.mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.Dir(devPath+"/static"))))
 	} else {
 		s.mux.Handle("GET /static/", http.FileServer(http.FS(staticFS)))
+	}
+
+	// SvelteKit SPA — serve build output at /app/
+	if devPath != "" {
+		s.mux.Handle("GET /app/", http.StripPrefix("/app", http.FileServer(http.Dir(devPath+"/frontend/build"))))
+	} else {
+		appFS, err := fs.Sub(staticFS, "static/app")
+		if err == nil {
+			s.mux.Handle("GET /app/", http.StripPrefix("/app", http.FileServer(http.FS(appFS))))
+		}
 	}
 
 	// Read-only pages
