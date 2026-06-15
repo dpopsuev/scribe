@@ -1,3 +1,14 @@
-<div class="flex items-center justify-center h-full text-[var(--text-muted)]">
-	<p>3D Graph — coming soon (port from existing Three.js implementation)</p>
-</div>
+<script lang="ts">
+	const graphUrl = '/graph';
+</script>
+
+<iframe src={graphUrl} title="Scribe Graph" class="graph-frame"></iframe>
+
+<style>
+	.graph-frame {
+		width: 100%;
+		height: 100%;
+		border: none;
+		background: #05050f;
+	}
+</style>
