@@ -349,6 +349,7 @@ async function loadMacro() {
 
 async function expandScope(scopeName) {
   if (state.expandedScopes.has(scopeName)) return;
+  const t0 = performance.now();
   const status    = document.getElementById('status-select')?.value || DEFAULT_STATUSES;
   const relations = activeRelations();
   if (state.els.stats) state.els.stats.textContent = `Loading ${scopeName} kinds…`;
@@ -360,7 +361,8 @@ async function expandScope(scopeName) {
     log.error('expandScope scope=%s error=%s', scopeName, err.message);
     return;
   }
-  log.info('expandScope scope=%s kinds=%d', scopeName, kindData.nodes.length);
+  const fetchMs = (performance.now() - t0).toFixed(1);
+  log.info('expandScope scope=%s kinds=%d links=%d fetch=%sms', scopeName, kindData.nodes.length, kindData.links.length, fetchMs);
   removeMacroNode(`scope:${scopeName}`);
 
   const anchor = state.scopeSpherePos.get(scopeName) || { x: 0, y: 0, z: 0 };

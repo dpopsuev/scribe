@@ -91,10 +91,19 @@ func buildKindGraph(ctx context.Context, proto *parchment.Protocol, scope string
 			Val: max(2, kc.Count/5),
 		})
 	}
+	nodeIDs := make(map[string]bool, len(nodes))
+	for _, n := range nodes {
+		nodeIDs[n.ID] = true
+	}
 	links := make([]graphLink, 0, len(weights))
 	for _, w := range weights {
+		src := "kind:" + scope + ":" + w.FromScope
+		tgt := "kind:" + scope + ":" + w.ToScope
+		if !nodeIDs[src] || !nodeIDs[tgt] {
+			continue
+		}
 		links = append(links, graphLink{
-			Source: "kind:" + scope + ":" + w.FromScope, Target: "kind:" + scope + ":" + w.ToScope,
+			Source: src, Target: tgt,
 			Relation: "cross-kind", Weight: float64(w.Weight),
 		})
 	}
