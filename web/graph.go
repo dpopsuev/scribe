@@ -361,7 +361,7 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "graph.html", map[string]any{tmplKeyTitle: "Graph", "Version": s.version})
 }
 
-const defaultStatuses = "active,draft,current,proposed,in_progress,in_review,fleeting"
+const defaultStatuses = "work.draft,work.active,work.blocked,work.complete,note.fleeting,note.mature,note.evergreen,decision.proposed,decision.accepted,cancelled,archived,active" //nolint:misspell // "cancelled" is the stored value
 
 // violationCount returns the number of compliance violations on an artifact.
 // 0 = compliant (compliance:ok label or no compliance label at all).

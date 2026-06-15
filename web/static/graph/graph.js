@@ -177,7 +177,7 @@ const IDLE_HOME_MS         = 20000; // idle before camera flies home
 
 
 
-const DEFAULT_STATUSES = 'active,draft,current,proposed,in_progress,in_review,fleeting';
+const DEFAULT_STATUSES = 'work.draft,work.active,work.blocked,work.complete,note.fleeting,note.mature,note.evergreen,decision.proposed,decision.accepted,cancelled,archived,active';
 
 // Sum of nodeVal across all nodes — the shared input for radius and camera distance.
 function totalNodeVolume(nodes) {
