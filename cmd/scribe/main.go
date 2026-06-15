@@ -68,6 +68,8 @@ func main() {
 		cmds.BulkDeleteCmd(),
 		cmds.HygieneCmd(),
 		cmds.DashboardCmd(),
+		cmds.RecentCmd(),
+		cmds.BriefCmd(),
 	)
 
 	if err := root.Execute(); err != nil {

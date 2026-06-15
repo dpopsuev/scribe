@@ -40,11 +40,26 @@ var opSchema = Op{
 		}
 
 		var b strings.Builder
-		fmt.Fprintf(&b, "valid outbound relations for %s:\n\n", kind)
-		fmt.Fprintf(&b, "%-20s %s\n", "RELATION", "TARGET")
-		fmt.Fprintf(&b, "%-20s %s\n", "--------", "------")
+		fmt.Fprintf(&b, "schema for %s:\n\n", kind)
+
+		must := svc.Proto.MustSections(kind)
+		should := svc.Proto.ShouldSections(kind)
+		if len(must) > 0 || len(should) > 0 {
+			fmt.Fprintf(&b, "sections:\n")
+			if len(must) > 0 {
+				fmt.Fprintf(&b, "  must:   %s\n", strings.Join(must, ", "))
+			}
+			if len(should) > 0 {
+				fmt.Fprintf(&b, "  should: %s\n", strings.Join(should, ", "))
+			}
+			b.WriteString("\n")
+		}
+
+		fmt.Fprintf(&b, "relations:\n")
+		fmt.Fprintf(&b, "  %-20s %s\n", "RELATION", "TARGET")
+		fmt.Fprintf(&b, "  %-20s %s\n", "--------", "------")
 		for _, r := range rels {
-			fmt.Fprintf(&b, "%-20s %s\n", r.Relation, r.Target)
+			fmt.Fprintf(&b, "  %-20s %s\n", r.Relation, r.Target)
 		}
 		return b.String(), nil
 	},

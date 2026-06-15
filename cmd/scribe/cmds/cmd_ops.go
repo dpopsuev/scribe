@@ -1,4 +1,4 @@
-//nolint:goconst // CLI flag wiring; extracting "id"/"scope" constants adds no clarity
+//nolint:goconst,dupl // CLI flag wiring; each command is distinct despite similar structure
 package cmds
 
 import (
@@ -90,6 +90,36 @@ func DashboardCmd() *cobra.Command {
 			return RunOp("dashboard", map[string]string{})
 		},
 	}
+}
+
+func RecentCmd() *cobra.Command {
+	var scope, since string
+	var limit int
+	cmd := &cobra.Command{
+		Use:   "recent",
+		Short: "Show recently changed artifacts",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return RunOp("recent", map[string]any{"scope": scope, "since": since, "limit": limit})
+		},
+	}
+	cmd.Flags().StringVar(&scope, "scope", "", "project scope")
+	cmd.Flags().StringVar(&since, "since", "24h", "duration or RFC3339 timestamp")
+	cmd.Flags().IntVar(&limit, "limit", 20, "max results")
+	return cmd
+}
+
+func BriefCmd() *cobra.Command {
+	var scope string
+	cmd := &cobra.Command{
+		Use:   "brief",
+		Short: "Project briefing: campaigns, goals, tasks, recent changes",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return RunOp("brief", map[string]string{"scope": scope})
+		},
+	}
+	cmd.Flags().StringVar(&scope, "scope", "", "project scope (required)")
+	_ = cmd.MarkFlagRequired("scope")
+	return cmd
 }
 
 func BulkDeleteCmd() *cobra.Command {
