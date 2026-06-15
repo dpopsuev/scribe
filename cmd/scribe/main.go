@@ -61,6 +61,11 @@ func main() {
 		cmds.SyncCmd(),
 		cmds.DaemonCmd(),
 		cmds.ApplyCmd(),
+		cmds.SchemaCmd(),
+		cmds.HistoryCmd(),
+		cmds.SynthesizeCmd(),
+		cmds.AuditCmd(),
+		cmds.BulkDeleteCmd(),
 	)
 
 	if err := root.Execute(); err != nil {
