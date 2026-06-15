@@ -64,6 +64,11 @@ var All = []Migration{
 		Description: "Convert space-separated timestamps to RFC3339 format",
 		Run:         migrateFixTimestamps,
 	},
+	{
+		ID:          "0006_status_namespace",
+		Description: "Rename legacy statuses (active→work.active, done→work.complete) per kind lifecycle",
+		Run:         migrateStatusNamespace,
+	},
 }
 
 // RunPending applies all migrations that have not yet been recorded as applied.
