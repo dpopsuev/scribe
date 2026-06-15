@@ -682,10 +682,22 @@ export function initGraph(injectedDeps) {
     })
     .nodeResolution(12)
     // link appearance owned by renderer
-    .linkDirectionalParticles(l => l.relation === 'depends_on' ? 2 : 0)
-    .linkDirectionalParticleSpeed(0.004)
-    .linkDirectionalParticleWidth(1.5)
-    .linkCurvature(l => l.relation === 'depends_on' ? DEPENDS_ON_CURVATURE : 0)
+    .linkDirectionalParticles(l => {
+      if (l.relation === 'depends_on' || l.relation === 'blocks') return 3;
+      if (l.relation === 'implements' || l.relation === 'satisfies') return 2;
+      return 0;
+    })
+    .linkDirectionalParticleSpeed(l => l.relation === 'depends_on' ? 0.004 : 0.003)
+    .linkDirectionalParticleWidth(1.2)
+    .linkDirectionalParticleColor(l => {
+      const srcNode = state.graphData?.nodes?.find(n => n.id === l.source?.id || n.id === l.source);
+      return srcNode ? renderer._nodeColor(srcNode) : null;
+    })
+    .linkCurvature(l => {
+      if (l.relation === 'depends_on' || l.relation === 'blocks') return DEPENDS_ON_CURVATURE;
+      if (l.relation === 'implements' || l.relation === 'justifies') return 0.08;
+      return 0;
+    })
     .d3VelocityDecay(0.3)
     .warmupTicks(300)
     .cooldownTime(Infinity)

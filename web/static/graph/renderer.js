@@ -28,8 +28,9 @@ export function nodeVal(node) {
 const ARTIFACT_COUNT_DIVISOR = 20; // tooltip val = raw artifact count ÷ this
 
 // ── Link appearance ────────────────────────────────────────────────────────
-const LINK_WIDTH_PRIMARY   = 2;    // world units — default cross-scope / dependency links
-const LINK_WIDTH_SECONDARY = 1;    // world units — parent_of (subordinate visual weight)
+const LINK_WIDTH_PRIMARY   = 1.5;  // world units — default cross-scope / dependency links
+const LINK_WIDTH_SECONDARY = 0.6;  // world units — parent_of (subordinate visual weight)
+const LINK_WIDTH_ACCENT    = 2.0;  // world units — depends_on, implements (strong semantic weight)
 
 // ── Label canvas ───────────────────────────────────────────────────────────
 const LABEL_SPRITE_SIZE    = 28;   // world units — height of the floating name sprite
@@ -49,16 +50,36 @@ function healthHue(violations) {
 }
 
 // ── Link colours by relation ───────────────────────────────────────────────
+// Harmonized with node palette: structural edges are muted, semantic edges are vivid.
 export const LINK_COLORS = {
-  'cross-scope': 'rgba(148,163,184,0.8)',
-  'parent_of':   'rgba(148,163,184,0.5)',
-  'depends_on':  'rgba(251,146,60,0.9)',
-  'implements':  'rgba(52,211,153,0.9)',
-  'justifies':   'rgba(167,139,250,0.9)',
-  'satisfies':   'rgba(56,189,248,0.9)',
-  'documents':   'rgba(148,163,184,0.6)',
+  'cross-scope': 'rgba(120,130,160,0.25)',  // barely visible — structural scaffolding
+  'parent_of':   'rgba(120,130,160,0.15)',  // whisper — hierarchy shouldn't dominate
+  'depends_on':  'rgba(251,146,60,0.65)',   // amber — critical path
+  'implements':  'rgba(52,211,153,0.55)',    // emerald — realization
+  'justifies':   'rgba(167,139,250,0.50)',   // violet — rationale
+  'satisfies':   'rgba(56,189,248,0.50)',    // sky — conformance
+  'documents':   'rgba(120,130,160,0.20)',   // muted — reference links
+  'mentions':    'rgba(120,130,160,0.12)',   // ghost — weakest semantic weight
+  'cites':       'rgba(100,140,180,0.35)',   // steel — knowledge provenance
+  'blocks':      'rgba(239,68,68,0.60)',     // red — impediment
+  'relates_to':  'rgba(120,130,160,0.20)',   // neutral — generic association
 };
-const DEFAULT_LINK_COLOR = 'rgba(148,163,184,0.7)';
+const DEFAULT_LINK_COLOR = 'rgba(120,130,160,0.20)';
+
+// ── Link width by relation ────────────────────────────────────────────────
+const LINK_WIDTHS = {
+  'parent_of':   LINK_WIDTH_SECONDARY,
+  'documents':   LINK_WIDTH_SECONDARY,
+  'mentions':    LINK_WIDTH_SECONDARY,
+  'relates_to':  LINK_WIDTH_SECONDARY,
+  'cross-scope': LINK_WIDTH_PRIMARY,
+  'depends_on':  LINK_WIDTH_ACCENT,
+  'implements':  LINK_WIDTH_ACCENT,
+  'blocks':      LINK_WIDTH_ACCENT,
+  'justifies':   LINK_WIDTH_PRIMARY,
+  'satisfies':   LINK_WIDTH_PRIMARY,
+  'cites':       LINK_WIDTH_PRIMARY,
+};
 
 // ── Interface ──────────────────────────────────────────────────────────────
 
@@ -214,11 +235,13 @@ export class KindColorRenderer extends BaseRenderer {
       .nodeResolution(SPHERE_SEGMENTS)
       .linkColor(l => LINK_COLORS[l.relation] || DEFAULT_LINK_COLOR)
       .linkOpacity(1)
-      .linkWidth(l => l.relation === 'parent_of' ? LINK_WIDTH_SECONDARY : LINK_WIDTH_PRIMARY)
-      .linkDirectionalArrowLength(l => l.relation === 'depends_on' ? ARROW_HEAD_SIZE : 0)
+      .linkWidth(l => LINK_WIDTHS[l.relation] ?? LINK_WIDTH_PRIMARY)
+      .linkDirectionalArrowLength(l => DIRECTIONAL_RELATIONS.has(l.relation) ? ARROW_HEAD_SIZE : 0)
       .linkDirectionalArrowRelPos(1);
   }
 }
+
+const DIRECTIONAL_RELATIONS = new Set(['depends_on', 'implements', 'justifies', 'satisfies', 'blocks', 'cites']);
 
 // ── Fallback palette (no culori) ───────────────────────────────────────────
 
@@ -261,6 +284,6 @@ export class CSSVarRenderer extends BaseRenderer {
       .nodeOpacity(0.95)
       .linkColor(l => LINK_COLORS[l.relation] || DEFAULT_LINK_COLOR)
       .linkOpacity(1)
-      .linkWidth(l => l.relation === 'parent_of' ? 1 : 2);
+      .linkWidth(l => LINK_WIDTHS[l.relation] ?? LINK_WIDTH_PRIMARY);
   }
 }
