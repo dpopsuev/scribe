@@ -246,8 +246,9 @@ function mergedGraphData() {
 }
 
 function applyGraphData() {
-  const data = mergedGraphData();
-  log.info('applyGraphData nodes=%d links=%d', data.nodes.length, data.links.length);
+  const raw = mergedGraphData();
+  const data = filterGraphData(raw);
+  log.info('applyGraphData nodes=%d links=%d (raw %d)', data.nodes.length, data.links.length, raw.nodes.length);
   Graph.graphData(data);
   // no post-processing — renderer owns appearance only, not material patching
   const { nodes, links } = Graph.graphData();
@@ -631,8 +632,49 @@ function onNodeRightClick(node, event) {
 }
 
 
+function filterGraphData(data) {
+  const kinds = activeKindPrefixes();
+  const minRefs = minRefsValue();
+  let nodes = data.nodes;
+  if (kinds.length > 0) {
+    nodes = nodes.filter(n => {
+      if (n.kind === 'scope' || n.kind === 'kind-group') return true;
+      return kinds.some(k => n.kind?.startsWith(k));
+    });
+  }
+  if (minRefs > 0) {
+    const degree = {};
+    data.links.forEach(l => {
+      const src = typeof l.source === 'object' ? l.source.id : l.source;
+      const tgt = typeof l.target === 'object' ? l.target.id : l.target;
+      degree[src] = (degree[src] || 0) + 1;
+      degree[tgt] = (degree[tgt] || 0) + 1;
+    });
+    nodes = nodes.filter(n => {
+      if (n.kind === 'scope' || n.kind === 'kind-group') return true;
+      return (degree[n.id] || 0) >= minRefs;
+    });
+  }
+  const nodeIds = new Set(nodes.map(n => n.id));
+  const links = data.links.filter(l => {
+    const src = typeof l.source === 'object' ? l.source.id : l.source;
+    const tgt = typeof l.target === 'object' ? l.target.id : l.target;
+    return nodeIds.has(src) && nodeIds.has(tgt);
+  });
+  return { nodes, links };
+}
+
 function activeRelations() {
-  return [...document.querySelectorAll('.rel-toggle.active')].map(el => el.dataset.rel);
+  return [...document.querySelectorAll('.rel-toggle.active[data-rel]')].map(el => el.dataset.rel);
+}
+
+function activeKindPrefixes() {
+  return [...document.querySelectorAll('.rel-toggle.active[data-kind]')].map(el => el.dataset.kind);
+}
+
+function minRefsValue() {
+  const el = document.getElementById('minrefs-slider');
+  return el ? parseInt(el.value, 10) : 0;
 }
 
 
@@ -661,6 +703,18 @@ export function initGraph(injectedDeps) {
   state.els.ctxMenu       = document.getElementById('ctx-menu');
   const sidebarCloseBtn   = document.getElementById('sidebar-close');
   if (sidebarCloseBtn) sidebarCloseBtn.onclick = () => closeSidebar(state.els.sidebar);
+
+  document.querySelectorAll('.rel-toggle[data-rel]').forEach(el => {
+    el.onclick = () => { el.classList.toggle('active'); };
+  });
+  document.querySelectorAll('.rel-toggle[data-kind]').forEach(el => {
+    el.onclick = () => { el.classList.toggle('active'); };
+  });
+  const minrefsSlider = document.getElementById('minrefs-slider');
+  const minrefsVal = document.getElementById('minrefs-val');
+  if (minrefsSlider && minrefsVal) {
+    minrefsSlider.oninput = () => { minrefsVal.textContent = minrefsSlider.value; };
+  }
 
   // Renderer: swap this one line to change node appearance.
   // KindColorRenderer — hardcoded kind colors, opacity 0.9 (v1 exact)

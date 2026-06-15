@@ -82,11 +82,22 @@
   <label>
     Status filter
     <select id="status-select">
-      <option value="active,draft,current,proposed,in_progress,in_review,fleeting">Active work</option>
-      <option value="active,draft,current,proposed,in_progress,in_review,fleeting,complete,archived">All</option>
-      <option value="active,current,in_progress">Active only</option>
+      <option value="work.draft,work.active,work.blocked,note.fleeting,note.mature,decision.proposed,active">Active work</option>
+      <option value="work.draft,work.active,work.blocked,work.complete,note.fleeting,note.mature,note.evergreen,decision.proposed,decision.accepted,cancelled,archived,active">All</option>
+      <option value="work.active,note.mature,decision.accepted,active">Active only</option>
     </select>
   </label>
+
+  <div>
+    <div style="opacity:0.6;margin-bottom:0.25rem">Kinds</div>
+    <div class="rel-toggles" id="kind-toggles">
+      <span class="rel-toggle active" data-kind="effort">effort</span>
+      <span class="rel-toggle active" data-kind="intent">intent</span>
+      <span class="rel-toggle active" data-kind="knowledge">knowledge</span>
+      <span class="rel-toggle" data-kind="support">support</span>
+      <span class="rel-toggle" data-kind="code">code</span>
+    </div>
+  </div>
 
   <div>
     <div style="opacity:0.6;margin-bottom:0.25rem">Relations (micro)</div>
@@ -97,6 +108,11 @@
       <span class="rel-toggle" data-rel="justifies">justifies</span>
       <span class="rel-toggle" data-rel="satisfies">satisfies</span>
     </div>
+  </div>
+
+  <div>
+    <div style="opacity:0.6;margin-bottom:0.25rem">Min connections <span id="minrefs-val">0</span></div>
+    <input type="range" id="minrefs-slider" min="0" max="10" value="0" style="width:100%">
   </div>
 
   <div id="expanded-wrap" style="display:none">
