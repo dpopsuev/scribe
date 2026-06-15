@@ -768,6 +768,17 @@ export function initGraph(injectedDeps) {
   document.querySelectorAll('.rel-toggle[data-kind]').forEach(el => {
     el.onclick = () => { el.classList.toggle('active'); applyGraphData(); };
   });
+  const layoutSelect = document.getElementById('layout-select');
+  if (layoutSelect) {
+    layoutSelect.onchange = () => {
+      const mode = layoutSelect.value || null;
+      Graph.dagMode(mode);
+      if (mode) Graph.dagLevelDistance(50);
+      Graph.d3ReheatSimulation();
+      log.info('layout mode=%s', mode || 'free');
+    };
+  }
+
   const hiddenClear = document.getElementById('hidden-clear');
   if (hiddenClear) {
     hiddenClear.onclick = () => { hiddenNodes.clear(); applyGraphData(); updateHiddenPanel(); };
@@ -853,6 +864,8 @@ export function initGraph(injectedDeps) {
     .d3VelocityDecay(0.3)
     .warmupTicks(100)
     .cooldownTime(Infinity)
+    .onDagError(() => {})
+    .dagNodeFilter(n => n.kind !== 'project' && n.kind !== 'kind-group')
     .onNodeClick(onNodeClickWithDbl)
     .onNodeRightClick(onNodeRightClick)
     .onBackgroundClick((() => {
