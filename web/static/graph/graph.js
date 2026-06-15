@@ -349,7 +349,10 @@ async function loadMacro() {
 
 
 async function expandScope(scopeName) {
-  if (state.expandedScopes.has(scopeName)) return;
+  if (state.expandedScopes.has(scopeName)) {
+    collapseScope(scopeName);
+    return;
+  }
   const t0 = performance.now();
   const status    = document.getElementById('status-select')?.value || DEFAULT_STATUSES;
   const relations = activeRelations();
@@ -365,7 +368,7 @@ async function expandScope(scopeName) {
   const fetchMs = (performance.now() - t0).toFixed(1);
   log.info('expandScope scope=%s kinds=%d links=%d fetch=%sms', scopeName, kindData.nodes.length, kindData.links.length, fetchMs);
 
-  const scopeNodeId = `scope:${scopeName}`;
+  const scopeNodeId = `project:${scopeName}`;
   const anchor = state.scopeSpherePos.get(scopeName) || { x: 0, y: 0, z: 0 };
   kindData.nodes = placeInMiniSphere(kindData.nodes, kindData.links, anchor, KIND_SPHERE_RADIUS);
   for (const n of kindData.nodes) {
@@ -382,6 +385,13 @@ async function expandScope(scopeName) {
 
 async function expandKind(scopeName, kindName) {
   const key = `${scopeName}:${kindName}`;
+  if (state.expandedKinds.has(key)) {
+    state.expandedKinds.delete(key);
+    removeBubble(`kind:${key}`);
+    applyGraphData();
+    updateModeBadge();
+    return;
+  }
   if (state.expandedKinds.has(key)) return;
   const status    = document.getElementById('status-select')?.value || DEFAULT_STATUSES;
   const relations = activeRelations();

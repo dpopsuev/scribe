@@ -50,20 +50,26 @@ function healthHue(violations) {
 }
 
 // ── Link colours by relation ───────────────────────────────────────────────
-// Harmonized with node palette: structural edges are muted, semantic edges are vivid.
+// Semantic color coding: each relation family gets a distinct hue.
+// Structural edges are muted; semantic edges are vivid.
+// Palette limited to 7 distinct hues for accessibility (grayscale-safe via opacity).
 export const LINK_COLORS = {
-  'cross-scope': 'rgba(120,130,160,0.25)',  // barely visible — structural scaffolding
-  'parent_of':   'rgba(120,130,160,0.15)',  // whisper — hierarchy shouldn't dominate
-  'depends_on':  'rgba(251,146,60,0.65)',   // amber — critical path
-  'implements':  'rgba(52,211,153,0.55)',    // emerald — realization
-  'justifies':   'rgba(167,139,250,0.50)',   // violet — rationale
-  'satisfies':   'rgba(56,189,248,0.50)',    // sky — conformance
-  'documents':   'rgba(120,130,160,0.20)',   // muted — reference links
-  'mentions':    'rgba(120,130,160,0.12)',   // ghost — weakest semantic weight
-  'cites':       'rgba(100,140,180,0.35)',   // steel — knowledge provenance
-  'blocks':      'rgba(239,68,68,0.60)',     // red — impediment
-  'relates_to':  'rgba(120,130,160,0.20)',
-  'contains':    'rgba(120,130,160,0.10)',   // neutral — generic association
+  'contains':    'rgba(160,170,190,0.12)',   // near-invisible — hierarchy scaffolding
+  'cross-scope': 'rgba(160,170,190,0.20)',   // light grey — structural
+  'parent_of':   'rgba(160,170,190,0.18)',   // light grey — hierarchy
+  'depends_on':  'rgba(251,146,60,0.70)',    // orange — critical path / blocking
+  'blocks':      'rgba(239,68,68,0.70)',     // red — impediment
+  'implements':  'rgba(52,211,153,0.65)',     // green — realization / delivery
+  'satisfies':   'rgba(52,211,153,0.50)',     // green (lighter) — conformance
+  'justifies':   'rgba(139,92,246,0.60)',     // purple — rationale / reasoning
+  'cites':       'rgba(139,92,246,0.45)',     // purple (lighter) — provenance
+  'documents':   'rgba(59,130,246,0.50)',     // blue — reference / documentation
+  'relates_to':  'rgba(59,130,246,0.30)',     // blue (lighter) — generic association
+  'mentions':    'rgba(59,130,246,0.20)',     // blue (faint) — weak reference
+  'elaborates':  'rgba(236,72,153,0.55)',     // pink — expansion / detail
+  'contradicts': 'rgba(239,68,68,0.55)',      // red — conflict
+  'synthesises': 'rgba(14,165,233,0.55)',     // cyan — synthesis
+  'remembers':   'rgba(245,158,11,0.45)',     // amber — memory / recall
 };
 const DEFAULT_LINK_COLOR = 'rgba(120,130,160,0.20)';
 
