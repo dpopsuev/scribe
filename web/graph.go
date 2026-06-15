@@ -50,6 +50,9 @@ func buildScopeGraph(ctx context.Context, proto *parchment.Protocol) (graphData,
 	}
 	nodes := make([]graphNode, 0, len(counts))
 	for _, sc := range counts {
+		if sc.Scope == "" || sc.Scope == parchment.SchemaScope || strings.HasPrefix(sc.Scope, "scribe-session") {
+			continue
+		}
 		nodes = append(nodes, graphNode{
 			ID: "scope:" + sc.Scope, Name: sc.Scope,
 			Kind: "scope", Scope: sc.Scope,
