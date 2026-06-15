@@ -146,8 +146,8 @@ const SCROLL_ZOOM_COAST    = 0.88;  // fraction of speed kept each frame (~400 m
 // ── Label rendering ────────────────────────────────────────────────────────
 const LABEL_UPDATE_EVERY_N_FRAMES = 4;    // ~15 fps updates — imperceptible at human refresh rate
 const LABEL_OPACITY_EPSILON       = 0.02; // skip GPU write if opacity change < 2%
-const LABEL_FADE_START_DIST       = 300;  // world units — full opacity within this distance
-const LABEL_FADE_END_DIST         = 900;  // world units — fully transparent beyond this distance
+const LABEL_FADE_START_DIST       = 150;  // world units — full opacity within this distance
+const LABEL_FADE_END_DIST         = 500;  // world units — fully transparent beyond this distance
 
 // ── Frame budget ───────────────────────────────────────────────────────────
 const FRAME_BUDGET_MS      = 8;    // JS budget per frame — headroom for Three.js + browser
@@ -585,7 +585,11 @@ function onTick() {
 }
 
 
-function onNodeClickWithDbl(node) {
+function onNodeClickWithDbl(node, event) {
+  if (event?.ctrlKey || event?.metaKey) {
+    hideNode(node.id);
+    return;
+  }
   const now = Date.now();
   if (state.lastClick.node === node && now - state.lastClick.time < DOUBLE_CLICK_MAX_MS) {
     state.lastClick.node = null;
@@ -632,10 +636,21 @@ function onNodeRightClick(node, event) {
 }
 
 
+const hiddenNodes = new Set();
+
+function hideNode(id) {
+  hiddenNodes.add(id);
+  applyGraphData();
+  log.info('hideNode id=%s hidden=%d', id, hiddenNodes.size);
+}
+
 function filterGraphData(data) {
   const kinds = activeKindPrefixes();
   const minRefs = minRefsValue();
   let nodes = data.nodes;
+  if (hiddenNodes.size > 0) {
+    nodes = nodes.filter(n => !hiddenNodes.has(n.id));
+  }
   if (kinds.length > 0) {
     nodes = nodes.filter(n => {
       if (n.kind === 'scope' || n.kind === 'kind-group') return true;
@@ -758,10 +773,17 @@ export function initGraph(injectedDeps) {
 
   Graph = window._Graph = graphBuilder
     .nodeLabel(n => {
-      const title = n.kind === 'scope'
-        ? `<strong>${n.name}</strong><br><span style="opacity:0.7">${n.val} artifacts — click to expand</span>`
-        : `<strong>${n.id}</strong><br>${n.name}`;
-      return `<div style="background:rgba(0,0,0,0.85);color:#e2e8f0;padding:5px 9px;border-radius:5px;font-size:12px;pointer-events:none;max-width:260px">${title}</div>`;
+      let title;
+      if (n.kind === 'scope') {
+        title = `<strong>${n.name}</strong><br><span style="opacity:0.7">${n.val} artifacts — click to expand</span>`;
+      } else if (n.kind === 'kind-group') {
+        title = `<strong>${n.group || n.name}</strong><br><span style="opacity:0.7">${n.val} artifacts</span>`;
+      } else {
+        const kind = n.kind?.split('.').pop() || '';
+        const status = n.status?.split('.').pop() || '';
+        title = `<strong>${n.name}</strong><br><span style="opacity:0.5">${kind} · ${status}</span>`;
+      }
+      return `<div style="background:rgba(0,0,0,0.9);color:#e2e8f0;padding:6px 10px;border-radius:6px;font-size:12px;pointer-events:none;max-width:280px;line-height:1.4">${title}</div>`;
     })
     .nodeResolution(12)
     // link appearance owned by renderer

@@ -28,22 +28,22 @@
     // Hues chosen algorithmically: all 16 kinds are perceptually distinct
     // (minimum linear-RGB Euclidean distance > 0.08 at L=0.73, C=0.14).
     const KIND_HUES = {
-      task:         220,  // blue
-      spec:         270,  // purple
-      bug:           12,  // red
-      goal:          52,  // amber
-      campaign:      32,  // orange
-      note:         148,  // emerald
-      concept:      175,  // cyan-green
-      source:       230,  // steel-blue
-      decision:     320,  // pink
-      need:         295,  // violet
-      doc:          162,  // teal
-      ref:          188,  // aqua
-      context:      106,  // lime
-      journal:       76,  // yellow-green
-      scope:        255,  // indigo
-      'kind-group': 210,  // sky-blue
+      task:         215,  // blue
+      spec:         275,  // purple
+      bug:            5,  // red
+      goal:          45,  // amber
+      campaign:      25,  // orange
+      note:         145,  // emerald
+      concept:      175,  // cyan
+      source:       195,  // teal
+      decision:     325,  // magenta
+      need:         300,  // violet
+      doc:          165,  // sea-green
+      ref:          115,  // lime
+      context:       85,  // yellow-green
+      journal:       65,  // gold
+      scope:        250,  // indigo
+      'kind-group': 235,  // royal-blue
     };
 
     // Status palette uses semantic hues (not generated).
@@ -108,8 +108,8 @@
 
       // Dark bg → bright saturated colors (L=0.82 = clearly visible on #05050f)
       // Light bg → darker less-saturated colors
-      const l     = isDark ? 0.82 : 0.48;
-      const c     = isDark ? 0.18 : 0.17;
+      const l     = isDark ? 0.80 : 0.48;
+      const c     = isDark ? 0.22 : 0.17;
       const tintL = isDark ? 0.24 : 0.92;
       const tintC = isDark ? 0.07 : 0.05;
       const textL = isDark ? 0.88 : 0.38;
