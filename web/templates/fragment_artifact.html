@@ -3,7 +3,7 @@
   <div class="fragment-meta">
     <span class="badge badge-{{labelValue .Artifact.Labels "status:"}}">{{labelValue .Artifact.Labels "status:"}}</span>
     <span class="badge">{{labelValue .Artifact.Labels "kind:"}}</span>
-    {{if labelValue .Artifact.Labels "scope:"}}<span class="badge-scope">{{labelValue .Artifact.Labels "scope:"}}</span>{{end}}
+    {{if labelValue .Artifact.Labels "project:"}}<span class="badge-scope">{{labelValue .Artifact.Labels "project:"}}</span>{{end}}
   </div>
 </div>
 

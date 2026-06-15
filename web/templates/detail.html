@@ -7,7 +7,7 @@
     <span class="kind-dot" style="background:var(--color-kind-{{labelValue .Artifact.Labels "kind:"}},#94a3b8)"></span>
     {{labelValue .Artifact.Labels "kind:"}}
   </td></tr>
-  <tr><td>Scope</td><td>{{labelValue .Artifact.Labels "scope:"}}</td></tr>
+  <tr><td>Scope</td><td>{{labelValue .Artifact.Labels "project:"}}</td></tr>
   <tr><td>Status</td><td><span class="badge badge-{{labelValue .Artifact.Labels "status:"}}">{{labelValue .Artifact.Labels "status:"}}</span></td></tr>
 
   {{if labelValue .Artifact.Labels "sprint:"}}<tr><td>Sprint</td><td><a href="/artifacts/{{labelValue .Artifact.Labels "sprint:"}}">{{labelValue .Artifact.Labels "sprint:"}}</a></td></tr>{{end}}

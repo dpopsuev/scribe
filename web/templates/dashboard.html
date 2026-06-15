@@ -22,7 +22,7 @@
     {{range $arts}}
     <tr>
       <td><a href="/artifacts/{{.ID}}">{{.ID}}</a></td>
-      <td>{{labelValue .Labels "scope:"}}</td>
+      <td>{{labelValue .Labels "project:"}}</td>
       <td>{{.Title}}</td>
       <td><a href="/tree/{{.ID}}">view</a></td>
     </tr>
