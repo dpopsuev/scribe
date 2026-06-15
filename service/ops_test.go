@@ -1307,3 +1307,195 @@ func TestOpQuery_ExcerptCharsZeroOff(t *testing.T) {
 		t.Errorf("excerpt_chars=0 should not include body text, got:\n%s", out)
 	}
 }
+
+// --- Schema op ---
+
+func TestOpSchema_ReturnsRelationsForKind(t *testing.T) {
+	svc := newTestService(t)
+	op := service.Find("schema")
+	if op == nil {
+		t.Fatal("schema op not registered")
+	}
+	raw, _ := json.Marshal(map[string]any{"kind": "knowledge.note"})
+	out, err := op.Run(context.Background(), svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "RELATION") {
+		t.Errorf("expected table header, got: %s", out)
+	}
+	if !strings.Contains(out, "cites") {
+		t.Errorf("expected cites relation for knowledge.note, got: %s", out)
+	}
+}
+
+func TestOpSchema_InfersKindFromID(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Labels: []string{"kind:effort.task"}, Title: "Schema test task",
+	})
+	op := service.Find("schema")
+	raw, _ := json.Marshal(map[string]any{"id": art.ID})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "effort.task") {
+		t.Errorf("expected effort.task in output, got: %s", out)
+	}
+}
+
+func TestOpSchema_RequiresKindOrID(t *testing.T) {
+	svc := newTestService(t)
+	op := service.Find("schema")
+	raw, _ := json.Marshal(map[string]any{})
+	_, err := op.Run(context.Background(), svc, raw)
+	if err == nil {
+		t.Fatal("expected error for missing kind and id")
+	}
+}
+
+// --- History op ---
+
+func TestOpHistory_ReturnsEvents(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Labels: []string{"kind:knowledge.note"}, Title: "History test",
+	})
+	op := service.Find("history")
+	raw, _ := json.Marshal(map[string]any{"id": art.ID})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "created") {
+		t.Errorf("expected created event, got: %s", out)
+	}
+}
+
+func TestOpHistory_RequiresIDOrScope(t *testing.T) {
+	svc := newTestService(t)
+	op := service.Find("history")
+	raw, _ := json.Marshal(map[string]any{})
+	_, err := op.Run(context.Background(), svc, raw)
+	if err == nil {
+		t.Fatal("expected error for missing id and scope")
+	}
+}
+
+// --- Hygiene op ---
+
+func TestOpHygiene_DetectsStaleActiveTasks(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Labels: []string{"kind:effort.task"}, Title: "Fresh active",
+	})
+	op := service.Find("hygiene")
+	raw, _ := json.Marshal(map[string]any{"scope": "test"})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "stale_active") && strings.Contains(out, "Fresh active") {
+		t.Errorf("fresh task should not be flagged stale, got: %s", out)
+	}
+}
+
+// --- Dashboard op ---
+
+func TestOpDashboard_ReturnsCampaignTable(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Labels: []string{"kind:effort.campaign"}, Title: "Test Campaign",
+	})
+	op := service.Find("dashboard")
+	raw, _ := json.Marshal(map[string]any{})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "SCOPE") || !strings.Contains(out, "CAMPAIGN") {
+		t.Errorf("expected table headers, got: %s", out)
+	}
+	if !strings.Contains(out, "Test Campaign") {
+		t.Errorf("expected campaign in output, got: %s", out)
+	}
+}
+
+// --- Delete op ---
+
+func TestOpDelete_SingleByID(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Labels: []string{"kind:knowledge.note"}, Title: "To delete",
+	})
+	op := service.Find("delete")
+	raw, _ := json.Marshal(map[string]any{"id": art.ID})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "deleted 1") {
+		t.Errorf("expected 'deleted 1', got: %s", out)
+	}
+	_, err = svc.Proto.GetArtifact(ctx, art.ID)
+	if err == nil {
+		t.Error("artifact should be deleted")
+	}
+}
+
+func TestOpDelete_DryRunDoesNotDelete(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Labels: []string{"kind:knowledge.note"}, Title: "Keep me",
+	})
+	op := service.Find("delete")
+	raw, _ := json.Marshal(map[string]any{"id": art.ID, "dry_run": true})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "dry run") {
+		t.Errorf("expected dry run output, got: %s", out)
+	}
+	got, err := svc.Proto.GetArtifact(ctx, art.ID)
+	if err != nil || got == nil {
+		t.Error("artifact should NOT be deleted in dry run")
+	}
+}
+
+func TestOpDelete_BulkByScope(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+	for i := range 3 {
+		svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+			Labels: []string{"kind:knowledge.note", "scope:bulk-test"},
+			Title:  "Bulk " + string(rune('A'+i)),
+		})
+	}
+	op := service.Find("delete")
+	raw, _ := json.Marshal(map[string]any{"scope": "bulk-test", "kind": "knowledge.note"})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "deleted 3") {
+		t.Errorf("expected 'deleted 3', got: %s", out)
+	}
+}
+
+func TestOpDelete_RequiresFilters(t *testing.T) {
+	svc := newTestService(t)
+	op := service.Find("delete")
+	raw, _ := json.Marshal(map[string]any{})
+	_, err := op.Run(context.Background(), svc, raw)
+	if err == nil {
+		t.Fatal("expected error for empty delete")
+	}
+}
