@@ -300,7 +300,7 @@ func (e *Embedder) Sweep(ctx context.Context) {
 	}
 }
 
-const maxEmbedChars = 28000 // ~7K tokens; leaves headroom below qwen3's 32K context
+const maxEmbedChars = 14000 // ~14K chars ≈ 28K tokens for mixed content; qwen3 has 32K token context
 
 func embeddingText(art *parchment.Artifact) string {
 	parts := make([]string, 0, 2+len(art.Sections))
