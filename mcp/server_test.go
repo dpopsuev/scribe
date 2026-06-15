@@ -32,10 +32,10 @@ func seedArtifacts(t *testing.T, s parchment.Store) {
 	t.Helper()
 	ctx := context.Background()
 	for _, a := range []*parchment.Artifact{
-		{ID: "TASK-2026-001", Labels: []string{"kind:effort.task", "work.draft", "scope:origami"}, Title: "Origami A"},
-		{ID: "TASK-2026-002", Labels: []string{"kind:effort.task", "work.draft", "scope:origami"}, Title: "Origami B"},
-		{ID: "TASK-2026-003", Labels: []string{"kind:effort.task", "work.draft", "scope:mos"}, Title: "Mos A"},
-		{ID: "TASK-2026-004", Labels: []string{"kind:effort.task", "work.draft", "scope:asterisk"}, Title: "Asterisk A"},
+		{ID: "TASK-2026-001", Labels: []string{"kind:effort.task", "work.draft", "project:origami"}, Title: "Origami A"},
+		{ID: "TASK-2026-002", Labels: []string{"kind:effort.task", "work.draft", "project:origami"}, Title: "Origami B"},
+		{ID: "TASK-2026-003", Labels: []string{"kind:effort.task", "work.draft", "project:mos"}, Title: "Mos A"},
+		{ID: "TASK-2026-004", Labels: []string{"kind:effort.task", "work.draft", "project:asterisk"}, Title: "Asterisk A"},
 	} {
 		if err := s.Put(ctx, a); err != nil {
 			t.Fatal(err)
@@ -137,7 +137,7 @@ func TestScopedCreate_DefaultScope(t *testing.T) {
 		t.Errorf("expected task artifact in output, got: %s", text)
 	}
 
-	arts, _ := s.List(ctx, parchment.Filter{Labels: []string{"scope:origami"}})
+	arts, _ := s.List(ctx, parchment.Filter{Labels: []string{"project:origami"}})
 	found := false
 	for _, a := range arts {
 		if a.Title == "Auto-scoped task" {
@@ -209,9 +209,9 @@ func TestArtifactTree_MixedScope_ShowsLabels(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 
-	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:sprint", "work.active", "scope:origami"}, ID: "SPR-1", Title: "Sprint One"})
-	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "scope:origami"}, ID: "TASK-1", Title: "Origami Work"})
-	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "scope:scribe"}, ID: "TASK-2", Title: "Scribe Work"})
+	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:sprint", "work.active", "project:origami"}, ID: "SPR-1", Title: "Sprint One"})
+	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "project:origami"}, ID: "TASK-1", Title: "Origami Work"})
+	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "project:scribe"}, ID: "TASK-2", Title: "Scribe Work"})
 	_ = s.AddEdge(ctx, parchment.Edge{From: "SPR-1", To: "TASK-1", Relation: parchment.RelParentOf})
 	_ = s.AddEdge(ctx, parchment.Edge{From: "SPR-1", To: "TASK-2", Relation: parchment.RelParentOf})
 
@@ -232,9 +232,9 @@ func TestArtifactTree_SingleScope_OmitsLabels(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 
-	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:sprint", "work.active", "scope:origami"}, ID: "SPR-1", Title: "Sprint One"})
-	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "scope:origami"}, ID: "TASK-1", Title: "Work A"})
-	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "scope:origami"}, ID: "TASK-2", Title: "Work B"})
+	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:sprint", "work.active", "project:origami"}, ID: "SPR-1", Title: "Sprint One"})
+	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "project:origami"}, ID: "TASK-1", Title: "Work A"})
+	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "project:origami"}, ID: "TASK-2", Title: "Work B"})
 	_ = s.AddEdge(ctx, parchment.Edge{From: "SPR-1", To: "TASK-1", Relation: parchment.RelParentOf})
 	_ = s.AddEdge(ctx, parchment.Edge{From: "SPR-1", To: "TASK-2", Relation: parchment.RelParentOf})
 
@@ -255,9 +255,9 @@ func TestBriefing_EdgeAwareOutput(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 
-	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.campaign", "work.active", "scope:go4"}, ID: "CAM-1", Title: "Gang of Four"})
-	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "scope:go4"}, ID: "TSK-1", Title: "Remove MCP clients"})
-	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:intent.bug", "work.draft", "scope:limes"}, ID: "BUG-1", Title: "Hardcoded deps"})
+	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.campaign", "work.active", "project:go4"}, ID: "CAM-1", Title: "Gang of Four"})
+	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "project:go4"}, ID: "TSK-1", Title: "Remove MCP clients"})
+	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:intent.bug", "work.draft", "project:limes"}, ID: "BUG-1", Title: "Hardcoded deps"})
 	_ = s.AddEdge(ctx, parchment.Edge{From: "CAM-1", To: "TSK-1", Relation: parchment.RelParentOf})
 	_ = s.AddEdge(ctx, parchment.Edge{From: "TSK-1", To: "BUG-1", Relation: "implements"})
 
@@ -287,8 +287,8 @@ func TestBriefing_IncomingEdgeArrow(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 
-	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:intent.spec", "work.draft", "scope:scribe"}, ID: "SPC-1", Title: "Spec"})
-	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "scope:scribe"}, ID: "TSK-1", Title: "Task"})
+	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:intent.spec", "work.draft", "project:scribe"}, ID: "SPC-1", Title: "Spec"})
+	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "project:scribe"}, ID: "TSK-1", Title: "Task"})
 	_ = s.AddEdge(ctx, parchment.Edge{From: "TSK-1", To: "SPC-1", Relation: "implements"})
 
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
@@ -308,8 +308,8 @@ func TestTree_EdgeLabelsShownWhenPresent(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 
-	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "scope:scribe"}, ID: "TSK-1", Title: "Task"})
-	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:intent.spec", "work.draft", "scope:scribe"}, ID: "SPC-1", Title: "Spec"})
+	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "project:scribe"}, ID: "TSK-1", Title: "Task"})
+	_ = s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:intent.spec", "work.draft", "project:scribe"}, ID: "SPC-1", Title: "Spec"})
 	_ = s.AddEdge(ctx, parchment.Edge{From: "TSK-1", To: "SPC-1", Relation: "implements"})
 
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
@@ -333,7 +333,7 @@ func createMCPTemplate(t *testing.T, s parchment.Store) {
 	t.Helper()
 	ctx := context.Background()
 	err := s.Put(ctx, &parchment.Artifact{
-		Labels: []string{"kind:support.template", "work.active", "scope:test"}, ID: "SCR-TPL-1", Title: "Spec Template",
+		Labels: []string{"kind:support.template", "work.active", "project:test"}, ID: "SCR-TPL-1", Title: "Spec Template",
 		Sections: []parchment.Section{
 			{Name: "content", Text: "full raw template markdown"},
 			{Name: "problem", Text: "What is broken or missing"},
@@ -350,7 +350,7 @@ func createMCPRealisticTemplate(t *testing.T, s parchment.Store) {
 	t.Helper()
 	ctx := context.Background()
 	err := s.Put(ctx, &parchment.Artifact{
-		Labels: []string{"kind:support.template", "work.active", "scope:test"}, ID: "TPL-2026-002", Title: "Eight Section Template",
+		Labels: []string{"kind:support.template", "work.active", "project:test"}, ID: "TPL-2026-002", Title: "Eight Section Template",
 		Sections: []parchment.Section{
 			{Name: "content", Text: "full raw template markdown"},
 			{Name: "overview", Text: "High-level summary"},
@@ -708,7 +708,7 @@ func TestTemplate_MCPLinkSatisfiesBlocksMissingSections(t *testing.T) {
 
 	// Create artifact missing the MustSection ("problem") — only has non-required sections
 	s.Put(ctx, &parchment.Artifact{
-		Labels: []string{"kind:intent.spec", "work.draft", "scope:test"}, ID: "SPEC-2026-001", Title: "Incomplete Spec",
+		Labels: []string{"kind:intent.spec", "work.draft", "project:test"}, ID: "SPEC-2026-001", Title: "Incomplete Spec",
 		Sections: []parchment.Section{
 			{Name: "decision", Text: "Some decision"},
 			// Missing "problem" which is the MustSection for spec
@@ -760,7 +760,7 @@ func TestTemplate_MCPLinkSatisfiesAllowsConformant(t *testing.T) {
 
 	// Create artifact with all required sections
 	s.Put(ctx, &parchment.Artifact{
-		Labels: []string{"kind:intent.spec", "work.draft", "scope:test"}, ID: "SPEC-2026-002", Title: "Complete Spec",
+		Labels: []string{"kind:intent.spec", "work.draft", "project:test"}, ID: "SPEC-2026-002", Title: "Complete Spec",
 		Sections: []parchment.Section{
 			{Name: "problem", Text: "What is broken"},
 			{Name: "decision", Text: "What was decided"},
@@ -803,7 +803,7 @@ func TestBulkSetField(t *testing.T) {
 	ctx := context.Background()
 
 	for i := 1; i <= 5; i++ {
-		s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "scope:test"}, ID: fmt.Sprintf("TASK-2026-%03d", i), Title: fmt.Sprintf("Task %d", i)})
+		s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "project:test"}, ID: fmt.Sprintf("TASK-2026-%03d", i), Title: fmt.Sprintf("Task %d", i)})
 	}
 
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
@@ -831,7 +831,7 @@ func TestBulkSetField(t *testing.T) {
 func TestBulkSetField_SingleID(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "scope:test"}, ID: "TASK-2026-001", Title: "T1"})
+	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "project:test"}, ID: "TASK-2026-001", Title: "T1"})
 
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
@@ -852,7 +852,7 @@ func TestBulkSetField_SingleID(t *testing.T) {
 func TestBatchAttachSections(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:intent.spec", "work.draft", "scope:test"}, ID: "SPEC-2026-001", Title: "S1"})
+	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:intent.spec", "work.draft", "project:test"}, ID: "SPEC-2026-001", Title: "S1"})
 
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
@@ -881,7 +881,7 @@ func TestBatchAttachSections(t *testing.T) {
 func TestBatchAttachSections_SingleFallback(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:intent.spec", "work.draft", "scope:test"}, ID: "SPEC-2026-001", Title: "S1"})
+	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:intent.spec", "work.draft", "project:test"}, ID: "SPEC-2026-001", Title: "S1"})
 
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
@@ -904,7 +904,7 @@ func TestBatchAttachSections_SingleFallback(t *testing.T) {
 func TestAttachSection_BodyFieldAlias(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "scope:test"}, ID: "TSK-1", Title: "Test"})
+	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "project:test"}, ID: "TSK-1", Title: "Test"})
 
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
@@ -945,7 +945,7 @@ func TestAttachSection_BodyFieldAlias(t *testing.T) {
 func TestBatchAttachSections_BodyFieldAlias(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "scope:test"}, ID: "TSK-2", Title: "Test2"})
+	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "project:test"}, ID: "TSK-2", Title: "Test2"})
 
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
@@ -1038,7 +1038,7 @@ func TestBatchCreate_IntraBatchParent(t *testing.T) {
 func TestUpdate_FieldsAndSections(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "scope:test"}, ID: "TASK-2026-001", Title: "T1"})
+	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "project:test"}, ID: "TASK-2026-001", Title: "T1"})
 
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
@@ -1071,7 +1071,7 @@ func TestUpdate_FieldsAndSections(t *testing.T) {
 func TestUpdate_FieldsOnly(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "scope:test", "priority:low"}, ID: "TASK-2026-001", Title: "T1"})
+	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "project:test", "priority:low"}, ID: "TASK-2026-001", Title: "T1"})
 
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
@@ -1102,7 +1102,7 @@ func TestAutoLinkTemplate(t *testing.T) {
 	// Create a template for specs in scope "test"
 
 	s.Put(ctx, &parchment.Artifact{
-		Labels: []string{"kind:support.template", "work.active", "scope:test"}, ID: "TST-TPL-1",
+		Labels: []string{"kind:support.template", "work.active", "project:test"}, ID: "TST-TPL-1",
 		Title: "Spec Template",
 		Sections: []parchment.Section{
 			{Name: "problem", Text: "Describe the problem"},
@@ -1129,7 +1129,7 @@ func TestAutoLinkTemplate(t *testing.T) {
 	}
 
 	// Verify the satisfies link was auto-added
-	arts, _ := s.List(ctx, parchment.Filter{Labels: []string{"kind:intent.spec", "scope:test"}})
+	arts, _ := s.List(ctx, parchment.Filter{Labels: []string{"kind:intent.spec", "project:test"}})
 	found := false
 	for _, a := range arts {
 		if a.Title == "Auto-linked Spec" {
@@ -1149,12 +1149,12 @@ func TestAutoLinkTemplate_ExplicitOverride(t *testing.T) {
 	ctx := context.Background()
 
 	s.Put(ctx, &parchment.Artifact{
-		Labels: []string{"kind:support.template", "work.active", "scope:test"}, ID: "TST-TPL-1",
+		Labels: []string{"kind:support.template", "work.active", "project:test"}, ID: "TST-TPL-1",
 		Title:    "Spec Template",
 		Sections: []parchment.Section{{Name: "problem", Text: "Describe"}},
 	})
 	s.Put(ctx, &parchment.Artifact{
-		Labels: []string{"kind:support.template", "work.active", "scope:test"}, ID: "TST-TPL-2",
+		Labels: []string{"kind:support.template", "work.active", "project:test"}, ID: "TST-TPL-2",
 		Title:    "Custom Template",
 		Sections: []parchment.Section{{Name: "overview", Text: "Describe"}},
 	})
@@ -1177,7 +1177,7 @@ func TestAutoLinkTemplate_ExplicitOverride(t *testing.T) {
 		t.Fatalf("create failed: %s", text)
 	}
 
-	arts, _ := s.List(ctx, parchment.Filter{Labels: []string{"kind:intent.spec", "scope:test"}})
+	arts, _ := s.List(ctx, parchment.Filter{Labels: []string{"kind:intent.spec", "project:test"}})
 	for _, a := range arts {
 		if a.Title == "Explicit Spec" {
 			edges, _ := s.Neighbors(ctx, a.ID, "satisfies", parchment.Outgoing)
@@ -1211,8 +1211,8 @@ func TestAutoLinkTemplate_NoTemplateInScope(t *testing.T) {
 func TestListCompact(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "scope:alpha"}, ID: "T-001", Title: "First"})
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:intent.spec", "work.active", "scope:beta"}, ID: "T-002", Title: "Second"})
+	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "project:alpha"}, ID: "T-001", Title: "First"})
+	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:intent.spec", "work.active", "project:beta"}, ID: "T-002", Title: "Second"})
 
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
@@ -1266,7 +1266,7 @@ func TestClone(t *testing.T) {
 			{Name: "problem", Text: "The problem"},
 			{Name: "decision", Text: "The decision"},
 		},
-		Labels: []string{"kind:intent.spec", "work.active", "backend", "api", "scope:alpha"},
+		Labels: []string{"kind:intent.spec", "work.active", "backend", "api", "project:alpha"},
 	})
 
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
@@ -1287,7 +1287,7 @@ func TestClone(t *testing.T) {
 	}
 
 	// Verify clone has sections
-	arts, _ := s.List(ctx, parchment.Filter{Labels: []string{"kind:intent.spec", "scope:beta"}})
+	arts, _ := s.List(ctx, parchment.Filter{Labels: []string{"kind:intent.spec", "project:beta"}})
 	if len(arts) != 1 {
 		t.Fatalf("expected 1 cloned spec, got %d", len(arts))
 	}
@@ -1334,8 +1334,8 @@ func TestClone_NonexistentSource(t *testing.T) {
 func TestMCPSchema_ArrayTypes(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "scope:test"}, ID: "T-001", Title: "T1"})
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "scope:test"}, ID: "T-002", Title: "T2"})
+	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "project:test"}, ID: "T-001", Title: "T1"})
+	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "project:test"}, ID: "T-002", Title: "T2"})
 
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
@@ -1388,8 +1388,8 @@ func TestMCPSchema_ArrayTypes(t *testing.T) {
 func TestMCPSchema_BooleanTypes(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "scope:test"}, ID: "T-001", Title: "T1"})
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "scope:test"}, ID: "T-002", Title: "T2"})
+	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "project:test"}, ID: "T-001", Title: "T1"})
+	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "project:test"}, ID: "T-002", Title: "T2"})
 	s.AddEdge(ctx, parchment.Edge{From: "T-001", To: "T-002", Relation: "depends_on"})
 
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
@@ -1434,7 +1434,7 @@ func TestBatchUpdate_MultipleIDs(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 	for i := 1; i <= 3; i++ {
-		s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "scope:test"}, ID: fmt.Sprintf("T-%03d", i), Title: fmt.Sprintf("Task %d", i)})
+		s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "project:test"}, ID: fmt.Sprintf("T-%03d", i), Title: fmt.Sprintf("Task %d", i)})
 	}
 
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
@@ -1465,8 +1465,8 @@ func TestBatchUpdate_MultipleIDs(t *testing.T) {
 func TestBatchUpdate_WithPatch(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "scope:test"}, ID: "T-001", Title: "T1"})
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "scope:test"}, ID: "T-002", Title: "T2"})
+	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "project:test"}, ID: "T-001", Title: "T1"})
+	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "project:test"}, ID: "T-002", Title: "T2"})
 
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
@@ -1492,7 +1492,7 @@ func TestBatchUpdate_WithPatch(t *testing.T) {
 func TestBatchUpdate_SingleIDBackwardCompat(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "scope:test"}, ID: "T-001", Title: "T1"})
+	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "project:test"}, ID: "T-001", Title: "T1"})
 
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
@@ -1511,7 +1511,7 @@ func TestBatchUpdate_SingleIDBackwardCompat(t *testing.T) {
 func TestMCPSchema_ObjectTypes(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
-	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "scope:test"}, ID: "T-001", Title: "T1"})
+	s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.draft", "project:test"}, ID: "T-001", Title: "T1"})
 
 	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
 	cs := connectClient(t, srv)
@@ -1553,9 +1553,9 @@ func TestArchive_SingularIDWithScopeDoesNotBulk(t *testing.T) {
 
 	// Create 3 artifacts in same scope: a goal and two unrelated tasks
 	for _, a := range []*parchment.Artifact{
-		{ID: "GOL-1", Labels: []string{"kind:effort.goal", "work.active", "scope:test"}, Title: "Target Goal"},
-		{ID: "TASK-1", Labels: []string{"kind:effort.task", "work.active", "scope:test"}, Title: "Unrelated Task A"},
-		{ID: "TASK-2", Labels: []string{"kind:effort.task", "work.active", "scope:test"}, Title: "Unrelated Task B"},
+		{ID: "GOL-1", Labels: []string{"kind:effort.goal", "work.active", "project:test"}, Title: "Target Goal"},
+		{ID: "TASK-1", Labels: []string{"kind:effort.task", "work.active", "project:test"}, Title: "Unrelated Task A"},
+		{ID: "TASK-2", Labels: []string{"kind:effort.task", "work.active", "project:test"}, Title: "Unrelated Task B"},
 	} {
 		if err := s.Put(ctx, a); err != nil {
 			t.Fatal(err)
@@ -1599,7 +1599,7 @@ func TestArchive_SingleIDDryRun(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 
-	if err := s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.active", "scope:test"}, ID: "TASK-1", Title: "Dry Run Target"}); err != nil {
+	if err := s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.active", "project:test"}, ID: "TASK-1", Title: "Dry Run Target"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1632,12 +1632,12 @@ func TestArchive_CascadeDryRun(t *testing.T) {
 	ctx := context.Background()
 
 	// Create parent + 3 children
-	if err := s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.goal", "work.active", "scope:test"}, ID: "GOL-1", Title: "Parent Goal"}); err != nil {
+	if err := s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.goal", "work.active", "project:test"}, ID: "GOL-1", Title: "Parent Goal"}); err != nil {
 		t.Fatal(err)
 	}
 	for i := 1; i <= 3; i++ {
 		id := fmt.Sprintf("TASK-%d", i)
-		if err := s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.active", "scope:test"}, ID: id, Title: fmt.Sprintf("Child %d", i)}); err != nil {
+		if err := s.Put(ctx, &parchment.Artifact{Labels: []string{"kind:effort.task", "work.active", "project:test"}, ID: id, Title: fmt.Sprintf("Child %d", i)}); err != nil {
 			t.Fatal(err)
 		}
 		if err := s.AddEdge(ctx, parchment.Edge{From: "GOL-1", To: id, Relation: parchment.RelParentOf}); err != nil {
@@ -2222,9 +2222,9 @@ func TestList_SearchByQuery(t *testing.T) {
 	ctx := context.Background()
 
 	for _, a := range []*parchment.Artifact{
-		{ID: "T-001", Labels: []string{"kind:effort.task", "work.draft", "scope:test"}, Title: "Implement auth module"},
-		{ID: "T-002", Labels: []string{"kind:effort.task", "work.draft", "scope:test"}, Title: "Fix database migration"},
-		{ID: "T-003", Labels: []string{"kind:effort.task", "work.draft", "scope:test"}, Title: "Add logging middleware"},
+		{ID: "T-001", Labels: []string{"kind:effort.task", "work.draft", "project:test"}, Title: "Implement auth module"},
+		{ID: "T-002", Labels: []string{"kind:effort.task", "work.draft", "project:test"}, Title: "Fix database migration"},
+		{ID: "T-003", Labels: []string{"kind:effort.task", "work.draft", "project:test"}, Title: "Add logging middleware"},
 	} {
 		if err := s.Put(ctx, a); err != nil {
 			t.Fatal(err)

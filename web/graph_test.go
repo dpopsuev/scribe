@@ -25,9 +25,9 @@ func setupGraph(t *testing.T) *web.Server {
 
 	// Two scopes: alpha (2 tasks) and beta (1 spec).
 	for _, art := range []*parchment.Artifact{
-		{ID: "TSK-A1", Labels: []string{"kind:effort.task", "status:active", "scope:alpha"}, Title: "Alpha task 1"},
-		{ID: "TSK-A2", Labels: []string{"kind:effort.task", "status:draft", "scope:alpha"}, Title: "Alpha task 2"},
-		{ID: "SPC-B1", Labels: []string{"kind:intent.spec", "status:active", "scope:beta"}, Title: "Beta spec 1"},
+		{ID: "TSK-A1", Labels: []string{"kind:effort.task", "status:active", "project:alpha"}, Title: "Alpha task 1"},
+		{ID: "TSK-A2", Labels: []string{"kind:effort.task", "status:draft", "project:alpha"}, Title: "Alpha task 2"},
+		{ID: "SPC-B1", Labels: []string{"kind:intent.spec", "status:active", "project:beta"}, Title: "Beta spec 1"},
 	} {
 		if err := s.Put(ctx, art); err != nil {
 			t.Fatal(err)
@@ -413,7 +413,7 @@ func TestArtifactGraph_MaxNodes(t *testing.T) {
 	for i := range 100 {
 		proto.CreateArtifact(ctx, parchment.CreateInput{
 			Title:  "node-" + strings.Repeat("x", 3) + string(rune('A'+i%26)),
-			Labels: []string{"kind:effort.task", "scope:stress"},
+			Labels: []string{"kind:effort.task", "project:stress"},
 		})
 	}
 
@@ -452,7 +452,7 @@ func TestArtifactGraph_StressLargeScope(t *testing.T) {
 	for i := range 3000 {
 		art, _ := proto.CreateArtifact(ctx, parchment.CreateInput{
 			Title:  "stress-" + string(rune('A'+i%26)) + strings.Repeat("x", i%10),
-			Labels: []string{"kind:effort.task", "scope:big"},
+			Labels: []string{"kind:effort.task", "project:big"},
 		})
 		ids[i] = art.ID
 	}

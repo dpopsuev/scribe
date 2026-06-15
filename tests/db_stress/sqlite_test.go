@@ -28,7 +28,7 @@ func TestSQLite_WALGrowth(t *testing.T) {
 	for i := 0; i < 2000; i++ {
 		art := &parchment.Artifact{
 			ID:     fmt.Sprintf("WAL-TSK-%d", i+1),
-			Labels: []string{"kind:effort.task", "status:draft", "scope:stress"},
+			Labels: []string{"kind:effort.task", "status:draft", "project:stress"},
 			Title:  fmt.Sprintf("WAL stress task %d with some padding text", i+1),
 			Sections: []parchment.Section{
 				{Name: "context", Text: fmt.Sprintf("Section content for artifact %d. Representative of real-world section sizes.", i+1)},
@@ -67,7 +67,7 @@ func TestSQLite_ConnectionPool(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		_ = s.Put(ctx, &parchment.Artifact{
 			ID:     fmt.Sprintf("SEED-%d", i),
-			Labels: []string{"kind:effort.task", "status:draft", "scope:stress"},
+			Labels: []string{"kind:effort.task", "status:draft", "project:stress"},
 			Title:  fmt.Sprintf("seed %d", i),
 		})
 	}
@@ -77,7 +77,7 @@ func TestSQLite_ConnectionPool(t *testing.T) {
 	t.Logf("before: open=%d inUse=%d idle=%d", before.OpenConnections, before.InUse, before.Idle)
 
 	for i := 0; i < 1000; i++ {
-		s.List(ctx, parchment.Filter{Labels: []string{"scope:stress"}})
+		s.List(ctx, parchment.Filter{Labels: []string{"project:stress"}})
 		if i%100 == 0 {
 			stats := writer.Stats()
 			t.Logf("  after %d queries: open=%d inUse=%d idle=%d", i, stats.OpenConnections, stats.InUse, stats.Idle)
@@ -103,7 +103,7 @@ func TestSQLite_PragmaHardening(t *testing.T) {
 		id := fmt.Sprintf("CYC-%d", i)
 		if err := s.Put(ctx, &parchment.Artifact{
 			ID:     id,
-			Labels: []string{"kind:effort.task", "status:draft", "scope:test"},
+			Labels: []string{"kind:effort.task", "status:draft", "project:test"},
 			Title:  fmt.Sprintf("Cycle %d", i),
 		}); err != nil {
 			s.Close()
@@ -145,7 +145,7 @@ func TestSQLite_WriteContention(t *testing.T) {
 				id := fmt.Sprintf("W%d-TSK-%d", wIdx, i)
 				if err := s.Put(ctx, &parchment.Artifact{
 					ID:     id,
-					Labels: []string{"kind:effort.task", "status:draft", "scope:test"},
+					Labels: []string{"kind:effort.task", "status:draft", "project:test"},
 					Title:  fmt.Sprintf("Writer %d Task %d", wIdx, i),
 					Sections: []parchment.Section{
 						{Name: "context", Text: fmt.Sprintf("Content from writer %d, iteration %d", wIdx, i)},

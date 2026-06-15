@@ -86,18 +86,18 @@ func complianceServer(t *testing.T) *httptest.Server {
 	ctx := context.Background()
 	s.Put(ctx, &parchment.Artifact{ //nolint:errcheck // test setup
 		ID:    "TSK-OK",
-		Title: "Compliant", Labels: []string{"kind:effort.task", "status:active", "compliance:ok", "kind:effort.task", "scope:test"},
+		Title: "Compliant", Labels: []string{"kind:effort.task", "status:active", "compliance:ok", "kind:effort.task", "project:test"},
 	})
 	s.Put(ctx, &parchment.Artifact{ //nolint:errcheck // test setup
 		ID:     "TSK-WARN",
 		Title:  "Warning",
-		Labels: []string{"kind:effort.task", "status:active", "compliance:violation", "kind:effort.task", "scope:test"},
+		Labels: []string{"kind:effort.task", "status:active", "compliance:violation", "kind:effort.task", "project:test"},
 		Extra:  map[string]any{parchment.ExtraKeyComplianceViolations: []any{"m1", "m2"}},
 	})
 	s.Put(ctx, &parchment.Artifact{ //nolint:errcheck // test setup
 		ID:     "TSK-CRIT",
 		Title:  "Critical",
-		Labels: []string{"kind:effort.task", "status:active", "compliance:violation", "kind:effort.task", "scope:test"},
+		Labels: []string{"kind:effort.task", "status:active", "compliance:violation", "kind:effort.task", "project:test"},
 		Extra:  map[string]any{parchment.ExtraKeyComplianceViolations: []any{"m1", "m2", "m3", "m4"}},
 	})
 

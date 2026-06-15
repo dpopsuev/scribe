@@ -122,7 +122,7 @@ func TestEmbedder_ProcessOnePreservesExistingLabels(t *testing.T) {
 	ctx := context.Background()
 	proto := newTestProto(t)
 
-	originalLabels := []string{"kind:knowledge.note", "scope:test", "architecture", "priority:high"}
+	originalLabels := []string{"kind:knowledge.note", "project:test", "architecture", "priority:high"}
 	art, err := proto.CreateArtifact(ctx, parchment.CreateInput{
 		Labels: originalLabels,
 		Title:  "important architecture note",
@@ -145,7 +145,7 @@ func TestEmbedder_ProcessOnePreservesExistingLabels(t *testing.T) {
 	}
 
 	// All original labels must survive.
-	for _, want := range []string{"kind:knowledge.note", "scope:test", "architecture", "priority:high"} {
+	for _, want := range []string{"kind:knowledge.note", "project:test", "architecture", "priority:high"} {
 		if !slices.Contains(after.Labels, want) {
 			t.Errorf("label %q was destroyed by embedding; labels after: %v", want, after.Labels)
 		}

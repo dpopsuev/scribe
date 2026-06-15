@@ -1475,7 +1475,7 @@ func TestOpDelete_BulkByScope(t *testing.T) {
 	ctx := context.Background()
 	for i := range 3 {
 		svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-			Labels: []string{"kind:knowledge.note", "scope:bulk-test"},
+			Labels: []string{"kind:knowledge.note", "project:bulk-test"},
 			Title:  "Bulk " + string(rune('A'+i)),
 		})
 	}

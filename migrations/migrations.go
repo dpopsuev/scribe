@@ -79,6 +79,11 @@ var All = []Migration{
 		Description: "Replace stale HGM-*/LCS-*/SCR-* ID references in sections with UUIDs via alias table",
 		Run:         migrateResolveLegacyIDs,
 	},
+	{
+		ID:          "0009_scope_to_project",
+		Description: "Rename scope:X labels to project:X for composable multi-label organization",
+		Run:         migrateScopeToProject,
+	},
 }
 
 // RunPending applies all migrations that have not yet been recorded as applied.

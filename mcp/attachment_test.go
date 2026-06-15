@@ -16,7 +16,7 @@ func TestAttach_StoresAndReturnsImage(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 	_ = s.Put(ctx, &parchment.Artifact{
-		ID: "ART-ATTACH-1", Title: "Attach test", Labels: []string{"kind:intent.spec", "work.draft", "scope:test"},
+		ID: "ART-ATTACH-1", Title: "Attach test", Labels: []string{"kind:intent.spec", "work.draft", "project:test"},
 	})
 
 	srv, _ := scribemcp.NewServerFromStore(s, []string{"test"}, parchment.ProtocolConfig{}, "test")
@@ -64,7 +64,7 @@ func TestDetach_RemovesAttachment(t *testing.T) {
 	s := openStore(t)
 	ctx := context.Background()
 	_ = s.Put(ctx, &parchment.Artifact{
-		ID: "ART-DETACH-1", Title: "Detach test", Labels: []string{"kind:intent.spec", "work.draft", "scope:test"},
+		ID: "ART-DETACH-1", Title: "Detach test", Labels: []string{"kind:intent.spec", "work.draft", "project:test"},
 	})
 	_ = s.PutAttachment(ctx, "ART-DETACH-1", "img.png", "image/png", []byte{1, 2, 3})
 

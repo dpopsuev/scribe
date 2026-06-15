@@ -52,7 +52,7 @@ func TestOpen_WithEmbedConfig_StartsEmbedder(t *testing.T) {
 
 	ctx := context.Background()
 	art, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Labels: []string{"kind:knowledge.note", "scope:test"},
+		Labels: []string{"kind:knowledge.note", "project:test"},
 		Title:  "embedding integration test",
 	})
 	if err != nil {

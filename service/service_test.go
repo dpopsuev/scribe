@@ -207,8 +207,8 @@ func TestSortArtifacts_ByStatus(t *testing.T) {
 
 func TestSortArtifacts_ByScope(t *testing.T) {
 	arts := []*parchment.Artifact{
-		{ID: "1", Labels: []string{"scope:z-scope"}},
-		{ID: "2", Labels: []string{"scope:a-scope"}},
+		{ID: "1", Labels: []string{"project:z-scope"}},
+		{ID: "2", Labels: []string{"project:a-scope"}},
 	}
 	service.SortArtifacts(arts, "scope")
 	if arts[0].Label(parchment.LabelPrefixScope) != "a-scope" {
