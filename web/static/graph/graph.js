@@ -364,12 +364,13 @@ async function expandScope(scopeName) {
   }
   const fetchMs = (performance.now() - t0).toFixed(1);
   log.info('expandScope scope=%s kinds=%d links=%d fetch=%sms', scopeName, kindData.nodes.length, kindData.links.length, fetchMs);
-  removeMacroNode(`scope:${scopeName}`);
 
+  const scopeNodeId = `scope:${scopeName}`;
   const anchor = state.scopeSpherePos.get(scopeName) || { x: 0, y: 0, z: 0 };
   kindData.nodes = placeInMiniSphere(kindData.nodes, kindData.links, anchor, KIND_SPHERE_RADIUS);
   for (const n of kindData.nodes) {
     state.scopeSpherePos.set(`kind:${scopeName}:${n.group || n.kind}`, { x: n.x, y: n.y, z: n.z });
+    kindData.links.push({ source: scopeNodeId, target: n.id, relation: 'contains' });
   }
 
   state.expandedScopes.set(scopeName, kindData);
@@ -399,15 +400,12 @@ async function expandKind(scopeName, kindName) {
   artData.links = artData.links.filter(l => nodeIds.has(l.source) && nodeIds.has(l.target));
 
   const kindNodeId = `kind:${key}`;
-  if (state.expandedScopes.has(scopeName)) {
-    const sd = state.expandedScopes.get(scopeName);
-    sd.nodes = sd.nodes.filter(n => n.id !== kindNodeId);
-    sd.links = sd.links.filter(l => l.source !== kindNodeId && l.target !== kindNodeId &&
-      l.source?.id !== kindNodeId && l.target?.id !== kindNodeId);
-  }
 
   const anchor = state.scopeSpherePos.get(kindNodeId) || state.scopeSpherePos.get(scopeName) || { x: 0, y: 0, z: 0 };
   artData.nodes = placeInMiniSphere(artData.nodes, artData.links, anchor, ARTIFACT_SPHERE_RADIUS);
+  for (const n of artData.nodes) {
+    artData.links.push({ source: kindNodeId, target: n.id, relation: 'contains' });
+  }
 
   state.expandedKinds.set(key, artData);
   createBubble(`kind:${key}`, ARTIFACT_SPHERE_RADIUS + 10);
@@ -439,12 +437,6 @@ async function collapseScope(scopeName) {
   updateModeBadge();
 }
 
-function removeMacroNode(nodeId) {
-  state.macroData.nodes = state.macroData.nodes.filter(n => n.id !== nodeId);
-  state.macroData.links = state.macroData.links.filter(l =>
-    l.source !== nodeId && l.target !== nodeId &&
-    l.source?.id !== nodeId && l.target?.id !== nodeId);
-}
 
 
 // Place camera at the cluster centre. Called once at boot (animMs=0) for initial placement;

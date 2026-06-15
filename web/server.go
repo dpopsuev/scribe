@@ -118,6 +118,7 @@ func NewServer(proto *parchment.Protocol, version, devPath string) *Server {
 	s.mux.HandleFunc("GET /api/v1/export/dataset", s.handleExportDataset)
 
 	// JSON API v1 — artifact read
+	s.mux.HandleFunc("GET /api/v1/artifacts/{id}/edges", s.handleAPIArtifactEdges)
 	s.mux.HandleFunc("GET /api/v1/artifacts/{id}", s.handleAPIGetArtifact)
 	s.mux.HandleFunc("GET /api/v1/artifacts", s.handleAPIListArtifacts)
 	s.mux.HandleFunc("GET /api/v1/graph/local", s.handleAPIGraphLocal)

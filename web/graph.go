@@ -328,6 +328,38 @@ func buildLocalGraph(ctx context.Context, proto *parchment.Protocol, rootID stri
 	return graphData{Nodes: nodes, Links: links}, nil
 }
 
+func (s *Server) handleAPIArtifactEdges(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	outgoing, _ := s.proto.Store().Neighbors(r.Context(), id, "", parchment.Outgoing)
+	incoming, _ := s.proto.Store().Neighbors(r.Context(), id, "", parchment.Incoming)
+
+	type edgeJSON struct {
+		From     string `json:"from"`
+		To       string `json:"to"`
+		Relation string `json:"relation"`
+		Title    string `json:"title"`
+		Kind     string `json:"kind"`
+	}
+	edges := make([]edgeJSON, 0, len(outgoing)+len(incoming))
+	for _, e := range outgoing {
+		title, kind := "", ""
+		if art, err := s.proto.GetArtifact(r.Context(), e.To); err == nil {
+			title = art.Title
+			kind = art.Label(parchment.LabelPrefixKind)
+		}
+		edges = append(edges, edgeJSON{From: e.From, To: e.To, Relation: e.Relation, Title: title, Kind: kind})
+	}
+	for _, e := range incoming {
+		title, kind := "", ""
+		if art, err := s.proto.GetArtifact(r.Context(), e.From); err == nil {
+			title = art.Title
+			kind = art.Label(parchment.LabelPrefixKind)
+		}
+		edges = append(edges, edgeJSON{From: e.From, To: e.To, Relation: e.Relation, Title: title, Kind: kind})
+	}
+	writeJSON(w, edges)
+}
+
 func (s *Server) handleAPIGetArtifact(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	art, err := s.proto.GetArtifact(r.Context(), id)

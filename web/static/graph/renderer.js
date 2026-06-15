@@ -62,7 +62,8 @@ export const LINK_COLORS = {
   'mentions':    'rgba(120,130,160,0.12)',   // ghost — weakest semantic weight
   'cites':       'rgba(100,140,180,0.35)',   // steel — knowledge provenance
   'blocks':      'rgba(239,68,68,0.60)',     // red — impediment
-  'relates_to':  'rgba(120,130,160,0.20)',   // neutral — generic association
+  'relates_to':  'rgba(120,130,160,0.20)',
+  'contains':    'rgba(120,130,160,0.10)',   // neutral — generic association
 };
 const DEFAULT_LINK_COLOR = 'rgba(120,130,160,0.20)';
 

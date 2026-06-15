@@ -1,1 +1,0 @@
-import"../chunks/Bzak7iHL.js";import"../chunks/mEQ6zEqJ.js";import{a as o,f as r}from"../chunks/B0eM5rll.js";var i=r('<div class="flex items-center justify-center h-full text-[var(--text-muted)]"><p>3D Graph — coming soon (port from existing Three.js implementation)</p></div>');function n(t){var e=i();o(t,e)}export{n as component};

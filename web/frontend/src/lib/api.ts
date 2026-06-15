@@ -34,6 +34,31 @@ export function fetchScopes(): Promise<Scope[]> {
 	return request('/scopes');
 }
 
+export interface ArtifactDetail {
+	id: string;
+	title: string;
+	labels: string[];
+	sections: { name: string; text: string }[];
+	created_at: string;
+	updated_at: string;
+}
+
+export interface Edge {
+	from: string;
+	to: string;
+	relation: string;
+	title: string;
+	kind: string;
+}
+
+export function fetchArtifact(id: string): Promise<ArtifactDetail> {
+	return request(`/artifacts/${id}`);
+}
+
+export function fetchEdges(id: string): Promise<Edge[]> {
+	return request(`/artifacts/${id}/edges`);
+}
+
 export function patchStatus(id: string, status: string): Promise<void> {
 	return request(`/artifacts/${id}`, {
 		method: 'PATCH',
