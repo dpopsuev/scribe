@@ -2,7 +2,36 @@
   import { onMount } from 'svelte';
   import { createProgram, hexToRgb, indexToColor, colorToIndex } from './webgl';
   import { NODE_VERT, NODE_FRAG, EDGE_VERT, EDGE_FRAG, NODE_CORNERS } from './shaders';
-  import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, forceX, forceY, forceRadial } from 'd3-force';
+  import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide } from 'd3-force';
+
+  // N-body gravitational force: F = G * m1 * m2 / r²
+  // Nodes with more connections (higher mass) attract others more strongly.
+  // Softening parameter prevents singularity at r=0.
+  function forceGravity(G: number, softening: number) {
+    let nodes: any[] = [];
+    function force(alpha: number) {
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const a = nodes[i], b = nodes[j];
+          const dx = (b.x || 0) - (a.x || 0);
+          const dy = (b.y || 0) - (a.y || 0);
+          const distSq = dx * dx + dy * dy + softening * softening;
+          const dist = Math.sqrt(distSq);
+          const massA = (a._size || 5) * 0.5;
+          const massB = (b._size || 5) * 0.5;
+          const F = G * massA * massB / distSq * alpha;
+          const fx = F * dx / dist;
+          const fy = F * dy / dist;
+          a.vx = (a.vx || 0) + fx / massA;
+          a.vy = (a.vy || 0) + fy / massA;
+          b.vx = (b.vx || 0) - fx / massB;
+          b.vy = (b.vy || 0) - fy / massB;
+        }
+      }
+    }
+    force.initialize = (n: any[]) => { nodes = n; };
+    return force;
+  }
 
   export interface GraphNode {
     id: string;
@@ -187,26 +216,31 @@
     simLinks = edges.map(e => ({ source: e.source, target: e.target, _color: e.color }))
       .filter(e => nodeMap.has(e.source) && nodeMap.has(e.target));
 
-    const n = simNodes.length;
-    const maxRadius = Math.max(80, n * 4);
+    const maxRadius = Math.max(100, simNodes.length * 5);
 
     simulation = forceSimulation(simNodes)
-      .force('charge', forceManyBody().strength(-80).distanceMax(120))
-      .force('center', forceCenter(0, 0).strength(0.1))
-      .force('collision', forceCollide().radius((d: any) => d._size * 2).strength(0.7))
-      .force('link', forceLink(simLinks).id((d: any) => d.id).distance(30).strength(0.6))
-      .force('x', forceX(0).strength(0.05))
-      .force('y', forceY(0).strength(0.05))
-      .force('radial', forceRadial(maxRadius * 0.6, 0, 0).strength(0.02))
-      .velocityDecay(0.4)
+      // N-body gravity: all nodes attract (like stars). G=0.8, softening=8
+      .force('gravity', forceGravity(0.8, 8))
+      // Short-range repulsion prevents overlap (like electron clouds)
+      .force('charge', forceManyBody().strength(-40).distanceMax(60))
+      // Centering keeps the center of mass at origin
+      .force('center', forceCenter(0, 0).strength(0.05))
+      // Collision: hard sphere boundary
+      .force('collision', forceCollide().radius((d: any) => (d._size || 5) * 1.8).strength(0.8))
+      // Link springs: connected nodes have extra attraction (orbital bonds)
+      .force('link', forceLink(simLinks).id((d: any) => d.id).distance(25).strength(0.5))
+      .velocityDecay(0.35)
+      .alphaDecay(0.02)
       .on('tick', () => {
-        // Clamp positions to max radius
+        // Soft boundary: dampen velocity when too far from center
         for (const node of simNodes) {
           const dist = Math.hypot(node.x || 0, node.y || 0);
           if (dist > maxRadius) {
-            const scale = maxRadius / dist;
-            node.x *= scale;
-            node.y *= scale;
+            const dampen = maxRadius / dist;
+            node.x *= dampen;
+            node.y *= dampen;
+            node.vx = (node.vx || 0) * 0.5;
+            node.vy = (node.vy || 0) * 0.5;
           }
         }
         uploadNodes();
