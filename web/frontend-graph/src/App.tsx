@@ -2,24 +2,25 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { GraphCanvas, lightTheme } from 'reagraph';
 import type { GraphCanvasRef, GraphNode, GraphEdge } from 'reagraph';
 
-// SiYuan-inspired vivid color palette — distinct, high-contrast on dark bg.
+// Desaturated palette for dark mode — 70-80% saturation, no vibrating neons.
+// Based on SiYuan hues but toned down per WCAG dark-mode research.
 const KIND_COLORS: Record<string, string> = {
-  project:     '#e8eaed',  // SiYuan doc-point (bright white-gray)
-  'kind-group': '#dd79ff', // SiYuan super-point (light purple)
-  task:        '#37A2FF',  // SiYuan table-point (bright blue)
-  goal:        '#FFBF00',  // SiYuan todo-point (golden yellow)
-  campaign:    '#f65b00',  // SiYuan listitem-point (vivid orange)
-  note:        '#80FFA5',  // SiYuan math-point (bright green)
-  concept:     '#00DDFF',  // SiYuan code-point (electric cyan)
-  bug:         '#FF0087',  // SiYuan list-point (hot pink)
-  decision:    '#8d48e3',  // SiYuan bq-point (deep purple)
-  spec:        '#076f7e',  // SiYuan p-point (teal)
-  source:      '#b3005f',  // SiYuan olist-point (magenta)
-  doc:         '#00DDFF',  // cyan
-  ref:         '#dbf32f',  // SiYuan tag-point (yellow-green)
-  need:        '#8d48e3',  // purple
-  context:     '#80FFA5',  // green
-  journal:     '#FFBF00',  // golden
+  project:     '#b0b8c4',  // neutral silver
+  'kind-group': '#b58edb', // muted purple
+  task:        '#5b9bd5',  // soft blue
+  goal:        '#d4a844',  // warm gold
+  campaign:    '#d47a3a',  // muted orange
+  note:        '#6bc88a',  // soft green
+  concept:     '#4db8c7',  // muted cyan
+  bug:         '#d45a7a',  // soft rose
+  decision:    '#8b6bb5',  // muted violet
+  spec:        '#4a9097',  // teal
+  source:      '#a15a7a',  // muted magenta
+  doc:         '#4db8c7',  // muted cyan
+  ref:         '#a8b84a',  // olive-green
+  need:        '#8b6bb5',  // muted violet
+  context:     '#6bc88a',  // soft green
+  journal:     '#d4a844',  // warm gold
 };
 
 const RELATION_COLORS: Record<string, string> = {
@@ -40,42 +41,81 @@ const RELATION_COLORS: Record<string, string> = {
   remembers:   '#f59e0b60',
 };
 
+// Dark theme: #1a1a2e background + #E0E0E0 text per WCAG dark-mode research.
+// Avoids pure black (#000) and pure white (#FFF) — both cause halation.
+// Contrast ratio ~11:1 for body text (well above 4.5:1 minimum).
 const scribeDarkTheme = {
   ...lightTheme,
-  canvas: { background: '#0a0a1a' },
+  canvas: { background: '#1a1a2e' },
   node: {
     ...lightTheme.node,
-    fill: '#94a3b8',
-    activeFill: '#f3a92f',
-    opacity: 0.85,
-    inactiveOpacity: 0.12,
+    fill: '#8a94a8',
+    activeFill: '#d4944a',
+    opacity: 0.9,
+    inactiveOpacity: 0.15,
     label: {
       ...lightTheme.node.label,
-      color: '#f1f5f9',
-      activeColor: '#ffffff',
-      fontSize: 7,
-      backgroundColor: '#0a0a1acc',
-      backgroundPadding: 2,
+      color: '#E0E0E0',
+      activeColor: '#F5F5F5',
+      fontSize: 6,
     },
   },
   edge: {
     ...lightTheme.edge,
-    fill: '#5f636830',
-    activeFill: '#4285f4',
-    opacity: 0.24,
+    fill: '#4a4a6a40',
+    activeFill: '#5b8dd4',
+    opacity: 0.28,
     label: {
       ...lightTheme.edge.label,
-      color: '#64748b',
-      fontSize: 5,
+      color: '#8a8aaa',
+      fontSize: 4,
     },
   },
   ring: {
-    fill: '#f3a92f60',
-    activeFill: '#f3a92f',
+    fill: '#d4944a50',
+    activeFill: '#d4944a',
   },
   arrow: {
-    fill: '#64748b',
-    activeFill: '#f3a92f',
+    fill: '#6a6a8a',
+    activeFill: '#d4944a',
+  },
+};
+
+// Light theme for daytime use.
+const scribeLightTheme = {
+  ...lightTheme,
+  canvas: { background: '#f8f9fa' },
+  node: {
+    ...lightTheme.node,
+    fill: '#5a6577',
+    activeFill: '#c07a2a',
+    opacity: 0.9,
+    inactiveOpacity: 0.15,
+    label: {
+      ...lightTheme.node.label,
+      color: '#1a1a2e',
+      activeColor: '#000000',
+      fontSize: 6,
+    },
+  },
+  edge: {
+    ...lightTheme.edge,
+    fill: '#9ca3af50',
+    activeFill: '#3b6bb5',
+    opacity: 0.3,
+    label: {
+      ...lightTheme.edge.label,
+      color: '#6b7280',
+      fontSize: 4,
+    },
+  },
+  ring: {
+    fill: '#c07a2a50',
+    activeFill: '#c07a2a',
+  },
+  arrow: {
+    fill: '#9ca3af',
+    activeFill: '#c07a2a',
   },
 };
 
@@ -163,7 +203,12 @@ export default function App() {
   const [layout, setLayout] = useState<LayoutType>('forceDirected3d');
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [darkMode, setDarkMode] = useState(true);
   const graphRef = useRef<GraphCanvasRef>(null);
+  const theme = darkMode ? scribeDarkTheme : scribeLightTheme;
+  const bgColor = darkMode ? '#1a1a2e' : '#f8f9fa';
+  const textColor = darkMode ? '#E0E0E0' : '#1a1a2e';
+  const panelBg = darkMode ? 'rgba(26,26,46,0.88)' : 'rgba(248,249,250,0.92)';
 
   // Load initial scope graph
   useEffect(() => {
@@ -218,15 +263,28 @@ export default function App() {
   }, [expandScope]);
 
   return (
-    <div style={{ width: '100vw', height: '100vh', background: '#05050f' }}>
+    <div style={{ width: '100vw', height: '100vh', background: bgColor }}>
       {/* Controls */}
       <div style={{
         position: 'fixed', top: '1rem', left: '1rem', zIndex: 10,
-        background: 'rgba(5,5,20,0.82)', backdropFilter: 'blur(10px)',
-        border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px',
-        padding: '0.8rem 1rem', color: '#e2e8f0', fontSize: '0.82em', minWidth: '210px',
+        background: panelBg, backdropFilter: 'blur(10px)',
+        border: `1px solid ${darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+        borderRadius: '10px',
+        padding: '0.8rem 1rem', color: textColor, fontSize: '0.82em', minWidth: '210px',
       }}>
-        <strong style={{ fontSize: '0.95em', color: '#f1f5f9' }}>Scribe Graph</strong>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <strong style={{ fontSize: '0.95em' }}>Scribe Graph</strong>
+          <button
+            onClick={() => setDarkMode(!darkMode)}
+            style={{
+              background: 'none', border: `1px solid ${darkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)'}`,
+              borderRadius: '4px', padding: '0.1rem 0.4rem', cursor: 'pointer',
+              color: textColor, fontSize: '0.75em',
+            }}
+          >
+            {darkMode ? '☀' : '☾'}
+          </button>
+        </div>
         <span style={{
           fontSize: '0.72em', padding: '0.15rem 0.5rem', borderRadius: '3px',
           background: 'rgba(99,102,241,0.3)', border: '1px solid rgba(99,102,241,0.5)',
@@ -241,8 +299,9 @@ export default function App() {
               value={layout}
               onChange={(e) => setLayout(e.target.value as LayoutType)}
               style={{
-                background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.18)',
-                color: '#e2e8f0', borderRadius: '5px', padding: '0.2rem 0.45rem', fontSize: '0.88em',
+                background: darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
+                border: `1px solid ${darkMode ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.15)'}`,
+                color: textColor, borderRadius: '5px', padding: '0.2rem 0.45rem', fontSize: '0.88em',
               }}
             >
               {LAYOUTS.map((l) => (
@@ -261,9 +320,9 @@ export default function App() {
       {/* Sidebar */}
       <div id="sidebar" style={{
         position: 'fixed', top: 0, right: 0, width: '370px', height: '100vh',
-        background: 'rgba(5,5,20,0.92)', backdropFilter: 'blur(14px)',
-        borderLeft: '1px solid rgba(255,255,255,0.1)', zIndex: 10,
-        overflowY: 'auto', padding: '1.2rem', color: '#e2e8f0',
+        background: panelBg, backdropFilter: 'blur(14px)',
+        borderLeft: `1px solid ${darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`, zIndex: 10,
+        overflowY: 'auto', padding: '1.2rem', color: textColor,
         transform: 'translateX(100%)', transition: 'transform 0.2s ease',
       }}>
         <span
@@ -278,7 +337,7 @@ export default function App() {
       {/* Hint */}
       <div style={{
         position: 'fixed', bottom: '1rem', left: '50%', transform: 'translateX(-50%)',
-        zIndex: 10, color: 'rgba(255,255,255,0.3)', fontSize: '0.72em', pointerEvents: 'none',
+        zIndex: 10, color: darkMode ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)', fontSize: '0.72em', pointerEvents: 'none',
       }}>
         Click project to expand · Drag to rotate · Scroll to zoom
       </div>
@@ -294,7 +353,7 @@ export default function App() {
           nodes={nodes}
           edges={edges}
           layoutType={layout}
-          theme={scribeDarkTheme}
+          theme={theme}
           animated={nodes.length < 500}
           cameraMode={layout.includes('3d') ? 'rotate' : 'pan'}
           labelType="auto"
