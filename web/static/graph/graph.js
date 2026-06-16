@@ -1117,6 +1117,18 @@ export function initGraph(injectedDeps) {
     dirLight.position.set(1, 1, 1);
     scene.add(dirLight);
   }
+
+  // Bloom post-processing — soft neon glow on nodes and edges.
+  import('https://esm.sh/three@0.175.0/examples/jsm/postprocessing/UnrealBloomPass.js')
+    .then(({ UnrealBloomPass }) => {
+      const bloomPass = new UnrealBloomPass();
+      bloomPass.strength = 1.2;
+      bloomPass.radius = 0.8;
+      bloomPass.threshold = 0.1;
+      Graph.postProcessingComposer().addPass(bloomPass);
+      log.info('bloom pass added strength=%d radius=%d', bloomPass.strength, bloomPass.radius);
+    })
+    .catch(err => log.warn('bloom pass unavailable: %s', err.message));
   const ctrl = Graph.controls();
   ctrl.minDistance  = CAMERA_MIN_DIST;
   ctrl.maxDistance  = CAMERA_DIST_MAX; // overwritten by fitAllNodes once data is loaded
