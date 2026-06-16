@@ -133,7 +133,7 @@ type handler struct {
 // --- consolidated input types ---
 
 type artifactInput struct {
-	Action string `json:"action" jsonschema:"required,create | get | query | set | update | link | lint | synthesize | schema | history | delete | hygiene | dashboard | recent | brief | analyze | synonym | retention"`
+	Action string `json:"action" jsonschema:"required,create | get | query | set | update | link | lint | synthesize | schema | history | delete | hygiene | dashboard | recent | brief | analyze | synonym"`
 
 	ID     string `json:"id,omitempty"`
 	Target string `json:"target,omitempty" jsonschema:"single target ID for link mode=replace; or new parent ID for set(field=parent)"`
