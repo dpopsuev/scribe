@@ -136,24 +136,25 @@ export function createShelfIndicators(THREE, scene, lens, spacing = DEFAULT_SPAC
     const layer = lens.layers[i];
     const colorIdx = i % SHELF_HEX_COLORS.length;
 
-    // Translucent horizontal plane
-    const geo = new THREE.PlaneGeometry(SHELF_WIDTH, SHELF_DEPTH);
-    const mat = new THREE.MeshBasicMaterial({
+    // Bright horizontal line at each shelf level
+    const points = [
+      new THREE.Vector3(-SHELF_WIDTH / 2, y, 0),
+      new THREE.Vector3(SHELF_WIDTH / 2, y, 0),
+    ];
+    const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
+    const lineMat = new THREE.LineBasicMaterial({
       color: SHELF_HEX_COLORS[colorIdx],
       transparent: true,
-      opacity: 0.06,
-      side: THREE.DoubleSide,
+      opacity: 0.25,
       depthWrite: false,
     });
-    const plane = new THREE.Mesh(geo, mat);
-    plane.position.set(0, y, 0);
-    plane.rotation.x = Math.PI / 2;
-    scene.add(plane);
-    meshes.push(plane);
+    const line = new THREE.Line(lineGeo, lineMat);
+    scene.add(line);
+    meshes.push(line);
 
-    // Shelf label at left edge
+    // Shelf label at left edge — larger and brighter
     const label = makeShelfLabel(THREE, layer.label, i, totalLayers);
-    label.position.set(-SHELF_WIDTH / 2 - 30, y, 0);
+    label.position.set(-SHELF_WIDTH / 2 - 40, y, 0);
     scene.add(label);
     meshes.push(label);
   }
@@ -180,7 +181,7 @@ function makeShelfLabel(THREE, text, index, total) {
   const ctx = canvas.getContext('2d');
 
   ctx.clearRect(0, 0, 256, 48);
-  ctx.fillStyle = 'rgba(5,5,20,0.7)';
+  ctx.fillStyle = 'rgba(5,5,20,0.85)';
   roundRect(ctx, 0, 0, 256, 48, 6);
   ctx.fill();
 

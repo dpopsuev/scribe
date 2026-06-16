@@ -1066,6 +1066,19 @@ export function initGraph(injectedDeps) {
   const cam = Graph.camera();
   cam.near = 0.1;
   cam.updateProjectionMatrix();
+
+  // Visual polish: fog + lighting for depth perception and material richness.
+  if (deps.THREE) {
+    const scene = Graph.scene();
+    scene.fog = new deps.THREE.Fog(GRAPH_BG, 300, 1200);
+
+    // Ambient light for uniform base illumination.
+    scene.add(new deps.THREE.AmbientLight(0xffffff, 0.6));
+    // Directional light from upper-right for subtle shading on spheres.
+    const dirLight = new deps.THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(1, 1, 1);
+    scene.add(dirLight);
+  }
   const ctrl = Graph.controls();
   ctrl.minDistance  = CAMERA_MIN_DIST;
   ctrl.maxDistance  = CAMERA_DIST_MAX; // overwritten by fitAllNodes once data is loaded
