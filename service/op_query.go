@@ -338,6 +338,19 @@ var opQuery = Op{
 		var err error
 		if li.Query != "" {
 			arts, err = svc.Proto.SearchArtifacts(ctx, li.Query, li)
+			// Synonym expansion: if query matches an alias, prepend that artifact.
+			if aliased, aliasErr := svc.Proto.GetArtifact(ctx, li.Query); aliasErr == nil {
+				found := false
+				for _, a := range arts {
+					if a.ID == aliased.ID {
+						found = true
+						break
+					}
+				}
+				if !found {
+					arts = append([]*parchment.Artifact{aliased}, arts...)
+				}
+			}
 		} else {
 			arts, err = svc.Proto.ListArtifacts(ctx, li)
 		}

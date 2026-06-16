@@ -115,6 +115,8 @@ func (s *Service) Recall(ctx context.Context, query, scope string, top int) ([]R
 	for _, a := range candidates {
 		bm25 := TermOverlap(a, queryTerms)
 		score := bm25 * KindWeight(a.Label(parchment.LabelPrefixKind), parchment.StatusFromLabels(a.Labels)) * RecencyWeight(a.UpdatedAt)
+		fanIn, _ := FanIn(ctx, s.Proto.Store(), a.ID)
+		score *= 1.0 + math.Log1p(float64(fanIn))*0.1
 		results = append(results, RecallResult{a, score})
 	}
 	sort.Slice(results, func(i, j int) bool { return results[i].Score > results[j].Score })

@@ -58,6 +58,8 @@ var opGet = Op{
 				return "", err
 			}
 			return renderTree(tree), nil
+		case "context":
+			return getContext(ctx, svc, in.ID)
 		}
 		if len(ids) == 1 {
 			art, err := svc.Proto.GetArtifact(ctx, ids[0])
@@ -267,6 +269,98 @@ func getImpact(ctx context.Context, svc *Service, id string) (string, error) {
 		lines = append(lines, "\nNo downstream impact — safe to archive.")
 	}
 	return strings.Join(lines, "\n"), nil
+}
+
+func getContext(ctx context.Context, svc *Service, id string) (string, error) {
+	art, err := svc.Proto.GetArtifact(ctx, id)
+	if err != nil {
+		return "", err
+	}
+
+	var b strings.Builder
+	kind := art.Label(parchment.LabelPrefixKind)
+	status := parchment.StatusFromLabels(art.Labels)
+	fmt.Fprintf(&b, "# Context for %s\n**%s** [%s|%s]\n\n", id, art.Title, kind, status)
+
+	// Parent chain (walk upward through parent_of)
+	parents, _ := svc.Proto.Store().Neighbors(ctx, id, parchment.RelParentOf, parchment.Incoming)
+	if len(parents) > 0 {
+		fmt.Fprintf(&b, "## Heritage\n")
+		for _, e := range parents {
+			p, err := svc.Proto.GetArtifact(ctx, e.From)
+			if err != nil {
+				continue
+			}
+			fmt.Fprintf(&b, "  %s [%s] %s\n", p.ID, p.Label(parchment.LabelPrefixKind), p.Title)
+			grandparents, _ := svc.Proto.Store().Neighbors(ctx, e.From, parchment.RelParentOf, parchment.Incoming)
+			for _, gp := range grandparents {
+				g, err := svc.Proto.GetArtifact(ctx, gp.From)
+				if err != nil {
+					continue
+				}
+				fmt.Fprintf(&b, "    %s [%s] %s\n", g.ID, g.Label(parchment.LabelPrefixKind), g.Title)
+			}
+		}
+		b.WriteString("\n")
+	}
+
+	// Children (walk downward through parent_of)
+	children, _ := svc.Proto.Store().Children(ctx, id)
+	if len(children) > 0 {
+		fmt.Fprintf(&b, "## Children (%d)\n", len(children))
+		for _, ch := range children {
+			fmt.Fprintf(&b, "  %s [%s|%s] %s\n", ch.ID, ch.Label(parchment.LabelPrefixKind), parchment.StatusFromLabels(ch.Labels), ch.Title)
+		}
+		b.WriteString("\n")
+	}
+
+	// Dependencies (depends_on outgoing)
+	deps, _ := svc.Proto.Store().Neighbors(ctx, id, parchment.RelDependsOn, parchment.Outgoing)
+	if len(deps) > 0 {
+		fmt.Fprintf(&b, "## Depends on (%d)\n", len(deps))
+		for _, e := range deps {
+			d, err := svc.Proto.GetArtifact(ctx, e.To)
+			if err != nil {
+				continue
+			}
+			fmt.Fprintf(&b, "  %s [%s|%s] %s\n", d.ID, d.Label(parchment.LabelPrefixKind), parchment.StatusFromLabels(d.Labels), d.Title)
+		}
+		b.WriteString("\n")
+	}
+
+	// Referenced knowledge (cites, elaborates, documents outgoing)
+	knowledgeRels := []string{"cites", "elaborates", "documents", "implements", "justifies"}
+	var knowledge []string
+	seen := map[string]bool{}
+	for _, rel := range knowledgeRels {
+		edges, _ := svc.Proto.Store().Neighbors(ctx, id, rel, parchment.Outgoing)
+		for _, e := range edges {
+			if seen[e.To] {
+				continue
+			}
+			seen[e.To] = true
+			ref, err := svc.Proto.GetArtifact(ctx, e.To)
+			if err != nil {
+				continue
+			}
+			knowledge = append(knowledge, fmt.Sprintf("  %s ──%s──▶ %s [%s] %s", id, rel, ref.ID, ref.Label(parchment.LabelPrefixKind), ref.Title))
+		}
+	}
+	if len(knowledge) > 0 {
+		fmt.Fprintf(&b, "## References (%d)\n", len(knowledge))
+		for _, k := range knowledge {
+			b.WriteString(k + "\n")
+		}
+		b.WriteString("\n")
+	}
+
+	// Graph metrics
+	fanIn, _ := FanIn(ctx, svc.Proto.Store(), id)
+	fanOut, _ := FanOut(ctx, svc.Proto.Store(), id)
+	score := svc.Proto.CompletionScore(ctx, art)
+	fmt.Fprintf(&b, "## Metrics\n  Fan-in: %d  Fan-out: %d  Completion: %.0f%%\n", fanIn, fanOut, score*100)
+
+	return b.String(), nil
 }
 
 func getBulk(ctx context.Context, svc *Service, ids, sectionFilter []string) (string, error) {

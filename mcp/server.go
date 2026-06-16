@@ -18,8 +18,9 @@ const toolNameArtifact = "artifact"
 // baseInstructions is the core MCP server instructions shown to clients.
 const baseInstructions = "Labeled Artifact Graph. " +
 	"SCHEMA: artifact(action=query, kind=label_definition, scope=_schema) to learn available kinds and labels. " +
-	"ORGANIZE: project: labels = git repos. Group artifacts with parent_of edges and knowledge.context containers, not sub-projects. " +
-	"Labels: project: (repo), area: (responsibility), context: (temporary), domain: (knowledge category)."
+	"ORGANIZE: project: labels map to git repos (auto-detected). " +
+	"For grouping related artifacts within a project, use parent_of edges and kind:knowledge.context as containers — NOT sub-projects. " +
+	"Use area:/context:/domain: labels for cross-cutting concerns."
 
 // workspaceUnconfiguredWarning is prepended to instructions when the client
 // has not declared workspace context in the initialize params.
@@ -77,10 +78,16 @@ func NewServer(svc *service.Service, vocab []string, version string, stdioLabels
 
 	artifactDesc := "Labeled Artifact Graph. " +
 		"FIND: query(query=) for FTS; query(ranked=true, query=) for scored recall; query(mode=semantic, query=) for vector similarity. " +
-		"READ: get(id=) full artifact. " +
+		"READ: get(id=) full artifact; get(id=, format=context) for graph context (heritage, children, dependencies, references, metrics). " +
 		"WRITE: create, set (single field), update (sections/extra patch). " +
 		"EDGES: link(id=, relation=, targets=[]) to add; link(mode=unlink) to remove; link(edges=[{from,relation,to}]) for bulk. " +
 		"PLAN: query(id=, sort=topo) for dependency order; query(id=, sort=topo, unblocked=true) for ready queue. " +
+		"ANALYZE: analyze(mode=fan) for fan-in/fan-out ranking; analyze(mode=pagerank) for centrality; " +
+		"analyze(mode=co_citation, id=) for related artifacts; analyze(mode=paths, from=, to=) for shortest path; " +
+		"analyze(mode=coupling, id=) for bibliographic coupling. " +
+		"SYNONYMS: synonym(mode=add, id=, alias=) to register alias; synonym(mode=resolve, term=) to look up. " +
+		"Search auto-resolves aliases and boosts graph-central artifacts. " +
+		"HEALTH: hygiene(scope=) for zombie campaigns, stale tasks, orphans, incomplete knowledge. " +
 		"ORGANIZE: project: labels map to git repos (auto-detected). " +
 		"For grouping related artifacts within a project, use parent_of edges and kind:knowledge.context as containers — NOT sub-projects. " +
 		"Use area:/context:/domain: labels for cross-cutting concerns."
