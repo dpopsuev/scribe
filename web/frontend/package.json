@@ -25,6 +25,7 @@
     "vitest": "^4.1.9"
   },
   "dependencies": {
+    "d3-force": "^3.0.0",
     "svelte-dnd-action": "^0.9.70"
   }
 }
