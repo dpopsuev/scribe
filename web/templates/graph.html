@@ -82,7 +82,9 @@
   <label>
     Layout
     <select id="layout-select">
-      <option value="">Free (3D force)</option>
+      <option value="">Free (3D)</option>
+      <option value="2d">Flat (2D)</option>
+      <option value="shelf">Bookshelf (layered)</option>
       <option value="td">Top → Down</option>
       <option value="lr">Left → Right</option>
       <option value="bu">Bottom → Up</option>
@@ -149,6 +151,22 @@
     </label>
   </div>
 
+  <div id="shelf-controls" style="display:none">
+    <div style="opacity:0.6;margin-bottom:0.25rem">Lens</div>
+    <select id="lens-select" style="width:100%;margin-bottom:0.3rem">
+      <option value="auto">Auto-detect</option>
+    </select>
+    <select id="lens-mode-select" style="width:100%;margin-bottom:0.3rem">
+      <option value="auto">Auto</option>
+      <option value="manual">Manual</option>
+      <option value="focus">Click to focus</option>
+    </select>
+    <label style="font-size:0.72em;display:block;margin-bottom:0.3rem">
+      Shelf spacing <span id="shelf-spacing-val">120</span>
+      <input type="range" id="shelf-spacing-slider" min="60" max="300" value="120" step="10" style="width:100%">
+    </label>
+  </div>
+
   <div id="expanded-wrap" style="display:none">
     <div style="opacity:0.6;margin-bottom:0.2rem">Expanded scopes</div>
     <div id="expanded-list"></div>
@@ -163,7 +181,7 @@
     <p class="htmx-indicator">Click a node to view details</p>
   </div>
 </div>
-<div id="hint">Click scope to expand · Double-click to collapse · Ctrl+Click to hide · Drag to orbit · Scroll to zoom</div>
+<div id="hint">Click scope to expand · Double-click to collapse · Ctrl+Click to hide · Drag to orbit · Scroll to zoom · Use Layout to switch 2D/3D</div>
 <div id="ctx-menu" style="display:none"></div>
 
 <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>

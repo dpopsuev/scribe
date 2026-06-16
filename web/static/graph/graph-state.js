@@ -29,6 +29,13 @@ export function createGraphState() {
     // Double-click detection
     lastClick:      { node: null, time: 0 },
 
+    // Shelf layout state
+    shelfCleanup: null,           // cleanup function for shelf indicators
+    activeLens: null,             // current Lens object
+    lensRegistry: null,           // Map<namespace, Lens>
+    lensResolver: null,           // LensResolver instance
+    shelfMode: false,             // true when bookshelf layout is active
+
     // DOM element refs (set during initGraph)
     els: {
       modeBadge:     null,

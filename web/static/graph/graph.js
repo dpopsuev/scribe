@@ -33,6 +33,10 @@ import { setModeBadge, depthFromExpanded, setStats,
 import { KindColorRenderer, NODE_SIZE_MIN, NODE_SIZE_MAX, SPHERE_SCALE, nodeVal } from './renderer.js';
 import { createLogger }                        from './logger.js';
 import { createGraphState }                    from './graph-state.js';
+import { fetchLensRegistry, LensResolver, kindNamespace } from './lens.js';
+import { assignShelves, clearShelves, transitionShelves,
+         tickShelfTransition, createShelfIndicators,
+         shelfCenterY }                        from './shelf-layout.js';
 
 const log = createLogger('graph');
 
@@ -166,6 +170,10 @@ const CAM_DIST_DEAD_ZONE   = 3.0;   // world units — no-op if camera is this c
 // ── Link curves ────────────────────────────────────────────────────────────
 const DEPENDS_ON_CURVATURE = 0.15;  // arc bend for depends_on edges — shows direction clearly
 
+// ── Shelf layout ──────────────────────────────────────────────────────────
+const SHELF_SPACING_DEFAULT = 120;  // world units between shelves — tunable via slider
+let shelfSpacing = SHELF_SPACING_DEFAULT;
+
 // ── Idle orbit ─────────────────────────────────────────────────────────────
 // Speed ramps up/down each frame (flywheel feel) — never snaps on or off.
 const ORBIT_CRUISE_SPEED   = 0.4;   // deg/s at cruise — slow enough to feel calm
@@ -222,6 +230,7 @@ let renderer = null;
 let Graph = null;
 let fitAllNodesFn  = null; // set by initGraph; called from loadMacro after data is loaded
 let enableOrbitFn  = null; // set by initGraph; called from loadMacro to start spinning on boot
+let currentDimensions = 3; // 2 or 3 — tracks numDimensions for physics guards
 
 // Desired camera distance — set by fitAllNodes/aimAtCenterOfMass, cleared by onInteraction.
 // tickCameraCorrection lerps the actual distance toward this each frame.
@@ -250,7 +259,11 @@ function applyGraphData() {
   const data = filterGraphData(raw);
   log.info('applyGraphData nodes=%d links=%d (raw %d)', data.nodes.length, data.links.length, raw.nodes.length);
   Graph.graphData(data);
-  // no post-processing — renderer owns appearance only, not material patching
+  // Shelf mode: assign shelves to any new nodes that don't have fy set
+  if (state.shelfMode && state.activeLens) {
+    assignShelves(data.nodes, state.activeLens, shelfSpacing);
+    for (const n of data.nodes) { n.z = 0; n.vz = 0; }
+  }
   const { nodes, links } = Graph.graphData();
   setStats(state.els.stats, nodes.length, links.length);
   renderExpandedTags(state.els.expandedWrap, state.els.expandedList, state.expandedScopes, state.expandedKinds,
@@ -296,7 +309,7 @@ async function loadMacro() {
   sorted.forEach((n, i) => {
     n.x = positions[i].x;
     n.y = positions[i].y;
-    n.z = positions[i].z;
+    n.z = currentDimensions === 2 ? 0 : positions[i].z;
     state.scopeSpherePos.set(n.scope || n.name, positions[i]);
   });
 
@@ -372,6 +385,7 @@ async function expandScope(scopeName) {
   const anchor = state.scopeSpherePos.get(scopeName) || { x: 0, y: 0, z: 0 };
   kindData.nodes = placeInMiniSphere(kindData.nodes, kindData.links, anchor, KIND_SPHERE_RADIUS);
   for (const n of kindData.nodes) {
+    if (currentDimensions === 2) { n.z = 0; }
     state.scopeSpherePos.set(`kind:${scopeName}:${n.group || n.kind}`, { x: n.x, y: n.y, z: n.z });
     kindData.links.push({ source: scopeNodeId, target: n.id, relation: 'contains' });
   }
@@ -414,6 +428,7 @@ async function expandKind(scopeName, kindName) {
   const anchor = state.scopeSpherePos.get(kindNodeId) || state.scopeSpherePos.get(scopeName) || { x: 0, y: 0, z: 0 };
   artData.nodes = placeInMiniSphere(artData.nodes, artData.links, anchor, ARTIFACT_SPHERE_RADIUS);
   for (const n of artData.nodes) {
+    if (currentDimensions === 2) { n.z = 0; }
     artData.links.push({ source: kindNodeId, target: n.id, relation: 'contains' });
   }
 
@@ -643,6 +658,22 @@ function onNodeClickWithDbl(node, event) {
     ctrl.target.set(node.x||0, node.y||0, node.z||0);
     ctrl.update();
   }
+
+  // Entry-door: in shelf mode with focus strategy, switch lens on click
+  if (state.shelfMode && state.lensResolver?.mode === 'focus') {
+    const ns = kindNamespace(node.kind);
+    if (ns && state.lensRegistry?.has(ns) && state.lensResolver.focusKind !== ns) {
+      state.lensResolver.setFocus(node.kind);
+      const newLens = state.lensResolver.resolve(Graph.graphData().nodes, state.lensRegistry);
+      if (newLens && newLens.name !== state.activeLens?.name) {
+        transitionShelves(Graph.graphData().nodes, newLens, shelfSpacing);
+        if (state.shelfCleanup) state.shelfCleanup();
+        state.shelfCleanup = createShelfIndicators(deps.THREE, Graph.scene(), newLens, shelfSpacing);
+        state.activeLens = newLens;
+        Graph.d3ReheatSimulation();
+      }
+    }
+  }
 }
 
 function onNodeRightClick(node, event) {
@@ -771,12 +802,164 @@ export function initGraph(injectedDeps) {
   const layoutSelect = document.getElementById('layout-select');
   if (layoutSelect) {
     layoutSelect.onchange = () => {
-      const mode = layoutSelect.value || null;
-      Graph.dagMode(mode);
-      if (mode) Graph.dagLevelDistance(50);
-      Graph.d3ReheatSimulation();
-      log.info('layout mode=%s', mode || 'free');
+      const val = layoutSelect.value;
+      const wasShelf = state.shelfMode;
+
+      if (val === 'shelf') {
+        enterShelfMode();
+      } else {
+        if (wasShelf) exitShelfMode();
+        const is2D = val !== '';
+        const dagMode = (val === '' || val === '2d') ? null : val;
+
+        currentDimensions = is2D ? 2 : 3;
+        Graph.numDimensions(currentDimensions);
+        Graph.dagMode(dagMode);
+        if (dagMode) Graph.dagLevelDistance(50);
+
+        if (is2D) {
+          for (const n of Graph.graphData().nodes) { n.z = 0; n.vz = 0; }
+          const cam = Graph.camera(), ctrl = Graph.controls();
+          const dist = Math.hypot(
+            cam.position.x - ctrl.target.x,
+            cam.position.y - ctrl.target.y,
+            cam.position.z - ctrl.target.z,
+          ) || 300;
+          cam.position.set(ctrl.target.x, ctrl.target.y, ctrl.target.z + dist);
+          ctrl.update();
+        }
+
+        Graph.d3ReheatSimulation();
+        log.info('layout mode=%s dims=%d', val || 'free-3d', currentDimensions);
+      }
     };
+  }
+
+  // ── Shelf controls wiring ────────────────────────────────────────────────
+  const shelfControlsEl = document.getElementById('shelf-controls');
+  const lensSelectEl    = document.getElementById('lens-select');
+  const lensModeEl      = document.getElementById('lens-mode-select');
+  const shelfSliderEl   = document.getElementById('shelf-spacing-slider');
+  const shelfSliderVal  = document.getElementById('shelf-spacing-val');
+
+  state.lensResolver = new LensResolver();
+
+  if (lensModeEl) {
+    lensModeEl.onchange = () => {
+      state.lensResolver.setMode(lensModeEl.value);
+      if (state.shelfMode) applyShelfLens();
+    };
+  }
+  if (lensSelectEl) {
+    lensSelectEl.onchange = () => {
+      state.lensResolver.setManual(lensSelectEl.value);
+      if (state.shelfMode && state.lensResolver.mode === 'manual') applyShelfLens();
+    };
+  }
+  if (shelfSliderEl && shelfSliderVal) {
+    shelfSliderEl.oninput = () => {
+      shelfSpacing = parseInt(shelfSliderEl.value, 10);
+      shelfSliderVal.textContent = String(shelfSpacing);
+      if (state.shelfMode) applyShelfLens();
+    };
+  }
+
+  // Populate lens dropdown once registry is loaded
+  fetchLensRegistry(deps.fetch).then(registry => {
+    state.lensRegistry = registry;
+    if (lensSelectEl) {
+      for (const [ns, lens] of registry) {
+        const opt = document.createElement('option');
+        opt.value = ns;
+        opt.textContent = lens.label;
+        lensSelectEl.appendChild(opt);
+      }
+    }
+    log.info('lens registry loaded namespaces=%d', registry.size);
+  }).catch(err => log.error('lens registry fetch error=%s', err.message));
+
+  // Saved force references for shelf mode restore
+  let savedCohesion = null, savedGravity = null, savedCap = null;
+
+  function enterShelfMode() {
+    state.shelfMode = true;
+    currentDimensions = 2;
+    Graph.numDimensions(2);
+    Graph.dagMode(null);
+
+    for (const n of Graph.graphData().nodes) { n.z = 0; n.vz = 0; }
+
+    // Simplify forces — shelves handle Y positioning
+    savedCohesion = Graph.d3Force('cohesion');
+    savedGravity  = Graph.d3Force('gravity');
+    savedCap      = Graph.d3Force('cap');
+    Graph.d3Force('cohesion', null);
+    Graph.d3Force('gravity', null);
+    Graph.d3Force('cap', null);
+
+    applyShelfLens();
+
+    // Camera: face straight on
+    const cam = Graph.camera(), ctrl = Graph.controls();
+    const centerY = state.activeLens ? shelfCenterY(state.activeLens, shelfSpacing) : 0;
+    const dist = Math.hypot(
+      cam.position.x - ctrl.target.x,
+      cam.position.y - ctrl.target.y,
+      cam.position.z - ctrl.target.z,
+    ) || 400;
+    cam.position.set(0, centerY, dist);
+    ctrl.target.set(0, centerY, 0);
+    ctrl.enableRotate = false;
+    ctrl.update();
+
+    if (shelfControlsEl) shelfControlsEl.style.display = '';
+    Graph.d3ReheatSimulation();
+    log.info('enterShelfMode lens=%s', state.activeLens?.name || 'none');
+  }
+
+  function exitShelfMode() {
+    state.shelfMode = false;
+    currentDimensions = 3;
+    Graph.numDimensions(3);
+
+    clearShelves(Graph.graphData().nodes);
+
+    // Restore forces
+    if (savedCohesion) Graph.d3Force('cohesion', savedCohesion);
+    if (savedGravity)  Graph.d3Force('gravity', savedGravity);
+    if (savedCap)      Graph.d3Force('cap', savedCap);
+
+    // Clean up shelf indicators
+    if (state.shelfCleanup) { state.shelfCleanup(); state.shelfCleanup = null; }
+    state.activeLens = null;
+
+    const ctrl = Graph.controls();
+    if (ctrl) ctrl.enableRotate = true;
+    if (shelfControlsEl) shelfControlsEl.style.display = 'none';
+
+    Graph.d3ReheatSimulation();
+    log.info('exitShelfMode');
+  }
+
+  function applyShelfLens() {
+    if (!state.lensRegistry || !state.lensRegistry.size) return;
+    const nodes = Graph.graphData().nodes;
+    const newLens = state.lensResolver.resolve(nodes, state.lensRegistry);
+    if (!newLens) return;
+
+    if (state.activeLens && state.activeLens.name !== newLens.name) {
+      transitionShelves(nodes, newLens, shelfSpacing);
+    } else {
+      assignShelves(nodes, newLens, shelfSpacing);
+    }
+
+    // Recreate shelf indicators
+    if (state.shelfCleanup) state.shelfCleanup();
+    state.shelfCleanup = createShelfIndicators(deps.THREE, Graph.scene(), newLens, shelfSpacing);
+    state.activeLens = newLens;
+
+    Graph.d3ReheatSimulation();
+    log.info('applyShelfLens lens=%s layers=%d', newLens.name, newLens.layers.length);
   }
 
   const hiddenClear = document.getElementById('hidden-clear');
@@ -1241,7 +1424,11 @@ export function initGraph(injectedDeps) {
     tickZoomMomentum();
 
     // Post-settle correction: gentle drift + separation at 15 fps after d3 alpha decays.
-    tickNodeCorrection();
+    // Skip in shelf mode — shelves handle Y, and drift fights the pinned positions.
+    if (!state.shelfMode) tickNodeCorrection();
+
+    // Shelf transitions — smooth lerp when lens changes.
+    if (state.shelfMode) tickShelfTransition(Graph.graphData().nodes);
 
     // Label updates: every LABEL_UPDATE_EVERY_N_FRAMES frames, skip if last frame was expensive.
     if (frameCount % LABEL_UPDATE_EVERY_N_FRAMES === 0 && frameMs < FRAME_BUDGET_MS) {
