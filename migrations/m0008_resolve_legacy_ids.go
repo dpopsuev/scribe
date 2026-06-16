@@ -63,8 +63,11 @@ func buildAliasMap(ctx context.Context, store parchment.Store) (map[string]strin
 	}
 	m := make(map[string]string)
 	for _, art := range all {
-		if art.Alias != "" && strings.Contains(art.Alias, "-") {
-			m[art.Alias] = art.ID
+		aliases, _ := store.ListAliases(ctx, art.ID)
+		for _, a := range aliases {
+			if strings.Contains(a, "-") {
+				m[a] = art.ID
+			}
 		}
 		if extra, ok := art.Extra["aliases"]; ok {
 			if raw, err := json.Marshal(extra); err == nil {
