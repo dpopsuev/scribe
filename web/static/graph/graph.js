@@ -633,22 +633,22 @@ function onTick() {
 }
 
 
-// ── Hover dimming — unrelated nodes fade to 0.2 opacity ──────────────────
-const HOVER_DIM_OPACITY = 0.15;
-const HOVER_FULL_OPACITY = 1.0;
+// ── Hover dimming — unrelated nodes shrink and desaturate ────────────────
+const HOVER_DIM_SCALE = 0.3;
 
 function onNodeHover(node) {
   const nodes = Graph.graphData().nodes;
 
   if (!node) {
-    // Reset all nodes to full opacity
     for (const n of nodes) {
-      setNodeOpacity(n, HOVER_FULL_OPACITY);
+      const obj = n.__threeObj;
+      if (obj && obj._origScale) {
+        obj.scale.copy(obj._origScale);
+      }
     }
     return;
   }
 
-  // Build set of neighbor IDs
   const neighborIds = new Set([node.id]);
   const edges = Graph.graphData().links;
   for (const l of edges) {
@@ -659,19 +659,15 @@ function onNodeHover(node) {
   }
 
   for (const n of nodes) {
-    setNodeOpacity(n, neighborIds.has(n.id) ? HOVER_FULL_OPACITY : HOVER_DIM_OPACITY);
-  }
-}
-
-function setNodeOpacity(node, opacity) {
-  const obj = node.__threeObj;
-  if (!obj) return;
-  obj.traverse(child => {
-    if (child.material) {
-      child.material.transparent = true;
-      child.material.opacity = opacity;
+    const obj = n.__threeObj;
+    if (!obj) continue;
+    if (!obj._origScale) obj._origScale = obj.scale.clone();
+    if (neighborIds.has(n.id)) {
+      obj.scale.copy(obj._origScale);
+    } else {
+      obj.scale.copy(obj._origScale).multiplyScalar(HOVER_DIM_SCALE);
     }
-  });
+  }
 }
 
 function onNodeClickWithDbl(node, event) {
