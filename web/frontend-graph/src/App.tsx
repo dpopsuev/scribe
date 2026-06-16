@@ -354,7 +354,7 @@ export default function App() {
           edges={edges}
           layoutType={layout}
           theme={theme}
-          animated={nodes.length < 500}
+          animated={false}
           cameraMode={layout.includes('3d') ? 'rotate' : 'pan'}
           labelType="auto"
           sizingType="attribute"
