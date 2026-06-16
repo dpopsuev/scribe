@@ -50,7 +50,16 @@ func NewServer(proto *parchment.Protocol, version, webPath string) *Server {
 
 	s.mux = http.NewServeMux()
 	s.mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.Dir(webPath+"/static"))))
-	s.mux.Handle("GET /app/", http.StripPrefix("/app", http.FileServer(http.Dir(webPath+"/frontend/build"))))
+	appDir := webPath + "/frontend/build"
+	appFS := http.Dir(appDir)
+	s.mux.Handle("GET /app/", http.StripPrefix("/app", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Try the exact file first; fall back to index.html for SPA routing.
+		if _, err := appFS.Open(r.URL.Path); err == nil {
+			http.FileServer(appFS).ServeHTTP(w, r)
+			return
+		}
+		http.ServeFile(w, r, appDir+"/index.html")
+	})))
 
 	// Read-only pages
 	s.mux.HandleFunc("GET /", s.handleDashboard)
