@@ -213,7 +213,7 @@ func (s *Server) handleAPIDeleteEdge(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	s.render(w, "graph.html", map[string]any{tmplKeyTitle: "Graph", "Version": s.version})
+	http.ServeFile(w, r, s.webPath+"/static/graph-app/index.html")
 }
 
 func (s *Server) handleFragmentArtifact(w http.ResponseWriter, r *http.Request) {
