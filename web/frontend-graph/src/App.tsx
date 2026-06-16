@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { GraphCanvas, lightTheme } from 'reagraph';
 import type { GraphCanvasRef, GraphNode, GraphEdge } from 'reagraph';
+import { Perf } from 'r3f-perf';
 
 // Desaturated palette for dark mode — 70-80% saturation, no vibrating neons.
 // Based on SiYuan hues but toned down per WCAG dark-mode research.
@@ -359,7 +360,9 @@ export default function App() {
           labelType="auto"
           sizingType="attribute"
           onNodeClick={handleNodeClick}
-        />
+        >
+          <Perf position="bottom-left" deepAnalyze />
+        </GraphCanvas>
       )}
 
       <style>{`
