@@ -232,7 +232,7 @@ export default function App() {
           layoutType={layout}
           theme={scribeDarkTheme}
           animated={nodes.length < 500}
-          cameraMode={layout.includes('3d') ? 'orbit' : 'pan'}
+          cameraMode={layout.includes('3d') ? 'rotate' : 'pan'}
           labelType="auto"
           onNodeClick={handleNodeClick}
         />
