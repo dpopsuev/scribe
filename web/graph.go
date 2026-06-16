@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"html/template"
 	"net/http"
 	"strconv"
 	"strings"
@@ -222,9 +223,11 @@ func (s *Server) handleFragmentArtifact(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	tmpl, ok := s.pages["fragment_artifact.html"]
-	if !ok {
-		http.Error(w, "template not found", http.StatusInternalServerError)
+	funcMap := template.FuncMap{"renderMarkdown": renderMarkdown, "labelValue": labelValue}
+	tmpl, err := template.New("fragment_artifact.html").Funcs(funcMap).ParseFiles(
+		s.webPath + "/templates/fragment_artifact.html")
+	if err != nil {
+		http.Error(w, "template error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

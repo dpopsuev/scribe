@@ -59,7 +59,7 @@ func ServeCmd() *cobra.Command {
 	var transport, addr string
 	var enableUI bool
 	var uiAddr string
-	var devUIPath string
+	var webPath string
 	var enablePprof bool
 	var pprofAddr string
 	cmd := &cobra.Command{
@@ -70,11 +70,11 @@ func ServeCmd() *cobra.Command {
   stdio (default): reads/writes JSON-RPC over stdin/stdout.
   http:            starts a Streamable HTTP server on --addr.
   --ui:            also starts a read-only web UI on --ui-addr.
-  --dev-ui PATH:   serve UI templates and static files from PATH instead of
-                   the embedded bundle. Changes are live on browser refresh
-                   without rebuilding the container.`,
+  --web-path PATH: filesystem path to web/ directory containing templates/
+                   and static/. Default: "web" (relative to working directory).
+                   In the container image, web assets are at /web.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runServe(cmd, scopes, transport, addr, uiAddr, devUIPath, pprofAddr, enableUI, enablePprof)
+			return runServe(cmd, scopes, transport, addr, uiAddr, webPath, pprofAddr, enableUI, enablePprof)
 		},
 	}
 	cmd.Flags().StringSliceVar(&scopes, "scope", nil, "home scopes (repeatable)")
@@ -82,13 +82,13 @@ func ServeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&addr, "addr", ":8080", "listen address for http transport")
 	cmd.Flags().BoolVar(&enableUI, "ui", false, "start the read-only web UI alongside the MCP server")
 	cmd.Flags().StringVar(&uiAddr, "ui-addr", ":8082", "listen address for the web UI")
-	cmd.Flags().StringVar(&devUIPath, "dev-ui", "", "serve UI from filesystem path (hot reload, no container restart needed)")
+	cmd.Flags().StringVar(&webPath, "web-path", "web", "filesystem path to web/ directory (templates + static)")
 	cmd.Flags().BoolVar(&enablePprof, "pprof", false, "enable pprof profiling endpoint (localhost only)")
 	cmd.Flags().StringVar(&pprofAddr, "pprof-addr", "127.0.0.1:6060", "listen address for pprof")
 	return cmd
 }
 
-func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, devUIPath, pprofAddr string, enableUI, enablePprof bool) error {
+func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, webPath, pprofAddr string, enableUI, enablePprof bool) error {
 	InitLogger()
 	cfg := MustConfig()
 	ctx := cmd.Context()
@@ -179,7 +179,7 @@ func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, devU
 	)
 
 	if enableUI {
-		uiSrv := web.NewServer(svc.Proto, Version, devUIPath)
+		uiSrv := web.NewServer(svc.Proto, Version, webPath)
 		go func() {
 			slog.InfoContext(ctx, "UI listening", slog.String(logKeyAddr, uiAddr))
 			if err := http.ListenAndServe(uiAddr, uiSrv); err != nil { //nolint:gosec // operator-configured address
@@ -417,7 +417,7 @@ func ToolsCmd() *cobra.Command {
 }
 
 func UICmd() *cobra.Command {
-	var addr, devUIPath string
+	var addr, webPath string
 	cmd := &cobra.Command{
 		Use:   "ui",
 		Short: "Start the read-only web UI (standalone, no MCP server)",
@@ -433,13 +433,13 @@ func UICmd() *cobra.Command {
 				return err
 			}
 			defer cleanup()
-			uiSrv := web.NewServer(svc.Proto, Version, devUIPath)
+			uiSrv := web.NewServer(svc.Proto, Version, webPath)
 			fmt.Fprintf(os.Stderr, "scribe: UI listening on %s\n", addr)
 			return http.ListenAndServe(addr, uiSrv) //nolint:gosec // operator-configured address
 		},
 	}
 	cmd.Flags().StringVar(&addr, "addr", ":8082", "listen address for the web UI")
-	cmd.Flags().StringVar(&devUIPath, "dev-ui", "", "serve UI from filesystem path (hot reload)")
+	cmd.Flags().StringVar(&webPath, "web-path", "web", "filesystem path to web/ directory")
 	return cmd
 }
 

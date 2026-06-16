@@ -2,12 +2,9 @@ package web
 
 import (
 	"bytes"
-	"embed"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"html/template"
-	"io/fs"
 	"net/http"
 	"strings"
 	"time"
@@ -21,14 +18,6 @@ import (
 
 const tmplKeyTitle = "Title"
 
-//go:embed templates/*.html
-var templateFS embed.FS
-
-//go:embed all:static
-var staticFS embed.FS
-
-var errTemplateNotFound = errors.New("template not found")
-
 var markdownParser = goldmark.New(
 	goldmark.WithExtensions(extension.GFM),
 	goldmark.WithRendererOptions(html.WithUnsafe()),
@@ -40,66 +29,28 @@ type Server struct {
 	pages   map[string]*template.Template
 	mux     *http.ServeMux
 	version string
-	devPath string // non-empty → serve templates+static from filesystem (dev mode)
+	webPath string // filesystem path to web/ directory (templates + static)
 }
 
-// NewServer creates the UI server. devPath, when non-empty, serves templates
-// and static files from the local filesystem so frontend changes take effect
-// on browser refresh without rebuilding the container.
-// Pass via --dev-ui <path/to/web>.
-func NewServer(proto *parchment.Protocol, version, devPath string) *Server {
+// NewServer creates the UI server. webPath is the filesystem path to the web/
+// directory containing templates/ and static/. Templates are parsed fresh on
+// every request so changes take effect on browser refresh.
+func NewServer(proto *parchment.Protocol, version, webPath string) *Server {
+	if webPath == "" {
+		webPath = "."
+	}
 	s := &Server{
 		proto:   proto,
 		svc:     service.New(proto, nil, nil),
 		pages:   make(map[string]*template.Template),
 		version: version,
-		devPath: devPath,
+		webPath: webPath,
 	}
-
-	if devPath == "" {
-		funcMap := template.FuncMap{
-			"renderMarkdown": renderMarkdown,
-			"labelValue":     labelValue,
-		}
-		layoutTmpl := template.Must(
-			template.New("layout.html").Funcs(funcMap).ParseFS(templateFS, "templates/layout.html"),
-		)
-		for _, page := range []string{
-			"dashboard.html", "list.html", "detail.html", "tree.html", "search.html",
-		} {
-			clone := template.Must(layoutTmpl.Clone())
-			s.pages[page] = template.Must(clone.ParseFS(templateFS, "templates/"+page))
-		}
-		fragmentTmpl := template.Must(
-			template.New("fragment_artifact.html").Funcs(funcMap).ParseFS(
-				templateFS, "templates/fragment_artifact.html"),
-		)
-		s.pages["fragment_artifact.html"] = fragmentTmpl
-		for _, g := range []string{"graph.html"} {
-			clone := template.Must(layoutTmpl.Clone())
-			s.pages[g] = template.Must(clone.ParseFS(templateFS, "templates/"+g))
-		}
-	}
-	// In dev mode templates are parsed fresh on every request — see loadTemplate().
+	// Templates are parsed fresh on every request — see loadTemplate().
 
 	s.mux = http.NewServeMux()
-
-	if devPath != "" {
-		// Serve static files directly from disk — browser hard-refresh picks up changes.
-		s.mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.Dir(devPath+"/static"))))
-	} else {
-		s.mux.Handle("GET /static/", http.FileServer(http.FS(staticFS)))
-	}
-
-	// SvelteKit SPA — serve build output at /app/
-	if devPath != "" {
-		s.mux.Handle("GET /app/", http.StripPrefix("/app", http.FileServer(http.Dir(devPath+"/frontend/build"))))
-	} else {
-		appFS, err := fs.Sub(staticFS, "static/app")
-		if err == nil {
-			s.mux.Handle("GET /app/", http.StripPrefix("/app", http.FileServer(http.FS(appFS))))
-		}
-	}
+	s.mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.Dir(webPath+"/static"))))
+	s.mux.Handle("GET /app/", http.StripPrefix("/app", http.FileServer(http.Dir(webPath+"/frontend/build"))))
 
 	// Read-only pages
 	s.mux.HandleFunc("GET /", s.handleDashboard)
@@ -256,13 +207,12 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// devTemplate parses layout + named template fresh from disk on each call.
-func (s *Server) devTemplate(name string) (*template.Template, error) {
+func (s *Server) loadTemplate(name string) (*template.Template, error) {
 	funcMap := template.FuncMap{
 		"renderMarkdown": renderMarkdown,
 		"labelValue":     labelValue,
 	}
-	layout, err := template.New("layout.html").Funcs(funcMap).ParseFiles(s.devPath + "/templates/layout.html")
+	layout, err := template.New("layout.html").Funcs(funcMap).ParseFiles(s.webPath + "/templates/layout.html")
 	if err != nil {
 		return nil, fmt.Errorf("parse layout: %w", err)
 	}
@@ -270,11 +220,11 @@ func (s *Server) devTemplate(name string) (*template.Template, error) {
 	if err != nil {
 		return nil, err
 	}
-	return clone.ParseFiles(s.devPath + "/templates/" + name)
+	return clone.ParseFiles(s.webPath + "/templates/" + name)
 }
 
 func (s *Server) render(w http.ResponseWriter, name string, data any) {
-	tmpl, err := s.resolveTemplate(name)
+	tmpl, err := s.loadTemplate(name)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -283,17 +233,6 @@ func (s *Server) render(w http.ResponseWriter, name string, data any) {
 	if err := tmpl.ExecuteTemplate(w, "layout.html", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
-}
-
-func (s *Server) resolveTemplate(name string) (*template.Template, error) {
-	if s.devPath != "" {
-		return s.devTemplate(name)
-	}
-	tmpl, ok := s.pages[name]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", errTemplateNotFound, name)
-	}
-	return tmpl, nil
 }
 
 func labelValue(labels []string, prefix string) string {

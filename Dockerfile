@@ -9,11 +9,12 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.Version=${VERSION}"
 
 FROM scratch
 COPY --from=build /scribe /scribe
+COPY --from=build /build/web/templates /web/templates
+COPY --from=build /build/web/static /web/static
 ENV HOME=/data
 ENV SCRIBE_ROOT=/data
 ENV SCRIBE_TRANSPORT=http
 ENV SCRIBE_ADDR=:8080
-ENV SCRIBE_ID_FORMAT=scoped
 VOLUME /data
 EXPOSE 8080
 ENTRYPOINT ["/scribe", "serve"]
