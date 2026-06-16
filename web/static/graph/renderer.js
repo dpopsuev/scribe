@@ -17,7 +17,7 @@ import { buildPalette } from './palette.js';
 // ── Node appearance ────────────────────────────────────────────────────────
 export const SPHERE_SCALE  = 6;    // ForceGraph3D nodeRelSize — world radius = cbrt(nodeVal) × this
 const NODE_OPACITY         = 0.95; // slight transparency improves depth perception
-const SPHERE_SEGMENTS      = 12;   // longitude/latitude divisions — 8 blocky, 16 smooth
+const SPHERE_SEGMENTS      = 16;   // longitude/latitude divisions — smoother sphere edges
 const ARROW_HEAD_SIZE      = 4;    // world units — depends_on arrow head length
 export const NODE_SIZE_MIN = 2;    // nodeVal floor — prevents invisible micro-nodes
 export const NODE_SIZE_MAX = 40;   // nodeVal ceiling — prevents nodes swallowing links

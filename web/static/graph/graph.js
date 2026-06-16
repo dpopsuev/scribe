@@ -633,6 +633,47 @@ function onTick() {
 }
 
 
+// ── Hover dimming — unrelated nodes fade to 0.2 opacity ──────────────────
+const HOVER_DIM_OPACITY = 0.15;
+const HOVER_FULL_OPACITY = 1.0;
+
+function onNodeHover(node) {
+  const nodes = Graph.graphData().nodes;
+
+  if (!node) {
+    // Reset all nodes to full opacity
+    for (const n of nodes) {
+      setNodeOpacity(n, HOVER_FULL_OPACITY);
+    }
+    return;
+  }
+
+  // Build set of neighbor IDs
+  const neighborIds = new Set([node.id]);
+  const edges = Graph.graphData().links;
+  for (const l of edges) {
+    const src = typeof l.source === 'object' ? l.source.id : l.source;
+    const tgt = typeof l.target === 'object' ? l.target.id : l.target;
+    if (src === node.id) neighborIds.add(tgt);
+    if (tgt === node.id) neighborIds.add(src);
+  }
+
+  for (const n of nodes) {
+    setNodeOpacity(n, neighborIds.has(n.id) ? HOVER_FULL_OPACITY : HOVER_DIM_OPACITY);
+  }
+}
+
+function setNodeOpacity(node, opacity) {
+  const obj = node.__threeObj;
+  if (!obj) return;
+  obj.traverse(child => {
+    if (child.material) {
+      child.material.transparent = true;
+      child.material.opacity = opacity;
+    }
+  });
+}
+
 function onNodeClickWithDbl(node, event) {
   if (event?.ctrlKey || event?.metaKey) {
     hideNode(node.id);
@@ -1029,12 +1070,12 @@ export function initGraph(injectedDeps) {
     .nodeResolution(12)
     // link appearance owned by renderer
     .linkDirectionalParticles(l => {
-      if (l.relation === 'depends_on' || l.relation === 'blocks') return 3;
-      if (l.relation === 'implements' || l.relation === 'satisfies') return 2;
+      if (l.relation === 'depends_on' || l.relation === 'blocks') return 2;
+      if (l.relation === 'implements' || l.relation === 'satisfies') return 1;
       return 0;
     })
-    .linkDirectionalParticleSpeed(l => l.relation === 'depends_on' ? 0.004 : 0.003)
-    .linkDirectionalParticleWidth(1.2)
+    .linkDirectionalParticleSpeed(l => l.relation === 'depends_on' ? 0.005 : 0.003)
+    .linkDirectionalParticleWidth(1.5)
     .linkDirectionalParticleColor(l => {
       const srcNode = state.graphData?.nodes?.find(n => n.id === l.source?.id || n.id === l.source);
       return srcNode ? renderer._nodeColor(srcNode) : null;
@@ -1049,6 +1090,7 @@ export function initGraph(injectedDeps) {
     .cooldownTime(Infinity)
     .onDagError(() => {})
     .dagNodeFilter(n => n.kind !== 'project' && n.kind !== 'kind-group')
+    .onNodeHover(onNodeHover)
     .onNodeClick(onNodeClickWithDbl)
     .onNodeRightClick(onNodeRightClick)
     .onBackgroundClick((() => {
