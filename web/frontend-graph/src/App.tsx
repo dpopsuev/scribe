@@ -42,35 +42,39 @@ const RELATION_COLORS: Record<string, string> = {
 
 const scribeDarkTheme = {
   ...lightTheme,
-  canvas: { background: '#05050f', fog: '#05050f' },
+  canvas: { background: '#0a0a1a' },
   node: {
     ...lightTheme.node,
     fill: '#94a3b8',
-    activeFill: '#f3a92f',     // SiYuan highlight orange
-    opacity: 0.95,
-    inactiveOpacity: 0.15,
+    activeFill: '#f3a92f',
+    opacity: 0.85,
+    inactiveOpacity: 0.12,
     label: {
       ...lightTheme.node.label,
-      color: '#e2e8f0',
+      color: '#f1f5f9',
       activeColor: '#ffffff',
+      fontSize: 7,
+      backgroundColor: '#0a0a1acc',
+      backgroundPadding: 2,
     },
   },
   edge: {
     ...lightTheme.edge,
-    fill: '#5f636840',         // SiYuan line color with transparency
-    activeFill: '#4285f4',     // SiYuan highlight line blue
-    opacity: 0.36,
+    fill: '#5f636830',
+    activeFill: '#4285f4',
+    opacity: 0.24,
     label: {
       ...lightTheme.edge.label,
-      color: '#94a3b8',
+      color: '#64748b',
+      fontSize: 5,
     },
   },
   ring: {
-    fill: '#f3a92f80',         // SiYuan highlight
+    fill: '#f3a92f60',
     activeFill: '#f3a92f',
   },
   arrow: {
-    fill: '#94a3b8',
+    fill: '#64748b',
     activeFill: '#f3a92f',
   },
 };
