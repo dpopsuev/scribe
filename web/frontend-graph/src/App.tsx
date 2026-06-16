@@ -357,8 +357,9 @@ export default function App() {
           theme={theme}
           animated={false}
           cameraMode={layout.includes('3d') ? 'rotate' : 'pan'}
-          labelType="auto"
+          labelType="nodes"
           sizingType="attribute"
+          edgeInterpolation="linear"
           onNodeClick={handleNodeClick}
         >
           <Perf position="bottom-left" deepAnalyze />
