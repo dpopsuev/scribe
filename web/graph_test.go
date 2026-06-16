@@ -78,7 +78,7 @@ func TestAPIGraphScopes_ReturnsScopeNodes(t *testing.T) {
 			t.Errorf("node %s has kind %q, want scope", n.ID, n.Kind)
 		}
 		if !strings.HasPrefix(n.ID, "project:") {
-			t.Errorf("scope node ID should start with scope:, got %q", n.ID)
+			t.Errorf("project node ID should start with project:, got %q", n.ID)
 		}
 	}
 	if len(data.Links) != 1 {
