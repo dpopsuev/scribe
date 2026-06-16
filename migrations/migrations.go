@@ -99,6 +99,11 @@ var All = []Migration{
 		Description: "Fix stale artifact_aliases references left by slug ID migration",
 		Run:         migrateFixAliasRefs,
 	},
+	{
+		ID:          "0013_fix_alias_cascade",
+		Description: "Cascade artifact_aliases references after slug ID rename",
+		Run:         migrateFixAliasCascade,
+	},
 }
 
 // RunPending applies all migrations that have not yet been recorded as applied.
