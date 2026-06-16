@@ -185,6 +185,15 @@ type artifactInput struct {
 	BypassGuards bool   `json:"bypass_guards,omitempty" jsonschema:"skip rule evaluator guards entirely (use for migrations or emergency fixes)"`
 	RenameID     bool   `json:"rename_id,omitempty" jsonschema:"when field is scope: atomically renames the artifact ID to match the new scope key; result.new_id contains the new ID; all edge references cascade automatically"`
 
+	Alias      string `json:"alias,omitempty" jsonschema:"alias for synonym add/remove"`
+	Term       string `json:"term,omitempty" jsonschema:"term for synonym resolve"`
+	From       string `json:"from,omitempty" jsonschema:"source artifact for paths mode"`
+	To         string `json:"to,omitempty" jsonschema:"target artifact for paths mode"`
+	MinShared  int    `json:"min_shared,omitempty" jsonschema:"minimum shared neighbors for co_citation/coupling"`
+	MaxDepth   int    `json:"max_depth,omitempty" jsonschema:"max hops for path search"`
+	Iterations int    `json:"iterations,omitempty" jsonschema:"iterations for pagerank (default 20)"`
+	MinAgeDays int    `json:"min_age_days,omitempty" jsonschema:"minimum artifact age for retention analysis"`
+
 	Name           string   `json:"name,omitempty"`
 	Text           string   `json:"text,omitempty"`
 	Body           string   `json:"body,omitempty"`
