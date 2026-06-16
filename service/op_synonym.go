@@ -75,15 +75,13 @@ func runSynonymList(ctx context.Context, svc *Service, in *synonymInput) (string
 	if err != nil {
 		return "", err
 	}
+	aliases, _ := svc.Proto.Store().ListAliases(ctx, art.ID)
 	var b strings.Builder
 	fmt.Fprintf(&b, "aliases for %s (%s):\n", art.ID, art.Title)
-	if art.Alias != "" {
-		fmt.Fprintf(&b, "  %s (legacy)\n", art.Alias)
-	}
-	for _, a := range art.Aliases {
+	for _, a := range aliases {
 		fmt.Fprintf(&b, "  %s\n", a)
 	}
-	if art.Alias == "" && len(art.Aliases) == 0 {
+	if len(aliases) == 0 {
 		fmt.Fprintf(&b, "  (none)\n")
 	}
 	return b.String(), nil
