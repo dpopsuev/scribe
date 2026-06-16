@@ -74,8 +74,8 @@ func TestOpSet_BulkArchiveViaScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "2") {
-		t.Errorf("expected count 2 in bulk output, got: %s", out)
+	if strings.Count(out, "archived") < 2 {
+		t.Errorf("expected 2 archived results, got: %s", out)
 	}
 
 	artA, _ := svc.Proto.GetArtifact(ctx, a.ID)
