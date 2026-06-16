@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { createProgram, hexToRgb, indexToColor, colorToIndex } from './webgl';
   import { NODE_VERT, NODE_FRAG, EDGE_VERT, EDGE_FRAG, NODE_CORNERS } from './shaders';
-  import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide } from 'd3-force';
+  import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, forceX, forceY, forceRadial } from 'd3-force';
 
   export interface GraphNode {
     id: string;
@@ -65,6 +65,25 @@
   let simulation: any = null;
   let simNodes: any[] = [];
   let simLinks: any[] = [];
+
+  function fitCamera() {
+    if (simNodes.length === 0) return;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const n of simNodes) {
+      const s = n._size || 5;
+      if ((n.x || 0) - s < minX) minX = (n.x || 0) - s;
+      if ((n.x || 0) + s > maxX) maxX = (n.x || 0) + s;
+      if ((n.y || 0) - s < minY) minY = (n.y || 0) - s;
+      if ((n.y || 0) + s > maxY) maxY = (n.y || 0) + s;
+    }
+    const pad = 1.15;
+    camX = (minX + maxX) / 2;
+    camY = (minY + maxY) / 2;
+    const spanX = (maxX - minX) * pad || 100;
+    const spanY = (maxY - minY) * pad || 100;
+    camZoom = Math.min(width / spanX, height / spanY);
+    needsPickRedraw = true;
+  }
 
   function buildViewMatrix(): Float32Array {
     const sx = 2 * camZoom / width;
@@ -168,15 +187,34 @@
     simLinks = edges.map(e => ({ source: e.source, target: e.target, _color: e.color }))
       .filter(e => nodeMap.has(e.source) && nodeMap.has(e.target));
 
+    const n = simNodes.length;
+    const maxRadius = Math.max(80, n * 4);
+
     simulation = forceSimulation(simNodes)
-      .force('charge', forceManyBody().strength(-200).distanceMax(300))
-      .force('center', forceCenter(0, 0))
-      .force('collision', forceCollide().radius((d: any) => d._size * 1.5))
-      .force('link', forceLink(simLinks).id((d: any) => d.id).distance(60).strength(0.3))
+      .force('charge', forceManyBody().strength(-80).distanceMax(120))
+      .force('center', forceCenter(0, 0).strength(0.1))
+      .force('collision', forceCollide().radius((d: any) => d._size * 2).strength(0.7))
+      .force('link', forceLink(simLinks).id((d: any) => d.id).distance(30).strength(0.6))
+      .force('x', forceX(0).strength(0.05))
+      .force('y', forceY(0).strength(0.05))
+      .force('radial', forceRadial(maxRadius * 0.6, 0, 0).strength(0.02))
+      .velocityDecay(0.4)
       .on('tick', () => {
+        // Clamp positions to max radius
+        for (const node of simNodes) {
+          const dist = Math.hypot(node.x || 0, node.y || 0);
+          if (dist > maxRadius) {
+            const scale = maxRadius / dist;
+            node.x *= scale;
+            node.y *= scale;
+          }
+        }
         uploadNodes();
         uploadEdges();
         needsPickRedraw = true;
+      })
+      .on('end', () => {
+        fitCamera();
       });
 
     simulation.alpha(1).restart();
