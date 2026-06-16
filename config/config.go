@@ -87,7 +87,6 @@ func (e EmbedConfig) SweepInterval() int {
 
 type Config struct {
 	DB               DBConfig               `yaml:"db"`
-	LogLevel         string                 `yaml:"log_level,omitempty"`
 	Transport        string                 `yaml:"transport"`
 	Addr             string                 `yaml:"addr"`
 	ScopeConfigs     map[string]ScopeConfig `yaml:"scope_configs,omitempty"`

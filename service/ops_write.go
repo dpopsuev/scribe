@@ -15,7 +15,6 @@ type createInput struct {
 	Scope     string              `json:"scope,omitempty"`
 	Goal      string              `json:"goal,omitempty"`
 	Parent    string              `json:"parent,omitempty"`
-	Prefix    string              `json:"prefix,omitempty"`
 	ID        string              `json:"id,omitempty"`
 	Status    string              `json:"status,omitempty"`
 	Priority  string              `json:"priority,omitempty"`

@@ -199,7 +199,6 @@ type artifactInput struct {
 	MinShared  int    `json:"min_shared,omitempty" jsonschema:"minimum shared neighbors for co_citation/coupling"`
 	MaxDepth   int    `json:"max_depth,omitempty" jsonschema:"max hops for path search"`
 	Iterations int    `json:"iterations,omitempty" jsonschema:"iterations for pagerank (default 20)"`
-	MinAgeDays int    `json:"min_age_days,omitempty" jsonschema:"minimum artifact age for retention analysis"`
 
 	Name           string   `json:"name,omitempty"`
 	Text           string   `json:"text,omitempty"`
