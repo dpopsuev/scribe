@@ -2,41 +2,42 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { GraphCanvas, lightTheme } from 'reagraph';
 import type { GraphCanvasRef, GraphNode, GraphEdge } from 'reagraph';
 
+// SiYuan-inspired vivid color palette — distinct, high-contrast on dark bg.
 const KIND_COLORS: Record<string, string> = {
-  project: '#c8d0dc',
-  'kind-group': '#a5f3fc',
-  task: '#3b82f6',
-  goal: '#f59e0b',
-  campaign: '#f97316',
-  note: '#10b981',
-  concept: '#06b6d4',
-  bug: '#ef4444',
-  decision: '#ec4899',
-  spec: '#8b5cf6',
-  source: '#64748b',
-  doc: '#22d3ee',
-  ref: '#94a3b8',
-  need: '#a78bfa',
-  context: '#34d399',
-  journal: '#fbbf24',
+  project:     '#e8eaed',  // SiYuan doc-point (bright white-gray)
+  'kind-group': '#dd79ff', // SiYuan super-point (light purple)
+  task:        '#37A2FF',  // SiYuan table-point (bright blue)
+  goal:        '#FFBF00',  // SiYuan todo-point (golden yellow)
+  campaign:    '#f65b00',  // SiYuan listitem-point (vivid orange)
+  note:        '#80FFA5',  // SiYuan math-point (bright green)
+  concept:     '#00DDFF',  // SiYuan code-point (electric cyan)
+  bug:         '#FF0087',  // SiYuan list-point (hot pink)
+  decision:    '#8d48e3',  // SiYuan bq-point (deep purple)
+  spec:        '#076f7e',  // SiYuan p-point (teal)
+  source:      '#b3005f',  // SiYuan olist-point (magenta)
+  doc:         '#00DDFF',  // cyan
+  ref:         '#dbf32f',  // SiYuan tag-point (yellow-green)
+  need:        '#8d48e3',  // purple
+  context:     '#80FFA5',  // green
+  journal:     '#FFBF00',  // golden
 };
 
 const RELATION_COLORS: Record<string, string> = {
-  'cross-scope': '#4b5563',
-  parent_of: '#6b7280',
-  depends_on: '#fb923c',
-  implements: '#34d399',
-  satisfies: '#34d39980',
-  justifies: '#8b5cf6',
-  cites: '#8b5cf699',
-  documents: '#3b82f6',
-  blocks: '#ef4444',
-  relates_to: '#3b82f650',
-  mentions: '#3b82f630',
-  elaborates: '#ec4899',
-  contradicts: '#ef444490',
-  synthesises: '#0ea5e9',
-  remembers: '#f59e0b80',
+  'cross-scope': '#5f6368',
+  parent_of:   '#5f636850',
+  depends_on:  '#fb923ccc',
+  implements:  '#34d399aa',
+  satisfies:   '#34d39960',
+  justifies:   '#8b5cf6aa',
+  cites:       '#8b5cf660',
+  documents:   '#3b82f6aa',
+  blocks:      '#ef4444cc',
+  relates_to:  '#5f636830',
+  mentions:    '#5f636820',
+  elaborates:  '#ec4899aa',
+  contradicts: '#ef444480',
+  synthesises: '#0ea5e9aa',
+  remembers:   '#f59e0b60',
 };
 
 const scribeDarkTheme = {
@@ -45,7 +46,7 @@ const scribeDarkTheme = {
   node: {
     ...lightTheme.node,
     fill: '#94a3b8',
-    activeFill: '#1DE9AC',
+    activeFill: '#f3a92f',     // SiYuan highlight orange
     opacity: 0.95,
     inactiveOpacity: 0.15,
     label: {
@@ -56,8 +57,8 @@ const scribeDarkTheme = {
   },
   edge: {
     ...lightTheme.edge,
-    fill: '#4b556340',
-    activeFill: '#6366f1cc',
+    fill: '#5f636840',         // SiYuan line color with transparency
+    activeFill: '#4285f4',     // SiYuan highlight line blue
     opacity: 0.36,
     label: {
       ...lightTheme.edge.label,
@@ -65,12 +66,12 @@ const scribeDarkTheme = {
     },
   },
   ring: {
-    fill: '#6366f180',
-    activeFill: '#1DE9AC',
+    fill: '#f3a92f80',         // SiYuan highlight
+    activeFill: '#f3a92f',
   },
   arrow: {
     fill: '#94a3b8',
-    activeFill: '#1DE9AC',
+    activeFill: '#f3a92f',
   },
 };
 
@@ -80,7 +81,7 @@ function kindColor(kind: string): string {
 }
 
 function relationColor(rel: string): string {
-  return RELATION_COLORS[rel] || '#4b556340';
+  return RELATION_COLORS[rel] || '#5f636840';
 }
 
 interface RawNode {
@@ -101,9 +102,12 @@ interface RawLink {
   weight?: number;
 }
 
-async function fetchScopeGraph(): Promise<{ nodes: GraphNode[]; edges: GraphEdge[] }> {
-  const res = await fetch('/api/v1/graph/scopes');
-  const data: { nodes: RawNode[]; links: RawLink[] } = await res.json();
+interface GraphResponse {
+  nodes: RawNode[];
+  links: RawLink[];
+}
+
+function transformGraph(data: GraphResponse): { nodes: GraphNode[]; edges: GraphEdge[] } {
   return {
     nodes: data.nodes.map((n) => ({
       id: n.id,
@@ -120,6 +124,12 @@ async function fetchScopeGraph(): Promise<{ nodes: GraphNode[]; edges: GraphEdge
       fill: relationColor(l.relation),
     })),
   };
+}
+
+async function fetchGraph(url: string): Promise<{ nodes: GraphNode[]; edges: GraphEdge[] }> {
+  const res = await fetch(url);
+  const data: GraphResponse = await res.json();
+  return transformGraph(data);
 }
 
 type LayoutType =
@@ -148,29 +158,64 @@ export default function App() {
   const [edges, setEdges] = useState<GraphEdge[]>([]);
   const [layout, setLayout] = useState<LayoutType>('forceDirected3d');
   const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const graphRef = useRef<GraphCanvasRef>(null);
 
+  // Load initial scope graph
   useEffect(() => {
-    fetchScopeGraph().then(({ nodes: n, edges: e }) => {
+    fetchGraph('/api/v1/graph/scopes').then(({ nodes: n, edges: e }) => {
       setNodes(n);
       setEdges(e);
       setLoading(false);
     });
   }, []);
 
+  // Expand a scope: fetch kind graph and merge
+  const expandScope = useCallback(async (scopeName: string) => {
+    if (expanded.has(scopeName)) return;
+    const status = 'work.draft,work.active,work.blocked,work.complete,note.fleeting,note.mature,note.evergreen,decision.proposed,decision.accepted,active';
+    const url = `/api/v1/graph/kinds?scope=${encodeURIComponent(scopeName)}&status=${encodeURIComponent(status)}`;
+    const { nodes: kindNodes, edges: kindEdges } = await fetchGraph(url);
+
+    // Connect kind nodes to their parent scope node
+    const scopeNodeId = `project:${scopeName}`;
+    const containsEdges: GraphEdge[] = kindNodes.map((kn, i) => ({
+      id: `contains-${scopeName}-${i}`,
+      source: scopeNodeId,
+      target: kn.id,
+      label: 'contains',
+      fill: '#5f636830',
+    }));
+
+    setNodes(prev => [...prev, ...kindNodes]);
+    setEdges(prev => [...prev, ...kindEdges, ...containsEdges]);
+    setExpanded(prev => new Set(prev).add(scopeName));
+  }, [expanded]);
+
   const handleNodeClick = useCallback((node: GraphNode) => {
     const data = node.data as RawNode;
     if (!data) return;
-    if (data.kind === 'project' || data.kind === 'kind-group') return;
+
+    if (data.kind === 'project') {
+      expandScope(data.scope || data.name);
+      return;
+    }
+
+    if (data.kind === 'kind-group') {
+      // Could expand to artifacts — for now just open sidebar
+    }
+
+    // Open sidebar via HTMX
     const el = document.getElementById('sidebar-content');
     if (el && (window as any).htmx) {
       (window as any).htmx.ajax('GET', `/fragments/artifacts/${data.id || node.id}`, el);
     }
     document.getElementById('sidebar')?.classList.add('open');
-  }, []);
+  }, [expandScope]);
 
   return (
     <div style={{ width: '100vw', height: '100vh', background: '#05050f' }}>
+      {/* Controls */}
       <div style={{
         position: 'fixed', top: '1rem', left: '1rem', zIndex: 10,
         background: 'rgba(5,5,20,0.82)', backdropFilter: 'blur(10px)',
@@ -202,8 +247,14 @@ export default function App() {
             </select>
           </label>
         </div>
+        {expanded.size > 0 && (
+          <div style={{ marginTop: '0.5rem', fontSize: '0.72em', opacity: 0.6 }}>
+            Expanded: {[...expanded].join(', ')}
+          </div>
+        )}
       </div>
 
+      {/* Sidebar */}
       <div id="sidebar" style={{
         position: 'fixed', top: 0, right: 0, width: '370px', height: '100vh',
         background: 'rgba(5,5,20,0.92)', backdropFilter: 'blur(14px)',
@@ -220,6 +271,15 @@ export default function App() {
         </div>
       </div>
 
+      {/* Hint */}
+      <div style={{
+        position: 'fixed', bottom: '1rem', left: '50%', transform: 'translateX(-50%)',
+        zIndex: 10, color: 'rgba(255,255,255,0.3)', fontSize: '0.72em', pointerEvents: 'none',
+      }}>
+        Click project to expand · Drag to rotate · Scroll to zoom
+      </div>
+
+      {/* Graph */}
       {loading ? (
         <div style={{ color: '#94a3b8', display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
           Loading graph...
@@ -234,6 +294,7 @@ export default function App() {
           animated={nodes.length < 500}
           cameraMode={layout.includes('3d') ? 'rotate' : 'pan'}
           labelType="auto"
+          sizingType="attribute"
           onNodeClick={handleNodeClick}
         />
       )}
