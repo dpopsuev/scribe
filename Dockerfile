@@ -1,3 +1,10 @@
+FROM node:22-alpine AS frontend
+WORKDIR /app
+COPY web/frontend/package.json web/frontend/package-lock.json ./
+RUN npm ci
+COPY web/frontend/ .
+RUN npm run build
+
 FROM golang:1.26-alpine AS build
 RUN apk add --no-cache git
 WORKDIR /build
@@ -11,6 +18,7 @@ FROM scratch
 COPY --from=build /scribe /scribe
 COPY --from=build /build/web/templates /web/templates
 COPY --from=build /build/web/static /web/static
+COPY --from=frontend /app/build /web/frontend/build
 ENV HOME=/data
 ENV SCRIBE_ROOT=/data
 ENV SCRIBE_TRANSPORT=http
