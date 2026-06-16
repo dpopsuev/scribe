@@ -94,6 +94,11 @@ var All = []Migration{
 		Description: "Rename UUID IDs to human-readable title-derived slugs",
 		Run:         migrateSlugIDs,
 	},
+	{
+		ID:          "0012_fix_alias_refs",
+		Description: "Fix stale artifact_aliases references left by slug ID migration",
+		Run:         migrateFixAliasRefs,
+	},
 }
 
 // RunPending applies all migrations that have not yet been recorded as applied.
