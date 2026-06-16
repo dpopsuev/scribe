@@ -78,11 +78,17 @@ var opHygiene = Op{
 
 		allArts, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: labels})
 		for _, art := range allArts {
+			kind := art.Label(parchment.LabelPrefixKind)
+			if kind == "" || kind == "knowledge.concept" || kind == "support.config" {
+				continue
+			}
+			status := parchment.StatusFromLabels(art.Labels)
+			if status == "status:archived" || status == "status:retired" {
+				continue
+			}
 			out, _ := svc.Proto.Store().Neighbors(ctx, art.ID, "", parchment.Outgoing)
 			in, _ := svc.Proto.Store().Neighbors(ctx, art.ID, "", parchment.Incoming)
-			kind := art.Label(parchment.LabelPrefixKind)
-			if len(out) == 0 && len(in) == 0 && kind != "" &&
-				kind != "knowledge.concept" && kind != "support.config" {
+			if len(out) == 0 && len(in) == 0 {
 				findings = append(findings, hygieneFinding{
 					Category: "orphan", ID: art.ID, Title: art.Title,
 					Detail: "no edges — not connected to any other artifact",
