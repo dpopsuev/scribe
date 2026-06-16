@@ -84,6 +84,11 @@ var All = []Migration{
 		Description: "Rename scope:X labels to project:X for composable multi-label organization",
 		Run:         migrateScopeToProject,
 	},
+	{
+		ID:          "0010_archive_orphans",
+		Description: "Archive disconnected artifacts with no edges (orphan housekeeping)",
+		Run:         migrateArchiveOrphans,
+	},
 }
 
 // RunPending applies all migrations that have not yet been recorded as applied.

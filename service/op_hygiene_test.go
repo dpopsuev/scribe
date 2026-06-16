@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 
 	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/service"
@@ -25,81 +24,23 @@ func runHygiene(t *testing.T, svc *service.Service) string {
 	return out
 }
 
-func TestHygiene_StaleKnowledge(t *testing.T) {
+func TestHygiene_IncompleteKnowledge_MustSections(t *testing.T) {
 	t.Parallel()
 	svc := newTestService(t, "test")
 	ctx := context.Background()
 
-	staleTime := time.Now().Add(-120 * 24 * time.Hour)
-	_ = svc.Proto.Store().Put(ctx, &parchment.Artifact{
-		ID: "stale1", Title: "Old Note",
-		Labels:    []string{"kind:knowledge.note", "project:test", "note.fleeting"},
-		UpdatedAt: staleTime,
-	})
-
-	out := runHygiene(t, svc)
-	if !strings.Contains(out, "stale_knowledge") {
-		t.Errorf("expected stale_knowledge finding, got: %s", out)
-	}
-	if !strings.Contains(out, "Old Note") {
-		t.Errorf("expected 'Old Note' in output, got: %s", out)
-	}
-}
-
-func TestHygiene_StaleKnowledge_EvergreenExcluded(t *testing.T) {
-	t.Parallel()
-	svc := newTestService(t, "test")
-	ctx := context.Background()
-
-	staleTime := time.Now().Add(-200 * 24 * time.Hour)
-	_ = svc.Proto.Store().Put(ctx, &parchment.Artifact{
-		ID: "eg1", Title: "Evergreen Note",
-		Labels:    []string{"kind:knowledge.note", "project:test", "note.evergreen"},
-		UpdatedAt: staleTime,
-	})
-
-	out := runHygiene(t, svc)
-	if strings.Contains(out, "stale_knowledge") {
-		t.Errorf("evergreen notes should NOT appear as stale, got: %s", out)
-	}
-}
-
-func TestHygiene_IncompleteKnowledge(t *testing.T) {
-	t.Parallel()
-	svc := newTestService(t, "test")
-	ctx := context.Background()
+	// knowledge.source has must-section "summary" in the schema.
+	// Seed the label trait so MustSections returns it.
+	parchment.SeedLabelTraits(ctx, svc.Proto.Store())
 
 	_ = svc.Proto.Store().Put(ctx, &parchment.Artifact{
-		ID: "inc1", Title: "Incomplete Concept",
-		Labels: []string{"kind:knowledge.concept", "project:test", "work.active"},
+		ID: "inc1", Title: "Incomplete Source",
+		Labels: []string{"kind:knowledge.source", "project:test", "work.active"},
 	})
 
 	out := runHygiene(t, svc)
 	if !strings.Contains(out, "incomplete_knowledge") {
 		t.Errorf("expected incomplete_knowledge finding, got: %s", out)
-	}
-}
-
-func TestHygiene_LegacyKnowledge(t *testing.T) {
-	t.Parallel()
-	svc := newTestService(t, "test")
-	ctx := context.Background()
-
-	_ = svc.Proto.Store().Put(ctx, &parchment.Artifact{
-		ID: "legacy1", Title: "Legacy Note",
-		Labels: []string{"kind:knowledge.note", "project:test", "note.fleeting"},
-	})
-	_ = svc.Proto.Store().Put(ctx, &parchment.Artifact{
-		ID: "done1", Title: "Done Task",
-		Labels: []string{"kind:effort.task", "project:test", "work.complete"},
-	})
-	_ = svc.Proto.Store().AddEdge(ctx, parchment.Edge{
-		From: "done1", To: "legacy1", Relation: "cites",
-	})
-
-	out := runHygiene(t, svc)
-	if !strings.Contains(out, "legacy_knowledge") {
-		t.Errorf("expected legacy_knowledge finding, got: %s", out)
 	}
 }
 
@@ -116,5 +57,31 @@ func TestHygiene_ZombieCampaign(t *testing.T) {
 	out := runHygiene(t, svc)
 	if !strings.Contains(out, "zombie_campaign") {
 		t.Errorf("expected zombie_campaign finding, got: %s", out)
+	}
+}
+
+func TestHygiene_Orphan(t *testing.T) {
+	t.Parallel()
+	svc := newTestService(t, "test")
+	ctx := context.Background()
+
+	_ = svc.Proto.Store().Put(ctx, &parchment.Artifact{
+		ID: "orph1", Title: "Lonely Artifact",
+		Labels: []string{"kind:effort.task", "project:test", "work.draft"},
+	})
+
+	out := runHygiene(t, svc)
+	if !strings.Contains(out, "orphan") {
+		t.Errorf("expected orphan finding, got: %s", out)
+	}
+}
+
+func TestHygiene_Clean(t *testing.T) {
+	t.Parallel()
+	svc := newTestService(t, "test")
+
+	out := runHygiene(t, svc)
+	if !strings.Contains(out, "clean") {
+		t.Errorf("expected clean result, got: %s", out)
 	}
 }

@@ -90,63 +90,31 @@ var opHygiene = Op{
 			}
 		}
 
-		// Knowledge health: stale, incomplete, and legacy knowledge artifacts.
+		// Knowledge health: only flag missing must-sections (required, not aspirational).
 		knowledgeArts, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{
 			Labels:     labels,
 			KindPrefix: "knowledge",
 		})
 		for _, art := range knowledgeArts {
-			status := parchment.StatusFromLabels(art.Labels)
-
-			if !art.UpdatedAt.IsZero() && now.Sub(art.UpdatedAt) > 90*24*time.Hour &&
-				status != "note.evergreen" {
+			mustSections := svc.Proto.MustSections(art.Label(parchment.LabelPrefixKind))
+			if len(mustSections) == 0 {
+				continue
+			}
+			existing := make(map[string]bool, len(art.Sections))
+			for _, s := range art.Sections {
+				existing[s.Name] = true
+			}
+			var missing []string
+			for _, s := range mustSections {
+				if !existing[s] {
+					missing = append(missing, s)
+				}
+			}
+			if len(missing) > 0 {
 				findings = append(findings, hygieneFinding{
-					Category: "stale_knowledge", ID: art.ID, Title: art.Title,
-					Detail: fmt.Sprintf("not updated in %d days — may be outdated",
-						int(now.Sub(art.UpdatedAt).Hours()/24)),
+					Category: "incomplete_knowledge", ID: art.ID, Title: art.Title,
+					Detail: fmt.Sprintf("missing required sections: %s", strings.Join(missing, ", ")),
 				})
-			}
-
-			shouldSections := svc.Proto.ShouldSections(art.Label(parchment.LabelPrefixKind))
-			if len(shouldSections) > 0 {
-				existing := make(map[string]bool, len(art.Sections))
-				for _, s := range art.Sections {
-					existing[s.Name] = true
-				}
-				var missing []string
-				for _, s := range shouldSections {
-					if !existing[s] {
-						missing = append(missing, s)
-					}
-				}
-				if len(missing) > 0 {
-					findings = append(findings, hygieneFinding{
-						Category: "incomplete_knowledge", ID: art.ID, Title: art.Title,
-						Detail: fmt.Sprintf("missing sections: %s", strings.Join(missing, ", ")),
-					})
-				}
-			}
-
-			inEdges, _ := svc.Proto.Store().Neighbors(ctx, art.ID, "", parchment.Incoming)
-			if len(inEdges) > 0 {
-				allReferrersTerminal := true
-				for _, e := range inEdges {
-					ref, err := svc.Proto.GetArtifact(ctx, e.From)
-					if err != nil {
-						allReferrersTerminal = false
-						break
-					}
-					if !svc.Proto.IsTerminal(parchment.StatusFromLabels(ref.Labels)) {
-						allReferrersTerminal = false
-						break
-					}
-				}
-				if allReferrersTerminal {
-					findings = append(findings, hygieneFinding{
-						Category: "legacy_knowledge", ID: art.ID, Title: art.Title,
-						Detail: fmt.Sprintf("all %d referencing artifacts are completed/archived", len(inEdges)),
-					})
-				}
 			}
 		}
 
