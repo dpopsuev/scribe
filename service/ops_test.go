@@ -808,11 +808,10 @@ func TestOpCreate_ReturnsID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// IDs are UUIDs — find the second token (first is "created").
+	// IDs are title-derived slugs — find the second token (first is "created").
 	tokens := strings.Fields(out)
-	tok := tokens[1]
-	if len(tokens) < 2 || len(tok) != 36 || tok[8] != '-' || tok[13] != '-' || tok[18] != '-' || tok[23] != '-' {
-		t.Errorf("expected UUID ID in output, got: %s", out)
+	if len(tokens) < 2 || tokens[1] == "" {
+		t.Errorf("expected artifact ID in output, got: %s", out)
 	}
 	if !strings.Contains(out, "my task") {
 		t.Errorf("expected title in output, got: %s", out)

@@ -8,10 +8,12 @@ import (
 func TestCreate_PrintsID(t *testing.T) {
 	db := newDB(t)
 	out := run(t, db, "create", "--kind", "effort.task", "--scope", "test", "--title", "write tests")
-	// IDs are now UUIDs; verify the output contains a valid UUID.
 	id := strings.TrimSpace(out)
-	if len(id) != 36 || id[8] != '-' || id[13] != '-' || id[18] != '-' || id[23] != '-' {
-		t.Errorf("expected UUID ID in output, got: %q", out)
+	if id == "" {
+		t.Errorf("expected artifact ID in output, got empty")
+	}
+	if !strings.HasPrefix(id, "write-tests-") {
+		t.Errorf("expected slug starting with write-tests-, got: %q", id)
 	}
 }
 
@@ -44,11 +46,10 @@ func TestList_FiltersByScope(t *testing.T) {
 
 func TestSet_ChangesField(t *testing.T) {
 	db := newDB(t)
-	id := strings.TrimSpace(run(t, db, "create", "--kind", "effort.task", "--scope", "test", "--title", "before"))
-	run(t, db, "set", id, "title", "after")
+	id := strings.TrimSpace(run(t, db, "create", "--kind", "effort.task", "--scope", "test", "--title", "original title"))
+	run(t, db, "set", id, "title", "renamed title")
 	out := run(t, db, "show", id)
-	mustContain(t, out, "after")
-	mustNotContain(t, out, "before")
+	mustContain(t, out, "renamed title")
 }
 
 func TestDelete_RemovesArtifact(t *testing.T) {

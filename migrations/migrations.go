@@ -89,6 +89,11 @@ var All = []Migration{
 		Description: "Archive disconnected artifacts with no edges (orphan housekeeping)",
 		Run:         migrateArchiveOrphans,
 	},
+	{
+		ID:          "0011_slug_ids",
+		Description: "Rename UUID IDs to human-readable title-derived slugs",
+		Run:         migrateSlugIDs,
+	},
 }
 
 // RunPending applies all migrations that have not yet been recorded as applied.
