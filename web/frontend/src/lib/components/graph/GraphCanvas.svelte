@@ -280,10 +280,18 @@
     uploadNodes();
     uploadEdges();
     fitCamera();
+    exportNodePositions();
 
-    // Simulation complete — no restart. Only re-runs on data change ($effect).
     simActive = false;
     simulation.on('end', () => { simActive = false; });
+  }
+
+  function exportNodePositions() {
+    const pos: Record<string, { x: number; y: number; size: number }> = {};
+    for (const n of simNodes) {
+      pos[n.id] = { x: n.x || 0, y: n.y || 0, size: n._size || 5 };
+    }
+    (window as any).__GRAPH_NODE_POS__ = pos;
   }
 
   function render(timestamp: number = 0) {
@@ -753,11 +761,31 @@
     const newNodes = allNodes.filter(n => !existingIDs.has(n.id));
     if (newNodes.length === 0) return;
 
+    // Find parent → child edges to determine which parent each child belongs to
+    const simNodeMap = new Map(simNodes.map((n: any) => [n.id, n]));
+    const childParent = new Map<string, string>();
+    for (const e of allEdges) {
+      if (simNodeMap.has(e.source) && !existingIDs.has(e.target)) {
+        childParent.set(e.target, e.source);
+      }
+    }
+
     for (const n of newNodes) {
+      let x = n.x, y = n.y;
+      // Rebase: shift from stale parent position to actual simulated position
+      const parentId = childParent.get(n.id);
+      if (parentId) {
+        const simParent = simNodeMap.get(parentId);
+        const declaredParent = allNodes.find(an => an.id === parentId);
+        if (simParent && declaredParent) {
+          x += (simParent.x || 0) - declaredParent.x;
+          y += (simParent.y || 0) - declaredParent.y;
+        }
+      }
       simNodes.push({
         id: n.id, _size: n.size, _color: n.color,
         _kind: n.kind, _label: n.label, _depth: n.depth || 0,
-        x: n.x, y: n.y, fx: n.x, fy: n.y,
+        x, y, fx: x, fy: y,
       });
     }
 
@@ -774,6 +802,7 @@
 
     uploadNodes();
     uploadEdges();
+    exportNodePositions();
     needsPickRedraw = true;
   }
 </script>
