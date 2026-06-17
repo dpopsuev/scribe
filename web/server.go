@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -16,7 +17,13 @@ import (
 	"github.com/yuin/goldmark/renderer/html"
 )
 
-const tmplKeyTitle = "Title"
+const (
+	tmplKeyTitle = "Title"
+	logKeyMethod = "method"
+	logKeyPath   = "path"
+	logKeyStatus = "status"
+	logKeyDur    = "dur"
+)
 
 var markdownParser = goldmark.New(
 	goldmark.WithExtensions(extension.GFM),
@@ -119,7 +126,29 @@ func NewServer(proto *parchment.Protocol, version, webPath string) *Server {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if slog.Default().Enabled(r.Context(), slog.LevelDebug) {
+		start := time.Now()
+		rw := &statusWriter{ResponseWriter: w, status: 200}
+		s.mux.ServeHTTP(rw, r)
+		slog.DebugContext(r.Context(), "http",
+			slog.String(logKeyMethod, r.Method),
+			slog.String(logKeyPath, r.URL.Path),
+			slog.Int(logKeyStatus, rw.status),
+			slog.Duration(logKeyDur, time.Since(start)),
+		)
+		return
+	}
 	s.mux.ServeHTTP(w, r)
+}
+
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusWriter) WriteHeader(code int) {
+	w.status = code
+	w.ResponseWriter.WriteHeader(code)
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {

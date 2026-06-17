@@ -266,23 +266,21 @@
         }
       });
 
-    // Pre-warm: run physics to ~97% settled before first render.
-    // ~224 ticks of CPU math (<5ms for 43 nodes), zero GPU work.
-    const SETTLE_THRESHOLD = 0.02;
+    // Pre-warm: run physics to full completion before first render.
+    // ~473 ticks of CPU math (~5ms for 43 nodes), zero GPU work.
+    // No breathing settle — nodes appear in final positions immediately.
     prewarming = true;
     simulation.alpha(0.3).stop();
-    while (simulation.alpha() > SETTLE_THRESHOLD) simulation.tick();
+    while (simulation.alpha() >= simulation.alphaMin()) simulation.tick();
     prewarming = false;
 
-    // Single GPU upload of near-final positions
     uploadNodes();
     uploadEdges();
     fitCamera();
 
-    // Let remaining alpha (0.02→0.001) animate as a gentle "breathing" settle
-    simActive = true;
+    // Simulation complete — no restart. Only re-runs on data change ($effect).
+    simActive = false;
     simulation.on('end', () => { simActive = false; });
-    simulation.restart();
   }
 
   function render(timestamp: number = 0) {
