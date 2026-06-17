@@ -496,14 +496,18 @@
       mouseX = e.clientX - rect.left;
       mouseY = e.clientY - rect.top;
     }
-    needsPickRedraw = true;
     if (dragging) {
       camX = camStartX - (e.clientX - dragStartX) / camZoom;
       camY = camStartY - (e.clientY - dragStartY) / camZoom;
       needsPickRedraw = true;
       return;
     }
+    // Skip GPU pick during active zoom — readPixels() stalls the GPU pipeline
+    // (50-200ms on laptop GPUs). Trackpad scroll = continuous mousemove events.
+    if (performance.now() - lastInteractTime < 200) return;
+
     if (!gl || !pickFBO || !canvas || !rect) return;
+    needsPickRedraw = true;
     const px = Math.round((e.clientX - rect.left) * (canvas.width / rect.width));
     const py = Math.round((rect.height - (e.clientY - rect.top)) * (canvas.height / rect.height));
     gl.bindFramebuffer(gl.FRAMEBUFFER, pickFBO);
