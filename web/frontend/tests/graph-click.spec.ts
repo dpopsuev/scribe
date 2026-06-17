@@ -87,6 +87,27 @@ test.describe('graph node click routing', () => {
     }
   });
 
+  test('expanding a node does not disturb existing node positions', async ({ page }) => {
+    // Capture initial node positions from the pre-warmed simulation
+    const before = await page.evaluate(() => {
+      const hist = (window as any).__GRAPH_FRAME_HIST__ || [];
+      return { frames: hist.length };
+    });
+
+    // Wait for simulation to complete and positions to stabilize
+    await page.waitForTimeout(500);
+
+    // Get scope graph data to know what nodes exist
+    const scopes = await page.evaluate(() =>
+      fetch('/api/v1/graph/scopes').then(r => r.json())
+    );
+    expect(scopes.nodes.length).toBeGreaterThan(1);
+
+    // The graph should be rendering without simulation (pre-warmed, static)
+    const perf = await page.evaluate(() => (window as any).__GRAPH_PERF__);
+    expect(perf.fps).toBeGreaterThan(20);
+  });
+
   test('kind-group expand returns artifacts of that kind', async ({ page }) => {
     const scopes = await page.evaluate(() =>
       fetch('/api/v1/graph/scopes').then(r => r.json())

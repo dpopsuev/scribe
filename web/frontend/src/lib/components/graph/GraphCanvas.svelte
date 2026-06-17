@@ -716,18 +716,50 @@
     };
   });
 
+  let simInitialized = false;
+
   $effect(() => {
-    // Read nodes/edges to establish dependency — re-run when data changes.
-    // untrack prevents tracking $state reads inside startSimulation
-    // (lock, width, height) which would re-trigger the full pre-warm
-    // loop on every zoom/resize.
     const _n = nodes;
     const _e = edges;
-    if (_n && _e && gl && nodeProg) {
+    if (!_n || !_e || !gl || !nodeProg) return;
+
+    if (!simInitialized) {
       simulation?.stop();
       untrack(() => startSimulation());
+      simInitialized = true;
+    } else {
+      untrack(() => appendExpansion(_n, _e));
     }
   });
+
+  function appendExpansion(allNodes: GraphNode[], allEdges: GraphEdge[]) {
+    const existingIDs = new Set(simNodes.map((n: any) => n.id));
+    const newNodes = allNodes.filter(n => !existingIDs.has(n.id));
+    if (newNodes.length === 0) return;
+
+    for (const n of newNodes) {
+      simNodes.push({
+        id: n.id, _size: n.size, _color: n.color,
+        _kind: n.kind, _label: n.label,
+        x: n.x, y: n.y, fx: n.x, fy: n.y,
+      });
+    }
+
+    const nodeSet = new Set(simNodes.map((n: any) => n.id));
+    for (const e of allEdges) {
+      if (!nodeSet.has(e.source) || !nodeSet.has(e.target)) continue;
+      const exists = simLinks.some((l: any) =>
+        (l.source?.id || l.source) === e.source && (l.target?.id || l.target) === e.target
+      );
+      if (!exists) {
+        simLinks.push({ source: e.source, target: e.target, _color: e.color });
+      }
+    }
+
+    uploadNodes();
+    uploadEdges();
+    needsPickRedraw = true;
+  }
 </script>
 
 <div style="position:relative;width:100%;height:100%">
