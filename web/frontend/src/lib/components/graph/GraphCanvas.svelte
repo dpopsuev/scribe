@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { createProgram, hexToRgb, indexToColor, colorToIndex } from './webgl';
   import { NODE_VERT, NODE_FRAG, EDGE_VERT, EDGE_FRAG, NODE_CORNERS } from './shaders';
   import { buildViewMatrix, worldToScreen } from './transform';
@@ -717,9 +717,15 @@
   });
 
   $effect(() => {
-    if (nodes && gl && nodeProg) {
+    // Read nodes/edges to establish dependency — re-run when data changes.
+    // untrack prevents tracking $state reads inside startSimulation
+    // (lock, width, height) which would re-trigger the full pre-warm
+    // loop on every zoom/resize.
+    const _n = nodes;
+    const _e = edges;
+    if (_n && _e && gl && nodeProg) {
       simulation?.stop();
-      startSimulation();
+      untrack(() => startSimulation());
     }
   });
 </script>
