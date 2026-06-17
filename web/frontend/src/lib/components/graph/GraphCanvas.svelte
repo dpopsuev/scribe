@@ -389,9 +389,10 @@
       const diagMin = hist.length ? Math.min(...hist) : 0;
       const diagMax = hist.length ? Math.max(...hist) : 0;
       const diagAvg = hist.length ? Math.round(hist.reduce((s, v) => s + v, 0) / hist.length) : 0;
+      const jank = (window as any).__GRAPH_JANK__?.() || [];
       fetch('/api/v1/debug/perf', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fps, total, webgl, pick, labels, bins, avg: diagAvg, min: diagMin, max: diagMax, frames: hist.length, hist }),
+        body: JSON.stringify({ fps, total, webgl, pick, labels, bins, avg: diagAvg, min: diagMin, max: diagMax, frames: hist.length, hist, jank }),
       }).catch(() => {});
       // Reset function: clears history AND prevFrameTs to avoid stale first-frame delta
       (window as any).__GRAPH_RESET_PERF__ = () => { _frameHist.length = 0; prevFrameTs = 0; };
@@ -647,6 +648,21 @@
     // and causes the browser to scroll the page while also zooming the canvas.
     canvas.addEventListener('wheel', handleWheel, { passive: false });
 
+    // Jank detector: runs via setInterval (not rAF), so it fires even when
+    // the main thread is blocked. If the callback fires late, something blocked.
+    let _jankLastTs = performance.now();
+    const _jankLog: Array<{ ts: number; blocked: number; event: string }> = [];
+    const _jankInterval = setInterval(() => {
+      const now = performance.now();
+      const blocked = now - _jankLastTs - 100; // expected 100ms interval
+      if (blocked > 50) {
+        _jankLog.push({ ts: now, blocked: Math.round(blocked), event: 'main-thread-block' });
+        if (_jankLog.length > 50) _jankLog.shift();
+      }
+      _jankLastTs = now;
+    }, 100);
+    (window as any).__GRAPH_JANK__ = () => [..._jankLog];
+
     startSimulation();
     animFrame = requestAnimationFrame(render);
 
@@ -685,6 +701,7 @@
       cancelAnimationFrame(animFrame);
       simulation?.stop();
       if (idleInterval) clearInterval(idleInterval);
+      clearInterval(_jankInterval);
       canvas.removeEventListener('wheel', handleWheel);
       ro.disconnect();
       gl?.deleteProgram(nodeProg);
