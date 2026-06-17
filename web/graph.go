@@ -211,10 +211,6 @@ func (s *Server) handleAPIDeleteEdge(w http.ResponseWriter, r *http.Request) {
 
 // ── HTML page handlers ──────────────────────────────────────────────────
 
-func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, "/app/graph", http.StatusMovedPermanently)
-}
-
 func (s *Server) handleFragmentArtifact(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	art, err := s.proto.GetArtifact(r.Context(), id)

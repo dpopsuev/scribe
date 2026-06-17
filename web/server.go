@@ -67,7 +67,7 @@ func NewServer(proto *parchment.Protocol, version, webPath string) *Server {
 	s.mux.HandleFunc("GET /artifacts/{id}", s.handleDetail)
 	s.mux.HandleFunc("GET /tree/{id}", s.handleTree)
 	s.mux.HandleFunc("GET /search", s.handleSearch)
-	s.mux.HandleFunc("GET /graph", s.handleGraph)
+	// /graph route removed — graph lives at /app/graph (SvelteKit)
 	s.mux.HandleFunc("GET /events", s.handleEvents)
 
 	// Fragment endpoints (HTMX sidebar loads)
