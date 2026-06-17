@@ -1,9 +1,10 @@
 FROM node:22-alpine AS frontend
+RUN corepack enable && corepack prepare pnpm@latest --activate
 WORKDIR /app
-COPY web/frontend/package.json ./
-RUN npm install
+COPY web/frontend/package.json web/frontend/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 COPY web/frontend/ .
-RUN npm run build
+RUN pnpm run build
 
 FROM golang:1.26-alpine AS build
 RUN apk add --no-cache git

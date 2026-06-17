@@ -212,8 +212,7 @@ func (s *Server) handleAPIDeleteEdge(w http.ResponseWriter, r *http.Request) {
 // ── HTML page handlers ──────────────────────────────────────────────────
 
 func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Cache-Control", "no-store")
-	http.ServeFile(w, r, s.webPath+"/static/graph-app/index.html")
+	http.Redirect(w, r, "/app/graph", http.StatusMovedPermanently)
 }
 
 func (s *Server) handleFragmentArtifact(w http.ResponseWriter, r *http.Request) {
