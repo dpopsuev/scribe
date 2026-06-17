@@ -64,7 +64,11 @@
   } = $props();
 
   let canvas: HTMLCanvasElement | undefined = $state();
+  let labelCanvas: HTMLCanvasElement | undefined = $state();
+  let tooltipEl: HTMLDivElement | undefined = $state();
   let hoveredIndex: number = $state(-1);
+  let mouseX = $state(0);
+  let mouseY = $state(0);
   let width = $state(800);
   let height = $state(600);
 
@@ -300,18 +304,105 @@
       needsPickRedraw = false;
     }
 
+    renderLabels();
     animFrame = requestAnimationFrame(render);
   }
 
+  function worldToScreen(wx: number, wy: number): [number, number] {
+    const sx = (wx - camX) * camZoom + width / 2;
+    const sy = -(wy - camY) * camZoom + height / 2;
+    return [sx, sy];
+  }
+
+  function renderLabels() {
+    if (!labelCanvas || simNodes.length === 0) return;
+    const ctx = labelCanvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, labelCanvas.width, labelCanvas.height);
+
+    const dpr = devicePixelRatio;
+    ctx.save();
+    ctx.scale(dpr, dpr);
+
+    // Determine which labels to show based on zoom and distance from center
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const maxLabelDist = Math.max(width, height) * 0.6; // labels fade beyond 60% from center
+    const minScreenSize = 3; // don't label nodes smaller than 3px on screen
+
+    ctx.font = '11px system-ui, -apple-system, sans-serif';
+    ctx.textBaseline = 'middle';
+
+    for (let i = 0; i < simNodes.length; i++) {
+      const n = simNodes[i];
+      if (!n._label) continue;
+      const [sx, sy] = worldToScreen(n.x || 0, n.y || 0);
+      const screenSize = (n._size || 5) * camZoom;
+
+      // Skip if too small on screen
+      if (screenSize < minScreenSize) continue;
+
+      // Fade by distance from screen center
+      const distFromCenter = Math.hypot(sx - centerX, sy - centerY);
+      let alpha = 1.0 - (distFromCenter / maxLabelDist);
+      alpha = Math.max(0, Math.min(1, alpha));
+
+      // Boost alpha for hovered node
+      if (i === hoveredIndex) alpha = 1.0;
+
+      if (alpha < 0.05) continue;
+
+      // Position label to the right of the node
+      const labelX = sx + screenSize + 4;
+      const labelY = sy;
+
+      // Background pill
+      const text = n._label;
+      const metrics = ctx.measureText(text);
+      const tw = metrics.width;
+      const th = 14;
+      const px = 4, py = 2;
+
+      ctx.fillStyle = `rgba(26, 26, 46, ${0.75 * alpha})`;
+      ctx.beginPath();
+      const rx = labelX - px;
+      const ry = labelY - th / 2 - py;
+      const rw = tw + px * 2;
+      const rh = th + py * 2;
+      const cr = 3;
+      ctx.moveTo(rx + cr, ry);
+      ctx.lineTo(rx + rw - cr, ry);
+      ctx.arcTo(rx + rw, ry, rx + rw, ry + cr, cr);
+      ctx.lineTo(rx + rw, ry + rh - cr);
+      ctx.arcTo(rx + rw, ry + rh, rx + rw - cr, ry + rh, cr);
+      ctx.lineTo(rx + cr, ry + rh);
+      ctx.arcTo(rx, ry + rh, rx, ry + rh - cr, cr);
+      ctx.lineTo(rx, ry + cr);
+      ctx.arcTo(rx, ry, rx + cr, ry, cr);
+      ctx.closePath();
+      ctx.fill();
+
+      // Text
+      ctx.fillStyle = `rgba(224, 224, 224, ${alpha})`;
+      ctx.fillText(text, labelX, labelY);
+    }
+
+    ctx.restore();
+  }
+
   function handleMouseMove(e: MouseEvent) {
+    const rect = canvas?.getBoundingClientRect();
+    if (rect) {
+      mouseX = e.clientX - rect.left;
+      mouseY = e.clientY - rect.top;
+    }
     if (dragging) {
       camX = camStartX - (e.clientX - dragStartX) / camZoom;
       camY = camStartY - (e.clientY - dragStartY) / camZoom;
       needsPickRedraw = true;
       return;
     }
-    if (!gl || !pickFBO || !canvas) return;
-    const rect = canvas.getBoundingClientRect();
+    if (!gl || !pickFBO || !canvas || !rect) return;
     const px = Math.round((e.clientX - rect.left) * (canvas.width / rect.width));
     const py = Math.round((rect.height - (e.clientY - rect.top)) * (canvas.height / rect.height));
     gl.bindFramebuffer(gl.FRAMEBUFFER, pickFBO);
@@ -359,6 +450,12 @@
     height = rect.height;
     canvas.width = width * devicePixelRatio;
     canvas.height = height * devicePixelRatio;
+
+    // Set up label canvas overlay (same size as WebGL canvas)
+    if (labelCanvas) {
+      labelCanvas.width = canvas.width;
+      labelCanvas.height = canvas.height;
+    }
 
     gl = canvas.getContext('webgl2', { antialias: true, alpha: false });
     if (!gl) return;
@@ -424,6 +521,10 @@
       height = r.height;
       canvas.width = width * devicePixelRatio;
       canvas.height = height * devicePixelRatio;
+      if (labelCanvas) {
+        labelCanvas.width = canvas.width;
+        labelCanvas.height = canvas.height;
+      }
       if (pickTex && gl) {
         gl.bindTexture(gl.TEXTURE_2D, pickTex);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, canvas.width, canvas.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
@@ -456,11 +557,42 @@
   });
 </script>
 
-<canvas
-  bind:this={canvas}
-  onmousemove={handleMouseMove}
-  onmousedown={handleMouseDown}
-  onmouseup={handleMouseUp}
-  onwheel={handleWheel}
-  style="width:100%;height:100%;display:block;background:{background};cursor:{dragging ? 'grabbing' : hoveredIndex >= 0 ? 'pointer' : 'grab'}"
-></canvas>
+<div style="position:relative;width:100%;height:100%">
+  <canvas
+    bind:this={canvas}
+    onmousemove={handleMouseMove}
+    onmousedown={handleMouseDown}
+    onmouseup={handleMouseUp}
+    onwheel={handleWheel}
+    style="position:absolute;top:0;left:0;width:100%;height:100%;background:{background};cursor:{dragging ? 'grabbing' : hoveredIndex >= 0 ? 'pointer' : 'grab'}"
+  ></canvas>
+  <canvas
+    bind:this={labelCanvas}
+    style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none"
+  ></canvas>
+  {#if hoveredIndex >= 0 && hoveredIndex < nodes.length}
+    <div
+      bind:this={tooltipEl}
+      style="
+        position:absolute;
+        left:{mouseX + 16}px;
+        top:{mouseY - 10}px;
+        background:rgba(26,26,46,0.94);
+        color:#E0E0E0;
+        padding:6px 10px;
+        border-radius:6px;
+        font-size:12px;
+        pointer-events:none;
+        max-width:280px;
+        line-height:1.4;
+        border:1px solid rgba(255,255,255,0.12);
+        z-index:100;
+      "
+    >
+      <div style="font-weight:600">{nodes[hoveredIndex].label}</div>
+      <div style="font-size:10px;opacity:0.6;margin-top:2px">
+        {nodes[hoveredIndex].kind || ''} · size {Math.round(nodes[hoveredIndex].size)}
+      </div>
+    </div>
+  {/if}
+</div>
