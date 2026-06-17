@@ -3,33 +3,37 @@
   import type { GraphNode, GraphEdge } from '$lib/components/graph/GraphCanvas.svelte';
   import { onMount } from 'svelte';
 
-  // Golden angle color generation in OKLCH space.
+  // Golden angle color generation in OKLCH space — one color per KIND.
   // φ = (1+√5)/2, golden_angle = 360/φ² ≈ 137.508°
   // Perceptually uniform, no gray/white/black (C≥0.12, L∈[0.55,0.85])
   const GOLDEN_ANGLE = 137.508;
-  const colorCache = new Map<string, string>();
-  let colorIndex = 0;
 
-  function goldenColor(seed: string): string {
-    if (colorCache.has(seed)) return colorCache.get(seed)!;
-    // Hash the seed string to get a stable starting index
-    let hash = 0;
-    for (let i = 0; i < seed.length; i++) hash = ((hash << 5) - hash + seed.charCodeAt(i)) | 0;
-    const idx = Math.abs(hash);
-    const hue = (idx * GOLDEN_ANGLE) % 360;
-    const L = 0.72;  // bright enough on dark bg, not white
-    const C = 0.14;  // vivid enough, never gray
-    const hex = oklchToHex(L, C, hue);
-    colorCache.set(seed, hex);
-    return hex;
+  // Stable kind→index mapping so colors are consistent across sessions.
+  // Ordered by frequency/importance — most common kinds get the first (most distinct) hues.
+  const KIND_ORDER = [
+    'project', 'campaign', 'goal', 'task', 'bug', 'note', 'concept',
+    'decision', 'spec', 'need', 'source', 'doc', 'ref', 'context',
+    'journal', 'kind-group', 'ghost', 'session', 'turn', 'tool-call',
+    'interface', 'test', 'config', 'template', 'rule', 'section',
+  ];
+  const kindIndexMap = new Map(KIND_ORDER.map((k, i) => [k, i]));
+  let nextKindIndex = KIND_ORDER.length;
+
+  function kindColor(kind: string): string {
+    const short = kind?.split('.').pop() || kind || 'unknown';
+    let idx = kindIndexMap.get(short);
+    if (idx === undefined) {
+      idx = nextKindIndex++;
+      kindIndexMap.set(short, idx);
+    }
+    const hue = (idx * GOLDEN_ANGLE + 60) % 360; // offset 60° so index 0 isn't red
+    return oklchToHex(0.72, 0.14, hue);
   }
 
   function oklchToHex(L: number, C: number, h: number): string {
-    // Convert OKLCH → OKLab → linear sRGB → sRGB → hex
     const hRad = h * Math.PI / 180;
     const a = C * Math.cos(hRad);
     const b = C * Math.sin(hRad);
-    // OKLab to linear RGB via approximate matrix
     const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
     const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
     const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
@@ -39,20 +43,12 @@
     let r = +4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3;
     let g = -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3;
     let bl = -0.0041960863 * l3 - 0.7034186147 * m3 + 1.7076147010 * s3;
-    // Linear to sRGB gamma
     const gamma = (x: number) => x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1/2.4) - 0.055;
     r = Math.round(Math.max(0, Math.min(1, gamma(r))) * 255);
     g = Math.round(Math.max(0, Math.min(1, gamma(g))) * 255);
     bl = Math.round(Math.max(0, Math.min(1, gamma(bl))) * 255);
     return '#' + [r, g, bl].map(v => v.toString(16).padStart(2, '0')).join('');
   }
-
-  const REL_COLORS: Record<string, string> = {
-    'cross-scope': '#4a4a6a', parent_of: '#4a4a6a',
-    depends_on: '#d47a3a', implements: '#6bc88a',
-    blocks: '#d45a7a', justifies: '#8b6bb5',
-    cites: '#8b6bb5', documents: '#5b9bd5',
-  };
 
   let nodes: GraphNode[] = $state([]);
   let edges: GraphEdge[] = $state([]);
@@ -87,7 +83,7 @@
         x: r * Math.cos(angle),
         y: r * Math.sin(angle),
         size,
-        color: goldenColor(raw.scope || raw.name || raw.id),
+        color: kindColor(raw.kind),
         kind: raw.kind,
       };
     });
@@ -95,7 +91,7 @@
     edges = data.links.map((raw: any) => ({
       source: raw.source,
       target: raw.target,
-      color: REL_COLORS[raw.relation] || '#4a4a6a',
+      color: '#5a5a7a', // uniform muted gray — doesn't compete with node colors
     }));
 
     loading = false;
@@ -142,7 +138,7 @@
         x: cx + r * Math.cos(angle),
         y: cy + r * Math.sin(angle),
         size: Math.max(2, Math.cbrt(raw.val || 1) * 1.2),
-        color: goldenColor(raw.kind || raw.name),
+        color: kindColor(raw.kind),
         kind: raw.kind,
       };
     });
@@ -150,10 +146,10 @@
     const newEdges: GraphEdge[] = [
       ...data.links.map((raw: any) => ({
         source: raw.source, target: raw.target,
-        color: REL_COLORS[raw.relation] || '#4a4a6a',
+        color: '#5a5a7a',
       })),
       ...newNodes.map(n => ({
-        source: parentId, target: n.id, color: parent.color + '40',
+        source: parentId, target: n.id, color: '#4a4a6a',
       })),
     ];
 
