@@ -10,76 +10,110 @@ import (
 
 const batchSize = 200
 
-// Apply writes nodes and edges into store. This is the abstraction both
-// the HTTP handler and tests depend on — no transport required.
-// If schemas is non-nil, Extra fields are validated against the source schema.
+// Apply writes nodes and edges into store. If schemas is provided,
+// Extra fields are validated against the source schema before insert.
 func Apply(ctx context.Context, store parchment.Store, source string, nodes []NodeRecord, edges []EdgeRecord, schemas ...map[string]parchment.SourceSchema) (*Result, error) {
-	var sourceSchemas map[string]parchment.SourceSchema
-	if len(schemas) > 0 {
-		sourceSchemas = schemas[0]
-	}
-	start := time.Now()
-	var inserted, edgesFailed int
-	var errs []string
+	r := &resultBuilder{start: time.Now()}
+	validator := extraValidator(schemas)
 
-	idPrefix := source + ":"
-	existingIDs := make(map[string]bool)
-	if existing, err := store.List(ctx, parchment.Filter{IDPrefix: idPrefix}); err == nil {
-		for _, art := range existing {
-			existingIDs[art.ID] = true
+	for _, batch := range batches(nodes, batchSize) {
+		arts := r.convertBatch(batch, source, validator)
+		for j, err := range store.BulkPut(ctx, arts) {
+			if err != nil {
+				r.recordError(arts[j].ID, err)
+			} else {
+				r.inserted++
+			}
 		}
 	}
 
-	for i := 0; i < len(nodes); i += batchSize {
-		end := i + batchSize
+	pEdges := convertEdges(edges)
+	for _, batch := range batchEdges(pEdges, batchSize) {
+		if err := store.BulkAddEdge(ctx, batch); err != nil {
+			r.edgesFailed += len(batch)
+			r.errs = append(r.errs, fmt.Sprintf("bulk edge insert: %v", err))
+		}
+	}
+
+	return r.result(), nil
+}
+
+type resultBuilder struct {
+	start       time.Time
+	inserted    int
+	edgesFailed int
+	errs        []string
+}
+
+func (r *resultBuilder) convertBatch(nodes []NodeRecord, source string, validate func(string, map[string]any) []string) []*parchment.Artifact {
+	arts := make([]*parchment.Artifact, 0, len(nodes))
+	for i := range nodes {
+		if violations := validate(source, nodes[i].Extra); len(violations) > 0 {
+			for _, v := range violations {
+				r.recordError(nodes[i].ID, fmt.Errorf("%s", v)) //nolint:err113 // validation message
+			}
+			continue
+		}
+		arts = append(arts, NodeToArtifact(&nodes[i]))
+	}
+	return arts
+}
+
+func (r *resultBuilder) recordError(id string, err error) {
+	r.errs = append(r.errs, fmt.Sprintf("%s: %v", id, err))
+}
+
+func (r *resultBuilder) result() *Result {
+	return &Result{
+		Inserted:    r.inserted,
+		EdgesFailed: r.edgesFailed,
+		Errors:      r.errs,
+		Duration:    time.Since(r.start).String(),
+	}
+}
+
+func extraValidator(schemas []map[string]parchment.SourceSchema) func(string, map[string]any) []string {
+	if len(schemas) == 0 || schemas[0] == nil {
+		return func(string, map[string]any) []string { return nil }
+	}
+	s := schemas[0]
+	return func(source string, extra map[string]any) []string {
+		return parchment.ValidateExtra(s, source, extra)
+	}
+}
+
+func batches(nodes []NodeRecord, size int) [][]NodeRecord {
+	var out [][]NodeRecord
+	for i := 0; i < len(nodes); i += size {
+		end := i + size
 		if end > len(nodes) {
 			end = len(nodes)
 		}
-		batch := make([]*parchment.Artifact, 0, end-i)
-		for j := range nodes[i:end] {
-			rec := &nodes[i+j]
-			if sourceSchemas != nil {
-				if validationErrs := parchment.ValidateExtra(sourceSchemas, source, rec.Extra); len(validationErrs) > 0 {
-					for _, ve := range validationErrs {
-						errs = append(errs, fmt.Sprintf("%s: %s", rec.ID, ve))
-					}
-					continue
-				}
-			}
-			batch = append(batch, NodeToArtifact(rec))
-		}
-		for j, err := range store.BulkPut(ctx, batch) {
-			if err != nil {
-				errs = append(errs, fmt.Sprintf("%s: %v", batch[j].ID, err))
-			} else {
-				inserted++
-			}
-		}
+		out = append(out, nodes[i:end])
 	}
+	return out
+}
 
-	pEdges := make([]parchment.Edge, 0, len(edges))
+func batchEdges(edges []parchment.Edge, size int) [][]parchment.Edge {
+	var out [][]parchment.Edge
+	for i := 0; i < len(edges); i += size {
+		end := i + size
+		if end > len(edges) {
+			end = len(edges)
+		}
+		out = append(out, edges[i:end])
+	}
+	return out
+}
+
+func convertEdges(edges []EdgeRecord) []parchment.Edge {
+	out := make([]parchment.Edge, 0, len(edges))
 	for _, e := range edges {
-		pEdges = append(pEdges, parchment.Edge{
+		out = append(out, parchment.Edge{
 			From: e.From, To: e.To, Relation: e.Relation, Weight: e.Weight,
 		})
 	}
-	for i := 0; i < len(pEdges); i += batchSize {
-		end := i + batchSize
-		if end > len(pEdges) {
-			end = len(pEdges)
-		}
-		if err := store.BulkAddEdge(ctx, pEdges[i:end]); err != nil {
-			edgesFailed += end - i
-			errs = append(errs, fmt.Sprintf("bulk edge insert: %v", err))
-		}
-	}
-
-	return &Result{
-		Inserted:    inserted,
-		EdgesFailed: edgesFailed,
-		Errors:      errs,
-		Duration:    time.Since(start).String(),
-	}, nil
+	return out
 }
 
 // NodeToArtifact converts a NodeRecord to a parchment Artifact.
