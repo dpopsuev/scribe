@@ -204,11 +204,58 @@
   }
 
   function handleNodeClick(node: GraphNode) {
+    if (node.kind === 'ghost') return;
     if (node.kind === 'project') {
       const scope = node.label || node.id.replace('project:', '');
       expandScope(scope);
+      return;
+    }
+    if (node.kind === 'kind-group') {
+      expandKindGroup(node);
+      return;
     }
     openSidebar(node.id);
+  }
+
+  async function expandKindGroup(node: GraphNode) {
+    // kind-group IDs are "kind:{scope}:{kindName}" — extract scope and kind
+    const parts = node.id.replace('kind:', '').split(':');
+    if (parts.length < 2) return;
+    const scope = parts[0];
+    const kindName = parts.slice(1).join(':');
+    const status = 'work.draft,work.active,work.blocked,work.complete,note.fleeting,note.mature,note.evergreen,decision.proposed,decision.accepted';
+    const res = await fetch(`/api/v1/graph?scope=${encodeURIComponent(scope)}&status=${encodeURIComponent(status)}&max_nodes=200`);
+    const data = await res.json();
+
+    // Filter to artifacts of this kind only
+    const kindNodes = data.nodes.filter((n: any) => n.kind === kindName);
+    if (kindNodes.length === 0) return;
+
+    const cx = node.x;
+    const cy = node.y;
+    const orbitRadius = Math.max(node.size * 2, 15);
+    const childGoldenAngle = 137.508 * Math.PI / 180;
+
+    const newNodes: GraphNode[] = kindNodes.map((raw: any, i: number) => {
+      const angle = i * childGoldenAngle;
+      const r = orbitRadius * Math.sqrt((i + 0.5) / kindNodes.length);
+      return {
+        id: raw.id,
+        label: raw.name,
+        x: cx + r * Math.cos(angle),
+        y: cy + r * Math.sin(angle),
+        size: Math.max(2, Math.cbrt(raw.val || 1) * 1.2),
+        color: kindColor(raw.kind),
+        kind: raw.kind,
+      };
+    });
+
+    const kindEdges = data.links
+      .filter((l: any) => kindNodes.some((n: any) => n.id === l.source || n.id === l.target))
+      .map((l: any) => ({ source: l.source, target: l.target, color: '#5a5a7a' }));
+
+    nodes = [...nodes, ...newNodes];
+    edges = [...edges, ...kindEdges];
   }
 
   onMount(() => { fetchScopeGraph(); });
