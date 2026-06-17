@@ -216,31 +216,34 @@
     simLinks = edges.map(e => ({ source: e.source, target: e.target, _color: e.color }))
       .filter(e => nodeMap.has(e.source) && nodeMap.has(e.target));
 
-    const maxRadius = Math.max(100, simNodes.length * 5);
+    // Compute ideal layout area: nodes should fill ~25% of total area
+    const totalNodeArea = simNodes.reduce((s, n) => s + Math.PI * ((n._size || 5) ** 2), 0);
+    const idealRadius = Math.sqrt(totalNodeArea / (0.25 * Math.PI)) * 1.5;
+    const avgSize = simNodes.reduce((s, n) => s + (n._size || 5), 0) / (simNodes.length || 1);
 
     simulation = forceSimulation(simNodes)
-      // N-body gravity: all nodes attract (like stars). G=0.8, softening=8
-      .force('gravity', forceGravity(0.8, 8))
-      // Short-range repulsion prevents overlap (like electron clouds)
-      .force('charge', forceManyBody().strength(-40).distanceMax(60))
-      // Centering keeps the center of mass at origin
-      .force('center', forceCenter(0, 0).strength(0.05))
-      // Collision: hard sphere boundary
-      .force('collision', forceCollide().radius((d: any) => (d._size || 5) * 1.8).strength(0.8))
-      // Link springs: connected nodes have extra attraction (orbital bonds)
-      .force('link', forceLink(simLinks).id((d: any) => d.id).distance(25).strength(0.5))
-      .velocityDecay(0.35)
-      .alphaDecay(0.02)
+      .force('gravity', forceGravity(0.6, avgSize * 2))
+      .force('charge', forceManyBody().strength((d: any) => -(d._size || 5) * 5).distanceMax(avgSize * 8))
+      .force('center', forceCenter(0, 0).strength(0.08))
+      .force('collision', forceCollide().radius((d: any) => (d._size || 5) * 1.5 + 2).strength(0.9).iterations(2))
+      .force('link', forceLink(simLinks).id((d: any) => d.id)
+        .distance((l: any) => {
+          const s1 = l.source?._size || 5;
+          const s2 = l.target?._size || 5;
+          return (s1 + s2) * 2;
+        })
+        .strength(0.4))
+      .velocityDecay(0.4)
+      .alphaDecay(0.025)
       .on('tick', () => {
-        // Soft boundary: dampen velocity when too far from center
         for (const node of simNodes) {
           const dist = Math.hypot(node.x || 0, node.y || 0);
-          if (dist > maxRadius) {
-            const dampen = maxRadius / dist;
-            node.x *= dampen;
-            node.y *= dampen;
-            node.vx = (node.vx || 0) * 0.5;
-            node.vy = (node.vy || 0) * 0.5;
+          if (dist > idealRadius) {
+            const dampen = idealRadius / dist;
+            node.x *= 0.5 + 0.5 * dampen;
+            node.y *= 0.5 + 0.5 * dampen;
+            node.vx = (node.vx || 0) * 0.3;
+            node.vy = (node.vy || 0) * 0.3;
           }
         }
         uploadNodes();

@@ -32,19 +32,34 @@
     const res = await fetch('/api/v1/graph/scopes');
     const data = await res.json();
 
-    // Simple force layout: spread nodes in a circle
     const n = data.nodes.length;
-    const radius = Math.max(100, n * 8);
+    const vals = data.nodes.map((r: any) => r.val || 1);
+    const minCbrt = Math.cbrt(Math.min(...vals));
+    const maxCbrt = Math.cbrt(Math.max(...vals));
+    const range = maxCbrt - minCbrt || 1;
 
-    nodes = data.nodes.map((raw: any, i: number) => ({
-      id: raw.id,
-      label: raw.name,
-      x: radius * Math.cos((2 * Math.PI * i) / n),
-      y: radius * Math.sin((2 * Math.PI * i) / n),
-      size: Math.max(3, Math.cbrt(raw.val) * 2),
-      color: kindColor(raw.kind),
-      kind: raw.kind,
-    }));
+    const MIN_SIZE = 4;   // smallest node in world units
+    const MAX_SIZE = 18;  // largest node in world units
+
+    // Initial positions: golden-angle spiral (better than circle for uneven sizes)
+    const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+    const spreadRadius = Math.sqrt(n) * 12;
+
+    nodes = data.nodes.map((raw: any, i: number) => {
+      const t = (Math.cbrt(raw.val || 1) - minCbrt) / range;
+      const size = MIN_SIZE + (MAX_SIZE - MIN_SIZE) * t;
+      const angle = i * goldenAngle;
+      const r = spreadRadius * Math.sqrt((i + 0.5) / n);
+      return {
+        id: raw.id,
+        label: raw.name,
+        x: r * Math.cos(angle),
+        y: r * Math.sin(angle),
+        size,
+        color: kindColor(raw.kind),
+        kind: raw.kind,
+      };
+    });
 
     edges = data.links.map((raw: any) => ({
       source: raw.source,
