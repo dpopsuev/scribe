@@ -80,6 +80,19 @@
   let pickTex: WebGLTexture | null = null;
   let animFrame = 0;
   let nodeCount = 0;
+
+  // Cached uniform locations (avoids 5 getUniformLocation calls per frame)
+  let uEdgeMatrix: WebGLUniformLocation | null = null;
+  let uNodeMatrix: WebGLUniformLocation | null = null;
+  let uNodePicking: WebGLUniformLocation | null = null;
+
+  // Cached label rendering context + background color
+  let labelCtx: CanvasRenderingContext2D | null = null;
+  let bgRgb: [number, number, number] = [26, 26, 46];
+
+  // Performance HUD — updates at 2Hz, accumulates per-frame timing
+  let perf = $state({ fps: 0, total: 0, webgl: 0, pick: 0, labels: 0 });
+  let _pf = { n: 0, total: 0, webgl: 0, pick: 0, labels: 0, ts: 0 };
   let edgeVertCount = 0;
   let needsPickRedraw = true;
   let simulation: any = null;
@@ -258,6 +271,7 @@
 
   function render() {
     if (!gl || !canvas) return;
+    const t0 = performance.now();
 
     // Tick smooth camera transition (smootherstep ease-in-out)
     if (transition) {
@@ -269,67 +283,91 @@
       if (done) transition = null;
     }
 
-    const [bgR, bgG, bgB] = hexToRgb(background);
     gl.viewport(0, 0, canvas.width, canvas.height);
-    gl.clearColor(bgR / 255, bgG / 255, bgB / 255, 1);
+    gl.clearColor(bgRgb[0] / 255, bgRgb[1] / 255, bgRgb[2] / 255, 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-    const matrix = buildViewMatrix(getCamera());
+    const cam = getCamera();
+    const matrix = buildViewMatrix(cam);
 
-    // Draw edges (GL_LINES)
+    // Draw edges (GL_LINES) — cached uniform location
     if (edgeProg && edgeVAO && edgeVertCount > 0) {
       gl.useProgram(edgeProg);
-      gl.uniformMatrix3fv(gl.getUniformLocation(edgeProg, 'u_matrix'), false, matrix);
+      gl.uniformMatrix3fv(uEdgeMatrix, false, matrix);
       gl.bindVertexArray(edgeVAO);
       gl.drawArrays(gl.LINES, 0, edgeVertCount);
     }
 
-    // Draw nodes (instanced)
+    // Draw nodes (instanced) — cached uniform locations
     if (nodeProg && nodeVAO && nodeCount > 0) {
       gl.useProgram(nodeProg);
-      gl.uniformMatrix3fv(gl.getUniformLocation(nodeProg, 'u_matrix'), false, matrix);
-      gl.uniform1i(gl.getUniformLocation(nodeProg, 'u_picking'), 0);
+      gl.uniformMatrix3fv(uNodeMatrix, false, matrix);
+      gl.uniform1i(uNodePicking, 0);
       gl.bindVertexArray(nodeVAO);
       gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, nodeCount);
     }
+    const t1 = performance.now();
 
-    // Picking pass
+    // Picking pass — deferred: only redraw when mouse moves, not every zoom step
     if (needsPickRedraw && pickFBO && nodeProg && nodeVAO && nodeCount > 0) {
       gl.bindFramebuffer(gl.FRAMEBUFFER, pickFBO);
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.disable(gl.BLEND);
       gl.useProgram(nodeProg);
-      gl.uniformMatrix3fv(gl.getUniformLocation(nodeProg, 'u_matrix'), false, matrix);
-      gl.uniform1i(gl.getUniformLocation(nodeProg, 'u_picking'), 1);
+      gl.uniformMatrix3fv(uNodeMatrix, false, matrix);
+      gl.uniform1i(uNodePicking, 1);
       gl.bindVertexArray(nodeVAO);
       gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, nodeCount);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.enable(gl.BLEND);
       needsPickRedraw = false;
     }
+    const t2 = performance.now();
 
-    renderLabels();
+    renderLabels(cam);
+    const t3 = performance.now();
+
+    // Performance HUD — accumulate, update display at 2Hz
+    _pf.webgl += t1 - t0;
+    _pf.pick += t2 - t1;
+    _pf.labels += t3 - t2;
+    _pf.total += t3 - t0;
+    _pf.n++;
+    if (t3 - _pf.ts > 500) {
+      const n = _pf.n;
+      perf = {
+        fps: Math.round(n / ((t3 - _pf.ts) / 1000)),
+        total: _pf.total / n,
+        webgl: _pf.webgl / n,
+        pick: _pf.pick / n,
+        labels: _pf.labels / n,
+      };
+      _pf.n = _pf.total = _pf.webgl = _pf.pick = _pf.labels = 0;
+      _pf.ts = t3;
+    }
+
     animFrame = requestAnimationFrame(render);
   }
 
-  function renderLabels() {
-    if (!labelCanvas || simNodes.length === 0) return;
-    const ctx = labelCanvas.getContext('2d');
-    if (!ctx) return;
-    ctx.clearRect(0, 0, labelCanvas.width, labelCanvas.height);
+  // Text width cache — measureText is expensive, labels don't change
+  const _textWidths = new Map<string, number>();
+
+  function renderLabels(cam: Camera) {
+    if (!labelCtx || simNodes.length === 0) return;
+    const ctx = labelCtx;
+    ctx.clearRect(0, 0, labelCanvas!.width, labelCanvas!.height);
 
     const dpr = devicePixelRatio;
     ctx.save();
     ctx.scale(dpr, dpr);
 
-    // Determine which labels to show based on zoom and distance from center
-    const centerX = width / 2;
-    const centerY = height / 2;
-    const maxLabelDist = Math.max(width, height) * 0.6; // labels fade beyond 60% from center
-    const minScreenSize = 3; // don't label nodes smaller than 3px on screen
+    const centerX = cam.width / 2;
+    const centerY = cam.height / 2;
+    const maxLabelDist = Math.max(cam.width, cam.height) * 0.6;
+    const minScreenSize = 3;
 
     ctx.font = '11px system-ui, -apple-system, sans-serif';
     ctx.textBaseline = 'middle';
@@ -337,30 +375,27 @@
     for (let i = 0; i < simNodes.length; i++) {
       const n = simNodes[i];
       if (!n._label) continue;
-      const [sx, sy] = worldToScreen(getCamera(), n.x || 0, n.y || 0);
-      const screenSize = (n._size || 5) * camZoom;
+      const [sx, sy] = worldToScreen(cam, n.x || 0, n.y || 0);
+      const screenSize = (n._size || 5) * cam.zoom;
 
-      // Skip if too small on screen
       if (screenSize < minScreenSize) continue;
 
-      // Fade by distance from screen center
       const distFromCenter = Math.hypot(sx - centerX, sy - centerY);
       let alpha = 1.0 - (distFromCenter / maxLabelDist);
       alpha = Math.max(0, Math.min(1, alpha));
-
-      // Boost alpha for hovered node
       if (i === hoveredIndex) alpha = 1.0;
-
       if (alpha < 0.05) continue;
 
-      // Position label to the right of the node
       const labelX = sx + screenSize + 4;
       const labelY = sy;
 
-      // Background pill
+      // Cached text width — avoids measureText per frame
       const text = n._label;
-      const metrics = ctx.measureText(text);
-      const tw = metrics.width;
+      let tw = _textWidths.get(text);
+      if (tw === undefined) {
+        tw = ctx.measureText(text).width;
+        _textWidths.set(text, tw);
+      }
       const th = 14;
       const px = 4, py = 2;
 
@@ -383,7 +418,6 @@
       ctx.closePath();
       ctx.fill();
 
-      // Text
       ctx.fillStyle = `rgba(224, 224, 224, ${alpha})`;
       ctx.fillText(text, labelX, labelY);
     }
@@ -397,6 +431,7 @@
       mouseX = e.clientX - rect.left;
       mouseY = e.clientY - rect.top;
     }
+    needsPickRedraw = true;
     if (dragging) {
       camX = camStartX - (e.clientX - dragStartX) / camZoom;
       camY = camStartY - (e.clientY - dragStartY) / camZoom;
@@ -452,7 +487,8 @@
     onUserInteract();
     const factor = e.deltaY > 0 ? 0.9 : 1.1;
     camZoom = Math.max(0.05, Math.min(50, camZoom * factor));
-    needsPickRedraw = true;
+    // Don't set needsPickRedraw here — pick FBO only needed when mouse moves
+    // (readPixels in handleMouseMove). This avoids a full extra draw on every scroll tick.
   }
 
   onMount(() => {
@@ -521,6 +557,16 @@
     gl.enableVertexAttribArray(ecLoc);
     gl.vertexAttribPointer(ecLoc, 4, gl.UNSIGNED_BYTE, true, eStride, 8);
     gl.bindVertexArray(null);
+
+    // Cache uniform locations (eliminates 5 GL calls per frame)
+    uEdgeMatrix = gl.getUniformLocation(edgeProg, 'u_matrix');
+    uNodeMatrix = gl.getUniformLocation(nodeProg, 'u_matrix');
+    uNodePicking = gl.getUniformLocation(nodeProg, 'u_picking');
+
+    // Cache label canvas context and background color
+    if (labelCanvas) labelCtx = labelCanvas.getContext('2d');
+    bgRgb = hexToRgb(background) as [number, number, number];
+    _pf.ts = performance.now();
 
     setupPickFBO();
     startSimulation();
@@ -595,6 +641,12 @@
     bind:this={labelCanvas}
     style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none"
   ></canvas>
+  <div style="
+    position:absolute;bottom:0.5rem;right:0.5rem;
+    background:rgba(0,0,0,0.7);color:#9ca3af;
+    font:10px monospace;padding:4px 8px;border-radius:4px;
+    pointer-events:none;z-index:50;white-space:pre;
+  ">{perf.fps} fps  {perf.total.toFixed(1)}ms  gl:{perf.webgl.toFixed(1)} pk:{perf.pick.toFixed(1)} lbl:{perf.labels.toFixed(1)}</div>
   {#if hoveredIndex >= 0 && hoveredIndex < nodes.length}
     <div
       bind:this={tooltipEl}
