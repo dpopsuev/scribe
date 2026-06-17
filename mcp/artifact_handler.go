@@ -19,7 +19,34 @@ const (
 	logKeyWorkspace             = "workspace_labels"
 	workspaceUnconfiguredSuffix = "\n⚠ workspace unset — artifacts have no repository context"
 	actionCreate                = "create"
+	progressInterval            = 5 * time.Second
 )
+
+// startProgressHeartbeat emits MCP progress notifications every progressInterval
+// for long-running operations. No-op when req or Session is nil (test mode).
+func startProgressHeartbeat(ctx context.Context, req *sdkmcp.CallToolRequest, action string, start time.Time) {
+	if req == nil || req.Session == nil {
+		return
+	}
+	token := req.Params.GetProgressToken()
+	go func() {
+		ticker := time.NewTicker(progressInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				elapsed := time.Since(start).Round(time.Second)
+				_ = req.Session.NotifyProgress(ctx, &sdkmcp.ProgressNotificationParams{
+					ProgressToken: token,
+					Message:       fmt.Sprintf("%s running (elapsed %s)", action, elapsed),
+					Progress:      elapsed.Seconds(),
+				})
+			}
+		}
+	}()
+}
 
 // onInitialized is called by the MCP SDK after the client sends the
 // initialized notification. For HTTP transport, clients declare their
@@ -122,15 +149,16 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		if isWriteAction(in.Action) {
 			h.recordTurn(ctx, in.Action, raw)
 		}
+		progressCtx, progressCancel := context.WithCancel(ctx)
+		startProgressHeartbeat(progressCtx, req, in.Action, start)
 		out, err := op.Run(ctx, h.svc, raw)
+		progressCancel()
 		if err != nil {
 			return nil, nil, err
 		}
-		// For get: append image content blocks when attachments exist.
 		if in.Action == "get" && in.ID != "" {
 			return h.buildGetResult(ctx, in.ID, out)
 		}
-		// Warn on write operations only — read responses must not be polluted.
 		if !h.workspaceConfigured && isWriteAction(in.Action) {
 			out += workspaceUnconfiguredSuffix
 		}
@@ -162,7 +190,10 @@ func (h *handler) handleGraph(ctx context.Context, req *sdkmcp.CallToolRequest, 
 	if op := service.Find(in.Action); op != nil {
 		raw, _ := json.Marshal(in)
 		h.recordTurn(ctx, in.Action, raw)
+		progressCtx, progressCancel := context.WithCancel(ctx)
+		startProgressHeartbeat(progressCtx, req, in.Action, start)
 		out, err := op.Run(ctx, h.svc, raw)
+		progressCancel()
 		if err != nil {
 			return nil, nil, err
 		}
@@ -184,7 +215,10 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 	}
 	if op := service.Find(in.Action); op != nil {
 		raw, _ := json.Marshal(in)
+		progressCtx, progressCancel := context.WithCancel(ctx)
+		startProgressHeartbeat(progressCtx, req, in.Action, start)
 		out, err := op.Run(ctx, h.svc, raw)
+		progressCancel()
 		if err != nil {
 			return nil, nil, err
 		}
