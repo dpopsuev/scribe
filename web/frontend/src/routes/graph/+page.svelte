@@ -55,6 +55,46 @@
   let loading = $state(true);
   let expanded = $state(new Set<string>());
 
+  // Sidebar state — wiki-style artifact inspector with clickable linked references
+  interface ArtifactDetail {
+    id: string;
+    title: string;
+    labels: string[];
+    sections: Array<{ name: string; text: string }>;
+    extra: Record<string, any>;
+    created_at: string;
+    updated_at: string;
+  }
+  interface EdgeRef {
+    from: string;
+    to: string;
+    relation: string;
+    title: string;
+    kind: string;
+  }
+  let sidebar: { art: ArtifactDetail; edges: EdgeRef[]; history: string[] } | null = $state(null);
+
+  async function openSidebar(id: string) {
+    const [artRes, edgesRes] = await Promise.all([
+      fetch(`/api/v1/artifacts/${encodeURIComponent(id)}`),
+      fetch(`/api/v1/artifacts/${encodeURIComponent(id)}/edges`),
+    ]);
+    if (!artRes.ok) return;
+    const art = await artRes.json();
+    const edgeList = edgesRes.ok ? await edgesRes.json() : [];
+    const history = sidebar ? [...sidebar.history, sidebar.art.id] : [];
+    sidebar = { art, edges: edgeList, history };
+  }
+
+  function closeSidebar() { sidebar = null; }
+
+  function sidebarBack() {
+    if (!sidebar || sidebar.history.length === 0) return;
+    const prev = sidebar.history[sidebar.history.length - 1];
+    sidebar.history = sidebar.history.slice(0, -1);
+    openSidebar(prev);
+  }
+
   async function fetchScopeGraph() {
     const res = await fetch('/api/v1/graph/scopes');
     const data = await res.json();
@@ -168,6 +208,7 @@
       const scope = node.label || node.id.replace('project:', '');
       expandScope(scope);
     }
+    openSidebar(node.id);
   }
 
   onMount(() => { fetchScopeGraph(); });
@@ -185,6 +226,64 @@
       {/if}
     </div>
     <GraphCanvas {nodes} {edges} onNodeClick={handleNodeClick} />
+
+    {#if sidebar}
+      <div class="sidebar">
+        <div class="sidebar-header">
+          <div class="sidebar-nav">
+            {#if sidebar.history.length > 0}
+              <button class="sidebar-back" onclick={sidebarBack}>←</button>
+            {/if}
+            <button class="sidebar-close" onclick={closeSidebar}>×</button>
+          </div>
+          <h3>{sidebar.art.title}</h3>
+          <div class="sidebar-meta">
+            {#each sidebar.art.labels as label}
+              {#if label.startsWith('kind:')}
+                <span class="tag tag-kind">{label.replace('kind:', '')}</span>
+              {:else if label.startsWith('project:')}
+                <span class="tag tag-scope">{label.replace('project:', '')}</span>
+              {:else if !label.startsWith('encoded:') && !label.startsWith('compliance:')}
+                <span class="tag">{label}</span>
+              {/if}
+            {/each}
+          </div>
+        </div>
+
+        <div class="sidebar-body">
+          {#if sidebar.art.extra?.description}
+            <div class="sidebar-section">
+              <div class="section-text">{sidebar.art.extra.description}</div>
+            </div>
+          {/if}
+
+          {#each sidebar.art.sections || [] as section}
+            <div class="sidebar-section">
+              <h4>{section.name}</h4>
+              <div class="section-text">{section.text}</div>
+            </div>
+          {/each}
+
+          {#if sidebar.edges.length > 0}
+            <div class="sidebar-section">
+              <h4>Linked References ({sidebar.edges.length})</h4>
+              {#each sidebar.edges as edge}
+                <button
+                  class="edge-link"
+                  onclick={() => openSidebar(edge.from === sidebar?.art.id ? edge.to : edge.from)}
+                >
+                  <span class="edge-relation">{edge.relation}</span>
+                  <span class="edge-title">{edge.title || (edge.from === sidebar?.art.id ? edge.to : edge.from)}</span>
+                  {#if edge.kind}
+                    <span class="edge-kind">{edge.kind.split('.').pop()}</span>
+                  {/if}
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      </div>
+    {/if}
   {/if}
 </div>
 
@@ -228,5 +327,130 @@
     margin-top: 0.4rem;
     font-size: 0.72em;
     opacity: 0.6;
+  }
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 360px;
+    height: 100vh;
+    background: rgba(16, 16, 32, 0.97);
+    border-right: 1px solid rgba(255,255,255,0.08);
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .sidebar-header {
+    padding: 1rem;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    flex-shrink: 0;
+  }
+  .sidebar-header h3 {
+    margin: 0.3rem 0 0.5rem;
+    font-size: 0.95em;
+    color: #e2e8f0;
+    line-height: 1.3;
+  }
+  .sidebar-nav {
+    display: flex;
+    justify-content: space-between;
+  }
+  .sidebar-back, .sidebar-close {
+    background: none;
+    border: 1px solid rgba(255,255,255,0.12);
+    color: #94a3b8;
+    border-radius: 4px;
+    padding: 0.2rem 0.6rem;
+    cursor: pointer;
+    font-size: 0.9em;
+  }
+  .sidebar-back:hover, .sidebar-close:hover {
+    color: #e2e8f0;
+    border-color: rgba(255,255,255,0.3);
+  }
+  .sidebar-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+  }
+  .tag {
+    font-size: 0.68em;
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.06);
+    color: #94a3b8;
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  .tag-kind {
+    background: rgba(99,102,241,0.2);
+    border-color: rgba(99,102,241,0.4);
+    color: #a5b4fc;
+  }
+  .tag-scope {
+    background: rgba(34,197,94,0.15);
+    border-color: rgba(34,197,94,0.3);
+    color: #86efac;
+  }
+  .sidebar-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0.8rem 1rem;
+  }
+  .sidebar-section {
+    margin-bottom: 1rem;
+  }
+  .sidebar-section h4 {
+    margin: 0 0 0.4rem;
+    font-size: 0.78em;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .section-text {
+    font-size: 0.82em;
+    color: #cbd5e1;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .edge-link {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    width: 100%;
+    padding: 0.4rem 0.5rem;
+    margin-bottom: 0.25rem;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 5px;
+    color: #94a3b8;
+    cursor: pointer;
+    font-size: 0.78em;
+    text-align: left;
+  }
+  .edge-link:hover {
+    background: rgba(99,102,241,0.12);
+    border-color: rgba(99,102,241,0.3);
+    color: #c7d2fe;
+  }
+  .edge-relation {
+    font-size: 0.72em;
+    padding: 0.1rem 0.3rem;
+    border-radius: 2px;
+    background: rgba(255,255,255,0.06);
+    color: #64748b;
+    flex-shrink: 0;
+  }
+  .edge-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .edge-kind {
+    font-size: 0.68em;
+    opacity: 0.5;
+    flex-shrink: 0;
   }
 </style>
