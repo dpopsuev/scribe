@@ -1,9 +1,12 @@
 import { test, expect } from '@playwright/test';
 
-// 1:1 user-story perf test: simulates real zoom in/out on the graph page,
-// samples PER-FRAME FPS from window.__GRAPH_FRAME_HIST__, and reports
-// distribution across the color scale:
+// Performance regression gate for the graph visualization.
+// Simulates real user zoom/pan interactions, samples per-frame FPS
+// via rAF timestamp delta, and asserts against the color scale:
 //   Blue: 60+ fps | Green: 30-60 | Yellow: 15-30 | Red: <15
+//
+// Also checks the jank detector (setInterval-based) for main-thread
+// blocks that rAF can't see (the $effect/startSimulation bug was 2-3s).
 //
 // Run:  npx playwright test tests/graph-perf.spec.ts
 // CI:   xvfb-run npx playwright test tests/graph-perf.spec.ts
@@ -22,6 +25,7 @@ function distribution(frames: number[]) {
 }
 
 function reportDist(label: string, frames: number[]) {
+  if (!frames.length) { console.log(`\n${label}: no frames`); return { blue: 0, green: 0, yellow: 0, red: 0, total: 0 }; }
   const d = distribution(frames);
   const pct = (n: number) => ((n / d.total) * 100).toFixed(0).padStart(3) + '%';
   const min = Math.min(...frames);
@@ -35,23 +39,53 @@ function reportDist(label: string, frames: number[]) {
   return d;
 }
 
-test.describe('graph zoom performance — user story', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/app/graph');
-    await page.waitForFunction(
-      () => (window as any).__GRAPH_PERF__?.fps > 0,
-      { timeout: 15000 },
+async function setupGraph(page: any) {
+  await page.goto('/app/graph');
+  await page.waitForFunction(
+    () => (window as any).__GRAPH_PERF__?.fps > 0,
+    { timeout: 15000 },
+  );
+  const box = await page.locator('canvas').first().boundingBox();
+  if (!box) throw new Error('Canvas not found');
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.evaluate(() => (window as any).__GRAPH_RESET_PERF__());
+  await page.waitForTimeout(300);
+  return box;
+}
+
+test.describe('perf regression gate', () => {
+
+  test('zoom in/out: zero jank (>500ms blocks)', async ({ page }) => {
+    await setupGraph(page);
+
+    // Zoom in
+    for (let i = 0; i < 30; i++) {
+      await page.mouse.wheel(0, -120);
+      await page.waitForTimeout(16);
+    }
+    await page.waitForTimeout(300);
+
+    // Zoom out
+    for (let i = 0; i < 30; i++) {
+      await page.mouse.wheel(0, 120);
+      await page.waitForTimeout(16);
+    }
+    await page.waitForTimeout(600);
+
+    const jank: Array<{ blocked: number }> = await page.evaluate(() =>
+      (window as any).__GRAPH_JANK__?.() || []
     );
-    // Clear frame history so each test starts fresh
-    await page.evaluate(() => { (window as any).__GRAPH_FRAME_HIST__ = []; });
+    const severe = jank.filter(j => j.blocked > 500);
+    if (severe.length) {
+      console.log('SEVERE JANK DETECTED:');
+      for (const j of severe) console.log(`  ${j.blocked}ms block`);
+    }
+    expect(severe).toHaveLength(0);
   });
 
-  test('zoom in → pause → zoom out: per-frame FPS distribution', async ({ page }) => {
-    // Reset clears history AND prevFrameTs to avoid stale first-frame delta
-    await page.evaluate(() => (window as any).__GRAPH_RESET_PERF__());
-    await page.waitForTimeout(200);
+  test('zoom in → idle → zoom out: FPS stays green+', async ({ page }) => {
+    await setupGraph(page);
 
-    // Phase 1: zoom in (30 scroll ticks, ~16ms apart = real trackpad speed)
     for (let i = 0; i < 30; i++) {
       await page.mouse.wheel(0, -120);
       await page.waitForTimeout(16);
@@ -59,12 +93,6 @@ test.describe('graph zoom performance — user story', () => {
     await page.waitForTimeout(600);
     const zoomInFrames: number[] = await page.evaluate(() => [...((window as any).__GRAPH_FRAME_HIST__ || [])]);
 
-    // Phase 2: pause — let everything settle
-    await page.evaluate(() => (window as any).__GRAPH_RESET_PERF__());
-    await page.waitForTimeout(1000);
-    const idleFrames: number[] = await page.evaluate(() => [...((window as any).__GRAPH_FRAME_HIST__ || [])]);
-
-    // Phase 3: zoom out
     await page.evaluate(() => (window as any).__GRAPH_RESET_PERF__());
     for (let i = 0; i < 30; i++) {
       await page.mouse.wheel(0, 120);
@@ -73,26 +101,22 @@ test.describe('graph zoom performance — user story', () => {
     await page.waitForTimeout(600);
     const zoomOutFrames: number[] = await page.evaluate(() => [...((window as any).__GRAPH_FRAME_HIST__ || [])]);
 
-    // Report
     const dIn = reportDist('ZOOM IN', zoomInFrames);
-    const dIdle = reportDist('IDLE', idleFrames);
     const dOut = reportDist('ZOOM OUT', zoomOutFrames);
 
-    // Assertions: <2% red (GC spikes), 80%+ green-or-better
+    // Gate: <2% red, 80%+ green-or-better
     expect(dIn.red).toBeLessThan(Math.max(3, dIn.total * 0.02));
     expect(dOut.red).toBeLessThan(Math.max(3, dOut.total * 0.02));
     expect(dIn.blue + dIn.green).toBeGreaterThan(dIn.total * 0.8);
     expect(dOut.blue + dOut.green).toBeGreaterThan(dOut.total * 0.8);
   });
 
-  test('rapid zoom burst: no red frames', async ({ page }) => {
-    await page.evaluate(() => (window as any).__GRAPH_RESET_PERF__());
+  test('rapid burst (125Hz): no sustained drops', async ({ page }) => {
+    await setupGraph(page);
 
-    // Aggressive burst: 50 wheel events with no wait between JS calls
-    // (browser still processes them at vsync rate)
     for (let i = 0; i < 50; i++) {
       await page.mouse.wheel(0, i % 2 === 0 ? -200 : 200);
-      await page.waitForTimeout(8); // 125Hz — faster than display refresh
+      await page.waitForTimeout(8);
     }
     await page.waitForTimeout(600);
 
@@ -103,7 +127,23 @@ test.describe('graph zoom performance — user story', () => {
     expect(d.yellow).toBeLessThan(d.total * 0.2);
   });
 
-  test('perf API: __GRAPH_PERF__ and __GRAPH_FRAME_HIST__ exposed', async ({ page }) => {
+  test('render budget: <2ms average frame time', async ({ page }) => {
+    await setupGraph(page);
+
+    for (let i = 0; i < 20; i++) {
+      await page.mouse.wheel(0, -100);
+      await page.waitForTimeout(16);
+    }
+    await page.waitForTimeout(600);
+
+    const perf = await page.evaluate(() => (window as any).__GRAPH_PERF__);
+    console.log(`\nRender budget: ${perf.total.toFixed(2)}ms (gl:${perf.webgl.toFixed(2)} pk:${perf.pick.toFixed(2)} lbl:${perf.labels.toFixed(2)})`);
+    expect(perf.total).toBeLessThan(2);
+  });
+
+  test('debug API contract', async ({ page }) => {
+    await setupGraph(page);
+
     const perf = await page.evaluate(() => (window as any).__GRAPH_PERF__);
     expect(perf).toHaveProperty('fps');
     expect(perf).toHaveProperty('total');
@@ -113,5 +153,13 @@ test.describe('graph zoom performance — user story', () => {
 
     const hist = await page.evaluate(() => (window as any).__GRAPH_FRAME_HIST__);
     expect(Array.isArray(hist)).toBe(true);
+
+    const jank = await page.evaluate(() => (window as any).__GRAPH_JANK__());
+    expect(Array.isArray(jank)).toBe(true);
+
+    await page.evaluate(() => (window as any).__GRAPH_RESET_PERF__());
+    const afterReset = await page.evaluate(() => (window as any).__GRAPH_FRAME_HIST__);
+    // Reset clears the buffer but rAF may have added a few frames before we read
+    expect(afterReset.length).toBeLessThan(30);
   });
 });
