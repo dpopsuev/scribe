@@ -11,6 +11,8 @@ github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be h1:9AeTilPcZAjCFI
 github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be/go.mod h1:ySMOLuWl6zY27l47sB3qLNK6tF2fkHG55UZxx8oIVo4=
 github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5 h1:0CwZNZbxp69SHPdPJAN/hZIm0C4OItdklCFmMRWYpio=
 github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5/go.mod h1:wHh0iHkYZB8zMSxRWpUBQtwG5a7fFgvEO+odwuTv2gs=
+github.com/bndr/gojenkins v1.2.0 h1:iomz/HKK5HlmQ1a65Qc3ejd6i1z6MtcyI85GZYetMxI=
+github.com/bndr/gojenkins v1.2.0/go.mod h1:Mzk6d2aV+fzE3UIEIohi59Lh20cfRiWdFztx/AQbizM=
 github.com/chromedp/cdproto v0.0.0-20260321001828-e3e3800016bc h1:wkN/LMi5vc60pBRWx6qpbk/aEvq3/ZVNpnMvsw8PVVU=
 github.com/chromedp/cdproto v0.0.0-20260321001828-e3e3800016bc/go.mod h1:cbyjALe67vDvlvdiG9369P8w5U2w6IshwtyD2f2Tvag=
 github.com/chromedp/chromedp v0.15.1 h1:EJWiPm7BNqDqjYy6U0lTSL5wNH+iNt9GjC3a4gfjNyQ=
@@ -29,6 +31,8 @@ github.com/dominikbraun/graph v0.23.0 h1:TdZB4pPqCLFxYhdyMFb1TBdFxp8XLcJfTTBQucV
 github.com/dominikbraun/graph v0.23.0/go.mod h1:yOjYyogZLY1LSG9E33JWZJiq5k83Qy2C6POAuiViluc=
 github.com/dpopsuev/battery v1.5.0 h1:ZeVCOVGq5Drzfg+PxKGBC7RsoBntC+Y+YGe2HA6HZNU=
 github.com/dpopsuev/battery v1.5.0/go.mod h1:wbm7TeW4aAKWe8qQDwonJar8vM8jrpqc5V/cjKqZ7XI=
+github.com/dpopsuev/conty v0.13.0 h1:BIseI9hWS84p/2hIMrX+7xkvltBIjOoDwYAxlwKOf4A=
+github.com/dpopsuev/conty v0.13.0/go.mod h1:JmyiUG90HoMHbs2trwMVuLVLy0rDvD4aHWX8ylpWYMs=
 github.com/dpopsuev/emcee v0.25.0 h1:HDqZZQFt722/4Gglo9Ijm5hLvY0Jnnfpi/gBWvtN04A=
 github.com/dpopsuev/emcee v0.25.0/go.mod h1:N8GvVA2zYS6/+IPLhcp9g0edYBUpif0CQd533Qp9Axo=
 github.com/dpopsuev/locus v0.104.0 h1:QpYtGRL/+QeOsM1jmtvEVac0mO/38qLJiyVhdHNzFCc=

@@ -18,9 +18,11 @@ require (
 	dario.cat/mergo v1.0.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.1.6 // indirect
+	github.com/bndr/gojenkins v1.2.0 // indirect
 	github.com/chromedp/sysutil v1.1.0 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/cyphar/filepath-securejoin v0.4.1 // indirect
+	github.com/dpopsuev/conty v0.13.0 // indirect
 	github.com/dpopsuev/emcee v0.25.0 // indirect
 	github.com/dpopsuev/oculus/v3 v3.91.0 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
