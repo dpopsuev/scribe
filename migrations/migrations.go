@@ -109,6 +109,11 @@ var All = []Migration{
 		Description: "Fix remaining stale alias ring references via alias chain resolution",
 		Run:         migrateFixAliasRing,
 	},
+	{
+		ID:          "0015_ctx_to_agent",
+		Description: "Rename ctx.* kinds and statuses to agent.* namespace",
+		Run:         migrateCtxToAgent,
+	},
 }
 
 // RunPending applies all migrations that have not yet been recorded as applied.

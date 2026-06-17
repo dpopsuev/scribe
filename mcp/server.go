@@ -180,8 +180,8 @@ type handler struct {
 	homeScopes          []string // default scopes; narrowable at runtime
 	workspaceLabels     []string // context labels stamped on every artifact this session
 	workspaceConfigured bool     // true once workspace context has been set
-	recordSession       bool     // when true, create ctx.session/ctx.turn artifacts
-	sessionArtifactID   string   // lazily created ctx.session artifact
+	recordSession       bool     // when true, create agent.session/agent.turn artifacts
+	sessionArtifactID   string   // lazily created agent.session artifact
 }
 
 // --- consolidated input types ---

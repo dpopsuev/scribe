@@ -21,6 +21,7 @@ var knowledgeKinds = map[string]bool{
 	"knowledge.source":  true,
 	"knowledge.concept": true,
 	"knowledge.context": true,
+	"agent.memory":      true,
 }
 
 // IsRecallable returns true when an artifact should be included in recall.
@@ -53,6 +54,8 @@ func KindWeight(kind, status string) float64 {
 		return 1.0
 	case "effort.task":
 		return 0.9
+	case "agent.memory":
+		return 1.3
 	case "knowledge.journal":
 		return 0.8
 	default:

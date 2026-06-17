@@ -70,7 +70,7 @@ func (h *handler) recordTurn(ctx context.Context, action string, raw json.RawMes
 	if h.sessionArtifactID == "" {
 		sess, err := h.proto.CreateArtifact(ctx, parchment.CreateInput{
 			Title:  fmt.Sprintf("session %s", h.svc.SessionID),
-			Labels: []string{"kind:ctx.session"},
+			Labels: []string{"kind:agent.session"},
 		})
 		if err != nil {
 			slog.WarnContext(ctx, "session recording: create session failed", slog.Any(parchment.LogKeyError, err))
@@ -84,7 +84,7 @@ func (h *handler) recordTurn(ctx context.Context, action string, raw json.RawMes
 	}
 	_, _ = h.proto.CreateArtifact(ctx, parchment.CreateInput{ //nolint:gosec // advisory recording
 		Title:    fmt.Sprintf("turn: %s", action),
-		Labels:   []string{"kind:ctx.turn"},
+		Labels:   []string{"kind:agent.turn"},
 		Parent:   h.sessionArtifactID,
 		Sections: []parchment.Section{{Name: "content", Text: input}},
 	})
