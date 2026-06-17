@@ -3,10 +3,10 @@ package mcp
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
+	batterymcp "github.com/dpopsuev/battery/mcp"
 	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/service"
 	"github.com/google/jsonschema-go/jsonschema"
@@ -334,25 +334,7 @@ type adminInput struct {
 
 // --- dispatchers ---
 
-func unmarshalInput[In any](raw []byte, in *In) *sdkmcp.CallToolResult {
-	if err := json.Unmarshal(raw, in); err != nil {
-		var typeErr *json.UnmarshalTypeError
-		if errors.As(err, &typeErr) {
-			if hint, ok := arrayTypeHints[typeErr.Field]; ok {
-				res := text(fmt.Sprintf("field %q must be %s (got JSON %s)", typeErr.Field, hint, typeErr.Value))
-				res.IsError = true
-				return res
-			}
-		}
-		res := text("invalid arguments: " + err.Error())
-		res.IsError = true
-		return res
-	}
-	return nil
-}
-
-// bindHandler bridges a typed Scribe handler directly to sdkmcp.ToolHandler,
-// bypassing Battery's mcpserver layer to allow full sdkmcp.Tool field control.
+// bindHandler bridges a typed Scribe handler to sdkmcp.ToolHandler.
 func bindHandler[In any](h func(context.Context, *sdkmcp.CallToolRequest, In) (*sdkmcp.CallToolResult, any, error)) sdkmcp.ToolHandler {
 	return func(ctx context.Context, req *sdkmcp.CallToolRequest) (res *sdkmcp.CallToolResult, err error) {
 		defer func() {
@@ -364,7 +346,7 @@ func bindHandler[In any](h func(context.Context, *sdkmcp.CallToolRequest, In) (*
 		}()
 		var in In
 		if req.Params != nil && len(req.Params.Arguments) > 0 {
-			if errRes := unmarshalInput(req.Params.Arguments, &in); errRes != nil {
+			if errRes := batterymcp.UnmarshalWithHints(req.Params.Arguments, &in, arrayTypeHints); errRes != nil {
 				return errRes, nil
 			}
 		}
@@ -405,7 +387,7 @@ const hintLabelArray = `JSON array of strings — e.g. ["label1", "label2"]`
 // arrayTypeHints maps struct field names to their expected JSON wire format.
 // Used by unmarshalInput to produce actionable error messages when the caller
 // passes the wrong type (e.g. a comma-separated string where a JSON array is required).
-var arrayTypeHints = map[string]string{
+var arrayTypeHints = batterymcp.TypeHints{
 	"depends_on":     hintIDArray,
 	"ids":            hintIDArray,
 	"labels":         hintLabelArray,
