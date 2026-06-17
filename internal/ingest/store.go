@@ -12,7 +12,12 @@ const batchSize = 200
 
 // Apply writes nodes and edges into store. This is the abstraction both
 // the HTTP handler and tests depend on — no transport required.
-func Apply(ctx context.Context, store parchment.Store, source string, nodes []NodeRecord, edges []EdgeRecord) (*Result, error) {
+// If schemas is non-nil, Extra fields are validated against the source schema.
+func Apply(ctx context.Context, store parchment.Store, source string, nodes []NodeRecord, edges []EdgeRecord, schemas ...map[string]parchment.SourceSchema) (*Result, error) {
+	var sourceSchemas map[string]parchment.SourceSchema
+	if len(schemas) > 0 {
+		sourceSchemas = schemas[0]
+	}
 	start := time.Now()
 	var inserted, edgesFailed int
 	var errs []string
@@ -32,7 +37,16 @@ func Apply(ctx context.Context, store parchment.Store, source string, nodes []No
 		}
 		batch := make([]*parchment.Artifact, 0, end-i)
 		for j := range nodes[i:end] {
-			batch = append(batch, NodeToArtifact(&nodes[i+j]))
+			rec := &nodes[i+j]
+			if sourceSchemas != nil {
+				if validationErrs := parchment.ValidateExtra(sourceSchemas, source, rec.Extra); len(validationErrs) > 0 {
+					for _, ve := range validationErrs {
+						errs = append(errs, fmt.Sprintf("%s: %s", rec.ID, ve))
+					}
+					continue
+				}
+			}
+			batch = append(batch, NodeToArtifact(rec))
 		}
 		for j, err := range store.BulkPut(ctx, batch) {
 			if err != nil {

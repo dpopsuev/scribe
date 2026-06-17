@@ -6,6 +6,8 @@ require (
 	github.com/chromedp/cdproto v0.0.0-20260321001828-e3e3800016bc
 	github.com/chromedp/chromedp v0.15.1
 	github.com/dpopsuev/battery v1.5.0
+	github.com/dpopsuev/conty v0.13.0
+	github.com/dpopsuev/emcee v0.25.0
 	github.com/dpopsuev/locus v0.104.0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/modelcontextprotocol/go-sdk v1.5.0
@@ -18,12 +20,9 @@ require (
 	dario.cat/mergo v1.0.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.1.6 // indirect
-	github.com/bndr/gojenkins v1.2.0 // indirect
 	github.com/chromedp/sysutil v1.1.0 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/cyphar/filepath-securejoin v0.4.1 // indirect
-	github.com/dpopsuev/conty v0.13.0 // indirect
-	github.com/dpopsuev/emcee v0.25.0 // indirect
 	github.com/dpopsuev/oculus/v3 v3.91.0 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
@@ -44,7 +43,6 @@ require (
 	golang.org/x/crypto v0.49.0 // indirect
 	golang.org/x/net v0.52.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/time v0.15.0 // indirect
 	gonum.org/v1/gonum v0.17.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	modernc.org/sqlite v1.52.0 // indirect
@@ -70,3 +68,5 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+replace github.com/dpopsuev/parchment => ../parchment
