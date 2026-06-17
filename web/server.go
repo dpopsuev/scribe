@@ -101,6 +101,9 @@ func NewServer(proto *parchment.Protocol, version, webPath string) *Server {
 	s.mux.HandleFunc("GET /api/v1/scopes", s.handleAPIScopes)
 	s.mux.HandleFunc("GET /api/v1/schema/hierarchy", s.handleAPISchemaHierarchy)
 
+	// Resolve — fetch live content from source backend on demand
+	s.mux.HandleFunc("GET /api/v1/artifacts/{id}/resolve", s.handleResolve)
+
 	// Debug perf ring buffer — frontend POSTs frames, CLI curls GET
 	s.mux.HandleFunc("POST /api/v1/debug/perf", s.handleDebugPerfPost)
 	s.mux.HandleFunc("GET /api/v1/debug/perf", s.handleDebugPerfGet)

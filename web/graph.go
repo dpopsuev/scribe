@@ -249,6 +249,18 @@ func ViolationCount(a *parchment.Artifact) int {
 	return service.ViolationCount(a)
 }
 
+// ── Resolve — fetch live content from source backend ───────────────────
+
+func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	result, err := service.Resolve(r.Context(), s.svc, id, nil)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	writeJSON(w, result)
+}
+
 // ── Debug perf ring buffer ─────────────────────────────────────────────
 // Frontend POSTs per-frame perf data, CLI curls GET to read it.
 // curl http://localhost:8083/api/v1/debug/perf
