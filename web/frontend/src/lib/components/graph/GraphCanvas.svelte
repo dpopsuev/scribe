@@ -66,6 +66,7 @@
   function onUserInteract(focusNode?: string) {
     lock = userTakeLock(lock, focusNode);
     transition = null;
+    lastInteractTime = performance.now();
   }
 
   let gl: WebGL2RenderingContext | null = null;
@@ -89,6 +90,8 @@
   // Cached label rendering context + background color
   let labelCtx: CanvasRenderingContext2D | null = null;
   let bgRgb: [number, number, number] = [26, 26, 46];
+  let lastInteractTime = 0; // performance.now() of last user interaction
+  const LABEL_DEBOUNCE_MS = 100;
 
   // Performance HUD — updates at 2Hz, accumulates per-frame timing
   let perf = $state({ fps: 0, total: 0, webgl: 0, pick: 0, labels: 0 });
@@ -327,7 +330,13 @@
     }
     const t2 = performance.now();
 
-    renderLabels(cam);
+    // Labels are 85% of frame budget — skip during active interaction,
+    // redraw 100ms after last zoom/drag stops (Sigma.js / Google Maps pattern)
+    if (t0 - lastInteractTime > LABEL_DEBOUNCE_MS || lock.owner === 'system') {
+      renderLabels(cam);
+    } else if (labelCtx) {
+      labelCtx.clearRect(0, 0, labelCanvas!.width, labelCanvas!.height);
+    }
     const t3 = performance.now();
 
     // Performance HUD — accumulate, update display at 2Hz
