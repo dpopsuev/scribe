@@ -338,15 +338,16 @@
     _pf.n++;
     if (t3 - _pf.ts > 500) {
       const n = _pf.n;
-      perf = {
-        fps: Math.round(n / ((t3 - _pf.ts) / 1000)),
-        total: _pf.total / n,
-        webgl: _pf.webgl / n,
-        pick: _pf.pick / n,
-        labels: _pf.labels / n,
-      };
+      const fps = Math.round(n / ((t3 - _pf.ts) / 1000));
+      const total = _pf.total / n;
+      const webgl = _pf.webgl / n;
+      const pick = _pf.pick / n;
+      const labels = _pf.labels / n;
+      perf = { fps, total, webgl, pick, labels };
       _pf.n = _pf.total = _pf.webgl = _pf.pick = _pf.labels = 0;
       _pf.ts = t3;
+      // Plain object for programmatic testing (Svelte proxy won't serialize over CDP)
+      (window as any).__GRAPH_PERF__ = { fps, total, webgl, pick, labels };
     }
 
     animFrame = requestAnimationFrame(render);
