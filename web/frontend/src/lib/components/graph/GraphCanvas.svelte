@@ -99,7 +99,7 @@
   let perf = $state({ fps: 0, total: 0, webgl: 0, pick: 0, labels: 0 });
   let _pf = { n: 0, total: 0, webgl: 0, pick: 0, labels: 0, ts: 0 };
   let prevFrameTs = 0;
-  let instantFps = $state(60);
+  let instantFps = 60;
 
   // Frame history ring buffer — Playwright reads this for per-frame analysis
   const FRAME_HIST_SIZE = 240;
@@ -711,24 +711,18 @@
     bind:this={labelCanvas}
     style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none"
   ></canvas>
-  <!-- FPS ruler: color encodes per-frame rate (blue=60+ green=30-60 yellow=15-30 red=<15) -->
+  <!-- FPS ruler: color dot + numbers only. Updated at 2Hz via perf $state (not per-frame). -->
   <div style="
     position:absolute;bottom:0;left:0;right:0;height:18px;
-    display:flex;align-items:center;gap:0;
+    display:flex;align-items:center;
     background:rgba(0,0,0,0.5);pointer-events:none;z-index:50;
   ">
     <div style="
       width:6px;height:12px;margin-left:4px;border-radius:2px;
-      background:{fpsColor(instantFps)};
+      background:{fpsColor(perf.fps)};
     "></div>
-    <span style="font:10px monospace;color:{fpsColor(instantFps)};margin-left:4px">{instantFps}</span>
+    <span style="font:10px monospace;color:{fpsColor(perf.fps)};margin-left:4px">{perf.fps}</span>
     <span style="font:9px monospace;color:#6b7280;margin-left:6px">{perf.total.toFixed(1)}ms gl:{perf.webgl.toFixed(1)} pk:{perf.pick.toFixed(1)} lbl:{perf.labels.toFixed(1)}</span>
-    <!-- Mini sparkline: last 60 frames as 1px bars -->
-    <div style="display:flex;align-items:end;height:12px;margin-left:auto;margin-right:4px;gap:0">
-      {#each _frameHist.slice(-60) as f}
-        <div style="width:1px;background:{fpsColor(f)};height:{Math.min(12, Math.max(1, f / 5))}px"></div>
-      {/each}
-    </div>
   </div>
   {#if hoveredIndex >= 0 && hoveredIndex < nodes.length}
     <div
