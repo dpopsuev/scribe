@@ -207,8 +207,7 @@
     top: 1rem;
     left: 1rem;
     z-index: 10;
-    background: rgba(26,26,46,0.88);
-    backdrop-filter: blur(10px);
+    background: rgba(26,26,46,0.95);
     border: 1px solid rgba(255,255,255,0.1);
     border-radius: 10px;
     padding: 0.8rem 1rem;

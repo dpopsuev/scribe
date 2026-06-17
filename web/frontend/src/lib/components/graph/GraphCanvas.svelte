@@ -634,6 +634,11 @@
     _pf.ts = performance.now();
 
     setupPickFBO();
+    // Register wheel handler with { passive: false } explicitly —
+    // Svelte's onwheel may register as passive, which silently ignores preventDefault()
+    // and causes the browser to scroll the page while also zooming the canvas.
+    canvas.addEventListener('wheel', handleWheel, { passive: false });
+
     startSimulation();
     animFrame = requestAnimationFrame(render);
 
@@ -672,6 +677,7 @@
       cancelAnimationFrame(animFrame);
       simulation?.stop();
       if (idleInterval) clearInterval(idleInterval);
+      canvas.removeEventListener('wheel', handleWheel);
       ro.disconnect();
       gl?.deleteProgram(nodeProg);
       gl?.deleteProgram(edgeProg);
@@ -699,7 +705,6 @@
     onmousemove={handleMouseMove}
     onmousedown={handleMouseDown}
     onmouseup={handleMouseUp}
-    onwheel={handleWheel}
     style="position:absolute;top:0;left:0;width:100%;height:100%;background:{background};cursor:{dragging ? 'grabbing' : hoveredIndex >= 0 ? 'pointer' : 'grab'}"
   ></canvas>
   <canvas
@@ -715,7 +720,6 @@
     <div style="
       width:6px;height:12px;margin-left:4px;border-radius:2px;
       background:{fpsColor(instantFps)};
-      box-shadow:0 0 4px {fpsColor(instantFps)};
     "></div>
     <span style="font:10px monospace;color:{fpsColor(instantFps)};margin-left:4px">{instantFps}</span>
     <span style="font:9px monospace;color:#6b7280;margin-left:6px">{perf.total.toFixed(1)}ms gl:{perf.webgl.toFixed(1)} pk:{perf.pick.toFixed(1)} lbl:{perf.labels.toFixed(1)}</span>
