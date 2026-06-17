@@ -4,8 +4,8 @@
   import { NODE_VERT, NODE_FRAG, EDGE_VERT, EDGE_FRAG, NODE_CORNERS } from './shaders';
   import { buildViewMatrix, worldToScreen } from './transform';
   import type { Camera } from './transform';
-  import { createFocusLock, userTakeLock, checkIdle, systemCanMove, isTrackingNode, fitBounds } from './camera';
-  import type { FocusLock } from './camera';
+  import { createFocusLock, userTakeLock, checkIdle, systemCanMove, isTrackingNode, fitBounds, startTransition, tickTransition } from './camera';
+  import type { FocusLock, CameraTransition } from './camera';
   import { forceGravity } from './gravity';
   import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide } from 'd3-force';
 
@@ -60,9 +60,12 @@
   // Focus lock: pure state machine (camera.ts) + timer for idle detection
   let lock: FocusLock = $state(createFocusLock());
   let idleInterval: ReturnType<typeof setInterval> | null = null;
+  let transition: CameraTransition | null = null;
+  let simActive = false;
 
   function onUserInteract(focusNode?: string) {
     lock = userTakeLock(lock, focusNode);
+    transition = null;
   }
 
   let gl: WebGL2RenderingContext | null = null;
@@ -234,11 +237,24 @@
         }
       });
 
+    simActive = true;
+    simulation.on('end', () => { simActive = false; });
     simulation.alpha(1).restart();
   }
 
   function render() {
     if (!gl || !canvas) return;
+
+    // Tick smooth camera transition (smootherstep ease-in-out)
+    if (transition) {
+      const { cam, done } = tickTransition(transition);
+      camX = cam.x;
+      camY = cam.y;
+      camZoom = cam.zoom;
+      needsPickRedraw = true;
+      if (done) transition = null;
+    }
+
     const [bgR, bgG, bgB] = hexToRgb(background);
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.clearColor(bgR / 255, bgG / 255, bgB / 255, 1);
@@ -496,11 +512,16 @@
     startSimulation();
     animFrame = requestAnimationFrame(render);
 
-    // Poll idle state every second — re-center camera when lock returns to system
+    // Poll idle state every second — smooth transition back when lock returns to system
     idleInterval = setInterval(() => {
       const wasUser = lock.owner === 'user';
       lock = checkIdle(lock);
-      if (wasUser && lock.owner === 'system') fitCamera();
+      if (wasUser && lock.owner === 'system' && !simActive) {
+        const target = fitBounds(simNodes, width, height);
+        if (target) {
+          transition = startTransition({ x: camX, y: camY, zoom: camZoom }, target);
+        }
+      }
     }, 1000);
 
     const ro = new ResizeObserver(() => {

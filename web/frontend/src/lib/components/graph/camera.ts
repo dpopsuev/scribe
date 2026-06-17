@@ -78,4 +78,54 @@ export function fitBounds(
   };
 }
 
+// Smooth camera transition — Perlin's smootherstep (C² continuous).
+// Zero velocity AND zero acceleration at both ends: soft start, builds
+// momentum through the middle, gentle deceleration approaching target.
+// 800ms is the sweet spot per Material Design / NN/g research for
+// camera-class transitions that require user attention.
+
+export const TRANSITION_MS = 800;
+
+export interface CameraTransition {
+  fromX: number; fromY: number; fromZoom: number;
+  toX: number; toY: number; toZoom: number;
+  startTime: number;
+  duration: number;
+}
+
+function smootherstep(t: number): number {
+  return t * t * t * (t * (6 * t - 15) + 10);
+}
+
+export function startTransition(
+  from: CameraState, to: CameraState, duration: number = TRANSITION_MS,
+): CameraTransition {
+  return {
+    fromX: from.x, fromY: from.y, fromZoom: from.zoom,
+    toX: to.x, toY: to.y, toZoom: to.zoom,
+    startTime: Date.now(),
+    duration,
+  };
+}
+
+export function tickTransition(
+  tr: CameraTransition, now: number = Date.now(),
+): { cam: CameraState; done: boolean } {
+  const elapsed = now - tr.startTime;
+  if (elapsed >= tr.duration) {
+    return { cam: { x: tr.toX, y: tr.toY, zoom: tr.toZoom }, done: true };
+  }
+  const p = smootherstep(elapsed / tr.duration);
+  const logFrom = Math.log(tr.fromZoom);
+  const logTo = Math.log(tr.toZoom);
+  return {
+    cam: {
+      x: tr.fromX + (tr.toX - tr.fromX) * p,
+      y: tr.fromY + (tr.toY - tr.fromY) * p,
+      zoom: Math.exp(logFrom + (logTo - logFrom) * p),
+    },
+    done: false,
+  };
+}
+
 export const IDLE_TIMEOUT_MS = IDLE_MS;
