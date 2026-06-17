@@ -2571,18 +2571,20 @@ func TestToolDescriptions_ProgressiveDisclosure(t *testing.T) {
 		}
 	}
 
-	// artifact: must describe edge operations now folded in.
-	for _, phrase := range []string{"link", "unlink", "EDGES"} {
-		if !strings.Contains(artifact, phrase) {
-			t.Errorf("artifact desc missing edge phrase %q; got:\n%s", phrase, artifact)
+	// graph: edge operations + analysis.
+	graph := desc["graph"]
+	for _, phrase := range []string{"link", "unlink", "EDGES", "analyze", "synonym"} {
+		if !strings.Contains(graph, phrase) {
+			t.Errorf("graph desc missing %q; got:\n%s", phrase, graph)
 		}
 	}
 
-	// scribeInstructions: must NOT contain old keyword enumeration.
-	// We verify indirectly: the instructions must contain the bootstrap call
-	// but must not contain the pipe-separated action dump.
-	for _, tool := range tools.Tools {
-		_ = tool // instructions are not exposed via ListTools; tested via server_instructions_test if needed
+	// admin: ops + introspection.
+	admin := desc["admin"]
+	for _, phrase := range []string{"hygiene", "lint", "dashboard", "history"} {
+		if !strings.Contains(admin, phrase) {
+			t.Errorf("admin desc missing %q; got:\n%s", phrase, admin)
+		}
 	}
 }
 

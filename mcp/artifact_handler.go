@@ -136,7 +136,61 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		}
 		return text(out), nil, nil
 	}
+	if graphActions[in.Action] {
+		return nil, nil, fmt.Errorf("action %q belongs to the 'graph' tool, not 'artifact'", in.Action) //nolint:err113 // agent-facing hint
+	}
+	if adminActions[in.Action] {
+		return nil, nil, fmt.Errorf("action %q belongs to the 'admin' tool, not 'artifact'", in.Action) //nolint:err113 // agent-facing hint
+	}
 	return nil, nil, fmt.Errorf("unknown artifact action %q", in.Action) //nolint:err113 // agent-facing hint
+}
+
+func (h *handler) handleGraph(ctx context.Context, req *sdkmcp.CallToolRequest, in graphInput) (*sdkmcp.CallToolResult, any, error) { //nolint:gocritic // hugeParam: value semantics intentional
+	start := time.Now()
+	defer func() {
+		slog.InfoContext(ctx, "mcp",
+			slog.String(parchment.LogKeyOp, in.Action),
+			slog.String("dur", time.Since(start).Round(time.Microsecond).String()), //nolint:sloglint // request-scoped timing
+		)
+	}()
+	if !graphActions[in.Action] {
+		return nil, nil, fmt.Errorf("unknown graph action %q; valid: link, analyze, synonym", in.Action) //nolint:err113 // agent-facing hint
+	}
+	if len(h.workspaceLabels) > 0 && in.Action == actionLink {
+		in.Labels = mergeLabels(in.Labels, h.workspaceLabels)
+	}
+	if op := service.Find(in.Action); op != nil {
+		raw, _ := json.Marshal(in)
+		h.recordTurn(ctx, in.Action, raw)
+		out, err := op.Run(ctx, h.svc, raw)
+		if err != nil {
+			return nil, nil, err
+		}
+		return text(out), nil, nil
+	}
+	return nil, nil, fmt.Errorf("graph action %q not found in registry", in.Action) //nolint:err113 // agent-facing hint
+}
+
+func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, in adminInput) (*sdkmcp.CallToolResult, any, error) {
+	start := time.Now()
+	defer func() {
+		slog.InfoContext(ctx, "mcp",
+			slog.String(parchment.LogKeyOp, in.Action),
+			slog.String("dur", time.Since(start).Round(time.Microsecond).String()), //nolint:sloglint // request-scoped timing
+		)
+	}()
+	if !adminActions[in.Action] {
+		return nil, nil, fmt.Errorf("unknown admin action %q; valid: lint, synthesize, history, hygiene, dashboard", in.Action) //nolint:err113 // agent-facing hint
+	}
+	if op := service.Find(in.Action); op != nil {
+		raw, _ := json.Marshal(in)
+		out, err := op.Run(ctx, h.svc, raw)
+		if err != nil {
+			return nil, nil, err
+		}
+		return text(out), nil, nil
+	}
+	return nil, nil, fmt.Errorf("admin action %q not found in registry", in.Action) //nolint:err113 // agent-facing hint
 }
 
 // handleAttach stores a base64-encoded binary blob as a named attachment.

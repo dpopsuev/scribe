@@ -13,7 +13,20 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const toolNameArtifact = "artifact"
+const (
+	toolNameArtifact = "artifact"
+	toolNameGraph    = "graph"
+	toolNameAdmin    = "admin"
+	actionLink       = "link"
+)
+
+var graphActions = map[string]bool{
+	actionLink: true, "analyze": true, "synonym": true,
+}
+
+var adminActions = map[string]bool{
+	"lint": true, "synthesize": true, "history": true, "hygiene": true, "dashboard": true,
+}
 
 // baseInstructions is the core MCP server instructions shown to clients.
 const baseInstructions = "Labeled Artifact Graph. " +
@@ -76,21 +89,13 @@ func NewServer(svc *service.Service, vocab []string, version string, stdioLabels
 	)
 	destructiveHint := true
 
-	artifactDesc := "Labeled Artifact Graph. " +
+	// --- artifact tool: CRUD + query (the 80% path) ---
+	artifactDesc := "Labeled Artifact Graph — CRUD + query. " +
 		"FIND: query(query=) for FTS; query(ranked=true, query=) for scored recall; query(mode=semantic, query=) for vector similarity. " +
-		"READ: get(id=) full artifact; get(id=, format=context) for graph context (heritage, children, dependencies, references, metrics). " +
+		"READ: get(id=) full artifact; get(id=, format=context) for graph context. " +
 		"WRITE: create, set (single field), update (sections/extra patch). " +
-		"EDGES: link(id=, relation=, targets=[]) to add; link(mode=unlink) to remove; link(edges=[{from,relation,to}]) for bulk. " +
 		"PLAN: query(id=, sort=topo) for dependency order; query(id=, sort=topo, unblocked=true) for ready queue. " +
-		"ANALYZE: analyze(mode=fan) for fan-in/fan-out ranking; analyze(mode=pagerank) for centrality; " +
-		"analyze(mode=co_citation, id=) for related artifacts; analyze(mode=paths, from=, to=) for shortest path; " +
-		"analyze(mode=coupling, id=) for bibliographic coupling. " +
-		"SYNONYMS: synonym(mode=add, id=, alias=) to register alias; synonym(mode=resolve, term=) to look up. " +
-		"Search auto-resolves aliases and boosts graph-central artifacts. " +
-		"HEALTH: hygiene(scope=) for zombie campaigns, stale tasks, orphans, incomplete knowledge. " +
-		"ORGANIZE: project: labels map to git repos (auto-detected). " +
-		"For grouping related artifacts within a project, use parent_of edges and kind:knowledge.context as containers — NOT sub-projects. " +
-		"Use area:/context:/domain: labels for cross-cutting concerns."
+		"ORGANIZE: project: labels map to git repos. Use parent_of edges and kind:knowledge.context as containers."
 	var artifactSchema any
 	_ = json.Unmarshal(schemaFor[artifactInput](), &artifactSchema)
 	patchSchemaFromRegistry(artifactSchema, h)
@@ -103,8 +108,50 @@ func NewServer(svc *service.Service, vocab []string, version string, stdioLabels
 	}, bindHandler(h.handleArtifact))
 	reg.register(ToolMeta{
 		Name: toolNameArtifact, Description: artifactDesc,
-		Keywords:   []string{"create", "get", "query", "set", "update", "link", "unlink", "edge", "artifact"},
-		Categories: []string{"crud", "graph"},
+		Keywords:   []string{"create", "get", "query", "set", "update", "delete", "artifact"},
+		Categories: []string{"crud"},
+	})
+
+	// --- graph tool: edge management + analysis ---
+	graphDesc := "Artifact graph — relationships + analysis. " +
+		"EDGES: link(id=, relation=, targets=[]) to add; link(mode=unlink) to remove; link(edges=[{from,relation,to}]) for bulk. " +
+		"ANALYZE: analyze(mode=fan) for fan-in/fan-out; analyze(mode=pagerank) for centrality; " +
+		"analyze(mode=co_citation, id=) for related; analyze(mode=paths, from=, to=) for shortest path. " +
+		"SYNONYMS: synonym(mode=add, id=, alias=) to register; synonym(mode=resolve, term=) to look up."
+	var graphSchema any
+	_ = json.Unmarshal(schemaFor[graphInput](), &graphSchema)
+	patchSchemaFromRegistry(graphSchema, h)
+	sdk.AddTool(&sdkmcp.Tool{
+		Name:        toolNameGraph,
+		Title:       "Graph",
+		Description: graphDesc,
+		InputSchema: graphSchema,
+	}, bindHandler(h.handleGraph))
+	reg.register(ToolMeta{
+		Name: toolNameGraph, Description: graphDesc,
+		Keywords:   []string{"link", "unlink", "edge", "analyze", "synonym", "graph"},
+		Categories: []string{"graph"},
+	})
+
+	// --- admin tool: ops + introspection ---
+	adminDesc := "Artifact admin — ops + introspection. " +
+		"HEALTH: hygiene(scope=) for zombie campaigns, stale tasks, orphans. " +
+		"LINT: lint(id=) for consistency checks. " +
+		"SYNTHESIZE: synthesize(id=) to auto-generate content. " +
+		"HISTORY: history(id=) for change log. " +
+		"DASHBOARD: dashboard() for project overview."
+	var adminSchema any
+	_ = json.Unmarshal(schemaFor[adminInput](), &adminSchema)
+	sdk.AddTool(&sdkmcp.Tool{
+		Name:        toolNameAdmin,
+		Title:       "Admin",
+		Description: adminDesc,
+		InputSchema: adminSchema,
+	}, bindHandler(h.handleAdmin))
+	reg.register(ToolMeta{
+		Name: toolNameAdmin, Description: adminDesc,
+		Keywords:   []string{"lint", "hygiene", "dashboard", "history", "synthesize", "admin"},
+		Categories: []string{"admin"},
 	})
 
 	return sdk, reg
@@ -140,7 +187,7 @@ type handler struct {
 // --- consolidated input types ---
 
 type artifactInput struct {
-	Action string `json:"action" jsonschema:"required,create | get | query | set | update | link | lint | synthesize | schema | history | delete | hygiene | dashboard | recent | brief | analyze | synonym"`
+	Action string `json:"action" jsonschema:"required,create | get | query | set | update | delete | attach | detach | recent | brief | schema"`
 
 	ID     string `json:"id,omitempty"`
 	Target string `json:"target,omitempty" jsonschema:"single target ID for link mode=replace; or new parent ID for set(field=parent)"`
@@ -219,7 +266,7 @@ type artifactInput struct {
 	CreatedAt    string            `json:"created_at,omitempty"`
 	Prefix       string            `json:"prefix,omitempty"`
 
-	Relation  string      `json:"relation,omitempty" jsonschema:"parent_of, depends_on, follows, justifies, implements, documents, blocks, duplicates, relates_to, clones, mentions, tested_by, supersedes, cites, elaborates, contradicts, traces_to, calls, explains, causes, resolves"` //nolint:misspell // synthesises intentionally omitted (British spelling causes linter noise)
+	Relation  string      `json:"relation,omitempty" jsonschema:"parent_of, depends_on, follows, justifies, implements, documents, blocks, duplicates, relates_to, clones, mentions, tested_by, supersedes, cites, elaborates, contradicts, traces_to, calls, explains, causes, resolves"` //nolint:misspell // relation names are domain terms // synthesises intentionally omitted (British spelling causes linter noise)
 	Weight    float64     `json:"weight,omitempty" jsonschema:"edge coupling strength (0.0 = boolean, 1.0 = max; default 0)"`
 	Direction string      `json:"direction,omitempty" jsonschema:"outbound (default) or inbound"`
 	Depth     int         `json:"depth,omitempty" jsonschema:"tree/briefing: max depth; query sort=topo: max results when unblocked=true"`
@@ -238,6 +285,51 @@ type edgeInput struct {
 	From     string `json:"from" jsonschema:"source artifact ID"`
 	Relation string `json:"relation" jsonschema:"edge type"`
 	To       string `json:"to" jsonschema:"target artifact ID"`
+}
+
+// graphInput is the schema for the graph tool — edge management + analysis.
+type graphInput struct {
+	Action string `json:"action" jsonschema:"required,link | analyze | synonym"`
+
+	ID        string      `json:"id,omitempty"`
+	Target    string      `json:"target,omitempty" jsonschema:"single target ID for link mode=replace"`
+	Relation  string      `json:"relation,omitempty" jsonschema:"parent_of, depends_on, follows, justifies, implements, documents, blocks, duplicates, relates_to, clones, mentions, tested_by, supersedes, cites, elaborates, contradicts, traces_to, calls, explains, causes, resolves"` //nolint:misspell // relation names are domain terms
+	Weight    float64     `json:"weight,omitempty" jsonschema:"edge coupling strength (0.0 = boolean, 1.0 = max; default 0)"`
+	Direction string      `json:"direction,omitempty" jsonschema:"outbound (default) or inbound"`
+	Depth     int         `json:"depth,omitempty" jsonschema:"tree/briefing: max depth"`
+	Unblocked bool        `json:"unblocked,omitempty" jsonschema:"return only unblocked ready tasks"`
+	Targets   []string    `json:"targets,omitempty"`
+	OldTarget string      `json:"old_target,omitempty"`
+	Edges     []edgeInput `json:"edges,omitempty" jsonschema:"link/unlink bulk mode: [{from, relation, to}]"`
+	Mode      string      `json:"mode,omitempty" jsonschema:"link: unlink; analyze: fan, pagerank, co_citation, paths, coupling"`
+	Labels    []string    `json:"labels,omitempty"`
+
+	// Analyze fields.
+	From       string `json:"from,omitempty" jsonschema:"source artifact for paths mode"`
+	To         string `json:"to,omitempty" jsonschema:"target artifact for paths mode"`
+	MinShared  int    `json:"min_shared,omitempty" jsonschema:"minimum shared neighbors for co_citation/coupling"`
+	MaxDepth   int    `json:"max_depth,omitempty" jsonschema:"max hops for path search"`
+	Iterations int    `json:"iterations,omitempty" jsonschema:"iterations for pagerank (default 20)"`
+
+	// Synonym fields.
+	Alias string `json:"alias,omitempty" jsonschema:"alias for synonym add/remove"`
+	Term  string `json:"term,omitempty" jsonschema:"term for synonym resolve"`
+}
+
+// adminInput is the schema for the admin tool — ops + introspection.
+type adminInput struct {
+	Action string `json:"action" jsonschema:"required,lint | synthesize | history | hygiene | dashboard"`
+
+	ID      string `json:"id,omitempty"`
+	Scope   string `json:"scope,omitempty"`
+	Against string `json:"against,omitempty"`
+	Query   string `json:"query,omitempty"`
+	Kind    string `json:"kind,omitempty"`
+	Format  string `json:"format,omitempty" jsonschema:"summary or full (default)"`
+	Limit   int    `json:"limit,omitempty"`
+	Cursor  string `json:"cursor,omitempty"`
+	DryRun  bool   `json:"dry_run,omitempty"`
+	Cascade bool   `json:"cascade,omitempty"`
 }
 
 // --- dispatchers ---
