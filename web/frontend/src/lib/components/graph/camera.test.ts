@@ -75,6 +75,17 @@ describe('fitBounds', () => {
     expect(cam!.y).toBeCloseTo(0);
   });
 
+  it('uses center of mass not bounding box center', () => {
+    const nodes = [
+      { x: 0, y: 0, _size: 20 },   // heavy node at origin
+      { x: 100, y: 0, _size: 1 },   // light outlier far away
+    ];
+    const cam = fitBounds(nodes, 800, 600);
+    // Bounding box center = 50, center of mass = 100/21 ≈ 4.76
+    expect(cam!.x).toBeCloseTo(100 / 21, 1);
+    expect(cam!.x).toBeLessThan(10);
+  });
+
   it('returns null for empty nodes', () => {
     expect(fitBounds([], 800, 600)).toBeNull();
   });

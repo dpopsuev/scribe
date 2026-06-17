@@ -56,20 +56,24 @@ export function fitBounds(
   viewHeight: number,
 ): CameraState | null {
   if (nodes.length === 0) return null;
+  let totalMass = 0, cx = 0, cy = 0;
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   for (const n of nodes) {
-    const s = n._size || 5;
-    if (n.x - s < minX) minX = n.x - s;
-    if (n.x + s > maxX) maxX = n.x + s;
-    if (n.y - s < minY) minY = n.y - s;
-    if (n.y + s > maxY) maxY = n.y + s;
+    const mass = n._size || 5;
+    cx += (n.x || 0) * mass;
+    cy += (n.y || 0) * mass;
+    totalMass += mass;
+    if (n.x - mass < minX) minX = n.x - mass;
+    if (n.x + mass > maxX) maxX = n.x + mass;
+    if (n.y - mass < minY) minY = n.y - mass;
+    if (n.y + mass > maxY) maxY = n.y + mass;
   }
   const pad = 1.15;
   const spanX = (maxX - minX) * pad || 100;
   const spanY = (maxY - minY) * pad || 100;
   return {
-    x: (minX + maxX) / 2,
-    y: (minY + maxY) / 2,
+    x: cx / totalMass,
+    y: cy / totalMass,
     zoom: Math.min(viewWidth / spanX, viewHeight / spanY),
   };
 }

@@ -496,8 +496,12 @@
     startSimulation();
     animFrame = requestAnimationFrame(render);
 
-    // Poll idle state every second — pure function, no brittle setTimeout chains
-    idleInterval = setInterval(() => { lock = checkIdle(lock); }, 1000);
+    // Poll idle state every second — re-center camera when lock returns to system
+    idleInterval = setInterval(() => {
+      const wasUser = lock.owner === 'user';
+      lock = checkIdle(lock);
+      if (wasUser && lock.owner === 'system') fitCamera();
+    }, 1000);
 
     const ro = new ResizeObserver(() => {
       if (!canvas) return;
