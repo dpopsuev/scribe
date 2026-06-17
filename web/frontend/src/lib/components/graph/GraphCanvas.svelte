@@ -93,9 +93,22 @@
   let lastInteractTime = 0; // performance.now() of last user interaction
   const LABEL_DEBOUNCE_MS = 100;
 
-  // Performance HUD — updates at 2Hz, accumulates per-frame timing
+  // Performance HUD — per-frame FPS via rAF timestamp delta
   let perf = $state({ fps: 0, total: 0, webgl: 0, pick: 0, labels: 0 });
   let _pf = { n: 0, total: 0, webgl: 0, pick: 0, labels: 0, ts: 0 };
+  let prevFrameTs = 0;
+  let instantFps = $state(60);
+
+  // Frame history ring buffer — Playwright reads this for per-frame analysis
+  const FRAME_HIST_SIZE = 240;
+  const _frameHist: number[] = [];
+
+  function fpsColor(fps: number): string {
+    if (fps >= 60) return '#3b82f6';  // blue
+    if (fps >= 30) return '#22c55e';  // green
+    if (fps >= 15) return '#eab308';  // yellow
+    return '#ef4444';                 // red
+  }
   let edgeVertCount = 0;
   let needsPickRedraw = true;
   let simulation: any = null;
@@ -272,9 +285,20 @@
     simulation.restart();
   }
 
-  function render() {
+  function render(timestamp: number = 0) {
     if (!gl || !canvas) return;
     const t0 = performance.now();
+
+    // Per-frame FPS from rAF timestamp delta (captures ALL main-thread work)
+    if (prevFrameTs > 0 && timestamp > 0) {
+      const delta = timestamp - prevFrameTs;
+      if (delta > 0) {
+        instantFps = Math.round(1000 / delta);
+        _frameHist.push(instantFps);
+        if (_frameHist.length > FRAME_HIST_SIZE) _frameHist.shift();
+      }
+    }
+    prevFrameTs = timestamp;
 
     // Tick smooth camera transition (smootherstep ease-in-out)
     if (transition) {
@@ -355,8 +379,11 @@
       perf = { fps, total, webgl, pick, labels };
       _pf.n = _pf.total = _pf.webgl = _pf.pick = _pf.labels = 0;
       _pf.ts = t3;
-      // Plain object for programmatic testing (Svelte proxy won't serialize over CDP)
+      // Plain objects for programmatic testing (Svelte proxy won't serialize over CDP)
       (window as any).__GRAPH_PERF__ = { fps, total, webgl, pick, labels };
+      (window as any).__GRAPH_FRAME_HIST__ = [..._frameHist];
+      // Reset function: clears history AND prevFrameTs to avoid stale first-frame delta
+      (window as any).__GRAPH_RESET_PERF__ = () => { _frameHist.length = 0; prevFrameTs = 0; };
     }
 
     animFrame = requestAnimationFrame(render);
@@ -651,12 +678,26 @@
     bind:this={labelCanvas}
     style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none"
   ></canvas>
+  <!-- FPS ruler: color encodes per-frame rate (blue=60+ green=30-60 yellow=15-30 red=<15) -->
   <div style="
-    position:absolute;bottom:0.5rem;right:0.5rem;
-    background:rgba(0,0,0,0.7);color:#9ca3af;
-    font:10px monospace;padding:4px 8px;border-radius:4px;
-    pointer-events:none;z-index:50;white-space:pre;
-  ">{perf.fps} fps  {perf.total.toFixed(1)}ms  gl:{perf.webgl.toFixed(1)} pk:{perf.pick.toFixed(1)} lbl:{perf.labels.toFixed(1)}</div>
+    position:absolute;bottom:0;left:0;right:0;height:18px;
+    display:flex;align-items:center;gap:0;
+    background:rgba(0,0,0,0.5);pointer-events:none;z-index:50;
+  ">
+    <div style="
+      width:6px;height:12px;margin-left:4px;border-radius:2px;
+      background:{fpsColor(instantFps)};
+      box-shadow:0 0 4px {fpsColor(instantFps)};
+    "></div>
+    <span style="font:10px monospace;color:{fpsColor(instantFps)};margin-left:4px">{instantFps}</span>
+    <span style="font:9px monospace;color:#6b7280;margin-left:6px">{perf.total.toFixed(1)}ms gl:{perf.webgl.toFixed(1)} pk:{perf.pick.toFixed(1)} lbl:{perf.labels.toFixed(1)}</span>
+    <!-- Mini sparkline: last 60 frames as 1px bars -->
+    <div style="display:flex;align-items:end;height:12px;margin-left:auto;margin-right:4px;gap:0">
+      {#each _frameHist.slice(-60) as f}
+        <div style="width:1px;background:{fpsColor(f)};height:{Math.min(12, Math.max(1, f / 5))}px"></div>
+      {/each}
+    </div>
+  </div>
   {#if hoveredIndex >= 0 && hoveredIndex < nodes.length}
     <div
       bind:this={tooltipEl}
