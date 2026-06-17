@@ -83,6 +83,31 @@
   let camStartX = 0;
   let camStartY = 0;
 
+  // Focus lock: controls whether the system can move the camera.
+  // User takes lock on any interaction (drag, zoom, shift+click).
+  // System can only take it back after idle timeout.
+  let userHasLock = $state(false);
+  let focusNodeId: string | null = $state(null);
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  const IDLE_TIMEOUT_MS = 5000;
+
+  function userTakeLock() {
+    userHasLock = true;
+    resetIdleTimer();
+  }
+
+  function resetIdleTimer() {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      userHasLock = false;
+      focusNodeId = null;
+    }, IDLE_TIMEOUT_MS);
+  }
+
+  function systemCanMoveCam(): boolean {
+    return !userHasLock;
+  }
+
   let gl: WebGL2RenderingContext | null = null;
   let nodeProg: WebGLProgram | null = null;
   let edgeProg: WebGLProgram | null = null;
@@ -107,6 +132,7 @@
 
   function fitCamera() {
     if (simNodes.length === 0) return;
+    if (!systemCanMoveCam()) return;
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     for (const n of simNodes) {
       const s = n._size || 5;
@@ -251,8 +277,15 @@
         uploadNodes();
         uploadEdges();
         needsPickRedraw = true;
-        // Continuously fit camera during simulation so view tracks clustering
-        fitCamera();
+
+        // Camera control: system auto-fits unless user has taken the lock
+        if (focusNodeId && userHasLock) {
+          // Track focused node position
+          const fn = simNodes.find((n: any) => n.id === focusNodeId);
+          if (fn) { camX = fn.x || 0; camY = fn.y || 0; }
+        } else {
+          fitCamera();
+        }
       });
 
     simulation.alpha(1).restart();
@@ -415,21 +448,34 @@
       dragStartY = e.clientY;
       camStartX = camX;
       camStartY = camY;
+      userTakeLock();
     }
   }
 
-  function handleMouseUp() {
+  function handleMouseUp(e: MouseEvent) {
     if (dragging) {
-      const dx = Math.abs(dragStartX - (dragging ? dragStartX : 0));
       dragging = false;
-      if (dx < 3 && hoveredIndex >= 0 && hoveredIndex < nodes.length) {
-        onNodeClick(nodes[hoveredIndex]);
+      const moved = Math.hypot(e.clientX - dragStartX, e.clientY - dragStartY);
+      if (moved < 5 && hoveredIndex >= 0 && hoveredIndex < nodes.length) {
+        if (e.shiftKey) {
+          // Shift+Click: focus-lock camera on this node
+          const n = simNodes[hoveredIndex];
+          if (n) {
+            focusNodeId = n.id;
+            camX = n.x || 0;
+            camY = n.y || 0;
+            userTakeLock();
+          }
+        } else {
+          onNodeClick(nodes[hoveredIndex]);
+        }
       }
     }
   }
 
   function handleWheel(e: WheelEvent) {
     e.preventDefault();
+    userTakeLock();
     const factor = e.deltaY > 0 ? 0.9 : 1.1;
     camZoom = Math.max(0.05, Math.min(50, camZoom * factor));
     needsPickRedraw = true;
@@ -528,6 +574,7 @@
     return () => {
       cancelAnimationFrame(animFrame);
       simulation?.stop();
+      if (idleTimer) clearTimeout(idleTimer);
       ro.disconnect();
       gl?.deleteProgram(nodeProg);
       gl?.deleteProgram(edgeProg);
