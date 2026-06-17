@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "d3-force": "^3.0.0",
+    "marked": "^18.0.5",
     "svelte-dnd-action": "^0.9.70"
   }
 }

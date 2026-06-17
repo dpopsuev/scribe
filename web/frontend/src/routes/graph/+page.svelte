@@ -2,6 +2,9 @@
   import GraphCanvas from '$lib/components/graph/GraphCanvas.svelte';
   import type { GraphNode, GraphEdge } from '$lib/components/graph/GraphCanvas.svelte';
   import { onMount } from 'svelte';
+  import { marked } from 'marked';
+
+  marked.setOptions({ breaks: true, gfm: true });
 
   // Golden angle color generation in OKLCH space — one color per KIND.
   // φ = (1+√5)/2, golden_angle = 360/φ² ≈ 137.508°
@@ -295,14 +298,14 @@
         <div class="sidebar-body">
           {#if sidebar.art.extra?.description}
             <div class="sidebar-section">
-              <div class="section-text">{sidebar.art.extra.description}</div>
+              <div class="section-md">{@html marked.parse(sidebar.art.extra.description)}</div>
             </div>
           {/if}
 
           {#each sidebar.art.sections || [] as section}
             <div class="sidebar-section">
               <h4>{section.name}</h4>
-              <div class="section-text">{section.text}</div>
+              <div class="section-md">{@html marked.parse(section.text)}</div>
             </div>
           {/each}
 
@@ -449,13 +452,45 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }
-  .section-text {
+  .section-md {
     font-size: 0.82em;
     color: #cbd5e1;
     line-height: 1.5;
-    white-space: pre-wrap;
     word-break: break-word;
   }
+  .section-md :global(h1), .section-md :global(h2), .section-md :global(h3) {
+    font-size: 0.95em;
+    color: #e2e8f0;
+    margin: 0.6rem 0 0.3rem;
+  }
+  .section-md :global(p) { margin: 0.3rem 0; }
+  .section-md :global(ul), .section-md :global(ol) {
+    padding-left: 1.2rem;
+    margin: 0.3rem 0;
+  }
+  .section-md :global(li) { margin: 0.15rem 0; }
+  .section-md :global(input[type="checkbox"]) {
+    margin-right: 0.4rem;
+    accent-color: #6366f1;
+  }
+  .section-md :global(code) {
+    background: rgba(255,255,255,0.08);
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+    font-size: 0.9em;
+  }
+  .section-md :global(pre) {
+    background: rgba(0,0,0,0.3);
+    padding: 0.5rem;
+    border-radius: 4px;
+    overflow-x: auto;
+    margin: 0.4rem 0;
+  }
+  .section-md :global(a) {
+    color: #818cf8;
+    text-decoration: none;
+  }
+  .section-md :global(a:hover) { text-decoration: underline; }
   .edge-link {
     display: flex;
     align-items: center;
