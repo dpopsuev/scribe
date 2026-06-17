@@ -125,6 +125,7 @@
         size,
         color: kindColor(raw.kind),
         kind: raw.kind,
+        depth: 0,
       };
     });
 
@@ -149,56 +150,45 @@
     const parent = nodes[parentIdx];
     const cx = parent.x;
     const cy = parent.y;
-    const originalSize = parent.size;
+    const parentSize = parent.size;
+    const parentDepth = parent.depth || 0;
 
-    // Ghost node: stays at original size with low opacity (sphere of influence)
-    const ghostNode: GraphNode = {
-      id: `ghost:${scopeName}`,
-      label: '',
-      x: cx, y: cy,
-      size: originalSize,
-      color: parent.color + '20', // ~12% opacity via hex alpha
-      kind: 'ghost',
-    };
-
-    // Shrink parent: loses mass of children
     const childCount = data.nodes.length || 1;
-    const shrunkSize = Math.max(3, originalSize * 0.3);
-
-    // Children orbit within the ghost's radius
-    const orbitRadius = originalSize * 0.7;
+    const maxChildSize = parentSize * 0.25;
+    const orbitRadius = parentSize * 0.7;
     const childGoldenAngle = 137.508 * Math.PI / 180;
 
     const newNodes: GraphNode[] = data.nodes.map((raw: any, i: number) => {
       const angle = i * childGoldenAngle;
       const r = orbitRadius * Math.sqrt((i + 0.5) / childCount);
+      const rawSize = Math.max(1, Math.cbrt(raw.val || 1) * 1.2);
       return {
         id: raw.id,
         label: raw.name,
         x: cx + r * Math.cos(angle),
         y: cy + r * Math.sin(angle),
-        size: Math.max(2, Math.cbrt(raw.val || 1) * 1.2),
+        size: Math.min(rawSize, maxChildSize),
         color: kindColor(raw.kind),
         kind: raw.kind,
+        depth: parentDepth + 1,
       };
     });
 
     const newEdges: GraphEdge[] = [
       ...data.links.map((raw: any) => ({
-        source: raw.source, target: raw.target,
-        color: '#5a5a7a',
+        source: raw.source, target: raw.target, color: '#5a5a7a',
       })),
       ...newNodes.map(n => ({
         source: parentId, target: n.id, color: '#4a4a6a',
       })),
     ];
 
-    // Update parent size (shrink) and add ghost + children
+    // Make parent hollow (reduce opacity) — no ghost node needed
     const updatedNodes = nodes.map((n, i) =>
-      i === parentIdx ? { ...n, size: shrunkSize } : n
+      i === parentIdx ? { ...n, color: n.color.substring(0, 7) + '40' } : n
     );
 
-    nodes = [...updatedNodes, ghostNode, ...newNodes];
+    nodes = [...updatedNodes, ...newNodes];
     edges = [...edges, ...newEdges];
     expanded = new Set([...expanded, scopeName]);
   }
@@ -233,20 +223,25 @@
 
     const cx = node.x;
     const cy = node.y;
-    const orbitRadius = Math.max(node.size * 2, 15);
+    const parentSize = node.size;
+    const parentDepth = (node as any).depth || 0;
+    const orbitRadius = Math.max(parentSize * 0.7, 8);
+    const maxChildSize = parentSize * 0.3;
     const childGoldenAngle = 137.508 * Math.PI / 180;
 
     const newNodes: GraphNode[] = kindNodes.map((raw: any, i: number) => {
       const angle = i * childGoldenAngle;
       const r = orbitRadius * Math.sqrt((i + 0.5) / kindNodes.length);
+      const rawSize = Math.max(1, Math.cbrt(raw.val || 1) * 1.0);
       return {
         id: raw.id,
         label: raw.name,
         x: cx + r * Math.cos(angle),
         y: cy + r * Math.sin(angle),
-        size: Math.max(2, Math.cbrt(raw.val || 1) * 1.2),
+        size: Math.min(rawSize, maxChildSize),
         color: kindColor(raw.kind),
         kind: raw.kind,
+        depth: parentDepth + 1,
       };
     });
 

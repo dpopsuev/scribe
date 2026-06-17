@@ -17,6 +17,7 @@
     size: number;
     color: string;
     kind?: string;
+    depth?: number;
   }
 
   export interface GraphEdge {
@@ -219,7 +220,7 @@
   function startSimulation() {
     const nodeMap = new Map<string, any>();
     simNodes = nodes.map(n => {
-      const sn = { id: n.id, _size: n.size, _color: n.color, _kind: n.kind, _label: n.label, x: n.x, y: n.y };
+      const sn = { id: n.id, _size: n.size, _color: n.color, _kind: n.kind, _label: n.label, _depth: n.depth || 0, x: n.x, y: n.y };
       nodeMap.set(n.id, sn);
       return sn;
     });
@@ -421,6 +422,10 @@
   // Text width cache — measureText is expensive, labels don't change
   const _textWidths = new Map<string, number>();
 
+  // Font sizes by depth — deeper nodes get smaller labels
+  const DEPTH_FONT = [11, 9, 7, 6];
+  const DEPTH_MIN_SCREEN_SIZE = [3, 5, 8, 12];
+
   function renderLabels(cam: Camera) {
     if (!labelCtx || simNodes.length === 0) return;
     const ctx = labelCtx;
@@ -433,45 +438,56 @@
     const centerX = cam.width / 2;
     const centerY = cam.height / 2;
     const maxLabelDist = Math.max(cam.width, cam.height) * 0.6;
-    const minScreenSize = 3;
 
-    ctx.font = '11px system-ui, -apple-system, sans-serif';
     ctx.textBaseline = 'middle';
+    let currentFont = '';
 
     for (let i = 0; i < simNodes.length; i++) {
       const n = simNodes[i];
       if (!n._label) continue;
+      const depth = n._depth || 0;
       const [sx, sy] = worldToScreen(cam, n.x || 0, n.y || 0);
       const screenSize = (n._size || 5) * cam.zoom;
 
-      if (screenSize < minScreenSize) continue;
+      // Deeper nodes need more zoom to be visible
+      const minSize = DEPTH_MIN_SCREEN_SIZE[Math.min(depth, 3)];
+      if (screenSize < minSize) continue;
 
+      // Focal point: center of screen + depth penalty
       const distFromCenter = Math.hypot(sx - centerX, sy - centerY);
       let alpha = 1.0 - (distFromCenter / maxLabelDist);
+      alpha *= 1.0 / (1 + depth * 0.5);
       alpha = Math.max(0, Math.min(1, alpha));
       if (i === hoveredIndex) alpha = 1.0;
       if (alpha < 0.05) continue;
 
-      const labelX = sx + screenSize + 4;
+      const fontSize = DEPTH_FONT[Math.min(depth, 3)];
+      const font = `${fontSize}px system-ui, -apple-system, sans-serif`;
+      if (font !== currentFont) {
+        ctx.font = font;
+        currentFont = font;
+      }
+
+      const labelX = sx + screenSize + 3;
       const labelY = sy;
 
-      // Cached text width — avoids measureText per frame
       const text = n._label;
-      let tw = _textWidths.get(text);
+      const cacheKey = `${fontSize}:${text}`;
+      let tw = _textWidths.get(cacheKey);
       if (tw === undefined) {
         tw = ctx.measureText(text).width;
-        _textWidths.set(text, tw);
+        _textWidths.set(cacheKey, tw);
       }
-      const th = 14;
-      const px = 4, py = 2;
+      const th = fontSize + 3;
+      const px = 3, py = 1;
 
-      ctx.fillStyle = `rgba(26, 26, 46, ${0.75 * alpha})`;
+      ctx.fillStyle = `rgba(26, 26, 46, ${0.7 * alpha})`;
       ctx.beginPath();
       const rx = labelX - px;
       const ry = labelY - th / 2 - py;
       const rw = tw + px * 2;
       const rh = th + py * 2;
-      const cr = 3;
+      const cr = 2;
       ctx.moveTo(rx + cr, ry);
       ctx.lineTo(rx + rw - cr, ry);
       ctx.arcTo(rx + rw, ry, rx + rw, ry + cr, cr);
@@ -740,7 +756,7 @@
     for (const n of newNodes) {
       simNodes.push({
         id: n.id, _size: n.size, _color: n.color,
-        _kind: n.kind, _label: n.label,
+        _kind: n.kind, _label: n.label, _depth: n.depth || 0,
         x: n.x, y: n.y, fx: n.x, fy: n.y,
       });
     }
