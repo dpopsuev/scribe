@@ -85,6 +85,7 @@
   let simulation: any = null;
   let simNodes: any[] = [];
   let simLinks: any[] = [];
+  let prewarming = false;
 
   function getCamera(): Camera {
     return { x: camX, y: camY, zoom: camZoom, width, height };
@@ -223,6 +224,7 @@
             node.vy = (node.vy || 0) - (node.y / dist) * pull;
           }
         }
+        if (prewarming) return;
         uploadNodes();
         uploadEdges();
         needsPickRedraw = true;
@@ -235,9 +237,23 @@
         }
       });
 
+    // Pre-warm: run physics to ~97% settled before first render.
+    // ~224 ticks of CPU math (<5ms for 43 nodes), zero GPU work.
+    const SETTLE_THRESHOLD = 0.02;
+    prewarming = true;
+    simulation.alpha(0.3).stop();
+    while (simulation.alpha() > SETTLE_THRESHOLD) simulation.tick();
+    prewarming = false;
+
+    // Single GPU upload of near-final positions
+    uploadNodes();
+    uploadEdges();
+    fitCamera();
+
+    // Let remaining alpha (0.02→0.001) animate as a gentle "breathing" settle
     simActive = true;
     simulation.on('end', () => { simActive = false; });
-    simulation.alpha(0.3).restart();
+    simulation.restart();
   }
 
   function render() {
