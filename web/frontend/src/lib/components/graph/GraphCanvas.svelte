@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   import { createProgram, hexToRgb, indexToColor, colorToIndex } from './webgl';
   import { NODE_VERT, NODE_FRAG, EDGE_VERT, EDGE_FRAG, NODE_CORNERS } from './shaders';
+  import { buildViewMatrix, worldToScreen } from './transform';
+  import type { Camera } from './transform';
   import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide } from 'd3-force';
 
   // N-body gravitational force: F = G * m1 * m2 / r²
@@ -99,6 +101,10 @@
   let simNodes: any[] = [];
   let simLinks: any[] = [];
 
+  function getCamera(): Camera {
+    return { x: camX, y: camY, zoom: camZoom, width, height };
+  }
+
   function fitCamera() {
     if (simNodes.length === 0) return;
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -116,14 +122,6 @@
     const spanY = (maxY - minY) * pad || 100;
     camZoom = Math.min(width / spanX, height / spanY);
     needsPickRedraw = true;
-  }
-
-  function buildViewMatrix(): Float32Array {
-    const sx = 2 * camZoom / width;
-    const sy = 2 * camZoom / height;
-    const tx = -camX * sx;
-    const ty = camY * sy;
-    return new Float32Array([sx, 0, 0, 0, sy, 0, tx, ty, 1]);
   }
 
   function setupPickFBO() {
@@ -269,7 +267,7 @@
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-    const matrix = buildViewMatrix();
+    const matrix = buildViewMatrix(getCamera());
 
     // Draw edges (GL_LINES)
     if (edgeProg && edgeVAO && edgeVertCount > 0) {
@@ -308,12 +306,6 @@
     animFrame = requestAnimationFrame(render);
   }
 
-  function worldToScreen(wx: number, wy: number): [number, number] {
-    const sx = (wx - camX) * camZoom + width / 2;
-    const sy = -(wy - camY) * camZoom + height / 2;
-    return [sx, sy];
-  }
-
   function renderLabels() {
     if (!labelCanvas || simNodes.length === 0) return;
     const ctx = labelCanvas.getContext('2d');
@@ -336,7 +328,7 @@
     for (let i = 0; i < simNodes.length; i++) {
       const n = simNodes[i];
       if (!n._label) continue;
-      const [sx, sy] = worldToScreen(n.x || 0, n.y || 0);
+      const [sx, sy] = worldToScreen(getCamera(), n.x || 0, n.y || 0);
       const screenSize = (n._size || 5) * camZoom;
 
       // Skip if too small on screen
