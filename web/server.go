@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	parchment "github.com/dpopsuev/parchment"
@@ -37,6 +38,9 @@ type Server struct {
 	mux     *http.ServeMux
 	version string
 	webPath string // filesystem path to web/ directory (templates + static)
+
+	perfMu   sync.Mutex
+	perfSnap json.RawMessage // latest perf snapshot from frontend
 }
 
 // NewServer creates the UI server. webPath is the filesystem path to the web/
@@ -96,6 +100,10 @@ func NewServer(proto *parchment.Protocol, version, webPath string) *Server {
 	s.mux.HandleFunc("GET /api/v1/graph", s.handleAPIGraph)
 	s.mux.HandleFunc("GET /api/v1/scopes", s.handleAPIScopes)
 	s.mux.HandleFunc("GET /api/v1/schema/hierarchy", s.handleAPISchemaHierarchy)
+
+	// Debug perf ring buffer — frontend POSTs frames, CLI curls GET
+	s.mux.HandleFunc("POST /api/v1/debug/perf", s.handleDebugPerfPost)
+	s.mux.HandleFunc("GET /api/v1/debug/perf", s.handleDebugPerfGet)
 
 	// JSON API v1 — write
 	s.mux.HandleFunc("POST /api/v1/ingest", s.handleAPIIngest)

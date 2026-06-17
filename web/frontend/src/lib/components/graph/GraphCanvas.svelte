@@ -380,8 +380,36 @@
       // Plain objects for programmatic testing (Svelte proxy won't serialize over CDP)
       (window as any).__GRAPH_PERF__ = { fps, total, webgl, pick, labels };
       (window as any).__GRAPH_FRAME_HIST__ = [..._frameHist];
+      // Push to backend ring buffer — curl http://localhost:8083/api/v1/debug/perf
+      const hist = [..._frameHist];
+      const bins = { blue: 0, green: 0, yellow: 0, red: 0 };
+      for (const f of hist) { if (f >= 60) bins.blue++; else if (f >= 30) bins.green++; else if (f >= 15) bins.yellow++; else bins.red++; }
+      const diagMin = hist.length ? Math.min(...hist) : 0;
+      const diagMax = hist.length ? Math.max(...hist) : 0;
+      const diagAvg = hist.length ? Math.round(hist.reduce((s, v) => s + v, 0) / hist.length) : 0;
+      fetch('/api/v1/debug/perf', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fps, total, webgl, pick, labels, bins, avg: diagAvg, min: diagMin, max: diagMax, frames: hist.length, hist }),
+      }).catch(() => {});
       // Reset function: clears history AND prevFrameTs to avoid stale first-frame delta
       (window as any).__GRAPH_RESET_PERF__ = () => { _frameHist.length = 0; prevFrameTs = 0; };
+      // Diagnostic dump: call from console or press 'p' to print report
+      (window as any).__GRAPH_DIAG__ = () => {
+        const h = [..._frameHist];
+        const bins = { blue: 0, green: 0, yellow: 0, red: 0 };
+        for (const f of h) { if (f >= 60) bins.blue++; else if (f >= 30) bins.green++; else if (f >= 15) bins.yellow++; else bins.red++; }
+        const min = h.length ? Math.min(...h) : 0;
+        const max = h.length ? Math.max(...h) : 0;
+        const avg = h.length ? Math.round(h.reduce((s, v) => s + v, 0) / h.length) : 0;
+        console.log(`%c=== SCRIBE GRAPH PERF REPORT ===`, 'font-weight:bold;font-size:14px');
+        console.log(`Frames: ${h.length} | Avg: ${avg} fps | Min: ${min} | Max: ${max}`);
+        console.log(`🔵 Blue  60+: ${bins.blue} (${h.length ? ((bins.blue/h.length)*100).toFixed(0) : 0}%)`);
+        console.log(`🟢 Green 30-59: ${bins.green} (${h.length ? ((bins.green/h.length)*100).toFixed(0) : 0}%)`);
+        console.log(`🟡 Yellow 15-29: ${bins.yellow} (${h.length ? ((bins.yellow/h.length)*100).toFixed(0) : 0}%)`);
+        console.log(`🔴 Red   <15: ${bins.red} (${h.length ? ((bins.red/h.length)*100).toFixed(0) : 0}%)`);
+        console.log(`Current: gl:${perf.webgl.toFixed(2)}ms pk:${perf.pick.toFixed(2)}ms lbl:${perf.labels.toFixed(2)}ms`);
+        return { bins, avg, min, max, frames: h.length, perf: { ...perf } };
+      };
     }
 
     animFrame = requestAnimationFrame(render);

@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"html/template"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -246,6 +247,34 @@ func parseFilters(statusParam, relationsParam string) (statuses, relations []str
 // ViolationCount returns the number of compliance violations on an artifact.
 func ViolationCount(a *parchment.Artifact) int {
 	return service.ViolationCount(a)
+}
+
+// ── Debug perf ring buffer ─────────────────────────────────────────────
+// Frontend POSTs per-frame perf data, CLI curls GET to read it.
+// curl http://localhost:8083/api/v1/debug/perf
+
+func (s *Server) handleDebugPerfPost(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 64*1024))
+	if err != nil {
+		http.Error(w, "read error", http.StatusBadRequest)
+		return
+	}
+	s.perfMu.Lock()
+	s.perfSnap = json.RawMessage(body)
+	s.perfMu.Unlock()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleDebugPerfGet(w http.ResponseWriter, _ *http.Request) {
+	s.perfMu.Lock()
+	snap := s.perfSnap
+	s.perfMu.Unlock()
+	if snap == nil {
+		writeJSON(w, map[string]string{"status": "no data yet — open /app/graph first"})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(snap) //nolint:errcheck,gosec // response write; error is non-actionable
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
