@@ -200,35 +200,33 @@
     const avgSize = simNodes.reduce((s, n) => s + (n._size || 5), 0) / (simNodes.length || 1);
 
     simulation = forceSimulation(simNodes)
-      .force('gravity', forceGravity(0.6, avgSize * 2))
-      .force('charge', forceManyBody().strength((d: any) => -(d._size || 5) * 5).distanceMax(avgSize * 8))
-      .force('center', forceCenter(0, 0).strength(0.08))
-      .force('collision', forceCollide().radius((d: any) => (d._size || 5) * 1.5 + 2).strength(0.9).iterations(2))
+      .force('gravity', forceGravity(0.2, avgSize * 3))
+      .force('charge', forceManyBody().strength((d: any) => -(d._size || 5) * 2.5).distanceMax(avgSize * 12))
+      .force('center', forceCenter(0, 0).strength(0.03))
+      .force('collision', forceCollide().radius((d: any) => (d._size || 5) * 1.4 + 2).strength(0.5).iterations(3))
       .force('link', forceLink(simLinks).id((d: any) => d.id)
         .distance((l: any) => {
           const s1 = l.source?._size || 5;
           const s2 = l.target?._size || 5;
-          return (s1 + s2) * 2;
+          return (s1 + s2) * 2.5;
         })
-        .strength(0.4))
-      .velocityDecay(0.4)
-      .alphaDecay(0.025)
+        .strength(0.3))
+      .velocityDecay(0.55)
+      .alphaDecay(0.012)
       .on('tick', () => {
+        // Soft spring boundary — gentle restoring force instead of hard clamp
         for (const node of simNodes) {
           const dist = Math.hypot(node.x || 0, node.y || 0);
           if (dist > idealRadius) {
-            const dampen = idealRadius / dist;
-            node.x *= 0.5 + 0.5 * dampen;
-            node.y *= 0.5 + 0.5 * dampen;
-            node.vx = (node.vx || 0) * 0.3;
-            node.vy = (node.vy || 0) * 0.3;
+            const pull = ((dist - idealRadius) / idealRadius) * 0.08;
+            node.vx = (node.vx || 0) - (node.x / dist) * pull;
+            node.vy = (node.vy || 0) - (node.y / dist) * pull;
           }
         }
         uploadNodes();
         uploadEdges();
         needsPickRedraw = true;
 
-        // Camera control: system auto-fits unless user has taken the lock
         if (isTrackingNode(lock)) {
           const fn = simNodes.find((n: any) => n.id === lock.focusNodeId);
           if (fn) { camX = fn.x || 0; camY = fn.y || 0; }
@@ -239,7 +237,7 @@
 
     simActive = true;
     simulation.on('end', () => { simActive = false; });
-    simulation.alpha(1).restart();
+    simulation.alpha(0.3).restart();
   }
 
   function render() {
