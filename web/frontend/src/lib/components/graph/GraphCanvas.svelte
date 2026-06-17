@@ -249,8 +249,7 @@
         uploadNodes();
         uploadEdges();
         needsPickRedraw = true;
-      })
-      .on('end', () => {
+        // Continuously fit camera during simulation so view tracks clustering
         fitCamera();
       });
 
