@@ -127,43 +127,9 @@ func createClone(ctx context.Context, svc *Service, in *createInput) (string, er
 	if in.Title != "" {
 		title = in.Title
 	}
-	// Strip system labels (kind:, status:) from source — clone starts fresh with kind and draft status.
-	// If in.Scope overrides, also strip scope: from source labels.
-	var baseLabels []string
-	for _, l := range source.Labels {
-		if !strings.HasPrefix(l, parchment.LabelPrefixKind) && !strings.HasPrefix(l, parchment.LabelPrefixStatus) {
-			if in.Scope == "" || !strings.HasPrefix(l, parchment.LabelPrefixScope) {
-				baseLabels = append(baseLabels, l)
-			}
-		}
-	}
-	if len(in.Labels) > 0 {
-		baseLabels = in.Labels
-	}
-	if in.Scope != "" {
-		baseLabels = append(baseLabels, parchment.LabelPrefixScope+in.Scope)
-	}
-	sections := make([]parchment.Section, 0, len(source.Sections))
-	for _, s := range source.Sections {
-		sections = append(sections, parchment.Section{Name: s.Name, Text: s.Text})
-	}
-	cloneLabels := make([]string, 0, len(baseLabels)+2)
-	if kind != "" {
-		cloneLabels = append(cloneLabels, parchment.LabelPrefixKind+kind)
-	}
-	cloneStatus := in.Status
-	if cloneStatus == "" {
-		cloneStatus = svc.Proto.DefaultStatus(kind) // trait-driven default per kind
-	}
-	if parchment.IsDomainStatusLabel(cloneStatus) {
-		cloneLabels = append(cloneLabels, cloneStatus)
-	} else {
-		cloneLabels = append(cloneLabels, parchment.LabelPrefixStatus+cloneStatus)
-	}
-	cloneLabels = append(cloneLabels, baseLabels...)
-	if in.Priority != "" {
-		cloneLabels = append(cloneLabels, parchment.LabelPrefixPriority+in.Priority)
-	}
+	baseLabels := stripSystemLabels(source.Labels, in.Labels, in.Scope)
+	sections := copySections(source.Sections)
+	cloneLabels := buildCloneLabels(svc, kind, in.Status, in.Priority, baseLabels)
 	art, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
 		Title:  title,
 		Goal:   source.Goal(),
@@ -185,48 +151,74 @@ func createBatch(ctx context.Context, svc *Service, in *createInput) (string, er
 	var b strings.Builder
 	fmt.Fprintf(&b, "created %d artifacts:\n", len(in.Artifacts))
 	for i, rawArt := range in.Artifacts {
-		data, _ := json.Marshal(rawArt)
-		var ci createInput
-		if err := json.Unmarshal(data, &ci); err != nil {
-			return "", fmt.Errorf("artifact[%d]: %w", i, err)
+		ci, err := unmarshalBatchItem(rawArt, i)
+		if err != nil {
+			return "", err
 		}
-		if parent := ci.Parent; parent != "" && parent[0] == '$' {
-			if resolved, ok := idRefs[parent]; ok {
-				ci.Parent = resolved
-			} else {
-				return "", fmt.Errorf("artifact[%d]: unresolved parent reference %q", i, parent) //nolint:err113 // batch parent resolution error contains dynamic context
-			}
-		}
-		batchLabels := ci.Labels
-		if ci.Kind != "" {
-			batchLabels = append([]string{parchment.LabelPrefixKind + ci.Kind}, batchLabels...)
-		}
-		if ci.Status != "" {
-			batchLabels = append(batchLabels, parchment.LabelPrefixStatus+ci.Status)
-		}
-		if ci.Scope != "" {
-			batchLabels = append(batchLabels, parchment.LabelPrefixScope+ci.Scope)
-		}
-		if ci.Priority != "" {
-			batchLabels = append(batchLabels, parchment.LabelPrefixPriority+ci.Priority)
+		if err := resolveParentRef(&ci, idRefs, i); err != nil {
+			return "", err
 		}
 		art, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-			Title: ci.Title,
-			Goal:  ci.Goal, Parent: ci.Parent,
-			Labels: batchLabels,
-			Links:  ci.Links, Extra: ci.Extra, Sections: parseSections(ci.Sections),
+			Title:    ci.Title,
+			Goal:     ci.Goal,
+			Parent:   ci.Parent,
+			Labels:   buildBatchLabels(&ci),
+			Links:    ci.Links,
+			Extra:    ci.Extra,
+			Sections: parseSections(ci.Sections),
 		})
 		if err != nil {
 			return "", fmt.Errorf("artifact[%d] %q: %w", i, ci.Title, err)
 		}
 		idRefs[fmt.Sprintf("$%d", i)] = art.ID
-		fmt.Fprintf(&b, "%s [%s] %s", art.ID, art.Label(parchment.LabelPrefixKind), art.Title)
-		if parentOf(ctx, svc.Proto.Store(), art.ID) != "" {
-			fmt.Fprintf(&b, " (parent: %s)", parentOf(ctx, svc.Proto.Store(), art.ID))
-		}
-		b.WriteString("\n")
+		writeBatchLine(ctx, svc, &b, art)
 	}
 	return b.String(), nil
+}
+
+func unmarshalBatchItem(raw any, index int) (createInput, error) {
+	data, _ := json.Marshal(raw)
+	var ci createInput
+	if err := json.Unmarshal(data, &ci); err != nil {
+		return ci, fmt.Errorf("artifact[%d]: %w", index, err)
+	}
+	return ci, nil
+}
+
+func resolveParentRef(ci *createInput, refs map[string]string, index int) error {
+	parent := ci.Parent
+	if parent == "" || parent[0] != '$' {
+		return nil
+	}
+	resolved, ok := refs[parent]
+	if !ok {
+		return fmt.Errorf("artifact[%d]: unresolved parent reference %q", index, parent) //nolint:err113 // batch parent resolution error contains dynamic context
+	}
+	ci.Parent = resolved
+	return nil
+}
+
+func buildBatchLabels(ci *createInput) []string {
+	labels := ci.Labels
+	for _, pair := range []struct{ prefix, value string }{
+		{parchment.LabelPrefixKind, ci.Kind},
+		{parchment.LabelPrefixStatus, ci.Status},
+		{parchment.LabelPrefixScope, ci.Scope},
+		{parchment.LabelPrefixPriority, ci.Priority},
+	} {
+		if pair.value != "" {
+			labels = append(labels, pair.prefix+pair.value)
+		}
+	}
+	return labels
+}
+
+func writeBatchLine(ctx context.Context, svc *Service, b *strings.Builder, art *parchment.Artifact) {
+	fmt.Fprintf(b, "%s [%s] %s", art.ID, art.Label(parchment.LabelPrefixKind), art.Title)
+	if p := parentOf(ctx, svc.Proto.Store(), art.ID); p != "" {
+		fmt.Fprintf(b, " (parent: %s)", p)
+	}
+	b.WriteString("\n")
 }
 
 type updateInput struct {
@@ -452,4 +444,60 @@ var opSet = Op{
 		}
 		return strings.Join(lines, "\n"), nil
 	},
+}
+
+func stripSystemLabels(source, override []string, scope string) []string {
+	if len(override) > 0 {
+		if scope != "" {
+			return append(override, parchment.LabelPrefixScope+scope)
+		}
+		return override
+	}
+	strip := []string{parchment.LabelPrefixKind, parchment.LabelPrefixStatus}
+	if scope != "" {
+		strip = append(strip, parchment.LabelPrefixScope)
+	}
+	var out []string
+	for _, l := range source {
+		keep := true
+		for _, prefix := range strip {
+			if strings.HasPrefix(l, prefix) {
+				keep = false
+				break
+			}
+		}
+		if keep {
+			out = append(out, l)
+		}
+	}
+	if scope != "" {
+		out = append(out, parchment.LabelPrefixScope+scope)
+	}
+	return out
+}
+
+func copySections(src []parchment.Section) []parchment.Section {
+	out := make([]parchment.Section, len(src))
+	copy(out, src)
+	return out
+}
+
+func buildCloneLabels(svc *Service, kind, status, priority string, base []string) []string {
+	labels := make([]string, 0, len(base)+3)
+	if kind != "" {
+		labels = append(labels, parchment.LabelPrefixKind+kind)
+	}
+	if status == "" {
+		status = svc.Proto.DefaultStatus(kind)
+	}
+	if parchment.IsDomainStatusLabel(status) {
+		labels = append(labels, status)
+	} else {
+		labels = append(labels, parchment.LabelPrefixStatus+status)
+	}
+	labels = append(labels, base...)
+	if priority != "" {
+		labels = append(labels, parchment.LabelPrefixPriority+priority)
+	}
+	return labels
 }

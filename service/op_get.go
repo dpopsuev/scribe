@@ -282,55 +282,70 @@ func getContext(ctx context.Context, svc *Service, id string) (string, error) {
 	status := parchment.StatusFromLabels(art.Labels)
 	fmt.Fprintf(&b, "# Context for %s\n**%s** [%s|%s]\n\n", id, art.Title, kind, status)
 
-	// Parent chain (walk upward through parent_of)
+	writeHeritage(ctx, svc, &b, id)
+	writeChildren(ctx, svc, &b, id)
+	writeDependencies(ctx, svc, &b, id)
+	writeReferences(ctx, svc, &b, id)
+	writeMetrics(ctx, svc, &b, id, art)
+
+	return b.String(), nil
+}
+
+func writeHeritage(ctx context.Context, svc *Service, b *strings.Builder, id string) {
 	parents, _ := svc.Proto.Store().Neighbors(ctx, id, parchment.RelParentOf, parchment.Incoming)
-	if len(parents) > 0 {
-		fmt.Fprintf(&b, "## Heritage\n")
-		for _, e := range parents {
-			p, err := svc.Proto.GetArtifact(ctx, e.From)
+	if len(parents) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "## Heritage\n")
+	for _, e := range parents {
+		p, err := svc.Proto.GetArtifact(ctx, e.From)
+		if err != nil {
+			continue
+		}
+		fmt.Fprintf(b, "  %s [%s] %s\n", p.ID, p.Label(parchment.LabelPrefixKind), p.Title)
+		grandparents, _ := svc.Proto.Store().Neighbors(ctx, e.From, parchment.RelParentOf, parchment.Incoming)
+		for _, gp := range grandparents {
+			g, err := svc.Proto.GetArtifact(ctx, gp.From)
 			if err != nil {
 				continue
 			}
-			fmt.Fprintf(&b, "  %s [%s] %s\n", p.ID, p.Label(parchment.LabelPrefixKind), p.Title)
-			grandparents, _ := svc.Proto.Store().Neighbors(ctx, e.From, parchment.RelParentOf, parchment.Incoming)
-			for _, gp := range grandparents {
-				g, err := svc.Proto.GetArtifact(ctx, gp.From)
-				if err != nil {
-					continue
-				}
-				fmt.Fprintf(&b, "    %s [%s] %s\n", g.ID, g.Label(parchment.LabelPrefixKind), g.Title)
-			}
+			fmt.Fprintf(b, "    %s [%s] %s\n", g.ID, g.Label(parchment.LabelPrefixKind), g.Title)
 		}
-		b.WriteString("\n")
 	}
+	b.WriteString("\n")
+}
 
-	// Children (walk downward through parent_of)
+func writeChildren(ctx context.Context, svc *Service, b *strings.Builder, id string) {
 	children, _ := svc.Proto.Store().Children(ctx, id)
-	if len(children) > 0 {
-		fmt.Fprintf(&b, "## Children (%d)\n", len(children))
-		for _, ch := range children {
-			fmt.Fprintf(&b, "  %s [%s|%s] %s\n", ch.ID, ch.Label(parchment.LabelPrefixKind), parchment.StatusFromLabels(ch.Labels), ch.Title)
-		}
-		b.WriteString("\n")
+	if len(children) == 0 {
+		return
 	}
+	fmt.Fprintf(b, "## Children (%d)\n", len(children))
+	for _, ch := range children {
+		fmt.Fprintf(b, "  %s [%s|%s] %s\n", ch.ID, ch.Label(parchment.LabelPrefixKind), parchment.StatusFromLabels(ch.Labels), ch.Title)
+	}
+	b.WriteString("\n")
+}
 
-	// Dependencies (depends_on outgoing)
+func writeDependencies(ctx context.Context, svc *Service, b *strings.Builder, id string) {
 	deps, _ := svc.Proto.Store().Neighbors(ctx, id, parchment.RelDependsOn, parchment.Outgoing)
-	if len(deps) > 0 {
-		fmt.Fprintf(&b, "## Depends on (%d)\n", len(deps))
-		for _, e := range deps {
-			d, err := svc.Proto.GetArtifact(ctx, e.To)
-			if err != nil {
-				continue
-			}
-			fmt.Fprintf(&b, "  %s [%s|%s] %s\n", d.ID, d.Label(parchment.LabelPrefixKind), parchment.StatusFromLabels(d.Labels), d.Title)
-		}
-		b.WriteString("\n")
+	if len(deps) == 0 {
+		return
 	}
+	fmt.Fprintf(b, "## Depends on (%d)\n", len(deps))
+	for _, e := range deps {
+		d, err := svc.Proto.GetArtifact(ctx, e.To)
+		if err != nil {
+			continue
+		}
+		fmt.Fprintf(b, "  %s [%s|%s] %s\n", d.ID, d.Label(parchment.LabelPrefixKind), parchment.StatusFromLabels(d.Labels), d.Title)
+	}
+	b.WriteString("\n")
+}
 
-	// Referenced knowledge (cites, elaborates, documents outgoing)
+func writeReferences(ctx context.Context, svc *Service, b *strings.Builder, id string) {
 	knowledgeRels := []string{"cites", "elaborates", "documents", "implements", "justifies"}
-	var knowledge []string
+	var lines []string
 	seen := map[string]bool{}
 	for _, rel := range knowledgeRels {
 		edges, _ := svc.Proto.Store().Neighbors(ctx, id, rel, parchment.Outgoing)
@@ -343,24 +358,24 @@ func getContext(ctx context.Context, svc *Service, id string) (string, error) {
 			if err != nil {
 				continue
 			}
-			knowledge = append(knowledge, fmt.Sprintf("  %s ──%s──▶ %s [%s] %s", id, rel, ref.ID, ref.Label(parchment.LabelPrefixKind), ref.Title))
+			lines = append(lines, fmt.Sprintf("  %s ──%s──▶ %s [%s] %s", id, rel, ref.ID, ref.Label(parchment.LabelPrefixKind), ref.Title))
 		}
 	}
-	if len(knowledge) > 0 {
-		fmt.Fprintf(&b, "## References (%d)\n", len(knowledge))
-		for _, k := range knowledge {
-			b.WriteString(k + "\n")
-		}
-		b.WriteString("\n")
+	if len(lines) == 0 {
+		return
 	}
+	fmt.Fprintf(b, "## References (%d)\n", len(lines))
+	for _, l := range lines {
+		b.WriteString(l + "\n")
+	}
+	b.WriteString("\n")
+}
 
-	// Graph metrics
+func writeMetrics(ctx context.Context, svc *Service, b *strings.Builder, id string, art *parchment.Artifact) {
 	fanIn, _ := FanIn(ctx, svc.Proto.Store(), id)
 	fanOut, _ := FanOut(ctx, svc.Proto.Store(), id)
 	score := svc.Proto.CompletionScore(ctx, art)
-	fmt.Fprintf(&b, "## Metrics\n  Fan-in: %d  Fan-out: %d  Completion: %.0f%%\n", fanIn, fanOut, score*100)
-
-	return b.String(), nil
+	fmt.Fprintf(b, "## Metrics\n  Fan-in: %d  Fan-out: %d  Completion: %.0f%%\n", fanIn, fanOut, score*100)
 }
 
 func getBulk(ctx context.Context, svc *Service, ids, sectionFilter []string) (string, error) {

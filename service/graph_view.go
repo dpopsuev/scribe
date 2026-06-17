@@ -146,41 +146,60 @@ func BuildArtifactGraph(ctx context.Context, svc *Service, scope string, statuse
 
 // BuildLocalGraph returns a neighborhood graph rooted at one artifact.
 func BuildLocalGraph(ctx context.Context, svc *Service, rootID string, hops int) (GraphData, error) {
+	collected, edges, err := bfsCollect(ctx, svc, rootID, hops)
+	if err != nil {
+		return GraphData{}, err
+	}
+	return GraphData{
+		Nodes: artifactsToNodes(collected),
+		Links: dedupeLinks(edges, collected),
+	}, nil
+}
+
+func bfsCollect(ctx context.Context, svc *Service, rootID string, hops int) (map[string]*parchment.Artifact, []parchment.Edge, error) {
 	collected := make(map[string]*parchment.Artifact)
 	var edges []parchment.Edge
 
 	root, err := svc.Proto.GetArtifact(ctx, rootID)
 	if err != nil {
-		return GraphData{}, err
+		return nil, nil, err
 	}
 	collected[root.ID] = root
 
 	frontier := []string{rootID}
 	for range hops {
-		var nextFrontier []string
+		var next []string
 		for _, id := range frontier {
 			neighbors, _ := svc.Proto.Store().Neighbors(ctx, id, "", parchment.Both)
 			for _, e := range neighbors {
 				edges = append(edges, e)
-				peerID := e.To
-				if peerID == id {
-					peerID = e.From
+				peerID := peerOf(e, id)
+				if _, ok := collected[peerID]; ok {
+					continue
 				}
-				if _, ok := collected[peerID]; !ok {
-					peer, peerErr := svc.Proto.GetArtifact(ctx, peerID)
-					if peerErr != nil {
-						continue
-					}
-					collected[peerID] = peer
-					nextFrontier = append(nextFrontier, peerID)
+				peer, err := svc.Proto.GetArtifact(ctx, peerID)
+				if err != nil {
+					continue
 				}
+				collected[peerID] = peer
+				next = append(next, peerID)
 			}
 		}
-		frontier = nextFrontier
+		frontier = next
 	}
+	return collected, edges, nil
+}
 
-	nodes := make([]GraphNode, 0, len(collected))
-	for _, a := range collected {
+func peerOf(e parchment.Edge, self string) string {
+	if e.To == self {
+		return e.From
+	}
+	return e.To
+}
+
+func artifactsToNodes(arts map[string]*parchment.Artifact) []GraphNode {
+	nodes := make([]GraphNode, 0, len(arts))
+	for _, a := range arts {
 		nodes = append(nodes, GraphNode{
 			ID: a.ID, Name: a.Title,
 			Kind:   a.Label(parchment.LabelPrefixKind),
@@ -189,11 +208,14 @@ func BuildLocalGraph(ctx context.Context, svc *Service, rootID string, hops int)
 			Val:    1,
 		})
 	}
+	return nodes
+}
 
+func dedupeLinks(edges []parchment.Edge, valid map[string]*parchment.Artifact) []GraphLink {
 	seen := make(map[string]bool)
 	links := make([]GraphLink, 0, len(edges))
 	for _, e := range edges {
-		if collected[e.From] == nil || collected[e.To] == nil {
+		if valid[e.From] == nil || valid[e.To] == nil {
 			continue
 		}
 		key := e.From + "|" + e.Relation + "|" + e.To
@@ -206,7 +228,7 @@ func BuildLocalGraph(ctx context.Context, svc *Service, rootID string, hops int)
 			Relation: e.Relation, Weight: e.Weight,
 		})
 	}
-	return GraphData{Nodes: nodes, Links: links}, nil
+	return links
 }
 
 func fetchGraphArtifacts(ctx context.Context, svc *Service, scope string, statuses []string) ([]*parchment.Artifact, error) {
