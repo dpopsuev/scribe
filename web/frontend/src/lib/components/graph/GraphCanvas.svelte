@@ -64,9 +64,11 @@
   let simActive = false;
 
   function onUserInteract(focusNode?: string) {
+    const wasSystem = lock.owner === 'system';
     lock = userTakeLock(lock, focusNode);
     transition = null;
     lastInteractTime = performance.now();
+    if (wasSystem) { _frameHist.length = 0; prevFrameTs = 0; }
   }
 
   let gl: WebGL2RenderingContext | null = null;
