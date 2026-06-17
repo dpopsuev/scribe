@@ -48,10 +48,10 @@
   let width = $state(800);
   let height = $state(600);
 
-  let camX = $state(0);
-  let camY = $state(0);
-  let camZoom = $state(1);
-  let dragging = $state(false);
+  let camX = 0;
+  let camY = 0;
+  let camZoom = 1;
+  let dragging = false;
   let dragStartX = 0;
   let dragStartY = 0;
   let camStartX = 0;
@@ -491,21 +491,25 @@
   }
 
   function handleMouseMove(e: MouseEvent) {
+    if (dragging) {
+      const rect = canvas?.getBoundingClientRect();
+      if (rect) {
+        camX = camStartX - (e.clientX - dragStartX) / camZoom;
+        camY = camStartY - (e.clientY - dragStartY) / camZoom;
+      }
+      needsPickRedraw = true;
+      return;
+    }
+    // Skip ALL work during active zoom — no $state writes, no GPU reads.
+    // Trackpad scroll generates continuous mousemove; any $state mutation
+    // here triggers a Svelte update cycle that blocks the main thread.
+    if (performance.now() - lastInteractTime < 200) return;
+
     const rect = canvas?.getBoundingClientRect();
     if (rect) {
       mouseX = e.clientX - rect.left;
       mouseY = e.clientY - rect.top;
     }
-    if (dragging) {
-      camX = camStartX - (e.clientX - dragStartX) / camZoom;
-      camY = camStartY - (e.clientY - dragStartY) / camZoom;
-      needsPickRedraw = true;
-      return;
-    }
-    // Skip GPU pick during active zoom — readPixels() stalls the GPU pipeline
-    // (50-200ms on laptop GPUs). Trackpad scroll = continuous mousemove events.
-    if (performance.now() - lastInteractTime < 200) return;
-
     if (!gl || !pickFBO || !canvas || !rect) return;
     needsPickRedraw = true;
     const px = Math.round((e.clientX - rect.left) * (canvas.width / rect.width));
