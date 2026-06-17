@@ -4,36 +4,10 @@
   import { NODE_VERT, NODE_FRAG, EDGE_VERT, EDGE_FRAG, NODE_CORNERS } from './shaders';
   import { buildViewMatrix, worldToScreen } from './transform';
   import type { Camera } from './transform';
+  import { createFocusLock, userTakeLock, checkIdle, systemCanMove, isTrackingNode, fitBounds } from './camera';
+  import type { FocusLock } from './camera';
+  import { forceGravity } from './gravity';
   import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide } from 'd3-force';
-
-  // N-body gravitational force: F = G * m1 * m2 / r²
-  // Nodes with more connections (higher mass) attract others more strongly.
-  // Softening parameter prevents singularity at r=0.
-  function forceGravity(G: number, softening: number) {
-    let nodes: any[] = [];
-    function force(alpha: number) {
-      for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-          const a = nodes[i], b = nodes[j];
-          const dx = (b.x || 0) - (a.x || 0);
-          const dy = (b.y || 0) - (a.y || 0);
-          const distSq = dx * dx + dy * dy + softening * softening;
-          const dist = Math.sqrt(distSq);
-          const massA = (a._size || 5) * 0.5;
-          const massB = (b._size || 5) * 0.5;
-          const F = G * massA * massB / distSq * alpha;
-          const fx = F * dx / dist;
-          const fy = F * dy / dist;
-          a.vx = (a.vx || 0) + fx / massA;
-          a.vy = (a.vy || 0) + fy / massA;
-          b.vx = (b.vx || 0) - fx / massB;
-          b.vy = (b.vy || 0) - fy / massB;
-        }
-      }
-    }
-    force.initialize = (n: any[]) => { nodes = n; };
-    return force;
-  }
 
   export interface GraphNode {
     id: string;
@@ -83,29 +57,12 @@
   let camStartX = 0;
   let camStartY = 0;
 
-  // Focus lock: controls whether the system can move the camera.
-  // User takes lock on any interaction (drag, zoom, shift+click).
-  // System can only take it back after idle timeout.
-  let userHasLock = $state(false);
-  let focusNodeId: string | null = $state(null);
-  let idleTimer: ReturnType<typeof setTimeout> | null = null;
-  const IDLE_TIMEOUT_MS = 5000;
+  // Focus lock: pure state machine (camera.ts) + timer for idle detection
+  let lock: FocusLock = $state(createFocusLock());
+  let idleInterval: ReturnType<typeof setInterval> | null = null;
 
-  function userTakeLock() {
-    userHasLock = true;
-    resetIdleTimer();
-  }
-
-  function resetIdleTimer() {
-    if (idleTimer) clearTimeout(idleTimer);
-    idleTimer = setTimeout(() => {
-      userHasLock = false;
-      focusNodeId = null;
-    }, IDLE_TIMEOUT_MS);
-  }
-
-  function systemCanMoveCam(): boolean {
-    return !userHasLock;
+  function onUserInteract(focusNode?: string) {
+    lock = userTakeLock(lock, focusNode);
   }
 
   let gl: WebGL2RenderingContext | null = null;
@@ -131,22 +88,12 @@
   }
 
   function fitCamera() {
-    if (simNodes.length === 0) return;
-    if (!systemCanMoveCam()) return;
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (const n of simNodes) {
-      const s = n._size || 5;
-      if ((n.x || 0) - s < minX) minX = (n.x || 0) - s;
-      if ((n.x || 0) + s > maxX) maxX = (n.x || 0) + s;
-      if ((n.y || 0) - s < minY) minY = (n.y || 0) - s;
-      if ((n.y || 0) + s > maxY) maxY = (n.y || 0) + s;
-    }
-    const pad = 1.15;
-    camX = (minX + maxX) / 2;
-    camY = (minY + maxY) / 2;
-    const spanX = (maxX - minX) * pad || 100;
-    const spanY = (maxY - minY) * pad || 100;
-    camZoom = Math.min(width / spanX, height / spanY);
+    if (!systemCanMove(lock)) return;
+    const cam = fitBounds(simNodes, width, height);
+    if (!cam) return;
+    camX = cam.x;
+    camY = cam.y;
+    camZoom = cam.zoom;
     needsPickRedraw = true;
   }
 
@@ -279,9 +226,8 @@
         needsPickRedraw = true;
 
         // Camera control: system auto-fits unless user has taken the lock
-        if (focusNodeId && userHasLock) {
-          // Track focused node position
-          const fn = simNodes.find((n: any) => n.id === focusNodeId);
+        if (isTrackingNode(lock)) {
+          const fn = simNodes.find((n: any) => n.id === lock.focusNodeId);
           if (fn) { camX = fn.x || 0; camY = fn.y || 0; }
         } else {
           fitCamera();
@@ -448,7 +394,7 @@
       dragStartY = e.clientY;
       camStartX = camX;
       camStartY = camY;
-      userTakeLock();
+      onUserInteract();
     }
   }
 
@@ -458,13 +404,11 @@
       const moved = Math.hypot(e.clientX - dragStartX, e.clientY - dragStartY);
       if (moved < 5 && hoveredIndex >= 0 && hoveredIndex < nodes.length) {
         if (e.shiftKey) {
-          // Shift+Click: focus-lock camera on this node
           const n = simNodes[hoveredIndex];
           if (n) {
-            focusNodeId = n.id;
+            onUserInteract(n.id);
             camX = n.x || 0;
             camY = n.y || 0;
-            userTakeLock();
           }
         } else {
           onNodeClick(nodes[hoveredIndex]);
@@ -475,7 +419,7 @@
 
   function handleWheel(e: WheelEvent) {
     e.preventDefault();
-    userTakeLock();
+    onUserInteract();
     const factor = e.deltaY > 0 ? 0.9 : 1.1;
     camZoom = Math.max(0.05, Math.min(50, camZoom * factor));
     needsPickRedraw = true;
@@ -552,6 +496,9 @@
     startSimulation();
     animFrame = requestAnimationFrame(render);
 
+    // Poll idle state every second — pure function, no brittle setTimeout chains
+    idleInterval = setInterval(() => { lock = checkIdle(lock); }, 1000);
+
     const ro = new ResizeObserver(() => {
       if (!canvas) return;
       const r = canvas.getBoundingClientRect();
@@ -574,7 +521,7 @@
     return () => {
       cancelAnimationFrame(animFrame);
       simulation?.stop();
-      if (idleTimer) clearTimeout(idleTimer);
+      if (idleInterval) clearInterval(idleInterval);
       ro.disconnect();
       gl?.deleteProgram(nodeProg);
       gl?.deleteProgram(edgeProg);
