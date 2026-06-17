@@ -3,14 +3,49 @@
   import type { GraphNode, GraphEdge } from '$lib/components/graph/GraphCanvas.svelte';
   import { onMount } from 'svelte';
 
-  const KIND_COLORS: Record<string, string> = {
-    project: '#b0b8c4', 'kind-group': '#b58edb',
-    task: '#5b9bd5', goal: '#d4a844', campaign: '#d47a3a',
-    note: '#6bc88a', concept: '#4db8c7', bug: '#d45a7a',
-    decision: '#8b6bb5', spec: '#4a9097', source: '#a15a7a',
-    doc: '#4db8c7', ref: '#a8b84a', need: '#8b6bb5',
-    context: '#6bc88a', journal: '#d4a844',
-  };
+  // Golden angle color generation in OKLCH space.
+  // φ = (1+√5)/2, golden_angle = 360/φ² ≈ 137.508°
+  // Perceptually uniform, no gray/white/black (C≥0.12, L∈[0.55,0.85])
+  const GOLDEN_ANGLE = 137.508;
+  const colorCache = new Map<string, string>();
+  let colorIndex = 0;
+
+  function goldenColor(seed: string): string {
+    if (colorCache.has(seed)) return colorCache.get(seed)!;
+    // Hash the seed string to get a stable starting index
+    let hash = 0;
+    for (let i = 0; i < seed.length; i++) hash = ((hash << 5) - hash + seed.charCodeAt(i)) | 0;
+    const idx = Math.abs(hash);
+    const hue = (idx * GOLDEN_ANGLE) % 360;
+    const L = 0.72;  // bright enough on dark bg, not white
+    const C = 0.14;  // vivid enough, never gray
+    const hex = oklchToHex(L, C, hue);
+    colorCache.set(seed, hex);
+    return hex;
+  }
+
+  function oklchToHex(L: number, C: number, h: number): string {
+    // Convert OKLCH → OKLab → linear sRGB → sRGB → hex
+    const hRad = h * Math.PI / 180;
+    const a = C * Math.cos(hRad);
+    const b = C * Math.sin(hRad);
+    // OKLab to linear RGB via approximate matrix
+    const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+    const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+    const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+    const l3 = l_ * l_ * l_;
+    const m3 = m_ * m_ * m_;
+    const s3 = s_ * s_ * s_;
+    let r = +4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3;
+    let g = -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3;
+    let bl = -0.0041960863 * l3 - 0.7034186147 * m3 + 1.7076147010 * s3;
+    // Linear to sRGB gamma
+    const gamma = (x: number) => x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1/2.4) - 0.055;
+    r = Math.round(Math.max(0, Math.min(1, gamma(r))) * 255);
+    g = Math.round(Math.max(0, Math.min(1, gamma(g))) * 255);
+    bl = Math.round(Math.max(0, Math.min(1, gamma(bl))) * 255);
+    return '#' + [r, g, bl].map(v => v.toString(16).padStart(2, '0')).join('');
+  }
 
   const REL_COLORS: Record<string, string> = {
     'cross-scope': '#4a4a6a', parent_of: '#4a4a6a',
@@ -18,10 +53,6 @@
     blocks: '#d45a7a', justifies: '#8b6bb5',
     cites: '#8b6bb5', documents: '#5b9bd5',
   };
-
-  function kindColor(kind: string): string {
-    return KIND_COLORS[kind?.split('.').pop() || kind] || KIND_COLORS[kind] || '#8a94a8';
-  }
 
   let nodes: GraphNode[] = $state([]);
   let edges: GraphEdge[] = $state([]);
@@ -56,7 +87,7 @@
         x: r * Math.cos(angle),
         y: r * Math.sin(angle),
         size,
-        color: kindColor(raw.kind),
+        color: goldenColor(raw.scope || raw.name || raw.id),
         kind: raw.kind,
       };
     });
@@ -76,33 +107,62 @@
     const res = await fetch(`/api/v1/graph/kinds?scope=${encodeURIComponent(scopeName)}&status=${encodeURIComponent(status)}`);
     const data = await res.json();
 
-    const parent = nodes.find(n => n.id === `project:${scopeName}`);
-    const cx = parent?.x || 0;
-    const cy = parent?.y || 0;
-    const childRadius = 40;
-
-    const newNodes: GraphNode[] = data.nodes.map((raw: any, i: number) => ({
-      id: raw.id,
-      label: raw.name,
-      x: cx + childRadius * Math.cos((2 * Math.PI * i) / data.nodes.length),
-      y: cy + childRadius * Math.sin((2 * Math.PI * i) / data.nodes.length),
-      size: Math.max(2, Math.cbrt(raw.val) * 1.5),
-      color: kindColor(raw.kind),
-      kind: raw.kind,
-    }));
-
     const parentId = `project:${scopeName}`;
+    const parentIdx = nodes.findIndex(n => n.id === parentId);
+    if (parentIdx < 0) return;
+    const parent = nodes[parentIdx];
+    const cx = parent.x;
+    const cy = parent.y;
+    const originalSize = parent.size;
+
+    // Ghost node: stays at original size with low opacity (sphere of influence)
+    const ghostNode: GraphNode = {
+      id: `ghost:${scopeName}`,
+      label: '',
+      x: cx, y: cy,
+      size: originalSize,
+      color: parent.color + '20', // ~12% opacity via hex alpha
+      kind: 'ghost',
+    };
+
+    // Shrink parent: loses mass of children
+    const childCount = data.nodes.length || 1;
+    const shrunkSize = Math.max(3, originalSize * 0.3);
+
+    // Children orbit within the ghost's radius
+    const orbitRadius = originalSize * 0.7;
+    const childGoldenAngle = 137.508 * Math.PI / 180;
+
+    const newNodes: GraphNode[] = data.nodes.map((raw: any, i: number) => {
+      const angle = i * childGoldenAngle;
+      const r = orbitRadius * Math.sqrt((i + 0.5) / childCount);
+      return {
+        id: raw.id,
+        label: raw.name,
+        x: cx + r * Math.cos(angle),
+        y: cy + r * Math.sin(angle),
+        size: Math.max(2, Math.cbrt(raw.val || 1) * 1.2),
+        color: goldenColor(raw.kind || raw.name),
+        kind: raw.kind,
+      };
+    });
+
     const newEdges: GraphEdge[] = [
       ...data.links.map((raw: any) => ({
         source: raw.source, target: raw.target,
         color: REL_COLORS[raw.relation] || '#4a4a6a',
       })),
       ...newNodes.map(n => ({
-        source: parentId, target: n.id, color: '#4a4a6a40',
+        source: parentId, target: n.id, color: parent.color + '40',
       })),
     ];
 
-    nodes = [...nodes, ...newNodes];
+    // Update parent size (shrink) and add ghost + children
+    const updatedNodes = nodes.map((n, i) =>
+      i === parentIdx ? { ...n, size: shrunkSize } : n
+    );
+
+    nodes = [...updatedNodes, ghostNode, ...newNodes];
     edges = [...edges, ...newEdges];
     expanded = new Set([...expanded, scopeName]);
   }
