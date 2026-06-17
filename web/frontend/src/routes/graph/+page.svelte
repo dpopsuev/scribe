@@ -76,6 +76,7 @@
     kind: string;
   }
   let sidebar: { art: ArtifactDetail; edges: EdgeRef[]; history: string[] } | null = $state(null);
+  let highlightEdge: { source: string; target: string } | null = $state(null);
 
   async function openSidebar(id: string) {
     const [artRes, edgesRes] = await Promise.all([
@@ -270,7 +271,7 @@
         <div class="expanded">Expanded: {[...expanded].join(', ')}</div>
       {/if}
     </div>
-    <GraphCanvas {nodes} {edges} onNodeClick={handleNodeClick} />
+    <GraphCanvas {nodes} {edges} {highlightEdge} onNodeClick={handleNodeClick} />
 
     {#if sidebar}
       <div class="sidebar">
@@ -316,6 +317,8 @@
                 <button
                   class="edge-link"
                   onclick={() => openSidebar(edge.from === sidebar?.art.id ? edge.to : edge.from)}
+                  onmouseenter={() => { highlightEdge = { source: edge.from, target: edge.to }; }}
+                  onmouseleave={() => { highlightEdge = null; }}
                 >
                   <span class="edge-relation">{edge.relation}</span>
                   <span class="edge-title">{edge.title || (edge.from === sidebar?.art.id ? edge.to : edge.from)}</span>

@@ -30,12 +30,14 @@
     nodes = [] as GraphNode[],
     edges = [] as GraphEdge[],
     background = '#1a1a2e',
+    highlightEdge = null as { source: string; target: string } | null,
     onNodeClick = (_node: GraphNode) => {},
     onNodeHover = (_node: GraphNode | null) => {},
   }: {
     nodes: GraphNode[];
     edges: GraphEdge[];
     background?: string;
+    highlightEdge?: { source: string; target: string } | null;
     onNodeClick?: (node: GraphNode) => void;
     onNodeHover?: (node: GraphNode | null) => void;
   } = $props();
@@ -191,25 +193,27 @@
       const s = l.source;
       const t = l.target;
       if (!s || !t) continue;
-      const [r, g, b] = hexToRgb(l._color || '#4a4a6a');
+      const isHighlighted = highlightEdge &&
+        ((s.id === highlightEdge.source && t.id === highlightEdge.target) ||
+         (s.id === highlightEdge.target && t.id === highlightEdge.source));
+      const [r, g, b] = isHighlighted ? [99, 102, 241] : hexToRgb(l._color || '#4a4a6a');
+      const alpha = isHighlighted ? 255 : 80;
 
-      // Vertex 1 (source)
       const off1 = (i * 2) * stride;
       floats[off1 / 4] = s.x || 0;
       floats[off1 / 4 + 1] = s.y || 0;
       bytes[off1 + 8] = r;
       bytes[off1 + 9] = g;
       bytes[off1 + 10] = b;
-      bytes[off1 + 11] = 80;
+      bytes[off1 + 11] = alpha;
 
-      // Vertex 2 (target)
       const off2 = (i * 2 + 1) * stride;
       floats[off2 / 4] = t.x || 0;
       floats[off2 / 4 + 1] = t.y || 0;
       bytes[off2 + 8] = r;
       bytes[off2 + 9] = g;
       bytes[off2 + 10] = b;
-      bytes[off2 + 11] = 80;
+      bytes[off2 + 11] = alpha;
     }
 
     gl.bindBuffer(gl.ARRAY_BUFFER, edgeBuf);
@@ -754,6 +758,11 @@
     } else {
       untrack(() => appendExpansion(_n, _e));
     }
+  });
+
+  $effect(() => {
+    const _h = highlightEdge;
+    if (simNodes.length > 0) untrack(() => uploadEdges());
   });
 
   function appendExpansion(allNodes: GraphNode[], allEdges: GraphEdge[]) {
