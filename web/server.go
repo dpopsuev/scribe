@@ -219,10 +219,16 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Artifact not found", http.StatusNotFound)
 		return
 	}
-	s.render(w, "detail.html", map[string]any{
+	data := map[string]any{
 		tmplKeyTitle: art.Title,
 		"Artifact":   art,
-	})
+	}
+	if backend := service.RefBackend(art); backend != "" {
+		data["RefBackend"] = backend
+		data["RefID"] = service.RefID(art)
+		data["Stale"] = service.IsStale(art)
+	}
+	s.render(w, "detail.html", data)
 }
 
 func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {

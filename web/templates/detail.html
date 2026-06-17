@@ -19,6 +19,21 @@
 
 <p><a href="/tree/{{.Artifact.ID}}">View tree</a></p>
 
+{{if .RefBackend}}
+<div class="resolve-panel" style="margin:1rem 0;padding:0.8rem 1rem;border:1px solid var(--pico-muted-border-color);border-radius:8px;background:var(--pico-card-background-color)">
+  <span class="badge" style="margin-right:0.5rem">{{.RefBackend}}</span>
+  <span style="font-size:0.85em;opacity:0.7">ref: {{.RefID}}</span>
+  {{if .Stale}}<span class="badge" style="background:#eab308;color:#000;margin-left:0.5rem">stale</span>{{else}}<span class="badge" style="background:#22c55e;color:#000;margin-left:0.5rem">fresh</span>{{end}}
+  <button
+    hx-get="/api/v1/artifacts/{{.Artifact.ID}}/resolve"
+    hx-target="#resolved-content"
+    hx-swap="innerHTML"
+    style="margin-left:1rem;font-size:0.8em"
+  >Load live</button>
+  <div id="resolved-content" style="margin-top:0.5rem"></div>
+</div>
+{{end}}
+
 {{range .Artifact.Sections}}
 <div class="section-block">
   <h3>{{.Name}}</h3>
