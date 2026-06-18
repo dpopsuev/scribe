@@ -154,6 +154,6 @@ func labelForKinds(kinds []string) string {
 }
 
 func (s *Server) handleAPISchemaHierarchy(w http.ResponseWriter, _ *http.Request) {
-	h := buildHierarchy(s.proto)
+	h := buildHierarchy(s.svc.Proto)
 	writeJSON(w, h)
 }

@@ -245,13 +245,13 @@ func (s *Server) handleExportDataset(w http.ResponseWriter, r *http.Request) {
 	)
 	switch format {
 	case datasetFormatSFT:
-		n, err = writeSFT(ctx, w, s.proto)
+		n, err = writeSFT(ctx, w, s.svc.Proto)
 	case datasetFormatKG:
-		n, err = writeKG(ctx, w, s.proto)
+		n, err = writeKG(ctx, w, s.svc.Proto)
 	case datasetFormatDPO:
-		n, err = writeDPO(ctx, w, s.proto)
+		n, err = writeDPO(ctx, w, s.svc.Proto)
 	case "card":
-		n, err = writeCard(ctx, w, s.proto)
+		n, err = writeCard(ctx, w, s.svc.Proto)
 	default:
 		http.Error(w, fmt.Sprintf("unknown format %q (valid: sft, kg, dpo, card)", format), http.StatusBadRequest)
 		return

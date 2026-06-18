@@ -46,7 +46,7 @@ func (s *Server) handleAPIIngest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	result, _ := ingest.Apply(r.Context(), s.proto.Store(), source, nodes, edges)
+	result, _ := ingest.Apply(r.Context(), s.svc.Proto.Store(), source, nodes, edges)
 	w.Header().Set("Content-Type", "application/json")
 	if len(result.Errors) > 0 {
 		w.WriteHeader(http.StatusMultiStatus)

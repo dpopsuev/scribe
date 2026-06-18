@@ -481,31 +481,34 @@ func appendExcerpts(table string, arts []*parchment.Artifact, chars int, query s
 }
 
 func sectionExcerpt(art *parchment.Artifact, chars int, terms []string) string {
-	if len(terms) > 0 {
-		for _, sec := range art.Sections {
-			lower := strings.ToLower(sec.Text)
-			for _, t := range terms {
-				idx := strings.Index(lower, t)
-				if idx < 0 {
-					continue
-				}
-				start := idx - chars/4
-				if start < 0 {
-					start = 0
-				}
-				end := start + chars
-				if end > len(sec.Text) {
-					end = len(sec.Text)
-				}
-				excerpt := strings.TrimSpace(sec.Text[start:end])
-				if len(sec.Text) > end {
-					excerpt += "…"
-				}
-				return excerpt
+	if excerpt := findTermExcerpt(art.Sections, chars, terms); excerpt != "" {
+		return excerpt
+	}
+	return firstSectionPreview(art.Sections, chars)
+}
+
+func findTermExcerpt(sections []parchment.Section, chars int, terms []string) string {
+	for _, sec := range sections {
+		lower := strings.ToLower(sec.Text)
+		for _, t := range terms {
+			idx := strings.Index(lower, t)
+			if idx < 0 {
+				continue
 			}
+			start := max(0, idx-chars/4)
+			end := min(len(sec.Text), start+chars)
+			excerpt := strings.TrimSpace(sec.Text[start:end])
+			if end < len(sec.Text) {
+				excerpt += "…"
+			}
+			return excerpt
 		}
 	}
-	for _, sec := range art.Sections {
+	return ""
+}
+
+func firstSectionPreview(sections []parchment.Section, chars int) string {
+	for _, sec := range sections {
 		text := strings.TrimSpace(sec.Text)
 		if text == "" {
 			continue

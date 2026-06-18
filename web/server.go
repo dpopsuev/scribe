@@ -32,7 +32,6 @@ var markdownParser = goldmark.New(
 )
 
 type Server struct {
-	proto   *parchment.Protocol
 	svc     *service.Service
 	pages   map[string]*template.Template
 	mux     *http.ServeMux
@@ -51,7 +50,6 @@ func NewServer(proto *parchment.Protocol, version, webPath string) *Server {
 		webPath = "."
 	}
 	s := &Server{
-		proto:   proto,
 		svc:     service.New(proto, nil, nil),
 		pages:   make(map[string]*template.Template),
 		version: version,
@@ -199,7 +197,7 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		Labels:     listLabels,
 		KindPrefix: kindPrefix,
 	}
-	arts, err := s.proto.ListArtifacts(r.Context(), in)
+	arts, err := s.svc.Proto.ListArtifacts(r.Context(), in)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -214,7 +212,7 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	art, err := s.proto.GetArtifact(r.Context(), id)
+	art, err := s.svc.Proto.GetArtifact(r.Context(), id)
 	if err != nil {
 		http.Error(w, "Artifact not found", http.StatusNotFound)
 		return
@@ -233,7 +231,7 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	tree, err := s.proto.ArtifactTree(r.Context(), parchment.TreeInput{ID: id})
+	tree, err := s.svc.Proto.ArtifactTree(r.Context(), parchment.TreeInput{ID: id})
 	if err != nil {
 		http.Error(w, "Artifact not found", http.StatusNotFound)
 		return
@@ -249,7 +247,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	var results []*parchment.Artifact
 	if searchQuery != "" {
 		var err error
-		results, err = s.proto.SearchArtifacts(r.Context(), searchQuery, parchment.ListInput{})
+		results, err = s.svc.Proto.SearchArtifacts(r.Context(), searchQuery, parchment.ListInput{})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -362,7 +360,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		filter.EventTypes = []string{et}
 	}
 
-	events, err := s.proto.GetEvents(r.Context(), since, filter)
+	events, err := s.svc.Proto.GetEvents(r.Context(), since, filter)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -401,7 +399,7 @@ func (s *Server) handleAPIListArtifacts(w http.ResponseWriter, r *http.Request) 
 	if kp := q.Get("kind_prefix"); kp != "" {
 		kindPrefix = kp
 	}
-	arts, err := s.proto.ListArtifacts(r.Context(), parchment.ListInput{
+	arts, err := s.svc.Proto.ListArtifacts(r.Context(), parchment.ListInput{
 		Labels: labels, KindPrefix: kindPrefix,
 	})
 	if err != nil {
@@ -424,7 +422,7 @@ func (s *Server) handleAPIListArtifacts(w http.ResponseWriter, r *http.Request) 
 			Kind:   a.Label(parchment.LabelPrefixKind),
 			Status: parchment.StatusFromLabels(a.Labels),
 			Scope:  a.Label(parchment.LabelPrefixScope),
-			Score:  s.proto.CompletionScore(r.Context(), a),
+			Score:  s.svc.Proto.CompletionScore(r.Context(), a),
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")

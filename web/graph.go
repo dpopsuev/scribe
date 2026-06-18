@@ -72,8 +72,8 @@ func (s *Server) handleAPIGraphLocal(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAPIArtifactEdges(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	outgoing, _ := s.proto.Store().Neighbors(r.Context(), id, "", parchment.Outgoing)
-	incoming, _ := s.proto.Store().Neighbors(r.Context(), id, "", parchment.Incoming)
+	outgoing, _ := s.svc.Proto.Store().Neighbors(r.Context(), id, "", parchment.Outgoing)
+	incoming, _ := s.svc.Proto.Store().Neighbors(r.Context(), id, "", parchment.Incoming)
 
 	type edgeJSON struct {
 		From     string `json:"from"`
@@ -85,7 +85,7 @@ func (s *Server) handleAPIArtifactEdges(w http.ResponseWriter, r *http.Request) 
 	edges := make([]edgeJSON, 0, len(outgoing)+len(incoming))
 	for _, e := range outgoing {
 		title, kind := "", ""
-		if art, err := s.proto.GetArtifact(r.Context(), e.To); err == nil {
+		if art, err := s.svc.Proto.GetArtifact(r.Context(), e.To); err == nil {
 			title = art.Title
 			kind = art.Label(parchment.LabelPrefixKind)
 		}
@@ -93,7 +93,7 @@ func (s *Server) handleAPIArtifactEdges(w http.ResponseWriter, r *http.Request) 
 	}
 	for _, e := range incoming {
 		title, kind := "", ""
-		if art, err := s.proto.GetArtifact(r.Context(), e.From); err == nil {
+		if art, err := s.svc.Proto.GetArtifact(r.Context(), e.From); err == nil {
 			title = art.Title
 			kind = art.Label(parchment.LabelPrefixKind)
 		}
@@ -104,7 +104,7 @@ func (s *Server) handleAPIArtifactEdges(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) handleAPIGetArtifact(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	art, err := s.proto.GetArtifact(r.Context(), id)
+	art, err := s.svc.Proto.GetArtifact(r.Context(), id)
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
@@ -113,7 +113,7 @@ func (s *Server) handleAPIGetArtifact(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAPIScopes(w http.ResponseWriter, r *http.Request) {
-	info, err := s.proto.Store().ListScopeInfo(r.Context())
+	info, err := s.svc.Proto.Store().ListScopeInfo(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -152,7 +152,7 @@ func (s *Server) handleAPICreateArtifact(w http.ResponseWriter, r *http.Request)
 	if raw.Scope != "" {
 		in.Labels = append(in.Labels, parchment.LabelPrefixScope+raw.Scope)
 	}
-	art, err := s.proto.CreateArtifact(r.Context(), in)
+	art, err := s.svc.Proto.CreateArtifact(r.Context(), in)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 		return
@@ -174,7 +174,7 @@ func (s *Server) handleAPIPatchArtifact(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if len(body.Sections) > 0 {
-		if err := s.proto.Store().PatchArtifact(r.Context(), id, parchment.ArtifactPatch{
+		if err := s.svc.Proto.Store().PatchArtifact(r.Context(), id, parchment.ArtifactPatch{
 			AppendSections: body.Sections,
 		}); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -183,7 +183,7 @@ func (s *Server) handleAPIPatchArtifact(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, map[string]any{"id": id, "sections_updated": len(body.Sections)}) //nolint:goconst // "id" is a JSON key, not worth a constant
 		return
 	}
-	results, err := s.proto.SetField(r.Context(), []string{id}, body.Field, body.Value,
+	results, err := s.svc.Proto.SetField(r.Context(), []string{id}, body.Field, body.Value,
 		parchment.SetFieldOptions{Force: body.Force})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -202,7 +202,7 @@ func (s *Server) handleAPICreateEdge(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if _, err := s.proto.LinkArtifacts(r.Context(), e.From, e.Relation, []string{e.To}, e.Weight); err != nil {
+	if _, err := s.svc.Proto.LinkArtifacts(r.Context(), e.From, e.Relation, []string{e.To}, e.Weight); err != nil {
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
@@ -214,7 +214,7 @@ func (s *Server) handleAPIDeleteEdge(w http.ResponseWriter, r *http.Request) {
 	from := r.PathValue("from")
 	rel := r.PathValue("relation")
 	to := r.PathValue("to")
-	if err := s.proto.Store().RemoveEdge(r.Context(), parchment.Edge{From: from, Relation: rel, To: to}); err != nil {
+	if err := s.svc.Proto.Store().RemoveEdge(r.Context(), parchment.Edge{From: from, Relation: rel, To: to}); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -225,7 +225,7 @@ func (s *Server) handleAPIDeleteEdge(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleFragmentArtifact(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	art, err := s.proto.GetArtifact(r.Context(), id)
+	art, err := s.svc.Proto.GetArtifact(r.Context(), id)
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
