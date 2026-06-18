@@ -18,36 +18,7 @@ func SearchCmd() *cobra.Command {
 		Short: "Search artifacts by substring across title, goal, sections, and extra",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
-			svc, cleanup := MustService()
-			defer cleanup()
-			var searchLabels []string
-			if kind != "" {
-				searchLabels = append(searchLabels, parchment.LabelPrefixKind+kind)
-			}
-			if status != "" {
-				searchLabels = append(searchLabels, parchment.LabelPrefixStatus+status)
-			}
-			if scope != "" {
-				searchLabels = append(searchLabels, parchment.LabelPrefixScope+scope)
-			}
-			li := parchment.ListInput{Labels: searchLabels}
-			matched, err := svc.Proto.SearchArtifacts(context.Background(), args[0], li)
-			if err != nil {
-				return err
-			}
-			if len(matched) == 0 {
-				fmt.Printf("no artifacts matching %q\n", args[0])
-				return nil
-			}
-			switch format {
-			case formatJSON:
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				return enc.Encode(matched)
-			default:
-				fmt.Print(parchment.RenderTable(matched))
-				return nil
-			}
+			return runSearch(args[0], scope, kind, status, format)
 		},
 	}
 	cmd.Flags().StringVar(&scope, "scope", "", "filter by scope")
@@ -55,6 +26,41 @@ func SearchCmd() *cobra.Command {
 	cmd.Flags().StringVar(&status, "status", "", "filter by status")
 	cmd.Flags().StringVar(&format, "format", "table", "output format (table, json)")
 	return cmd
+}
+
+func runSearch(query, scope, kind, status, format string) error {
+	svc, cleanup := MustService()
+	defer cleanup()
+	labels := buildFilterLabels(scope, kind, status)
+	matched, err := svc.Proto.SearchArtifacts(context.Background(), query, parchment.ListInput{Labels: labels})
+	if err != nil {
+		return err
+	}
+	if len(matched) == 0 {
+		fmt.Printf("no artifacts matching %q\n", query)
+		return nil
+	}
+	if format == formatJSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(matched)
+	}
+	fmt.Print(parchment.RenderTable(matched))
+	return nil
+}
+
+func buildFilterLabels(scope, kind, status string) []string {
+	var labels []string
+	if kind != "" {
+		labels = append(labels, parchment.LabelPrefixKind+kind)
+	}
+	if status != "" {
+		labels = append(labels, parchment.LabelPrefixStatus+status)
+	}
+	if scope != "" {
+		labels = append(labels, parchment.LabelPrefixScope+scope)
+	}
+	return labels
 }
 
 func SectionCmd() *cobra.Command {
@@ -68,38 +74,7 @@ func SectionCmd() *cobra.Command {
 		Short: "Add or replace a named section",
 		Args:  cobra.RangeArgs(2, 3),
 		RunE: func(_ *cobra.Command, args []string) error {
-			svc, cleanup := MustService()
-			defer cleanup()
-			id, name := args[0], args[1]
-			var body string
-			switch {
-			case file == "-":
-				data, err := io.ReadAll(os.Stdin)
-				if err != nil {
-					return fmt.Errorf("read stdin: %w", err)
-				}
-				body = string(data)
-			case file != "":
-				data, err := os.ReadFile(file) //nolint:gosec // operator-supplied path
-				if err != nil {
-					return fmt.Errorf("read %s: %w", file, err)
-				}
-				body = string(data)
-			case len(args) == 3:
-				body = args[2]
-			default:
-				return fmt.Errorf("provide text as third argument, or use --file / --file=-") //nolint:err113 // user-facing hint
-			}
-			replaced, err := svc.Proto.AttachSection(context.Background(), id, name, body)
-			if err != nil {
-				return err
-			}
-			action := "added"
-			if replaced {
-				action = "replaced"
-			}
-			fmt.Printf("%s: section %q %s (%d bytes)\n", id, name, action, len(body))
-			return nil
+			return runSectionAdd(args, file)
 		},
 	}
 	addCmd.Flags().StringVar(&file, "file", "", "read section text from file (use - for stdin)")
@@ -163,6 +138,47 @@ func SectionCmd() *cobra.Command {
 
 	cmd.AddCommand(addCmd, showSectionCmd, listSectionCmd, rmCmd)
 	return cmd
+}
+
+func runSectionAdd(args []string, file string) error {
+	svc, cleanup := MustService()
+	defer cleanup()
+	id, name := args[0], args[1]
+	body, err := readSectionBody(args, file)
+	if err != nil {
+		return err
+	}
+	replaced, err := svc.Proto.AttachSection(context.Background(), id, name, body)
+	if err != nil {
+		return err
+	}
+	action := "added"
+	if replaced {
+		action = "replaced"
+	}
+	fmt.Printf("%s: section %q %s (%d bytes)\n", id, name, action, len(body))
+	return nil
+}
+
+func readSectionBody(args []string, file string) (string, error) {
+	switch {
+	case file == "-":
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return "", fmt.Errorf("read stdin: %w", err)
+		}
+		return string(data), nil
+	case file != "":
+		data, err := os.ReadFile(file) //nolint:gosec // operator-supplied path
+		if err != nil {
+			return "", fmt.Errorf("read %s: %w", file, err)
+		}
+		return string(data), nil
+	case len(args) == 3:
+		return args[2], nil
+	default:
+		return "", fmt.Errorf("provide text as third argument, or use --file / --file=-") //nolint:err113 // user-facing hint
+	}
 }
 
 func VocabCmd() *cobra.Command {
