@@ -161,6 +161,31 @@ func (s *Server) handleAPILenses(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, lenses)
 }
 
+func (s *Server) handleAPICreateLens(w http.ResponseWriter, r *http.Request) {
+	raw, err := json.Marshal(json.RawMessage(mustReadBody(r)))
+	if err != nil {
+		http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	op := service.Find("lens_create")
+	if op == nil {
+		http.Error(w, "lens_create op not found", http.StatusInternalServerError)
+		return
+	}
+	out, err := op.Run(r.Context(), s.svc, raw)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+	writeJSON(w, map[string]string{"result": out})
+}
+
+func mustReadBody(r *http.Request) []byte {
+	b, _ := io.ReadAll(io.LimitReader(r.Body, 64*1024))
+	return b
+}
+
 // ── Non-graph API handlers ──────────────────────────────────────────────
 
 func (s *Server) handleAPIArtifactEdges(w http.ResponseWriter, r *http.Request) {

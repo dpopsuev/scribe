@@ -89,6 +89,26 @@ export function fetchLensGraph(params: Record<string, string>): Promise<GraphDat
 	return request(`/graph/lens?${new URLSearchParams(params)}`);
 }
 
+export interface LensCreateInput {
+	title: string;
+	scope?: string;
+	anchor?: string[];
+	anchor_or?: string[];
+	traverse?: Array<{ relation: string; direction: string; max_depth: number }>;
+	exclude?: string[];
+	include?: string[];
+	max_depth?: number;
+	score_by?: string;
+}
+
+export function createLens(input: LensCreateInput): Promise<{ result: string }> {
+	return request('/lenses', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(input),
+	});
+}
+
 export function patchStatus(id: string, status: string): Promise<void> {
 	return request(`/artifacts/${id}`, {
 		method: 'PATCH',

@@ -70,6 +70,7 @@ func main() {
 		cmds.DashboardCmd(),
 		cmds.RecentCmd(),
 		cmds.BriefCmd(),
+		cmds.LensCmd(),
 	)
 
 	if err := root.Execute(); err != nil {

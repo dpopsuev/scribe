@@ -1,7 +1,7 @@
 <script lang="ts">
   import GraphCanvas from '$lib/components/graph/GraphCanvas.svelte';
   import type { GraphNode, GraphEdge } from '$lib/components/graph/GraphCanvas.svelte';
-  import { fetchLenses, fetchLensGraph } from '$lib/api';
+  import { fetchLenses, fetchLensGraph, createLens } from '$lib/api';
   import type { LensInfo } from '$lib/api';
   import { onMount } from 'svelte';
   import { marked } from 'marked';
@@ -97,6 +97,31 @@
     'decision.proposed': '#f59e0b',
     'decision.accepted': '#22c55e',
   };
+
+  let showLensForm = $state(false);
+  let lensForm = $state({ title: '', anchor: '', traverse: '', exclude: '', scoreBy: 'edges' });
+
+  async function submitLensForm() {
+    if (!lensForm.title || !lensForm.anchor) return;
+    const anchors = lensForm.anchor.split(',').map(s => s.trim()).filter(Boolean);
+    const traverseRules = lensForm.traverse.split(',').map(t => {
+      const parts = t.trim().split(':');
+      return { relation: parts[0] || '', direction: parts[1] || 'both', max_depth: parseInt(parts[2]) || 3 };
+    }).filter(r => r.relation);
+    const excludes = lensForm.exclude ? lensForm.exclude.split(',').map(s => s.trim()).filter(Boolean) : undefined;
+
+    await createLens({
+      title: lensForm.title,
+      anchor: anchors,
+      traverse: traverseRules.length > 0 ? traverseRules : [{ relation: 'depends_on', direction: 'both', max_depth: 3 }],
+      exclude: excludes,
+      score_by: lensForm.scoreBy,
+    });
+
+    lenses = await fetchLenses();
+    showLensForm = false;
+    lensForm = { title: '', anchor: '', traverse: '', exclude: '', scoreBy: 'edges' };
+  }
 
   const RELATION_TYPES = [
     'depends_on', 'implements', 'documents', 'parent_of',
@@ -504,9 +529,7 @@
           </div>
 
         {:else if activeMode === 'lens'}
-          {#if lenses.length === 0}
-            <div class="mode-detail">No stored lenses</div>
-          {:else}
+          {#if lenses.length > 0}
             <div class="lens-list">
               {#each lenses as lens}
                 <button
@@ -519,6 +542,29 @@
             {#if lensStats}
               <div class="mode-detail">{lensStats.traversed} artifacts · {lensStats.edges} edges</div>
             {/if}
+          {:else if !showLensForm}
+            <div class="mode-detail">No stored lenses</div>
+          {/if}
+
+          {#if showLensForm}
+            <div class="lens-form">
+              <input class="lens-input" placeholder="Lens name" bind:value={lensForm.title} />
+              <input class="lens-input" placeholder="Anchor labels (e.g. project:ptp)" bind:value={lensForm.anchor} />
+              <input class="lens-input" placeholder="Traverse (e.g. depends_on:both:3)" bind:value={lensForm.traverse} />
+              <input class="lens-input" placeholder="Exclude (e.g. status:archived)" bind:value={lensForm.exclude} />
+              <select class="lens-input" bind:value={lensForm.scoreBy}>
+                <option value="edges">Score: edges</option>
+                <option value="pagerank">Score: pagerank</option>
+                <option value="recency">Score: recency</option>
+                <option value="weight">Score: weight</option>
+              </select>
+              <div class="lens-form-actions">
+                <button class="lens-form-btn create" onclick={submitLensForm}>Create</button>
+                <button class="lens-form-btn" onclick={() => { showLensForm = false; }}>Cancel</button>
+              </div>
+            </div>
+          {:else}
+            <button class="lens-btn new-lens" onclick={() => { showLensForm = true; }}>+ New Lens</button>
           {/if}
         {/if}
       </div>
@@ -756,6 +802,60 @@
     background: rgba(236,72,153,0.2);
     border-color: #ec4899;
     color: #f9a8d4;
+  }
+
+  /* ── Lens create form ────────────────────────────────────── */
+  .lens-form {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 0.3rem;
+  }
+  .lens-input {
+    font-size: 0.72em;
+    padding: 0.25rem 0.4rem;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: #e2e8f0;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .lens-input::placeholder { color: #64748b; }
+  .lens-input:focus {
+    outline: none;
+    border-color: #ec4899;
+  }
+  .lens-form-actions {
+    display: flex;
+    gap: 4px;
+    margin-top: 2px;
+  }
+  .lens-form-btn {
+    flex: 1;
+    font-size: 0.68em;
+    padding: 0.25rem;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: #94a3b8;
+    cursor: pointer;
+  }
+  .lens-form-btn.create {
+    background: rgba(236,72,153,0.2);
+    border-color: #ec4899;
+    color: #f9a8d4;
+  }
+  .lens-form-btn:hover { border-color: rgba(255,255,255,0.3); }
+  .new-lens {
+    margin-top: 0.3rem;
+    border-style: dashed;
+    text-align: center;
+    color: #64748b;
+  }
+  .new-lens:hover {
+    color: #f9a8d4;
+    border-color: #ec4899;
   }
 
   /* ── Focus indicator (top-center) ───────────────────────── */
