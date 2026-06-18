@@ -183,6 +183,9 @@ type handler struct {
 	workspaceWarned     bool     // true after first workspace-unset warning (suppress repeats)
 	recordSession       bool     // when true, create agent.session/agent.turn artifacts
 	sessionArtifactID   string   // lazily created agent.session artifact
+
+	clientHarness string // MCP client name from initialize (e.g., "claude-code", "cursor")
+	clientVersion string // MCP client version
 }
 
 // --- consolidated input types ---

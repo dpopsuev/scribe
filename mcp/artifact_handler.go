@@ -51,6 +51,13 @@ func (h *handler) onInitialized(ctx context.Context, req *sdkmcp.InitializedRequ
 		h.workspaceConfigured = true
 		slog.InfoContext(ctx, "workspace configured from client", slog.Any(logKeyWorkspace, labels))
 	}
+	// Capture client identity for creator provenance.
+	if name := stringFromMap(wsMap, "client_name"); name != "" {
+		h.clientHarness = name
+	}
+	if ver := stringFromMap(wsMap, "client_version"); ver != "" {
+		h.clientVersion = ver
+	}
 }
 
 // stringFromMap safely reads a string value from a map[string]any.
@@ -116,6 +123,12 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		return h.handleAttach(ctx, &in)
 	case "detach":
 		return h.handleDetach(ctx, &in)
+	}
+
+	// Stamp creator provenance on artifact creation.
+	if in.Action == actionCreate {
+		prov := service.AgentProvenance(h.clientHarness, h.clientVersion, h.svc.SessionID)
+		in.Extra = service.StampProvenance(in.Extra, prov)
 	}
 
 	if op := service.Find(in.Action); op != nil {

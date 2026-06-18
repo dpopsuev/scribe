@@ -45,6 +45,7 @@ const logKeyWorkers = "workers"
 const logKeyLatencyMs = "latency_ewma_ms"
 
 // Embedder runs the background embedding loop with an adaptive worker pool.
+// Optionally also runs metadata extraction via an LLM sidecar.
 type Embedder struct {
 	proto      *parchment.Protocol
 	model      string
@@ -53,6 +54,7 @@ type Embedder struct {
 	queue      chan string
 	stop       chan struct{}
 	embedFunc  parchment.EmbeddingFunc
+	extractFn  ExtractFunc
 
 	// concurrency control
 	workerSemaphore   chan struct{} // semaphore: capacity = current worker limit
@@ -135,6 +137,9 @@ func (e *Embedder) Enqueue(id string) {
 	default:
 	}
 }
+
+// SetExtractFunc enables the metadata extraction sidecar.
+func (e *Embedder) SetExtractFunc(fn ExtractFunc) { e.extractFn = fn }
 
 // Stop signals all background goroutines to exit.
 func (e *Embedder) Stop() { close(e.stop) }
@@ -259,6 +264,7 @@ func (e *Embedder) ProcessOne(ctx context.Context, id string) {
 	}
 
 	e.embedSections(ctx, art)
+	e.extractMetadata(ctx, art)
 
 	if err := e.proto.AppendLabel(ctx, id, parchment.LabelEncoded(e.model)); err != nil {
 		slog.WarnContext(ctx, "embed: append label failed",
@@ -281,6 +287,19 @@ func (e *Embedder) embedSections(ctx context.Context, art *parchment.Artifact) {
 			continue
 		}
 		_ = store.PutSectionEmbedding(ctx, art.ID, sec.Name, e.model, "", vec)
+	}
+}
+
+func (e *Embedder) extractMetadata(ctx context.Context, art *parchment.Artifact) {
+	if e.extractFn == nil {
+		return
+	}
+	if _, ok := art.Extra["extracted"]; ok {
+		return
+	}
+	if err := ExtractAndStamp(ctx, e.proto.Store(), e.extractFn, art); err != nil {
+		slog.WarnContext(ctx, "extract: failed",
+			slog.String(parchment.LogKeyID, art.ID), slog.Any(parchment.LogKeyError, err))
 	}
 }
 

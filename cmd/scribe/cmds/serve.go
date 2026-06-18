@@ -52,6 +52,7 @@ const (
 	logKeyGoroutines  = "goroutines"
 	logKeyWarnMB      = "warn_mb"
 	logKeyCritMB      = "crit_mb"
+	logKeyModel       = "model"
 )
 
 func ServeCmd() *cobra.Command {
@@ -147,6 +148,12 @@ func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, webP
 	if embedFunc != nil {
 		sweepInterval := time.Duration(cfg.Embed.SweepInterval()) * time.Second
 		embedder := embed.New(ctx, svc.Proto, embedModel, sweepInterval, cfg.Embed.Workers(), embedFunc)
+		// Extraction sidecar: reuses Ollama, runs in the same sweep after embedding.
+		if extractModel := os.Getenv("SCRIBE_EXTRACT_MODEL"); extractModel != "" {
+			extractURL := cfg.Embed.URL
+			embedder.SetExtractFunc(embed.OllamaExtractFunc(extractURL, extractModel))
+			slog.InfoContext(ctx, "extraction sidecar enabled", slog.String(logKeyModel, extractModel))
+		}
 		defer embedder.Stop()
 	}
 
