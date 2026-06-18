@@ -164,12 +164,23 @@ func (s *Server) handleAPICreateArtifact(w http.ResponseWriter, r *http.Request)
 func (s *Server) handleAPIPatchArtifact(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var body struct {
-		Field string `json:"field"`
-		Value string `json:"value"`
-		Force bool   `json:"force,omitempty"`
+		Field    string              `json:"field"`
+		Value    string              `json:"value"`
+		Force    bool                `json:"force,omitempty"`
+		Sections []parchment.Section `json:"sections,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if len(body.Sections) > 0 {
+		if err := s.proto.Store().PatchArtifact(r.Context(), id, parchment.ArtifactPatch{
+			AppendSections: body.Sections,
+		}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"id": id, "sections_updated": len(body.Sections)}) //nolint:goconst // "id" is a JSON key, not worth a constant
 		return
 	}
 	results, err := s.proto.SetField(r.Context(), []string{id}, body.Field, body.Value,

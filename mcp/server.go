@@ -180,6 +180,7 @@ type handler struct {
 	homeScopes          []string // default scopes; narrowable at runtime
 	workspaceLabels     []string // context labels stamped on every artifact this session
 	workspaceConfigured bool     // true once workspace context has been set
+	workspaceWarned     bool     // true after first workspace-unset warning (suppress repeats)
 	recordSession       bool     // when true, create agent.session/agent.turn artifacts
 	sessionArtifactID   string   // lazily created agent.session artifact
 }

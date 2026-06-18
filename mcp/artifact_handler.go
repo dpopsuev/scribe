@@ -133,8 +133,9 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		if in.Action == "get" && in.ID != "" {
 			return h.buildGetResult(ctx, in.ID, out)
 		}
-		if !h.workspaceConfigured && isWriteAction(in.Action) {
+		if !h.workspaceConfigured && !h.workspaceWarned && isWriteAction(in.Action) {
 			out += workspaceUnconfiguredSuffix
+			h.workspaceWarned = true
 		}
 		return text(out), nil, nil
 	}
@@ -218,9 +219,6 @@ func (h *handler) handleAttach(ctx context.Context, in *artifactInput) (*sdkmcp.
 		return nil, nil, err
 	}
 	out := fmt.Sprintf("attached %s (%s, %d bytes) to %s", in.Name, in.ContentType, len(decoded), in.ID)
-	if !h.workspaceConfigured {
-		out += workspaceUnconfiguredSuffix
-	}
 	return text(out), nil, nil
 }
 
@@ -233,9 +231,6 @@ func (h *handler) handleDetach(ctx context.Context, in *artifactInput) (*sdkmcp.
 		return nil, nil, err
 	}
 	out := fmt.Sprintf("detached %s from %s", in.Name, in.ID)
-	if !h.workspaceConfigured {
-		out += workspaceUnconfiguredSuffix
-	}
 	return text(out), nil, nil
 }
 
