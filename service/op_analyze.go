@@ -45,8 +45,10 @@ var opAnalyze = Op{
 			return runPathAnalysis(ctx, svc, &in)
 		case "pagerank":
 			return runPageRankAnalysis(ctx, svc, &in)
+		case "lens":
+			return runLensAnalysis(ctx, svc, raw)
 		default:
-			return "", fmt.Errorf("unknown analyze mode %q; valid: fan, co_citation, coupling, paths, pagerank", in.Mode) //nolint:err113 // user-facing input validation
+			return "", fmt.Errorf("unknown analyze mode %q; valid: fan, co_citation, coupling, paths, pagerank, lens", in.Mode) //nolint:err113 // user-facing input validation
 		}
 	},
 }
