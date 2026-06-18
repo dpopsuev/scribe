@@ -231,6 +231,48 @@ func dedupeLinks(edges []parchment.Edge, valid map[string]*parchment.Artifact) [
 	return links
 }
 
+// BuildLensGraph returns a GraphData payload from a lens projection.
+func BuildLensGraph(ctx context.Context, svc *Service, spec parchment.LensSpec) (GraphData, error) {
+	result, err := svc.Proto.ApplyLens(ctx, spec)
+	if err != nil {
+		return GraphData{}, err
+	}
+	validIDs := make(map[string]bool, len(result.Entries))
+	nodes := make([]GraphNode, 0, len(result.Entries))
+	for _, e := range result.Entries {
+		validIDs[e.ID] = true
+		val := int(e.Score*10) + 1
+		if val < 1 {
+			val = 1
+		}
+		nodes = append(nodes, GraphNode{
+			ID:     e.ID,
+			Name:   e.Title,
+			Kind:   parchment.LabelValue(e.Labels, parchment.LabelPrefixKind),
+			Status: parchment.StatusFromLabels(e.Labels),
+			Scope:  parchment.LabelValue(e.Labels, parchment.LabelPrefixScope),
+			Val:    val,
+		})
+	}
+	seen := make(map[string]bool)
+	links := make([]GraphLink, 0, len(result.Edges))
+	for _, e := range result.Edges {
+		if !validIDs[e.From] || !validIDs[e.To] {
+			continue
+		}
+		key := e.From + "|" + e.Relation + "|" + e.To
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		links = append(links, GraphLink{
+			Source: e.From, Target: e.To,
+			Relation: e.Relation, Weight: e.Weight,
+		})
+	}
+	return GraphData{Nodes: nodes, Links: links}, nil
+}
+
 func fetchGraphArtifacts(ctx context.Context, svc *Service, scope string, statuses []string) ([]*parchment.Artifact, error) {
 	labelsOr := normalizeStatuses(statuses)
 	var labels []string

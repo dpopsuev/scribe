@@ -59,6 +59,36 @@ export function fetchEdges(id: string): Promise<Edge[]> {
 	return request(`/artifacts/${id}/edges`);
 }
 
+export interface LensInfo {
+	id: string;
+	title: string;
+}
+
+export function fetchLenses(): Promise<LensInfo[]> {
+	return request('/lenses');
+}
+
+export interface GraphData {
+	nodes: Array<{
+		id: string;
+		name: string;
+		kind: string;
+		status: string;
+		scope: string;
+		val: number;
+	}>;
+	links: Array<{
+		source: string;
+		target: string;
+		relation: string;
+		weight?: number;
+	}>;
+}
+
+export function fetchLensGraph(params: Record<string, string>): Promise<GraphData> {
+	return request(`/graph/lens?${new URLSearchParams(params)}`);
+}
+
 export function patchStatus(id: string, status: string): Promise<void> {
 	return request(`/artifacts/${id}`, {
 		method: 'PATCH',

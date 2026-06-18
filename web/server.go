@@ -95,7 +95,9 @@ func NewServer(proto *parchment.Protocol, version, webPath string) *Server {
 	// JSON API v1 — graph read
 	s.mux.HandleFunc("GET /api/v1/graph/scopes", s.handleAPIGraphScopes)
 	s.mux.HandleFunc("GET /api/v1/graph/kinds", s.handleAPIGraphKinds)
+	s.mux.HandleFunc("GET /api/v1/graph/lens", s.handleAPIGraphLens)
 	s.mux.HandleFunc("GET /api/v1/graph", s.handleAPIGraph)
+	s.mux.HandleFunc("GET /api/v1/lenses", s.handleAPILenses)
 	s.mux.HandleFunc("GET /api/v1/scopes", s.handleAPIScopes)
 	s.mux.HandleFunc("GET /api/v1/schema/hierarchy", s.handleAPISchemaHierarchy)
 

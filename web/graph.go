@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -66,6 +67,98 @@ func (s *Server) handleAPIGraphLocal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, data)
+}
+
+func (s *Server) handleAPIGraphLens(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	var spec parchment.LensSpec
+
+	if cid := q.Get("context_id"); cid != "" {
+		art, err := s.svc.Proto.GetArtifact(r.Context(), cid)
+		if err != nil {
+			http.Error(w, "lens context not found: "+err.Error(), http.StatusNotFound)
+			return
+		}
+		parsed, err := parchment.LensSpecFromArtifact(art)
+		if err != nil {
+			http.Error(w, "invalid lens context: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		spec = parsed
+	} else {
+		spec = parseLensFromQuery(q)
+	}
+
+	data, err := service.BuildLensGraph(r.Context(), s.svc, spec)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, data)
+}
+
+func parseLensFromQuery(q url.Values) parchment.LensSpec { //nolint:cyclop // flat sequence of independent field reads
+	var spec parchment.LensSpec
+	if v := q.Get("anchor"); v != "" {
+		spec.Anchor = strings.Split(v, ",")
+	}
+	if v := q.Get("anchor_or"); v != "" {
+		spec.AnchorOr = strings.Split(v, ",")
+	}
+	if v := q.Get("anchor_ids"); v != "" {
+		spec.AnchorIDs = strings.Split(v, ",")
+	}
+	if v := q.Get("exclude"); v != "" {
+		spec.Exclude = strings.Split(v, ",")
+	}
+	if v := q.Get("include"); v != "" {
+		spec.Include = strings.Split(v, ",")
+	}
+	spec.ScoreBy = q.Get("score_by")
+	spec.MaxDepth, _ = strconv.Atoi(q.Get("max_depth"))
+	spec.Limit, _ = strconv.Atoi(q.Get("limit"))
+	for _, tv := range q["traverse"] {
+		parts := strings.SplitN(tv, ":", 3)
+		rule := parchment.TraversalRule{Relation: parts[0]}
+		if len(parts) > 1 {
+			rule.Direction = parts[1]
+		}
+		if len(parts) > 2 {
+			rule.MaxDepth, _ = strconv.Atoi(parts[2])
+		}
+		spec.Traverse = append(spec.Traverse, rule)
+	}
+	return spec
+}
+
+func (s *Server) handleAPILenses(w http.ResponseWriter, r *http.Request) {
+	arts, err := s.svc.Proto.ListArtifacts(r.Context(), parchment.ListInput{
+		Labels: []string{parchment.LabelPrefixKind + "knowledge.context"},
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	type lensInfo struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
+	}
+	var lenses []lensInfo
+	for _, a := range arts {
+		if a.Extra == nil {
+			continue
+		}
+		if _, ok := a.Extra["lens_anchor"]; !ok {
+			if _, ok2 := a.Extra["lens_anchor_or"]; !ok2 {
+				continue
+			}
+		}
+		lenses = append(lenses, lensInfo{ID: a.ID, Title: a.Title})
+	}
+	if lenses == nil {
+		lenses = []lensInfo{}
+	}
+	writeJSON(w, lenses)
 }
 
 // ── Non-graph API handlers ──────────────────────────────────────────────

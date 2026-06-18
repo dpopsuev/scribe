@@ -1,6 +1,8 @@
 <script lang="ts">
   import GraphCanvas from '$lib/components/graph/GraphCanvas.svelte';
   import type { GraphNode, GraphEdge } from '$lib/components/graph/GraphCanvas.svelte';
+  import { fetchLenses, fetchLensGraph } from '$lib/api';
+  import type { LensInfo } from '$lib/api';
   import { onMount } from 'svelte';
   import { marked } from 'marked';
 
@@ -57,6 +59,99 @@
   let edges: GraphEdge[] = $state([]);
   let loading = $state(true);
   let expanded = $state(new Set<string>());
+
+  // ── Map mode system (Paradox/Civ-inspired) ─────────────────────────
+  type MapMode = 'terrain' | 'work' | 'relations' | 'lens';
+  type ColorMode = 'kind' | 'status' | 'scope' | 'depth';
+
+  interface ModeCategory {
+    id: MapMode;
+    label: string;
+    icon: string;
+    color: string;
+  }
+
+  const MODE_CATEGORIES: ModeCategory[] = [
+    { id: 'terrain',   label: 'Terrain',   icon: 'T', color: '#6366f1' },
+    { id: 'work',      label: 'Work',      icon: 'W', color: '#22c55e' },
+    { id: 'relations', label: 'Relations', icon: 'R', color: '#f59e0b' },
+    { id: 'lens',      label: 'Lens',      icon: 'L', color: '#ec4899' },
+  ];
+
+  let activeMode: MapMode = $state('terrain');
+  let colorMode: ColorMode = $state('kind');
+  let lenses: LensInfo[] = $state([]);
+  let activeLens: string | null = $state(null);
+  let lensStats: { seeds: number; traversed: number; edges: number } | null = $state(null);
+  let activeRelation: string | null = $state(null);
+  let focusedNodeId: string | null = $state(null);
+
+  const STATUS_COLORS: Record<string, string> = {
+    'work.draft':    '#64748b',
+    'work.active':   '#22c55e',
+    'work.blocked':  '#ef4444',
+    'work.complete': '#6366f1',
+    'note.fleeting': '#94a3b8',
+    'note.mature':   '#a78bfa',
+    'note.evergreen':'#10b981',
+    'decision.proposed': '#f59e0b',
+    'decision.accepted': '#22c55e',
+  };
+
+  const RELATION_TYPES = [
+    'depends_on', 'implements', 'documents', 'parent_of',
+    'cites', 'elaborates', 'blocks', 'relates_to',
+  ];
+
+  function recolorNodes() {
+    nodes = nodes.map(n => ({
+      ...n,
+      color: computeNodeColor(n),
+    }));
+  }
+
+  function computeNodeColor(n: GraphNode): string {
+    if (focusedNodeId) {
+      const isConnected = edges.some(e =>
+        (e.source === focusedNodeId && e.target === n.id) ||
+        (e.target === focusedNodeId && e.source === n.id)
+      );
+      if (n.id === focusedNodeId) return '#ffffff';
+      if (!isConnected) return kindColor(n.kind || 'unknown').substring(0, 7) + '25';
+    }
+
+    switch (colorMode) {
+      case 'status': {
+        const status = findLabel(n, 'work.') || findLabel(n, 'note.') || findLabel(n, 'decision.');
+        return STATUS_COLORS[status || ''] || '#4a4a6a';
+      }
+      case 'scope': {
+        const scope = findLabelPrefix(n, 'project:');
+        if (!scope) return '#4a4a6a';
+        return kindColor(scope);
+      }
+      case 'depth':
+        return depthGradient(n.depth || 0);
+      default:
+        return kindColor(n.kind || 'unknown');
+    }
+  }
+
+  function findLabel(n: GraphNode, prefix: string): string | null {
+    // GraphNode doesn't carry labels — we use kind/status from the data
+    // For status coloring, we need the status field from the API
+    return (n as any).status?.startsWith(prefix.replace('.', '')) ? (n as any).status : null;
+  }
+
+  function findLabelPrefix(n: GraphNode, _prefix: string): string | null {
+    return (n as any).scope || null;
+  }
+
+  function depthGradient(depth: number): string {
+    const hue = 140; // green
+    const lightness = Math.max(0.35, 0.85 - depth * 0.12);
+    return oklchToHex(lightness, 0.14, hue);
+  }
 
   // Sidebar state — wiki-style artifact inspector with clickable linked references
   interface ArtifactDetail {
@@ -130,13 +225,16 @@
         color: kindColor(raw.kind),
         kind: raw.kind,
         depth: 0,
-      };
+        status: raw.status,
+        scope: raw.scope,
+      } as GraphNode;
     });
 
     edges = data.links.map((raw: any) => ({
       source: raw.source,
       target: raw.target,
-      color: '#5a5a7a', // uniform muted gray — doesn't compete with node colors
+      relation: raw.relation,
+      color: '#5a5a7a',
     }));
 
     loading = false;
@@ -197,16 +295,105 @@
     expanded = new Set([...expanded, scopeName]);
   }
 
+  async function loadLens(lensId: string) {
+    loading = true;
+    activeLens = lensId;
+    const data = await fetchLensGraph({ context_id: lensId });
+
+    const n = data.nodes.length || 1;
+    const vals = data.nodes.map(r => r.val || 1);
+    const minCbrt = Math.cbrt(Math.min(...vals));
+    const maxCbrt = Math.cbrt(Math.max(...vals));
+    const range = maxCbrt - minCbrt || 1;
+    const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+    const spreadRadius = Math.sqrt(n) * 14;
+
+    nodes = data.nodes.map((raw, i) => {
+      const t = (Math.cbrt(raw.val || 1) - minCbrt) / range;
+      const size = 3 + 12 * t;
+      const angle = i * goldenAngle;
+      const r = spreadRadius * Math.sqrt((i + 0.5) / n);
+      return {
+        id: raw.id,
+        label: raw.name,
+        x: r * Math.cos(angle),
+        y: r * Math.sin(angle),
+        size,
+        color: kindColor(raw.kind),
+        kind: raw.kind,
+        depth: 0,
+        status: raw.status,
+        scope: raw.scope,
+      } as GraphNode;
+    });
+
+    edges = data.links.map(raw => ({
+      source: raw.source,
+      target: raw.target,
+      relation: raw.relation,
+      color: '#5a5a7a',
+    }));
+
+    lensStats = { seeds: 0, traversed: data.nodes.length, edges: data.links.length };
+    expanded = new Set();
+    loading = false;
+  }
+
+  function switchMode(mode: MapMode) {
+    activeMode = mode;
+    focusedNodeId = null;
+    activeRelation = null;
+
+    if (mode === 'terrain') {
+      colorMode = 'kind';
+      if (activeLens) {
+        activeLens = null;
+        lensStats = null;
+        loading = true;
+        fetchScopeGraph();
+        return;
+      }
+    } else if (mode === 'work') {
+      colorMode = 'status';
+    } else if (mode === 'relations') {
+      colorMode = 'kind';
+    } else if (mode === 'lens') {
+      colorMode = 'kind';
+    }
+    recolorNodes();
+  }
+
+  function filterByRelation(rel: string) {
+    activeRelation = activeRelation === rel ? null : rel;
+    if (activeRelation) {
+      edges = edges.map(e => ({
+        ...e,
+        color: (e as any).relation === activeRelation ? '#f59e0b' : '#5a5a7a20',
+      }));
+    } else {
+      edges = edges.map(e => ({ ...e, color: '#5a5a7a' }));
+    }
+  }
+
   function handleNodeClick(node: GraphNode) {
     if (node.kind === 'ghost') return;
-    if (node.kind === 'project') {
-      const scope = node.label || node.id.replace('project:', '');
-      expandScope(scope);
+
+    if (activeMode === 'lens' || activeMode === 'work') {
+      focusedNodeId = focusedNodeId === node.id ? null : node.id;
+      recolorNodes();
+      if (focusedNodeId) openSidebar(node.id);
       return;
     }
-    if (node.kind === 'kind-group') {
-      expandKindGroup(node);
-      return;
+    if (activeMode === 'terrain') {
+      if (node.kind === 'project') {
+        const scope = node.label || node.id.replace('project:', '');
+        expandScope(scope);
+        return;
+      }
+      if (node.kind === 'kind-group') {
+        expandKindGroup(node);
+        return;
+      }
     }
     openSidebar(node.id);
   }
@@ -257,20 +444,92 @@
     edges = [...edges, ...kindEdges];
   }
 
-  onMount(() => { fetchScopeGraph(); });
+  onMount(() => {
+    fetchScopeGraph();
+    fetchLenses().then(l => { lenses = l; }).catch(() => {});
+  });
 </script>
 
 <div class="graph-page">
   {#if loading}
     <div class="loading">Loading graph...</div>
   {:else}
-    <div class="controls">
-      <strong>Scribe Graph</strong>
-      <span class="badge">{nodes.length} nodes · {edges.length} edges</span>
-      {#if expanded.size > 0}
-        <div class="expanded">Expanded: {[...expanded].join(', ')}</div>
-      {/if}
+    <!-- Paradox-style mode bar — bottom-left above minimap area -->
+    <div class="mode-bar">
+      <div class="mode-icons">
+        {#each MODE_CATEGORIES as cat}
+          <button
+            class="mode-icon"
+            class:active={activeMode === cat.id}
+            style="--mode-color: {cat.color}"
+            title={cat.label}
+            onclick={() => switchMode(cat.id)}
+          >{cat.icon}</button>
+        {/each}
+      </div>
+
+      <!-- Mode-specific panel (slides out from the bar) -->
+      <div class="mode-panel">
+        <div class="mode-panel-header">
+          <span class="mode-label">{MODE_CATEGORIES.find(c => c.id === activeMode)?.label}</span>
+          <span class="badge">{nodes.length} · {edges.length}</span>
+        </div>
+
+        {#if activeMode === 'terrain'}
+          {#if expanded.size > 0}
+            <div class="mode-detail">Expanded: {[...expanded].join(', ')}</div>
+          {:else}
+            <div class="mode-detail">Click a scope to drill in</div>
+          {/if}
+
+        {:else if activeMode === 'work'}
+          <div class="color-legend">
+            {#each Object.entries(STATUS_COLORS) as [status, color]}
+              <div class="legend-item">
+                <span class="legend-swatch" style="background: {color}"></span>
+                <span class="legend-label">{status.split('.').pop()}</span>
+              </div>
+            {/each}
+          </div>
+
+        {:else if activeMode === 'relations'}
+          <div class="relation-filters">
+            {#each RELATION_TYPES as rel}
+              <button
+                class="relation-btn"
+                class:active={activeRelation === rel}
+                onclick={() => filterByRelation(rel)}
+              >{rel.replace('_', ' ')}</button>
+            {/each}
+          </div>
+
+        {:else if activeMode === 'lens'}
+          {#if lenses.length === 0}
+            <div class="mode-detail">No stored lenses</div>
+          {:else}
+            <div class="lens-list">
+              {#each lenses as lens}
+                <button
+                  class="lens-btn"
+                  class:active={activeLens === lens.id}
+                  onclick={() => loadLens(lens.id)}
+                >{lens.title}</button>
+              {/each}
+            </div>
+            {#if lensStats}
+              <div class="mode-detail">{lensStats.traversed} artifacts · {lensStats.edges} edges</div>
+            {/if}
+          {/if}
+        {/if}
+      </div>
     </div>
+
+    <!-- Focus indicator (Victoria 3-style) -->
+    {#if focusedNodeId}
+      <button class="focus-indicator" onclick={() => { focusedNodeId = null; recolorNodes(); }}>
+        Focused · Click to clear
+      </button>
+    {/if}
     <GraphCanvas {nodes} {edges} {highlightEdge} onNodeClick={handleNodeClick} />
 
     {#if sidebar}
@@ -349,32 +608,174 @@
     height: 100%;
     color: #8a94a8;
   }
-  .controls {
+  /* ── Paradox-style mode bar ───────────────────────────────── */
+  .mode-bar {
     position: fixed;
-    top: 1rem;
+    bottom: 1.2rem;
     left: 1rem;
     z-index: 10;
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-end;
+  }
+  .mode-icons {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .mode-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 4px;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(26,26,46,0.9);
+    color: #8a94a8;
+    font-size: 0.75em;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+  }
+  .mode-icon:hover {
+    border-color: var(--mode-color);
+    color: var(--mode-color);
+  }
+  .mode-icon.active {
+    background: var(--mode-color);
+    border-color: var(--mode-color);
+    color: #fff;
+    box-shadow: 0 0 8px color-mix(in srgb, var(--mode-color) 50%, transparent);
+  }
+  .mode-panel {
     background: rgba(26,26,46,0.95);
     border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 10px;
-    padding: 0.8rem 1rem;
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
     color: #E0E0E0;
-    font-size: 0.82em;
-    min-width: 180px;
+    font-size: 0.78em;
+    min-width: 160px;
+    max-width: 220px;
+  }
+  .mode-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.4rem;
+  }
+  .mode-label {
+    font-weight: 600;
+    font-size: 0.85em;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
   }
   .badge {
-    font-size: 0.72em;
-    padding: 0.15rem 0.5rem;
+    font-size: 0.68em;
+    padding: 0.1rem 0.4rem;
     border-radius: 3px;
     background: rgba(99,102,241,0.3);
     border: 1px solid rgba(99,102,241,0.5);
     color: #c7d2fe;
-    margin-left: 0.5rem;
   }
-  .expanded {
-    margin-top: 0.4rem;
+  .mode-detail {
     font-size: 0.72em;
     opacity: 0.6;
+  }
+
+  /* ── Color legend (Victoria 3 style) ────────────────────── */
+  .color-legend {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.2rem;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.72em;
+    color: #94a3b8;
+  }
+  .legend-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+  .legend-label {
+    text-transform: capitalize;
+  }
+
+  /* ── Relation filter buttons ────────────────────────────── */
+  .relation-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+  }
+  .relation-btn {
+    font-size: 0.68em;
+    padding: 0.15rem 0.4rem;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #8a94a8;
+    cursor: pointer;
+    text-transform: capitalize;
+  }
+  .relation-btn:hover {
+    border-color: #f59e0b;
+    color: #fbbf24;
+  }
+  .relation-btn.active {
+    background: rgba(245,158,11,0.25);
+    border-color: #f59e0b;
+    color: #fbbf24;
+  }
+
+  /* ── Lens list (Civ6 dropdown style) ────────────────────── */
+  .lens-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .lens-btn {
+    text-align: left;
+    font-size: 0.72em;
+    padding: 0.3rem 0.5rem;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    color: #94a3b8;
+    cursor: pointer;
+  }
+  .lens-btn:hover {
+    border-color: #ec4899;
+    color: #f9a8d4;
+  }
+  .lens-btn.active {
+    background: rgba(236,72,153,0.2);
+    border-color: #ec4899;
+    color: #f9a8d4;
+  }
+
+  /* ── Focus indicator (top-center) ───────────────────────── */
+  .focus-indicator {
+    position: fixed;
+    top: 0.8rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    background: rgba(26,26,46,0.95);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 6px;
+    padding: 0.3rem 0.8rem;
+    color: #94a3b8;
+    font-size: 0.72em;
+    cursor: pointer;
+  }
+  .focus-indicator:hover {
+    color: #e2e8f0;
+    border-color: rgba(255,255,255,0.3);
   }
   .sidebar {
     position: fixed;
