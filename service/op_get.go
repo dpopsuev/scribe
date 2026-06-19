@@ -78,14 +78,19 @@ var opGet = Op{
 					*parchment.Artifact
 					Edges           []parchment.EdgeSummary `json:"edges"`
 					CompletionScore float64                 `json:"completion_score"`
+					StaleNeighbors  []StaleNeighbor         `json:"stale_neighbors,omitempty"`
 				}
-				data, _ := json.Marshal(artWithEdges{Artifact: art, Edges: edges, CompletionScore: score})
+				staleN := NeighborStaleness(ctx, svc.Proto.Store(), art)
+				data, _ := json.Marshal(artWithEdges{Artifact: art, Edges: edges, CompletionScore: score, StaleNeighbors: staleN})
 				return string(data), nil
 			}
 			score := svc.Proto.CompletionScore(ctx, art)
 			out := parchment.RenderMarkdown(art)
 			if score > 0 {
 				out += fmt.Sprintf("\n\n**Completion Score:** %.0f%%", score*100)
+			}
+			if hint := FormatStalenessHint(NeighborStaleness(ctx, svc.Proto.Store(), art)); hint != "" {
+				out += hint
 			}
 			return out, nil
 		}

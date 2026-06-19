@@ -124,6 +124,28 @@ var opHygiene = Op{
 			}
 		}
 
+		// Stale references: active artifacts whose neighbors changed since last update.
+		for _, art := range allArts {
+			status := parchment.StatusFromLabels(art.Labels)
+			if status != labelStatusActive {
+				continue
+			}
+			staleN := NeighborStaleness(ctx, svc.Proto.Store(), art)
+			if len(staleN) > 3 {
+				staleN = staleN[:3]
+			}
+			if len(staleN) > 0 {
+				ids := make([]string, len(staleN))
+				for i, s := range staleN {
+					ids[i] = s.ID
+				}
+				findings = append(findings, hygieneFinding{
+					Category: "stale_references", ID: art.ID, Title: art.Title,
+					Detail: fmt.Sprintf("%d neighbor(s) changed since last update: %s", len(staleN), strings.Join(ids, ", ")),
+				})
+			}
+		}
+
 		// Prune revision history: keep last 20 revisions per artifact.
 		revisionsPruned := 0
 		for _, art := range allArts {
