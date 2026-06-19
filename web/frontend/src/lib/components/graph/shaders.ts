@@ -39,9 +39,18 @@ void main() {
     return;
   }
   float aa = fwidth(dist) * 1.5;
-  float alpha = 1.0 - smoothstep(0.9 - aa, 0.9, dist);
-  if (alpha < 0.01) discard;
-  fragColor = vec4(v_color.rgb, v_color.a * alpha);
+  float outerAlpha = 1.0 - smoothstep(0.9 - aa, 0.9, dist);
+  if (outerAlpha < 0.01) discard;
+  // Hollow mode: alpha < 0.3 signals ring-only rendering
+  if (v_color.a < 0.3) {
+    float innerEdge = 0.7;
+    float ringAlpha = outerAlpha * (1.0 - smoothstep(innerEdge - aa, innerEdge, dist));
+    float ring = outerAlpha - ringAlpha;
+    if (ring < 0.01) discard;
+    fragColor = vec4(v_color.rgb, ring);
+    return;
+  }
+  fragColor = vec4(v_color.rgb, v_color.a * outerAlpha);
 }
 `;
 

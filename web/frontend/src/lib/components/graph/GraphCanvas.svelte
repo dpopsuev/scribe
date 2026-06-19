@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
-  import { createProgram, hexToRgb, indexToColor, colorToIndex } from './webgl';
+  import { createProgram, hexToRgb, hexAlpha, indexToColor, colorToIndex } from './webgl';
   import { NODE_VERT, NODE_FRAG, EDGE_VERT, EDGE_FRAG, NODE_CORNERS } from './shaders';
   import { buildViewMatrix, worldToScreen } from './transform';
   import type { Camera } from './transform';
-  import { createFocusLock, userTakeLock, checkIdle, systemCanMove, isTrackingNode, fitBounds, startTransition, tickTransition } from './camera';
+  import { createFocusLock, userTakeLock, pinToggle, checkIdle, systemCanMove, isTrackingNode, fitBounds, startTransition, tickTransition } from './camera';
   import type { FocusLock, CameraTransition } from './camera';
   import { forceGravity } from './gravity';
   import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide } from 'd3-force';
@@ -166,7 +166,7 @@
       bytes[off + 12] = r;
       bytes[off + 13] = g;
       bytes[off + 14] = b;
-      bytes[off + 15] = 230;
+      bytes[off + 15] = hexAlpha(n._color || '#8a94a8');
       const [pr, pg, pb, pa] = indexToColor(i);
       bytes[off + 16] = pr;
       bytes[off + 17] = pg;
@@ -573,9 +573,11 @@
         if (e.shiftKey) {
           const n = simNodes[hoveredIndex];
           if (n) {
-            onUserInteract(n.id);
-            camX = n.x || 0;
-            camY = n.y || 0;
+            lock = pinToggle(lock, n.id);
+            if (lock.pinned) {
+              camX = n.x || 0;
+              camY = n.y || 0;
+            }
           }
         } else {
           onNodeClick(nodes[hoveredIndex]);

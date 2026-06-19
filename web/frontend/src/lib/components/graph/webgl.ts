@@ -38,8 +38,14 @@ function compileShader(
 
 export function hexToRgb(hex: string): [number, number, number] {
   const h = hex.replace('#', '');
-  const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16);
+  const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h.substring(0, 6), 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+export function hexAlpha(hex: string): number {
+  const h = hex.replace('#', '');
+  if (h.length === 8) return parseInt(h.substring(6, 8), 16);
+  return 230;
 }
 
 export function indexToColor(i: number): [number, number, number, number] {

@@ -18,26 +18,36 @@ export interface CameraState {
 export interface FocusLock {
   owner: 'system' | 'user';
   focusNodeId: string | null;
+  pinned: boolean;
   lastInteraction: number; // timestamp
 }
 
 const IDLE_MS = 5000;
 
 export function createFocusLock(): FocusLock {
-  return { owner: 'system', focusNodeId: null, lastInteraction: 0 };
+  return { owner: 'system', focusNodeId: null, pinned: false, lastInteraction: 0 };
 }
 
 export function userTakeLock(lock: FocusLock, focusNodeId?: string): FocusLock {
   return {
     owner: 'user',
     focusNodeId: focusNodeId ?? lock.focusNodeId,
+    pinned: lock.pinned,
     lastInteraction: Date.now(),
   };
 }
 
+export function pinToggle(lock: FocusLock, nodeId: string): FocusLock {
+  if (lock.pinned && lock.focusNodeId === nodeId) {
+    return { owner: 'system', focusNodeId: null, pinned: false, lastInteraction: Date.now() };
+  }
+  return { owner: 'user', focusNodeId: nodeId, pinned: true, lastInteraction: Date.now() };
+}
+
 export function checkIdle(lock: FocusLock, now: number = Date.now()): FocusLock {
+  if (lock.pinned) return lock;
   if (lock.owner === 'user' && now - lock.lastInteraction >= IDLE_MS) {
-    return { owner: 'system', focusNodeId: null, lastInteraction: lock.lastInteraction };
+    return { owner: 'system', focusNodeId: null, pinned: false, lastInteraction: lock.lastInteraction };
   }
   return lock;
 }
