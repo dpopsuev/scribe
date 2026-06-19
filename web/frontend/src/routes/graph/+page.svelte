@@ -655,28 +655,31 @@
     color: #8a94a8;
   }
   /* ── Paradox-style mode bar ───────────────────────────────── */
+  /* Spacing scale (golden ratio from 8px base): 8, 13, 21, 34 */
+  /* Fitts' Law: all interactive targets ≥ 44px, spacing ≥ 8px */
+  /* Typography: base 14px (0.875rem), scaled by φ for hierarchy */
   .mode-bar {
     position: fixed;
-    bottom: 1.2rem;
-    left: 1rem;
+    bottom: 21px;
+    left: 13px;
     z-index: 10;
     display: flex;
-    gap: 0.5rem;
+    gap: 13px;
     align-items: flex-end;
   }
   .mode-icons {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 8px;
   }
   .mode-icon {
-    width: 32px;
-    height: 32px;
-    border-radius: 4px;
-    border: 1px solid rgba(255,255,255,0.1);
-    background: rgba(26,26,46,0.9);
-    color: #8a94a8;
-    font-size: 0.75em;
+    width: 44px;
+    height: 44px;
+    border-radius: 8px;
+    border: 2px solid rgba(255,255,255,0.12);
+    background: rgba(26,26,46,0.92);
+    color: #94a3b8;
+    font-size: 1rem;
     font-weight: 700;
     cursor: pointer;
     display: flex;
@@ -687,65 +690,68 @@
   .mode-icon:hover {
     border-color: var(--mode-color);
     color: var(--mode-color);
+    background: rgba(26,26,46,1);
   }
   .mode-icon.active {
     background: var(--mode-color);
     border-color: var(--mode-color);
     color: #fff;
-    box-shadow: 0 0 8px color-mix(in srgb, var(--mode-color) 50%, transparent);
+    box-shadow: 0 0 13px color-mix(in srgb, var(--mode-color) 50%, transparent);
   }
   .mode-panel {
     background: rgba(26,26,46,0.95);
     border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 8px;
-    padding: 0.6rem 0.8rem;
+    border-radius: 10px;
+    padding: 13px;
     color: #E0E0E0;
-    font-size: 0.78em;
-    min-width: 160px;
-    max-width: 220px;
+    font-size: 0.875rem;
+    min-width: 200px;
+    max-width: 280px;
   }
   .mode-panel-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 0.4rem;
+    margin-bottom: 8px;
   }
   .mode-label {
     font-weight: 600;
-    font-size: 0.85em;
+    font-size: 0.875rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }
   .badge {
-    font-size: 0.68em;
-    padding: 0.1rem 0.4rem;
-    border-radius: 3px;
+    font-size: 0.75rem;
+    padding: 3px 8px;
+    border-radius: 4px;
     background: rgba(99,102,241,0.3);
     border: 1px solid rgba(99,102,241,0.5);
     color: #c7d2fe;
   }
   .mode-detail {
-    font-size: 0.72em;
+    font-size: 0.8125rem;
     opacity: 0.6;
+    line-height: 1.5;
   }
 
   /* ── Color legend (Victoria 3 style) ────────────────────── */
   .color-legend {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 0.2rem;
+    gap: 6px 13px;
   }
   .legend-item {
     display: flex;
     align-items: center;
-    gap: 0.3rem;
-    font-size: 0.72em;
+    gap: 8px;
+    font-size: 0.8125rem;
     color: #94a3b8;
+    min-height: 24px;
   }
   .legend-swatch {
-    width: 10px;
-    height: 10px;
-    border-radius: 2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
     flex-shrink: 0;
   }
   .legend-label {
@@ -756,21 +762,23 @@
   .relation-filters {
     display: flex;
     flex-wrap: wrap;
-    gap: 3px;
+    gap: 8px;
   }
   .relation-btn {
-    font-size: 0.68em;
-    padding: 0.15rem 0.4rem;
-    border-radius: 3px;
+    font-size: 0.8125rem;
+    padding: 8px 13px;
+    min-height: 36px;
+    border-radius: 6px;
     background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.1);
-    color: #8a94a8;
+    border: 1px solid rgba(255,255,255,0.12);
+    color: #94a3b8;
     cursor: pointer;
     text-transform: capitalize;
   }
   .relation-btn:hover {
     border-color: #f59e0b;
     color: #fbbf24;
+    background: rgba(245,158,11,0.08);
   }
   .relation-btn.active {
     background: rgba(245,158,11,0.25);
@@ -782,13 +790,14 @@
   .lens-list {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 6px;
   }
   .lens-btn {
     text-align: left;
-    font-size: 0.72em;
-    padding: 0.3rem 0.5rem;
-    border-radius: 4px;
+    font-size: 0.8125rem;
+    padding: 8px 13px;
+    min-height: 36px;
+    border-radius: 6px;
     background: rgba(255,255,255,0.04);
     border: 1px solid rgba(255,255,255,0.08);
     color: #94a3b8;
@@ -797,6 +806,7 @@
   .lens-btn:hover {
     border-color: #ec4899;
     color: #f9a8d4;
+    background: rgba(236,72,153,0.08);
   }
   .lens-btn.active {
     background: rgba(236,72,153,0.2);
@@ -808,13 +818,14 @@
   .lens-form {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    margin-top: 0.3rem;
+    gap: 8px;
+    margin-top: 8px;
   }
   .lens-input {
-    font-size: 0.72em;
-    padding: 0.25rem 0.4rem;
-    border-radius: 3px;
+    font-size: 0.8125rem;
+    padding: 8px 13px;
+    min-height: 36px;
+    border-radius: 6px;
     background: rgba(255,255,255,0.06);
     border: 1px solid rgba(255,255,255,0.12);
     color: #e2e8f0;
@@ -825,17 +836,19 @@
   .lens-input:focus {
     outline: none;
     border-color: #ec4899;
+    box-shadow: 0 0 0 2px rgba(236,72,153,0.15);
   }
   .lens-form-actions {
     display: flex;
-    gap: 4px;
-    margin-top: 2px;
+    gap: 8px;
+    margin-top: 4px;
   }
   .lens-form-btn {
     flex: 1;
-    font-size: 0.68em;
-    padding: 0.25rem;
-    border-radius: 3px;
+    font-size: 0.8125rem;
+    padding: 8px 13px;
+    min-height: 36px;
+    border-radius: 6px;
     background: rgba(255,255,255,0.05);
     border: 1px solid rgba(255,255,255,0.12);
     color: #94a3b8;
@@ -848,7 +861,7 @@
   }
   .lens-form-btn:hover { border-color: rgba(255,255,255,0.3); }
   .new-lens {
-    margin-top: 0.3rem;
+    margin-top: 8px;
     border-style: dashed;
     text-align: center;
     color: #64748b;
@@ -861,17 +874,20 @@
   /* ── Focus indicator (top-center) ───────────────────────── */
   .focus-indicator {
     position: fixed;
-    top: 0.8rem;
+    top: 13px;
     left: 50%;
     transform: translateX(-50%);
     z-index: 10;
     background: rgba(26,26,46,0.95);
     border: 1px solid rgba(255,255,255,0.15);
-    border-radius: 6px;
-    padding: 0.3rem 0.8rem;
+    border-radius: 8px;
+    padding: 8px 21px;
+    min-height: 36px;
     color: #94a3b8;
-    font-size: 0.72em;
+    font-size: 0.8125rem;
     cursor: pointer;
+    display: flex;
+    align-items: center;
   }
   .focus-indicator:hover {
     color: #e2e8f0;
@@ -909,14 +925,20 @@
     background: none;
     border: 1px solid rgba(255,255,255,0.12);
     color: #94a3b8;
-    border-radius: 4px;
-    padding: 0.2rem 0.6rem;
+    border-radius: 6px;
+    padding: 8px 13px;
+    min-width: 36px;
+    min-height: 36px;
     cursor: pointer;
-    font-size: 0.9em;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
   .sidebar-back:hover, .sidebar-close:hover {
     color: #e2e8f0;
     border-color: rgba(255,255,255,0.3);
+    background: rgba(255,255,255,0.05);
   }
   .sidebar-meta {
     display: flex;
@@ -924,12 +946,13 @@
     gap: 0.3rem;
   }
   .tag {
-    font-size: 0.68em;
-    padding: 0.1rem 0.4rem;
-    border-radius: 3px;
+    font-size: 0.75rem;
+    padding: 4px 8px;
+    border-radius: 4px;
     background: rgba(255,255,255,0.06);
     color: #94a3b8;
     border: 1px solid rgba(255,255,255,0.08);
+    line-height: 1.4;
   }
   .tag-kind {
     background: rgba(99,102,241,0.2);
@@ -998,16 +1021,17 @@
   .edge-link {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: 8px;
     width: 100%;
-    padding: 0.4rem 0.5rem;
-    margin-bottom: 0.25rem;
+    padding: 8px 13px;
+    min-height: 40px;
+    margin-bottom: 6px;
     background: rgba(255,255,255,0.03);
     border: 1px solid rgba(255,255,255,0.06);
-    border-radius: 5px;
+    border-radius: 6px;
     color: #94a3b8;
     cursor: pointer;
-    font-size: 0.78em;
+    font-size: 0.8125rem;
     text-align: left;
   }
   .edge-link:hover {
@@ -1016,9 +1040,9 @@
     color: #c7d2fe;
   }
   .edge-relation {
-    font-size: 0.72em;
-    padding: 0.1rem 0.3rem;
-    border-radius: 2px;
+    font-size: 0.75rem;
+    padding: 3px 8px;
+    border-radius: 4px;
     background: rgba(255,255,255,0.06);
     color: #64748b;
     flex-shrink: 0;
@@ -1030,7 +1054,7 @@
     white-space: nowrap;
   }
   .edge-kind {
-    font-size: 0.68em;
+    font-size: 0.75rem;
     opacity: 0.5;
     flex-shrink: 0;
   }
