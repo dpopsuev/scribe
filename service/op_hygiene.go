@@ -124,12 +124,28 @@ var opHygiene = Op{
 			}
 		}
 
+		// Prune revision history: keep last 20 revisions per artifact.
+		revisionsPruned := 0
+		for _, art := range allArts {
+			n, _ := svc.Proto.Store().PruneRevisions(ctx, art.ID, 20)
+			revisionsPruned += n
+		}
+
+		// Reclaim space after pruning.
+		if c, ok := svc.Proto.Store().(parchment.Compactor); ok && revisionsPruned > 0 {
+			_ = c.IncrementalVacuum(ctx)
+		}
+
 		if len(findings) == 0 {
 			scope := in.Scope
 			if scope == "" {
 				scope = "all scopes"
 			}
-			return fmt.Sprintf("hygiene: %s is clean — no issues found", scope), nil
+			msg := fmt.Sprintf("hygiene: %s is clean — no issues found", scope)
+			if revisionsPruned > 0 {
+				msg += fmt.Sprintf(" (pruned %d old revisions)", revisionsPruned)
+			}
+			return msg, nil
 		}
 
 		groups := map[string][]hygieneFinding{}
@@ -139,6 +155,9 @@ var opHygiene = Op{
 
 		var b strings.Builder
 		fmt.Fprintf(&b, "hygiene: %d issues found\n", len(findings))
+		if revisionsPruned > 0 {
+			fmt.Fprintf(&b, "(pruned %d old revisions)\n", revisionsPruned)
+		}
 		for cat, items := range groups {
 			fmt.Fprintf(&b, "\n## %s (%d)\n", cat, len(items))
 			for _, f := range items {
