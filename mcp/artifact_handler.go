@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 
@@ -30,28 +31,46 @@ func (h *handler) onInitialized(ctx context.Context, req *sdkmcp.InitializedRequ
 	if h.workspaceConfigured {
 		return // stdio: already set from server CWD at startup
 	}
+
 	if req == nil || req.Params == nil {
 		return
 	}
-	wsRaw, ok := req.Params.Meta["workspace"]
-	if !ok {
+
+	var inputs workspace.WorkspaceInputs
+	wsRaw, hasWorkspace := req.Params.Meta["workspace"]
+	if hasWorkspace {
+		if wsMap, ok := wsRaw.(map[string]any); ok {
+			inputs.CWD = stringFromMap(wsMap, "cwd")
+			inputs.GitRemote = stringFromMap(wsMap, "git_remote")
+		}
+	}
+
+	// Auto-detect from server CWD when client declares workspace but provides no cwd.
+	if hasWorkspace && inputs.CWD == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			inputs.CWD = cwd
+		}
+	}
+
+	if !hasWorkspace {
 		return
 	}
-	wsMap, ok := wsRaw.(map[string]any)
-	if !ok {
-		return
-	}
-	inputs := workspace.WorkspaceInputs{
-		CWD:       stringFromMap(wsMap, "cwd"),
-		GitRemote: stringFromMap(wsMap, "git_remote"),
-	}
+
 	labels := workspace.Detect(inputs, workspace.DefaultDetectors())
 	if len(labels) > 0 {
 		h.workspaceLabels = labels
 		h.workspaceConfigured = true
-		slog.InfoContext(ctx, "workspace configured from client", slog.Any(logKeyWorkspace, labels))
+		slog.InfoContext(ctx, "workspace configured", slog.Any(logKeyWorkspace, labels))
 	}
 	// Capture client identity for creator provenance.
+	h.extractClientIdentity(wsRaw)
+}
+
+func (h *handler) extractClientIdentity(wsRaw any) {
+	wsMap, ok := wsRaw.(map[string]any)
+	if !ok {
+		return
+	}
 	if name := stringFromMap(wsMap, "client_name"); name != "" {
 		h.clientHarness = name
 	}

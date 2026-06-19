@@ -50,7 +50,7 @@ require (
 
 require (
 	github.com/dominikbraun/graph v0.23.0 // indirect
-	github.com/dpopsuev/parchment v1.57.0
+	github.com/dpopsuev/parchment v1.59.0
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/jsonschema-go v0.4.3
 	github.com/google/uuid v1.6.0 // indirect

@@ -11,9 +11,10 @@ import (
 )
 
 type recentInput struct {
-	Scope string `json:"scope,omitempty"`
-	Since string `json:"since,omitempty"`
-	Limit int    `json:"limit,omitempty"`
+	Scope   string `json:"scope,omitempty"`
+	Since   string `json:"since,omitempty"`
+	Session string `json:"session,omitempty"`
+	Limit   int    `json:"limit,omitempty"`
 }
 
 var opRecent = Op{
@@ -38,6 +39,13 @@ var opRecent = Op{
 		var labels []string
 		if in.Scope != "" {
 			labels = append(labels, parchment.LabelPrefixScope+in.Scope)
+		}
+		sessionID := in.Session
+		if sessionID == "current" {
+			sessionID = svc.SessionID
+		}
+		if sessionID != "" {
+			labels = append(labels, "session:"+sessionID)
 		}
 		arts, err := svc.Proto.ListArtifacts(ctx, parchment.ListInput{
 			Labels:       labels,

@@ -274,14 +274,14 @@ func TestOpSet_FieldErrorPropagated(t *testing.T) {
 	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{"kind:effort.task"}, Title: "T"})
 	op := service.Find("set")
 	raw, _ := json.Marshal(map[string]any{
-		"id": art.ID, "field": "status", "value": "work.complete",
+		"id": art.ID, "field": "status", "value": "retired",
 	})
 	out, err := op.Run(ctx, svc, raw)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out, "error") {
-		t.Errorf("expected error in output for invalid transition draft→complete, got: %s", out)
+		t.Errorf("expected error in output for invalid transition draft→retired, got: %s", out)
 	}
 }
 
