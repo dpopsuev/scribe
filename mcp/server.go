@@ -25,7 +25,7 @@ var graphActions = map[string]bool{
 }
 
 var adminActions = map[string]bool{
-	"lint": true, "synthesize": true, "history": true, "hygiene": true, "dashboard": true,
+	"lint": true, "synthesize": true, "history": true, "hygiene": true, "dashboard": true, "changelog": true,
 }
 
 // baseInstructions is the core MCP server instructions shown to clients.
@@ -139,6 +139,7 @@ func NewServer(svc *service.Service, vocab []string, version string, stdioLabels
 		"LINT: lint(id=) for consistency checks. " +
 		"SYNTHESIZE: synthesize(id=) to auto-generate content. " +
 		"HISTORY: history(id=) for change log. " +
+		"CHANGELOG: changelog(id=) for field-level revision diffs. " +
 		"DASHBOARD: dashboard() for project overview."
 	var adminSchema any
 	_ = json.Unmarshal(schemaFor[adminInput](), &adminSchema)
@@ -150,7 +151,7 @@ func NewServer(svc *service.Service, vocab []string, version string, stdioLabels
 	}, bindHandler(h.handleAdmin))
 	reg.register(ToolMeta{
 		Name: toolNameAdmin, Description: adminDesc,
-		Keywords:   []string{"lint", "hygiene", "dashboard", "history", "synthesize", "admin"},
+		Keywords:   []string{"lint", "hygiene", "dashboard", "history", "synthesize", "changelog", "admin"},
 		Categories: []string{"admin"},
 	})
 
@@ -322,7 +323,7 @@ type graphInput struct {
 
 // adminInput is the schema for the admin tool — ops + introspection.
 type adminInput struct {
-	Action string `json:"action" jsonschema:"required,lint | synthesize | history | hygiene | dashboard"`
+	Action string `json:"action" jsonschema:"required,lint | synthesize | history | hygiene | dashboard | changelog"`
 
 	ID      string `json:"id,omitempty"`
 	Scope   string `json:"scope,omitempty"`
