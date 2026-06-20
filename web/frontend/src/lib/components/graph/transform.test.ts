@@ -58,6 +58,61 @@ describe('worldToScreen matches shader matrix', () => {
   });
 });
 
+describe('label-node sync: same camera + position = same screen coords', () => {
+  it('label position matches WebGL position for same world coords', () => {
+    // Simulates the drift bug: if uploadNodes uses position P1 but
+    // renderLabels reads position P2 (d3 ticked between them), labels drift.
+    // Fix: both must read from same snapshot within one rAF frame.
+    const cam: Camera = { x: 10, y: -5, zoom: 2.5, width: 1200, height: 900 };
+
+    // Node at world position after simulation tick
+    const worldX = 42, worldY = -17;
+
+    // WebGL: shader uses buildViewMatrix → clip → viewport
+    const m = buildViewMatrix(cam);
+    const clipX = m[0] * worldX + m[3] * worldY + m[6];
+    const clipY = m[1] * worldX + m[4] * worldY + m[7];
+    const shaderScreenX = (clipX + 1) / 2 * cam.width;
+    const shaderScreenY = (1 - clipY) / 2 * cam.height;
+
+    // Label: uses worldToScreen
+    const [labelX, labelY] = worldToScreen(cam, worldX, worldY);
+
+    // Both must be identical for labels to be pinned to nodes
+    expect(Math.abs(shaderScreenX - labelX)).toBeLessThan(0.01);
+    expect(Math.abs(shaderScreenY - labelY)).toBeLessThan(0.01);
+  });
+
+  it('position change between upload and render causes drift', () => {
+    // This test documents the bug: if d3-force ticks between uploadNodes
+    // and renderLabels, the world positions differ.
+    const cam: Camera = { x: 0, y: 0, zoom: 1, width: 800, height: 600 };
+
+    const posAtUpload = { x: 100, y: 50 };
+    const posAtRender = { x: 105, y: 48 }; // d3 ticked, moved 5px
+
+    const [uploadScreenX] = worldToScreen(cam, posAtUpload.x, posAtUpload.y);
+    const [renderScreenX] = worldToScreen(cam, posAtRender.x, posAtRender.y);
+
+    const drift = Math.abs(uploadScreenX - renderScreenX);
+    // 5 world units * zoom 1 = 5 CSS pixels of drift
+    expect(drift).toBeCloseTo(5, 0);
+    // This is the bug — drift > 0 means label is detached from node
+    expect(drift).toBeGreaterThan(0);
+  });
+
+  it('same position at upload and render = zero drift', () => {
+    const cam: Camera = { x: 0, y: 0, zoom: 1, width: 800, height: 600 };
+    const pos = { x: 100, y: 50 };
+
+    const [uploadScreenX, uploadScreenY] = worldToScreen(cam, pos.x, pos.y);
+    const [renderScreenX, renderScreenY] = worldToScreen(cam, pos.x, pos.y);
+
+    expect(uploadScreenX - renderScreenX).toBe(0);
+    expect(uploadScreenY - renderScreenY).toBe(0);
+  });
+});
+
 describe('regression: old buggy buildViewMatrix', () => {
   it('FAILS with ty = +camY * sy (the bug in GraphCanvas.svelte)', () => {
     const cam: Camera = { x: 0, y: 50, zoom: 1, width: 800, height: 600 };

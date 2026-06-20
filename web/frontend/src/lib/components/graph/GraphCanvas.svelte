@@ -65,6 +65,7 @@
   let idleInterval: ReturnType<typeof setInterval> | null = null;
   let transition: CameraTransition | null = null;
   let simActive = false;
+  let simDirty = false;
 
   function onUserInteract(focusNode?: string) {
     const wasSystem = lock.owner === 'system';
@@ -261,16 +262,8 @@
           }
         }
         if (prewarming) return;
-        uploadNodes();
-        uploadEdges();
-        needsPickRedraw = true;
-
-        if (isTrackingNode(lock)) {
-          const fn = simNodes.find((n: any) => n.id === lock.focusNodeId);
-          if (fn) { camX = fn.x || 0; camY = fn.y || 0; }
-        } else {
-          fitCamera();
-        }
+        // Flag dirty — rAF loop uploads nodes + renders labels in same frame
+        simDirty = true;
       });
 
     // Pre-warm: run physics to full completion before first render.
@@ -312,6 +305,20 @@
       }
     }
     prevFrameTs = timestamp;
+
+    // Flush simulation positions — upload + camera in rAF so labels stay in sync
+    if (simDirty) {
+      simDirty = false;
+      uploadNodes();
+      uploadEdges();
+      needsPickRedraw = true;
+      if (isTrackingNode(lock)) {
+        const fn = simNodes.find((n: any) => n.id === lock.focusNodeId);
+        if (fn) { camX = fn.x || 0; camY = fn.y || 0; }
+      } else {
+        fitCamera();
+      }
+    }
 
     // Tick smooth camera transition (smootherstep ease-in-out)
     if (transition) {
