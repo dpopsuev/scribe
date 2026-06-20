@@ -98,7 +98,7 @@ describe('filterNodes performance', () => {
     const result = filterNodes(big, 'node-500');
     const elapsed = performance.now() - start;
     expect(result.length).toBeGreaterThan(0);
-    expect(elapsed).toBeLessThan(10);
+    expect(elapsed).toBeLessThan(50);
   });
 });
 

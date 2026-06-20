@@ -253,10 +253,12 @@
     const idealRadius = Math.sqrt(totalNodeArea / (0.25 * Math.PI)) * 1.5;
     const avgSize = simNodes.reduce((s, n) => s + (n._size || 5), 0) / (simNodes.length || 1);
 
+    const maxOrbit = idealRadius * 1.2;
+
     simulation = forceSimulation(simNodes)
       .force('gravity', forceGravity(0.2, avgSize * 3))
       .force('charge', forceManyBody().strength((d: any) => -(d._size || 5) * 2.5).distanceMax(avgSize * 12))
-      .force('center', forceCenter(0, 0).strength(0.03))
+      .force('center', forceCenter(0, 0).strength(0.08))
       .force('collision', forceCollide().radius((d: any) => (d._size || 5) * 1.4 + 2).strength(0.5).iterations(3))
       .force('link', forceLink(simLinks).id((d: any) => d.id)
         .distance((l: any) => {
@@ -268,13 +270,15 @@
       .velocityDecay(0.55)
       .alphaDecay(0.012)
       .on('tick', () => {
-        // Soft spring boundary — gentle restoring force instead of hard clamp
+        // Hard orbital boundary — clamp nodes that escape maxOrbit
         for (const node of simNodes) {
           const dist = Math.hypot(node.x || 0, node.y || 0);
-          if (dist > idealRadius) {
-            const pull = ((dist - idealRadius) / idealRadius) * 0.08;
-            node.vx = (node.vx || 0) - (node.x / dist) * pull;
-            node.vy = (node.vy || 0) - (node.y / dist) * pull;
+          if (dist > maxOrbit) {
+            const scale = maxOrbit / dist;
+            node.x = (node.x || 0) * scale;
+            node.y = (node.y || 0) * scale;
+            node.vx = (node.vx || 0) * 0.1;
+            node.vy = (node.vy || 0) * 0.1;
           }
         }
         if (prewarming) return;
