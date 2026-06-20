@@ -155,17 +155,18 @@ func createBatch(ctx context.Context, svc *Service, in *createInput) (string, er
 		if err != nil {
 			return "", err
 		}
-		if err := resolveParentRef(&ci, idRefs, i); err != nil {
+		if err := resolveRefs(&ci, idRefs, i); err != nil {
 			return "", err
 		}
 		art, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-			Title:    ci.Title,
-			Goal:     ci.Goal,
-			Parent:   ci.Parent,
-			Labels:   buildBatchLabels(&ci),
-			Links:    ci.Links,
-			Extra:    ci.Extra,
-			Sections: parseSections(ci.Sections),
+			Title:     ci.Title,
+			Goal:      ci.Goal,
+			Parent:    ci.Parent,
+			DependsOn: ci.DependsOn,
+			Labels:    buildBatchLabels(&ci),
+			Links:     ci.Links,
+			Extra:     ci.Extra,
+			Sections:  parseSections(ci.Sections),
 		})
 		if err != nil {
 			return "", fmt.Errorf("artifact[%d] %q: %w", i, ci.Title, err)
@@ -185,16 +186,34 @@ func unmarshalBatchItem(raw any, index int) (createInput, error) {
 	return ci, nil
 }
 
-func resolveParentRef(ci *createInput, refs map[string]string, index int) error {
-	parent := ci.Parent
-	if parent == "" || parent[0] != '$' {
-		return nil
+func resolveRefs(ci *createInput, refs map[string]string, index int) error {
+	if ci.Parent != "" && ci.Parent[0] == '$' {
+		resolved, ok := refs[ci.Parent]
+		if !ok {
+			return fmt.Errorf("artifact[%d]: unresolved parent reference %q", index, ci.Parent) //nolint:err113 // dynamic context
+		}
+		ci.Parent = resolved
 	}
-	resolved, ok := refs[parent]
-	if !ok {
-		return fmt.Errorf("artifact[%d]: unresolved parent reference %q", index, parent) //nolint:err113 // batch parent resolution error contains dynamic context
+	for i, dep := range ci.DependsOn {
+		if dep != "" && dep[0] == '$' {
+			resolved, ok := refs[dep]
+			if !ok {
+				return fmt.Errorf("artifact[%d]: unresolved depends_on reference %q", index, dep) //nolint:err113 // dynamic context
+			}
+			ci.DependsOn[i] = resolved
+		}
 	}
-	ci.Parent = resolved
+	for rel, targets := range ci.Links {
+		for i, tid := range targets {
+			if tid != "" && tid[0] == '$' {
+				resolved, ok := refs[tid]
+				if !ok {
+					return fmt.Errorf("artifact[%d]: unresolved links[%s] reference %q", index, rel, tid) //nolint:err113 // dynamic context
+				}
+				ci.Links[rel][i] = resolved
+			}
+		}
+	}
 	return nil
 }
 
