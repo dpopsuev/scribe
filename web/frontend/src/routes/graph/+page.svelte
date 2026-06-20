@@ -74,40 +74,40 @@
     loading = false;
   }
 
-  async function expandScope(scopeName: string) {
-    if (expanded.has(scopeName)) return;
-    const status = 'work.draft,work.active,work.blocked,work.complete,note.fleeting,note.mature,note.evergreen,decision.proposed,decision.accepted,active';
-    const res = await fetch(`/api/v1/graph/kinds?scope=${encodeURIComponent(scopeName)}&status=${encodeURIComponent(status)}`);
-    const data = await res.json();
-
-    const parentId = `project:${scopeName}`;
+  // ── Shared expansion logic ─────────────────────────────────────────────
+  // Molecular packing: parent area = children area + 40% empty space
+  // childSize = sqrt(parentSize² × 0.6 / childCount)
+  function expandNode(
+    parentId: string,
+    childData: { id: string; name: string; kind: string; val?: number }[],
+    linkData: { source: string; target: string }[],
+  ) {
+    if (childData.length === 0) return;
     const parentIdx = nodes.findIndex(n => n.id === parentId);
     if (parentIdx < 0) return;
     const parent = nodes[parentIdx];
-    const childGoldenAngle = 137.508 * Math.PI / 180;
-    const childCount = data.nodes.length || 1;
-    const maxChildSize = parent.size * 0.15;
-    const orbitRadius = parent.size * 0.6;
 
-    const vals = data.nodes.map((n: any) => n.val || 1);
-    const maxVal = Math.max(...vals, 1);
+    const childCount = childData.length;
+    const emptyFraction = 0.4;
+    const childSize = Math.max(0.8, Math.sqrt(parent.size ** 2 * (1 - emptyFraction) / childCount));
+    const orbitRadius = Math.max(parent.size * 0.6, childSize * 2);
+    const goldenAngle = 137.508 * Math.PI / 180;
 
-    const newNodes: GraphNode[] = data.nodes.map((raw: any, i: number) => {
-      const angle = i * childGoldenAngle;
+    const newNodes: GraphNode[] = childData.map((raw, i) => {
+      const angle = i * goldenAngle;
       const r = orbitRadius * Math.sqrt((i + 0.5) / childCount);
-      const t = Math.sqrt((raw.val || 1) / maxVal);
       return {
         id: raw.id, label: raw.name,
         x: parent.x + r * Math.cos(angle),
         y: parent.y + r * Math.sin(angle),
-        size: Math.max(1.5, t * maxChildSize),
+        size: childSize,
         color: kindColor(raw.kind), kind: raw.kind,
         depth: (parent.depth || 0) + 1,
       };
     });
 
-    const newEdges: GraphEdge[] = [
-      ...data.links.map((raw: any) => ({ source: raw.source, target: raw.target, color: '#5a5a7a' })),
+    const newEdges = [
+      ...linkData.map(l => ({ source: l.source, target: l.target, color: '#5a5a7a' })),
       ...newNodes.map(n => ({ source: parentId, target: n.id, color: '#4a4a6a' })),
     ];
 
@@ -116,6 +116,14 @@
       ...newNodes,
     ];
     edges = [...edges, ...newEdges];
+  }
+
+  async function expandScope(scopeName: string) {
+    if (expanded.has(scopeName)) return;
+    const status = 'work.draft,work.active,work.blocked,work.complete,note.fleeting,note.mature,note.evergreen,decision.proposed,decision.accepted,active';
+    const res = await fetch(`/api/v1/graph/kinds?scope=${encodeURIComponent(scopeName)}&status=${encodeURIComponent(status)}`);
+    const data = await res.json();
+    expandNode(`project:${scopeName}`, data.nodes, data.links);
     expanded = new Set([...expanded, scopeName]);
   }
 
@@ -127,38 +135,10 @@
     const status = 'work.draft,work.active,work.blocked,work.complete,note.fleeting,note.mature,note.evergreen,decision.proposed,decision.accepted';
     const res = await fetch(`/api/v1/graph?scope=${encodeURIComponent(scope)}&status=${encodeURIComponent(status)}&max_nodes=200`);
     const data = await res.json();
-
-    const kindNodes = data.nodes.filter((n: any) => n.kind === kindName);
-    if (kindNodes.length === 0) return;
-
-    const childGoldenAngle = 137.508 * Math.PI / 180;
-    const orbitRadius = Math.max(node.size * 0.6, 8);
-    const maxChildSize = node.size * 0.15;
-
-    const newNodes: GraphNode[] = kindNodes.map((raw: any, i: number) => {
-      const angle = i * childGoldenAngle;
-      const r = orbitRadius * Math.sqrt((i + 0.5) / kindNodes.length);
-      return {
-        id: raw.id, label: raw.name,
-        x: node.x + r * Math.cos(angle),
-        y: node.y + r * Math.sin(angle),
-        size: Math.max(1, Math.min(Math.cbrt(raw.val || 1) * 0.5, maxChildSize)),
-        color: kindColor(raw.kind), kind: raw.kind,
-        depth: (node.depth || 0) + 1,
-      };
-    });
-
-    const kindEdges = data.links
-      .filter((l: any) => kindNodes.some((n: any) => n.id === l.source || n.id === l.target))
-      .map((l: any) => ({ source: l.source, target: l.target, color: '#5a5a7a' }));
-
-    // Containment edges: kind-group → each child artifact.
-    // appendExpansion uses these to find the parent and correct child
-    // positions from stale layout coords to live simulation coords.
-    const containEdges = newNodes.map(n => ({ source: node.id, target: n.id, color: '#4a4a6a' }));
-
-    nodes = [...nodes, ...newNodes];
-    edges = [...edges, ...kindEdges, ...containEdges];
+    const childIds = new Set(data.nodes.filter((n: any) => n.kind === kindName).map((n: any) => n.id));
+    const filtered = data.nodes.filter((n: any) => childIds.has(n.id));
+    const filteredLinks = data.links.filter((l: any) => childIds.has(l.source) && childIds.has(l.target));
+    expandNode(node.id, filtered, filteredLinks);
   }
 
   // ── Interaction ───────────────────────────────────────────────────────
