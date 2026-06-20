@@ -103,6 +103,19 @@ describe('containment: children fit inside parent ring', () => {
   });
 });
 
+describe('invariant: children always smaller than parent', () => {
+  for (const ps of [0.5, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0, 18.0]) {
+    for (const n of [1, 3, 5, 10, 30, 50]) {
+      it(`parent=${ps} children=${n} → childSize < parentSize`, () => {
+        const layout = layoutChildren(ps, n);
+        for (const p of layout) {
+          expect(p.size).toBeLessThan(ps);
+        }
+      });
+    }
+  }
+});
+
 describe('no-overlap constraint', () => {
   function countOverlaps(positions: { x: number; y: number; size: number }[]): { count: number; worst: number } {
     let count = 0;

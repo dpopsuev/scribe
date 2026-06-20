@@ -91,8 +91,11 @@
     const parent = nodes[parentIdx];
 
     const childCount = childData.length;
-    const childSize = LEAF_SIZE;
+    const ringInner = parent.size * 0.85;
+    // Child size derived from parent — always smaller than parent
+    const childSize = Math.max(0.3, ringInner / (1 + Math.sqrt(childCount) * PACKING_K));
     const orbitRadius = childSize * Math.sqrt(childCount) * PACKING_K;
+    // Grow parent if needed to fit children without overlap
     const neededSize = (orbitRadius + childSize) / 0.85;
     const parentSize = Math.max(parent.size, neededSize);
     const goldenAngle = 137.508 * Math.PI / 180;
