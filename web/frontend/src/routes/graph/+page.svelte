@@ -91,7 +91,8 @@
     const ringInner = parent.size * 0.85;
     const packingK = 1.3;
     const childSize = Math.max(0.5, ringInner / (1 + Math.sqrt(childCount) * packingK));
-    const orbitRadius = childSize * Math.sqrt(childCount) * packingK;
+    const idealOrbit = childSize * Math.sqrt(childCount) * packingK;
+    const orbitRadius = Math.min(idealOrbit, ringInner - childSize);
     const goldenAngle = 137.508 * Math.PI / 180;
 
     const newNodes: GraphNode[] = childData.map((raw, i) => {

@@ -22,7 +22,8 @@ export function layoutChildren(parentSize: number, childCount: number) {
   // Solve for childSize: childSize * (1 + sqrt(n) * 1.13) <= ringInner
   const packingK = 1.3;
   const childSize = Math.max(0.5, ringInner / (1 + Math.sqrt(childCount) * packingK));
-  const orbitRadius = childSize * Math.sqrt(childCount) * packingK;
+  const idealOrbit = childSize * Math.sqrt(childCount) * packingK;
+  const orbitRadius = Math.min(idealOrbit, ringInner - childSize);
   const goldenAngle = 137.508 * Math.PI / 180;
 
   const positions: { x: number; y: number; size: number }[] = [];
@@ -62,6 +63,50 @@ describe('molecular packing', () => {
   it('small parent with many children clamps to minimum', () => {
     const cs = molecularChildSize(2, 50);
     expect(cs).toBe(0.5);
+  });
+});
+
+describe('recursive packing: sub-subgraph fits inside host', () => {
+  it('kind-group children (50 nodes) stay inside kind-group ring', () => {
+    // Scope size=18 → kind-group with 10 siblings → kind-group size ≈ 2.99
+    const scopeSize = 18;
+    const kindGroupCount = 10;
+    const kindGroupLayout = layoutChildren(scopeSize, kindGroupCount);
+    const kindGroupSize = kindGroupLayout[0].size;
+
+    // Now expand that kind-group with 50 artifact children
+    const artifactLayout = layoutChildren(kindGroupSize, 50);
+    for (const p of artifactLayout) {
+      const distFromCenter = Math.hypot(p.x, p.y);
+      expect(distFromCenter + p.size).toBeLessThanOrEqual(kindGroupSize * 1.05);
+    }
+  });
+
+  it('kind-group children (100 nodes) stay inside kind-group ring', () => {
+    const kindGroupSize = 2.5;
+    const artifactLayout = layoutChildren(kindGroupSize, 100);
+    for (const p of artifactLayout) {
+      const distFromCenter = Math.hypot(p.x, p.y);
+      expect(distFromCenter + p.size).toBeLessThanOrEqual(kindGroupSize * 1.05);
+    }
+  });
+
+  it('deeply nested: scope → kind-group → artifact all fit', () => {
+    const scopeSize = 18;
+    const level1 = layoutChildren(scopeSize, 12);
+    const kgSize = level1[0].size;
+
+    const level2 = layoutChildren(kgSize, 30);
+    const artSize = level2[0].size;
+
+    // Every level-2 node fits inside level-1 host
+    for (const p of level2) {
+      expect(Math.hypot(p.x, p.y) + p.size).toBeLessThanOrEqual(kgSize * 1.05);
+    }
+    // Artifact size is smaller than kind-group size
+    expect(artSize).toBeLessThan(kgSize);
+    // Artifact size is above minimum
+    expect(artSize).toBeGreaterThanOrEqual(0.5);
   });
 });
 
