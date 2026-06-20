@@ -367,9 +367,9 @@
     }
     const t2 = performance.now();
 
-    // Labels are 85% of frame budget — skip during active interaction,
-    // redraw 100ms after last zoom/drag stops (Sigma.js / Google Maps pattern)
-    if (t0 - lastInteractTime > LABEL_DEBOUNCE_MS || lock.owner === 'system') {
+    // Labels are 85% of frame budget — skip only during active drag/zoom,
+    // redraw 100ms after last drag/zoom stops or whenever simulation is settling.
+    if (t0 - lastInteractTime > LABEL_DEBOUNCE_MS || lock.owner === 'system' || !dragging) {
       renderLabels(cam);
     } else if (labelCtx) {
       labelCtx.clearRect(0, 0, labelCanvas!.width, labelCanvas!.height);
