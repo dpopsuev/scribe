@@ -1,139 +1,119 @@
 package integration_test
 
 import (
-	"context"
+	"sort"
 	"testing"
 
 	"github.com/dpopsuev/battery/translate"
 	scribebridge "github.com/dpopsuev/locus/bridges/scribe"
 	locustest "github.com/dpopsuev/locus/testdata"
 	parchment "github.com/dpopsuev/parchment"
-	"github.com/dpopsuev/scribe/internal/ingest"
-	"github.com/dpopsuev/scribe/testkit"
 )
 
-func recordsToNodes(recs []translate.Record) []ingest.NodeRecord {
-	nodes := make([]ingest.NodeRecord, len(recs))
-	for i, r := range recs {
-		sections := make([]ingest.Section, len(r.Sections))
-		for j, s := range r.Sections {
-			sections[j] = ingest.Section{Name: s.Name, Text: s.Text}
+func TestLocusBridgeContract(t *testing.T) {
+	report, sg := locustest.HexagonalProject()
+	result := scribebridge.TranslateScanWithSymbols(report, sg, "hex")
+	schema := parchment.DefaultSchema()
+
+	wantRecords := []expectedRecord{
+		{ID: "hex/domain", Kind: "knowledge.source", Title: "domain"},
+		{ID: "hex/adapter", Kind: "knowledge.source", Title: "adapter"},
+		{ID: "hex/domain:repository", Kind: "code.interface", Title: "Repository"},
+		{ID: "hex/domain:service", Kind: "code.struct", Title: "Service"},
+		{ID: "hex/domain:service.create", Kind: "code.method", Title: "Service.Create"},
+		{ID: "hex/adapter:pgrepo", Kind: "code.struct", Title: "PgRepo"},
+	}
+
+	wantEdges := []expectedEdge{
+		{From: "hex/adapter", Relation: "depends_on", To: "hex/domain"},
+		{From: "hex/domain", Relation: "contains", To: "hex/domain:repository"},
+		{From: "hex/domain", Relation: "contains", To: "hex/domain:service"},
+		{From: "hex/domain", Relation: "contains", To: "hex/domain:service.create"},
+		{From: "hex/adapter", Relation: "contains", To: "hex/adapter:pgrepo"},
+		{From: "hex/adapter:pgrepo", Relation: "implements", To: "hex/domain:repository"},
+		{From: "hex/domain:service", Relation: "field_ref", To: "hex/domain:repository"},
+		{From: "hex/domain:service.create", Relation: "calls", To: "hex/adapter:pgrepo"},
+		{From: "hex/domain:service", Relation: "embeds", To: "hex/domain:repository"},
+	}
+
+	// Verify record count and content.
+	if len(result.Records) != len(wantRecords) {
+		t.Fatalf("records = %d; want %d", len(result.Records), len(wantRecords))
+	}
+	gotRecs := toRecordSet(result.Records)
+	for _, w := range wantRecords {
+		r, ok := gotRecs[w.ID]
+		if !ok {
+			t.Errorf("missing record %s", w.ID)
+			continue
 		}
-		nodes[i] = ingest.NodeRecord{
-			Type:     "node",
-			ID:       r.ID,
-			Kind:     r.Kind,
-			Title:    r.Title,
-			Labels:   r.Labels,
-			Extra:    r.Extra,
-			Sections: sections,
+		if r.Kind != w.Kind {
+			t.Errorf("record %s kind = %q; want %q", w.ID, r.Kind, w.Kind)
+		}
+		if r.Title != w.Title {
+			t.Errorf("record %s title = %q; want %q", w.ID, r.Title, w.Title)
 		}
 	}
-	return nodes
+
+	// Verify edge count and content.
+	if len(result.Edges) != len(wantEdges) {
+		t.Fatalf("edges = %d; want %d\ngot: %v", len(result.Edges), len(wantEdges), sortedEdges(result.Edges))
+	}
+	gotEdges := toEdgeSet(result.Edges)
+	for _, w := range wantEdges {
+		key := w.From + "|" + w.Relation + "|" + w.To
+		if !gotEdges[key] {
+			t.Errorf("missing edge %s --%s--> %s", w.From, w.Relation, w.To)
+		}
+	}
+
+	// Every relation in the output must be valid in Parchment's schema.
+	for _, e := range result.Edges {
+		if !schema.ValidRelation(e.Relation) {
+			t.Errorf("edge %s→%s: relation %q not in schema", e.From, e.To, e.Relation)
+		}
+	}
+
+	// Verify layer_depth on component records.
+	domain := gotRecs["hex/domain"]
+	if domain.Extra["layer_depth"] != 1 {
+		t.Errorf("domain layer_depth = %v; want 1", domain.Extra["layer_depth"])
+	}
+	adapter := gotRecs["hex/adapter"]
+	if adapter.Extra["layer_depth"] != 0 {
+		t.Errorf("adapter layer_depth = %v; want 0", adapter.Extra["layer_depth"])
+	}
 }
 
-func edgesToRecords(edges []translate.Edge) []ingest.EdgeRecord {
-	recs := make([]ingest.EdgeRecord, len(edges))
+type expectedRecord struct {
+	ID, Kind, Title string
+}
+
+type expectedEdge struct {
+	From, Relation, To string
+}
+
+func toRecordSet(recs []translate.Record) map[string]translate.Record {
+	m := make(map[string]translate.Record, len(recs))
+	for _, r := range recs {
+		m[r.ID] = r
+	}
+	return m
+}
+
+func toEdgeSet(edges []translate.Edge) map[string]bool {
+	m := make(map[string]bool, len(edges))
+	for _, e := range edges {
+		m[e.From+"|"+e.Relation+"|"+e.To] = true
+	}
+	return m
+}
+
+func sortedEdges(edges []translate.Edge) []string {
+	out := make([]string, len(edges))
 	for i, e := range edges {
-		recs[i] = ingest.EdgeRecord{
-			Type:     "edge",
-			From:     e.From,
-			To:       e.To,
-			Relation: e.Relation,
-		}
+		out[i] = e.From + " --" + e.Relation + "--> " + e.To
 	}
-	return recs
-}
-
-func TestLocusBridge_SmallProject(t *testing.T) {
-	db := testkit.NewStore(t)
-	ctx := context.Background()
-
-	report := locustest.SmallProject()
-	result := scribebridge.TranslateScan(report, "test-small")
-
-	nodes := recordsToNodes(result.Records)
-	edges := edgesToRecords(result.Edges)
-
-	res, err := ingest.Apply(ctx, db, "locus", nodes, edges)
-	if err != nil {
-		t.Fatalf("ingest: %v", err)
-	}
-	if res.Inserted != 3 {
-		t.Errorf("inserted = %d; want 3", res.Inserted)
-	}
-	if len(res.Errors) > 0 {
-		t.Errorf("errors: %v", res.Errors)
-	}
-
-	count := testkit.CountByLabels(t, db, "source:locus")
-	if count != 3 {
-		t.Errorf("locus artifacts = %d; want 3", count)
-	}
-
-	arts, err := db.List(ctx, parchment.Filter{IDPrefix: "test-small/"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(arts) != 3 {
-		t.Fatalf("artifacts = %d; want 3", len(arts))
-	}
-
-	names := make(map[string]bool)
-	for _, a := range arts {
-		names[a.Title] = true
-	}
-	for _, want := range []string{"api", "service", "db"} {
-		if !names[want] {
-			t.Errorf("missing component %q", want)
-		}
-	}
-}
-
-func TestLocusBridge_MonorepoProject(t *testing.T) {
-	db := testkit.NewStore(t)
-	ctx := context.Background()
-
-	report := locustest.MonorepoProject()
-	result := scribebridge.TranslateScan(report, "test-mono")
-
-	nodes := recordsToNodes(result.Records)
-	edges := edgesToRecords(result.Edges)
-
-	res, err := ingest.Apply(ctx, db, "locus", nodes, edges)
-	if err != nil {
-		t.Fatalf("ingest: %v", err)
-	}
-	if res.Inserted != 6 {
-		t.Errorf("inserted = %d; want 6", res.Inserted)
-	}
-
-	count := testkit.CountByLabels(t, db, "source:locus", "project:test-mono")
-	if count != 6 {
-		t.Errorf("locus mono artifacts = %d; want 6", count)
-	}
-}
-
-func TestLocusBridge_Idempotent(t *testing.T) {
-	db := testkit.NewStore(t)
-	ctx := context.Background()
-
-	report := locustest.SmallProject()
-	result := scribebridge.TranslateScan(report, "test-idem")
-
-	nodes := recordsToNodes(result.Records)
-	edges := edgesToRecords(result.Edges)
-
-	res1, _ := ingest.Apply(ctx, db, "locus", nodes, edges)
-	res2, _ := ingest.Apply(ctx, db, "locus", nodes, edges)
-
-	if res1.Inserted != 3 {
-		t.Errorf("first ingest = %d; want 3", res1.Inserted)
-	}
-
-	total := testkit.CountByLabels(t, db, "source:locus")
-	if total != 3 {
-		t.Errorf("after double ingest = %d; want 3 (idempotent)", total)
-	}
-	_ = res2
+	sort.Strings(out)
+	return out
 }

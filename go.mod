@@ -8,7 +8,7 @@ require (
 	github.com/dpopsuev/battery v1.5.0
 	github.com/dpopsuev/conty v0.13.0
 	github.com/dpopsuev/emcee v0.25.0
-	github.com/dpopsuev/locus v0.104.0
+	github.com/dpopsuev/locus v0.107.0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/modelcontextprotocol/go-sdk v1.5.0
 	github.com/spf13/cobra v1.10.2
@@ -50,7 +50,7 @@ require (
 
 require (
 	github.com/dominikbraun/graph v0.23.0 // indirect
-	github.com/dpopsuev/parchment v1.60.0
+	github.com/dpopsuev/parchment v1.61.0
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/jsonschema-go v0.4.3
 	github.com/google/uuid v1.6.0 // indirect
