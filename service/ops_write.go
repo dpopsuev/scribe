@@ -224,6 +224,7 @@ func writeBatchLine(ctx context.Context, svc *Service, b *strings.Builder, art *
 type updateInput struct {
 	ID             string              `json:"id"`
 	IDs            []string            `json:"ids,omitempty"`
+	Artifacts      []json.RawMessage   `json:"artifacts,omitempty"`
 	Patch          map[string]string   `json:"patch,omitempty"`
 	Status         string              `json:"status,omitempty"`
 	Title          string              `json:"title,omitempty"`
@@ -243,10 +244,13 @@ type updateInput struct {
 
 var opUpdate = Op{
 	Name: "update",
-	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) { //nolint:cyclop // multi-path: fields+sections+find-replace+sections_delete
+	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) { //nolint:cyclop // multi-path: fields+sections+find-replace+sections_delete+batch
 		var in updateInput
 		if err := json.Unmarshal(raw, &in); err != nil {
 			return "", err
+		}
+		if len(in.Artifacts) > 0 {
+			return updateBatch(ctx, svc, in.Artifacts)
 		}
 		ids := resolveIDs(in.IDs, in.ID)
 		if len(ids) == 0 {
@@ -500,4 +504,64 @@ func buildCloneLabels(svc *Service, kind, status, priority string, base []string
 		labels = append(labels, parchment.LabelPrefixPriority+priority)
 	}
 	return labels
+}
+
+func updateBatch(ctx context.Context, svc *Service, items []json.RawMessage) (string, error) {
+	var updated, failed int
+	var lines []string
+	for _, raw := range items {
+		var item updateInput
+		if err := json.Unmarshal(raw, &item); err != nil {
+			failed++
+			lines = append(lines, fmt.Sprintf("parse error: %v", err))
+			continue
+		}
+		if item.ID == "" {
+			failed++
+			lines = append(lines, "missing id")
+			continue
+		}
+		fieldMap := map[string]string{}
+		for k, v := range item.Patch {
+			fieldMap[k] = v
+		}
+		for field, value := range map[string]string{
+			"status": item.Status, "title": item.Title, "goal": item.Goal,
+			"scope": item.Scope, "parent": item.Parent, "priority": item.Priority,
+			"sprint": item.Sprint, "kind": item.Kind,
+		} {
+			if value != "" {
+				fieldMap[field] = value
+			}
+		}
+		errored := false
+		for field, value := range fieldMap {
+			results, err := svc.Proto.SetField(ctx, []string{item.ID}, field, value, parchment.SetFieldOptions{Force: item.Force})
+			if err != nil {
+				lines = append(lines, fmt.Sprintf("%s: set %s failed: %v", item.ID, field, err))
+				errored = true
+				continue
+			}
+			if !results[0].OK {
+				lines = append(lines, fmt.Sprintf("%s: set %s: %s", item.ID, field, results[0].Error))
+				errored = true
+			}
+		}
+		for _, sec := range item.Sections {
+			if _, err := svc.Proto.AttachSection(ctx, item.ID, sec["name"], sec["text"]); err != nil {
+				lines = append(lines, fmt.Sprintf("%s: section %s: %v", item.ID, sec["name"], err))
+				errored = true
+			}
+		}
+		if errored {
+			failed++
+		} else {
+			updated++
+		}
+	}
+	summary := fmt.Sprintf("batch update: %d updated, %d failed", updated, failed)
+	if len(lines) > 0 {
+		summary += "\n" + strings.Join(lines, "\n")
+	}
+	return summary, nil
 }

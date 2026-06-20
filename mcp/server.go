@@ -25,7 +25,7 @@ var graphActions = map[string]bool{
 }
 
 var adminActions = map[string]bool{
-	"lint": true, "synthesize": true, "history": true, "hygiene": true, "dashboard": true, "changelog": true, "status": true,
+	"lint": true, "synthesize": true, "history": true, "hygiene": true, "dashboard": true, "changelog": true, "status": true, "triage": true,
 }
 
 // baseInstructions is the core MCP server instructions shown to clients.
@@ -142,7 +142,8 @@ func NewServer(svc *service.Service, vocab []string, version string, stdioLabels
 		"HISTORY: history(id=) for change log. " +
 		"CHANGELOG: changelog(id=) for field-level revision diffs. " +
 		"DASHBOARD: dashboard() for project overview. " +
-		"STATUS: status() for server version, DB size, scopes, embeddings."
+		"STATUS: status() for server version, DB size, scopes, embeddings. " +
+		"TRIAGE: triage() for campaign health, stale work, orphans, lifecycle mismatches."
 	var adminSchema any
 	_ = json.Unmarshal(schemaFor[adminInput](), &adminSchema)
 	sdk.AddTool(&sdkmcp.Tool{

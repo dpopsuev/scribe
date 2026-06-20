@@ -15,6 +15,7 @@ var (
 	labelGoal         = parchment.LabelPrefixKind + "effort.goal"
 	labelTask         = parchment.LabelPrefixKind + "effort.task"
 	labelStatusActive = "work.active"
+	labelStatusDraft  = "work.draft"
 )
 
 // labelVal extracts the value after prefix from the first matching label in labels.

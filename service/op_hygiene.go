@@ -12,14 +12,22 @@ import (
 )
 
 type hygieneInput struct {
-	Scope string `json:"scope,omitempty"`
+	Scope       string `json:"scope,omitempty"`
+	IncludeCode bool   `json:"include_code,omitempty"`
+	Severity    string `json:"severity,omitempty"`
 }
 
 type hygieneFinding struct {
+	Severity string `json:"severity"`
 	Category string `json:"category"`
 	ID       string `json:"id"`
 	Title    string `json:"title"`
 	Detail   string `json:"detail"`
+	Fix      string `json:"fix,omitempty"`
+}
+
+func isCodeKind(kind string) bool {
+	return strings.HasPrefix(kind, "code.") || kind == "knowledge.source"
 }
 
 var opHygiene = Op{
@@ -35,6 +43,7 @@ var opHygiene = Op{
 			labels = append(labels, parchment.LabelPrefixScope+in.Scope)
 		}
 
+		// ── Critical: zombie campaigns ──
 		campaigns, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{
 			Labels: append(labels, labelCampaign),
 		})
@@ -53,12 +62,31 @@ var opHygiene = Op{
 			}
 			if activeGoals == 0 {
 				findings = append(findings, hygieneFinding{
+					Severity: "critical",
 					Category: "zombie_campaign", ID: c.ID, Title: c.Title,
-					Detail: "active campaign with zero active goals — park or activate a goal",
+					Detail: "active campaign with zero active goals",
+					Fix:    fmt.Sprintf("set(id=%q, field=status, value=work.draft)", c.ID),
 				})
 			}
 		}
 
+		// ── Critical: lifecycle mismatch ──
+		effortArts, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{
+			Labels: labels, KindPrefix: "effort",
+		})
+		for _, art := range effortArts {
+			status := parchment.StatusFromLabels(art.Labels)
+			if strings.HasPrefix(status, "note.") || strings.HasPrefix(status, "decision.") || strings.HasPrefix(status, "inv.") {
+				findings = append(findings, hygieneFinding{
+					Severity: "critical",
+					Category: "lifecycle_mismatch", ID: art.ID, Title: art.Title,
+					Detail: fmt.Sprintf("effort artifact has invalid status %q", status),
+					Fix:    fmt.Sprintf("set(id=%q, field=status, value=work.draft, force=true)", art.ID),
+				})
+			}
+		}
+
+		// ── Planning: stale active tasks ──
 		tasks, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{
 			Labels: append(labels, labelTask),
 		})
@@ -70,12 +98,15 @@ var opHygiene = Op{
 			}
 			if !t.UpdatedAt.IsZero() && now.Sub(t.UpdatedAt) > 14*24*time.Hour {
 				findings = append(findings, hygieneFinding{
+					Severity: "planning",
 					Category: "stale_active", ID: t.ID, Title: t.Title,
 					Detail: fmt.Sprintf("active for %d days with no updates", int(now.Sub(t.UpdatedAt).Hours()/24)),
+					Fix:    fmt.Sprintf("set(id=%q, field=status, value=work.blocked)", t.ID),
 				})
 			}
 		}
 
+		// ── Planning/Index: orphans ──
 		allArts, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: labels})
 		for _, art := range allArts {
 			kind := art.Label(parchment.LabelPrefixKind)
@@ -86,20 +117,28 @@ var opHygiene = Op{
 			if status == "status:archived" || status == "status:retired" {
 				continue
 			}
-			out, _ := svc.Proto.Store().Neighbors(ctx, art.ID, "", parchment.Outgoing)
-			in, _ := svc.Proto.Store().Neighbors(ctx, art.ID, "", parchment.Incoming)
-			if len(out) == 0 && len(in) == 0 {
+			if isCodeKind(kind) && !in.IncludeCode {
+				continue
+			}
+			outE, _ := svc.Proto.Store().Neighbors(ctx, art.ID, "", parchment.Outgoing)
+			inE, _ := svc.Proto.Store().Neighbors(ctx, art.ID, "", parchment.Incoming)
+			if len(outE) == 0 && len(inE) == 0 {
+				sev := "planning"
+				if isCodeKind(kind) {
+					sev = "index"
+				}
 				findings = append(findings, hygieneFinding{
+					Severity: sev,
 					Category: "orphan", ID: art.ID, Title: art.Title,
-					Detail: "no edges — not connected to any other artifact",
+					Detail: fmt.Sprintf("no edges — kind=%s", kind),
+					Fix:    fmt.Sprintf("delete(id=%q)", art.ID),
 				})
 			}
 		}
 
-		// Knowledge health: only flag missing must-sections (required, not aspirational).
+		// ── Content: incomplete knowledge ──
 		knowledgeArts, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{
-			Labels:     labels,
-			KindPrefix: "knowledge",
+			Labels: labels, KindPrefix: "knowledge",
 		})
 		for _, art := range knowledgeArts {
 			mustSections := svc.Proto.MustSections(art.Label(parchment.LabelPrefixKind))
@@ -118,14 +157,20 @@ var opHygiene = Op{
 			}
 			if len(missing) > 0 {
 				findings = append(findings, hygieneFinding{
+					Severity: "content",
 					Category: "incomplete_knowledge", ID: art.ID, Title: art.Title,
 					Detail: fmt.Sprintf("missing required sections: %s", strings.Join(missing, ", ")),
+					Fix:    fmt.Sprintf("update(id=%q, sections=[{name:%q, text:\"...\"}])", art.ID, missing[0]),
 				})
 			}
 		}
 
-		// Stale references: active artifacts whose neighbors changed since last update.
+		// ── Index: stale references (only when include_code or non-code) ──
 		for _, art := range allArts {
+			kind := art.Label(parchment.LabelPrefixKind)
+			if isCodeKind(kind) && !in.IncludeCode {
+				continue
+			}
 			status := parchment.StatusFromLabels(art.Labels)
 			if status != labelStatusActive {
 				continue
@@ -139,23 +184,37 @@ var opHygiene = Op{
 				for i, s := range staleN {
 					ids[i] = s.ID
 				}
+				sev := "planning"
+				if isCodeKind(kind) {
+					sev = "index"
+				}
 				findings = append(findings, hygieneFinding{
+					Severity: sev,
 					Category: "stale_references", ID: art.ID, Title: art.Title,
-					Detail: fmt.Sprintf("%d neighbor(s) changed since last update: %s", len(staleN), strings.Join(ids, ", ")),
+					Detail: fmt.Sprintf("%d neighbor(s) changed: %s", len(staleN), strings.Join(ids, ", ")),
 				})
 			}
 		}
 
-		// Prune revision history: keep last 20 revisions per artifact.
+		// ── Revision pruning ──
 		revisionsPruned := 0
 		for _, art := range allArts {
 			n, _ := svc.Proto.Store().PruneRevisions(ctx, art.ID, 20)
 			revisionsPruned += n
 		}
-
-		// Reclaim space after pruning.
 		if c, ok := svc.Proto.Store().(parchment.Compactor); ok && revisionsPruned > 0 {
 			_ = c.IncrementalVacuum(ctx)
+		}
+
+		// ── Filter by severity ──
+		if in.Severity != "" {
+			var filtered []hygieneFinding
+			for _, f := range findings {
+				if f.Severity == in.Severity {
+					filtered = append(filtered, f)
+				}
+			}
+			findings = filtered
 		}
 
 		if len(findings) == 0 {
@@ -170,20 +229,34 @@ var opHygiene = Op{
 			return msg, nil
 		}
 
-		groups := map[string][]hygieneFinding{}
+		// ── Output: grouped by severity (critical first) ──
+		severityGroups := map[string][]hygieneFinding{}
 		for _, f := range findings {
-			groups[f.Category] = append(groups[f.Category], f)
+			severityGroups[f.Severity] = append(severityGroups[f.Severity], f)
 		}
 
 		var b strings.Builder
-		fmt.Fprintf(&b, "hygiene: %d issues found\n", len(findings))
+		fmt.Fprintf(&b, "hygiene: %d issues found", len(findings))
+		for sev, items := range severityGroups {
+			fmt.Fprintf(&b, " | %s:%d", sev, len(items))
+		}
+		b.WriteString("\n")
 		if revisionsPruned > 0 {
 			fmt.Fprintf(&b, "(pruned %d old revisions)\n", revisionsPruned)
 		}
-		for cat, items := range groups {
-			fmt.Fprintf(&b, "\n## %s (%d)\n", cat, len(items))
+
+		for _, sev := range []string{"critical", "planning", "content", "index"} {
+			items := severityGroups[sev]
+			if len(items) == 0 {
+				continue
+			}
+			fmt.Fprintf(&b, "\n## %s (%d)\n", strings.ToUpper(sev), len(items))
 			for _, f := range items {
-				fmt.Fprintf(&b, "  %s  %s\n    %s\n", f.ID, f.Title, f.Detail)
+				fmt.Fprintf(&b, "  [%s] %s  %s\n", f.Category, f.ID, f.Title)
+				fmt.Fprintf(&b, "    %s\n", f.Detail)
+				if f.Fix != "" {
+					fmt.Fprintf(&b, "    fix: %s\n", f.Fix)
+				}
 			}
 		}
 		return b.String(), nil
