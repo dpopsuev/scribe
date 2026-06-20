@@ -771,7 +771,20 @@
   function appendExpansion(allNodes: GraphNode[], allEdges: GraphEdge[]) {
     const existingIDs = new Set(simNodes.map((n: any) => n.id));
     const newNodes = allNodes.filter(n => !existingIDs.has(n.id));
-    if (newNodes.length === 0) return;
+
+    // Sync colors/sizes on existing nodes (e.g. parent fades to hollow on expand)
+    const inputMap = new Map(allNodes.map(n => [n.id, n]));
+    for (const sn of simNodes) {
+      const src = inputMap.get(sn.id);
+      if (src && src.color !== sn._color) {
+        sn._color = src.color;
+      }
+    }
+
+    if (newNodes.length === 0) {
+      uploadNodes();
+      return;
+    }
 
     // Find parent → child edges to determine which parent each child belongs to
     const simNodeMap = new Map(simNodes.map((n: any) => [n.id, n]));
@@ -784,7 +797,6 @@
 
     for (const n of newNodes) {
       let x = n.x, y = n.y;
-      // Rebase: shift from stale parent position to actual simulated position
       const parentId = childParent.get(n.id);
       if (parentId) {
         const simParent = simNodeMap.get(parentId);
@@ -797,7 +809,7 @@
       simNodes.push({
         id: n.id, _size: n.size, _color: n.color,
         _kind: n.kind, _label: n.label, _depth: n.depth || 0,
-        x, y, fx: x, fy: y,
+        x, y,
       });
     }
 
@@ -811,6 +823,9 @@
         simLinks.push({ source: e.source, target: e.target, _color: e.color });
       }
     }
+
+    // Reheat simulation so new nodes spread out via physics
+    simulation?.alpha(0.5).restart();
 
     uploadNodes();
     uploadEdges();
