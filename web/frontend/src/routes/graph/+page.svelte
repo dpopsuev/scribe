@@ -14,6 +14,35 @@
   let loading = $state(true);
   let expanded = $state(new Set<string>());
 
+  // ── Search state ──────────────────────────────────────────────────────
+  let searchQuery = $state('');
+  let searchInput: HTMLInputElement | undefined = $state();
+
+  function fuzzyMatch(text: string, query: string): boolean {
+    const lower = text.toLowerCase();
+    const q = query.toLowerCase();
+    let qi = 0;
+    for (let i = 0; i < lower.length && qi < q.length; i++) {
+      if (lower[i] === q[qi]) qi++;
+    }
+    return qi === q.length;
+  }
+
+  let filteredNodes = $derived.by(() => {
+    if (!searchQuery.trim()) return nodes;
+    return nodes.filter(n =>
+      fuzzyMatch(n.label || '', searchQuery) ||
+      fuzzyMatch(n.id || '', searchQuery) ||
+      fuzzyMatch(n.kind || '', searchQuery)
+    );
+  });
+
+  let filteredEdges = $derived.by(() => {
+    if (!searchQuery.trim()) return edges;
+    const ids = new Set(filteredNodes.map(n => n.id));
+    return edges.filter(e => ids.has(e.source) && ids.has(e.target));
+  });
+
   // ── Mode state ────────────────────────────────────────────────────────
   type MapMode = 'scopes' | 'lens';
   let activeMode: MapMode = $state('scopes');
@@ -211,11 +240,26 @@
       </div>
     </div>
 
+    <div class="search-bar">
+      <input
+        bind:this={searchInput}
+        bind:value={searchQuery}
+        type="text"
+        placeholder="Filter nodes..."
+        spellcheck="false"
+        onkeydown={(e) => { if (e.key === 'Escape') { searchQuery = ''; searchInput?.blur(); }}}
+      />
+      {#if searchQuery}
+        <span class="search-count">{filteredNodes.length}/{nodes.length}</span>
+        <button class="search-clear" onclick={() => { searchQuery = ''; }}>✕</button>
+      {/if}
+    </div>
+
     {#if focusedNodeId}
       <button class="focus-indicator" onclick={() => focusNode(null)}>Focused · Click to clear</button>
     {/if}
 
-    <GraphCanvas {nodes} {edges} {highlightEdge} onNodeClick={handleNodeClick} />
+    <GraphCanvas nodes={filteredNodes} edges={filteredEdges} {highlightEdge} onNodeClick={handleNodeClick} />
 
     <Sidebar
       state={sidebar}
@@ -314,6 +358,51 @@
     font-size: 0.8125rem;
     opacity: 0.6;
     line-height: 1.5;
+  }
+  .search-bar {
+    position: fixed;
+    top: 13px;
+    right: 13px;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(26,26,46,0.95);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 8px;
+    padding: 4px 10px;
+    transition: border-color 0.15s;
+  }
+  .search-bar:focus-within {
+    border-color: rgba(99,102,241,0.6);
+  }
+  .search-bar input {
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #e2e8f0;
+    font-size: 0.875rem;
+    width: 180px;
+    font-family: inherit;
+  }
+  .search-bar input::placeholder {
+    color: #64748b;
+  }
+  .search-count {
+    font-size: 0.75rem;
+    color: #64748b;
+    white-space: nowrap;
+  }
+  .search-clear {
+    background: none;
+    border: none;
+    color: #64748b;
+    cursor: pointer;
+    font-size: 0.75rem;
+    padding: 2px 4px;
+  }
+  .search-clear:hover {
+    color: #e2e8f0;
   }
   .focus-indicator {
     position: fixed;
