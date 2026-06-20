@@ -8,6 +8,7 @@
   import { kindColor } from '$lib/colors';
   import { layoutNodes, layoutEdges } from '$lib/components/graph/layout';
   import { filterNodes, filterEdges } from '$lib/components/graph/search';
+  import { computePacking } from '$lib/components/graph/packing';
   import { onMount } from 'svelte';
 
   let nodes: GraphNode[] = $state([]);
@@ -75,11 +76,6 @@
   }
 
   // ── Shared expansion logic ─────────────────────────────────────────────
-  // Bottom-up packing: leaf size is fixed (LEAF_SIZE), parent grows to contain.
-  // Parent must be large enough for children — if not, it grows.
-  const LEAF_SIZE = 1.5;
-  const PACKING_K = 1.3;
-
   function expandNode(
     parentId: string,
     childData: { id: string; name: string; kind: string; val?: number }[],
@@ -90,14 +86,8 @@
     if (parentIdx < 0) return;
     const parent = nodes[parentIdx];
 
-    const childCount = childData.length;
-    const ringInner = parent.size * 0.85;
-    // Child size derived from parent — always smaller than parent
-    const childSize = Math.max(0.3, ringInner / (1 + Math.sqrt(childCount) * PACKING_K));
-    const orbitRadius = childSize * Math.sqrt(childCount) * PACKING_K;
-    // Grow parent if needed to fit children without overlap
-    const neededSize = (orbitRadius + childSize) / 0.85;
-    const parentSize = Math.max(parent.size, neededSize);
+    const pack = computePacking(parent.size, childData.length);
+    const { childSize, orbitRadius, parentSize } = pack;
     const goldenAngle = 137.508 * Math.PI / 180;
 
     const newNodes: GraphNode[] = childData.map((raw, i) => {

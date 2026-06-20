@@ -821,13 +821,13 @@
     const existingIDs = new Set(simNodes.map((n: any) => n.id));
     const newNodes = allNodes.filter(n => !existingIDs.has(n.id));
 
-    // Sync colors/sizes on existing nodes (e.g. parent fades to hollow on expand)
+    // Sync colors + sizes on existing nodes (parent grows on expand, fades to hollow)
     const inputMap = new Map(allNodes.map(n => [n.id, n]));
     for (const sn of simNodes) {
       const src = inputMap.get(sn.id);
-      if (src && src.color !== sn._color) {
-        sn._color = src.color;
-      }
+      if (!src) continue;
+      if (src.color !== sn._color) sn._color = src.color;
+      if (src.size !== sn._size) sn._size = src.size;
     }
 
     if (newNodes.length === 0) {
