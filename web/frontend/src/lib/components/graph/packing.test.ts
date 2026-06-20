@@ -21,9 +21,22 @@ export function layoutChildren(parentSize: number, childCount: number) {
   // Sunflower packing constant: for golden-angle spirals, R ≈ childSize * sqrt(n) * 1.13
   // Solve for childSize: childSize * (1 + sqrt(n) * 1.13) <= ringInner
   const packingK = 1.3;
-  const childSize = Math.max(0.5, ringInner / (1 + Math.sqrt(childCount) * packingK));
-  const idealOrbit = childSize * Math.sqrt(childCount) * packingK;
-  const orbitRadius = Math.min(idealOrbit, ringInner - childSize);
+  let childSize = Math.max(0.5, ringInner / (1 + Math.sqrt(childCount) * packingK));
+  let orbitRadius = childSize * Math.sqrt(childCount) * packingK;
+
+  // If orbit exceeds parent ring, shrink both orbit AND child size to fit
+  if (orbitRadius + childSize > ringInner) {
+    // Solve: childSize * (1 + sqrt(n) * k) = ringInner with orbit = ringInner - childSize
+    // → childSize = ringInner / (1 + sqrt(n) * k) — but also orbit = ringInner - childSize
+    // → the non-overlap needs orbit >= childSize * sqrt(n) * k
+    // → childSize * sqrt(n) * k <= ringInner - childSize
+    // → childSize * (1 + sqrt(n) * k) <= ringInner  (same equation, just clamped)
+    // So the child size IS already correct, only the orbit was wrong.
+    // The real fix: derive childSize from the orbit constraint directly.
+    orbitRadius = ringInner * 0.85;
+    childSize = orbitRadius / (Math.sqrt(childCount) * packingK);
+    childSize = Math.max(0.15, childSize);
+  }
   const goldenAngle = 137.508 * Math.PI / 180;
 
   const positions: { x: number; y: number; size: number }[] = [];
@@ -105,8 +118,8 @@ describe('recursive packing: sub-subgraph fits inside host', () => {
     }
     // Artifact size is smaller than kind-group size
     expect(artSize).toBeLessThan(kgSize);
-    // Artifact size is above minimum
-    expect(artSize).toBeGreaterThanOrEqual(0.5);
+    // Artifact size is above minimum (0.15 for deeply nested)
+    expect(artSize).toBeGreaterThanOrEqual(0.15);
   });
 });
 
