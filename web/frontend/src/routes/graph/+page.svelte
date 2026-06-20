@@ -152,8 +152,13 @@
       .filter((l: any) => kindNodes.some((n: any) => n.id === l.source || n.id === l.target))
       .map((l: any) => ({ source: l.source, target: l.target, color: '#5a5a7a' }));
 
+    // Containment edges: kind-group → each child artifact.
+    // appendExpansion uses these to find the parent and correct child
+    // positions from stale layout coords to live simulation coords.
+    const containEdges = newNodes.map(n => ({ source: node.id, target: n.id, color: '#4a4a6a' }));
+
     nodes = [...nodes, ...newNodes];
-    edges = [...edges, ...kindEdges];
+    edges = [...edges, ...kindEdges, ...containEdges];
   }
 
   // ── Interaction ───────────────────────────────────────────────────────
