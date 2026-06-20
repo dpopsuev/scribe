@@ -17,8 +17,17 @@
 
   // ── Search state ──────────────────────────────────────────────────────
   let searchQuery = $state('');
+  let debouncedQuery = $state('');
   let searchInput: HTMLInputElement | undefined = $state();
-  let filteredNodes = $derived(filterNodes(nodes, searchQuery));
+  let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+
+  $effect(() => {
+    const q = searchQuery;
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => { debouncedQuery = q; }, 150);
+  });
+
+  let filteredNodes = $derived(filterNodes(nodes, debouncedQuery));
   let filteredEdges = $derived(filterEdges(edges, filteredNodes));
 
   // ── Mode state ────────────────────────────────────────────────────────
@@ -229,7 +238,7 @@
       />
       {#if searchQuery}
         <span class="search-count">{filteredNodes.length}/{nodes.length}</span>
-        <button class="search-clear" onclick={() => { searchQuery = ''; }}>✕</button>
+        <button class="search-clear" onclick={() => { searchQuery = ''; debouncedQuery = ''; clearTimeout(debounceTimer); }}>✕</button>
       {/if}
     </div>
 

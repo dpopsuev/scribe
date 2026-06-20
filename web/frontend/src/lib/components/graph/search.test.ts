@@ -88,6 +88,20 @@ describe('filterNodes', () => {
   });
 });
 
+describe('filterNodes performance', () => {
+  it('filters 10K nodes under 10ms', () => {
+    const big: GraphNode[] = [];
+    for (let i = 0; i < 10_000; i++) {
+      big.push(node(`id-${i}`, `node-${i}-label`, i % 2 === 0 ? 'code.struct' : 'effort.task'));
+    }
+    const start = performance.now();
+    const result = filterNodes(big, 'node-500');
+    const elapsed = performance.now() - start;
+    expect(result.length).toBeGreaterThan(0);
+    expect(elapsed).toBeLessThan(10);
+  });
+});
+
 describe('filterEdges', () => {
   const a = node('a', 'A', 'x');
   const b = node('b', 'B', 'x');
