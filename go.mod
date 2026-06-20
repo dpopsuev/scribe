@@ -8,7 +8,7 @@ require (
 	github.com/dpopsuev/battery v1.5.0
 	github.com/dpopsuev/conty v0.13.0
 	github.com/dpopsuev/emcee v0.25.0
-	github.com/dpopsuev/locus v0.107.0
+	github.com/dpopsuev/locus v0.107.1-0.20260620115833-03069ed6850a
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/modelcontextprotocol/go-sdk v1.5.0
 	github.com/spf13/cobra v1.10.2

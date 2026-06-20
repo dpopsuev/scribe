@@ -33,8 +33,8 @@ github.com/dpopsuev/conty v0.13.0 h1:BIseI9hWS84p/2hIMrX+7xkvltBIjOoDwYAxlwKOf4A
 github.com/dpopsuev/conty v0.13.0/go.mod h1:JmyiUG90HoMHbs2trwMVuLVLy0rDvD4aHWX8ylpWYMs=
 github.com/dpopsuev/emcee v0.25.0 h1:HDqZZQFt722/4Gglo9Ijm5hLvY0Jnnfpi/gBWvtN04A=
 github.com/dpopsuev/emcee v0.25.0/go.mod h1:N8GvVA2zYS6/+IPLhcp9g0edYBUpif0CQd533Qp9Axo=
-github.com/dpopsuev/locus v0.107.0 h1:gCjKEBtCEmdOksUDaKJyeL/CZlbjH5s3dsEk7hOEnd4=
-github.com/dpopsuev/locus v0.107.0/go.mod h1:d7BkV7SBLvg+M26YK/1NiMhLbpV+RALLVMenEsSc7vc=
+github.com/dpopsuev/locus v0.107.1-0.20260620115833-03069ed6850a h1:UZ4eRzfYeMSWTIm5AptYcEJB7uczELDJizjFK9RmbwM=
+github.com/dpopsuev/locus v0.107.1-0.20260620115833-03069ed6850a/go.mod h1:d7BkV7SBLvg+M26YK/1NiMhLbpV+RALLVMenEsSc7vc=
 github.com/dpopsuev/oculus/v3 v3.91.0 h1:Xc7tjI1LwTaVpC9N4U5up/vIeRwyJfPjDczjppZnw/g=
 github.com/dpopsuev/oculus/v3 v3.91.0/go.mod h1:NVYyxhesN/Z1WPIQDPDJu9NZopWOTC+XzQ1x3aw6seA=
 github.com/dpopsuev/parchment v1.61.0 h1:pllUxkMoEv7cK4LkCmoCMtPosw+XpKXzFMhmtQxcFAs=

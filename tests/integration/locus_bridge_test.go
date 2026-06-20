@@ -16,8 +16,14 @@ func TestLocusBridgeContract(t *testing.T) {
 	schema := parchment.DefaultSchema()
 
 	wantRecords := []expectedRecord{
+		// Components
 		{ID: "hex/domain", Kind: "knowledge.source", Title: "domain"},
 		{ID: "hex/adapter", Kind: "knowledge.source", Title: "adapter"},
+		// Files
+		{ID: "hex/domain:repo.go", Kind: "code.file", Title: "repo.go"},
+		{ID: "hex/domain:svc.go", Kind: "code.file", Title: "svc.go"},
+		{ID: "hex/adapter:pg.go", Kind: "code.file", Title: "pg.go"},
+		// Symbols
 		{ID: "hex/domain:repository", Kind: "code.interface", Title: "Repository"},
 		{ID: "hex/domain:service", Kind: "code.struct", Title: "Service"},
 		{ID: "hex/domain:service.create", Kind: "code.method", Title: "Service.Create"},
@@ -25,11 +31,18 @@ func TestLocusBridgeContract(t *testing.T) {
 	}
 
 	wantEdges := []expectedEdge{
+		// Component dependency
 		{From: "hex/adapter", Relation: "depends_on", To: "hex/domain"},
-		{From: "hex/domain", Relation: "contains", To: "hex/domain:repository"},
-		{From: "hex/domain", Relation: "contains", To: "hex/domain:service"},
-		{From: "hex/domain", Relation: "contains", To: "hex/domain:service.create"},
-		{From: "hex/adapter", Relation: "contains", To: "hex/adapter:pgrepo"},
+		// Component → File
+		{From: "hex/domain", Relation: "contains", To: "hex/domain:repo.go"},
+		{From: "hex/domain", Relation: "contains", To: "hex/domain:svc.go"},
+		{From: "hex/adapter", Relation: "contains", To: "hex/adapter:pg.go"},
+		// File → Symbol
+		{From: "hex/domain:repo.go", Relation: "contains", To: "hex/domain:repository"},
+		{From: "hex/domain:svc.go", Relation: "contains", To: "hex/domain:service"},
+		{From: "hex/domain:svc.go", Relation: "contains", To: "hex/domain:service.create"},
+		{From: "hex/adapter:pg.go", Relation: "contains", To: "hex/adapter:pgrepo"},
+		// Symbol → Symbol
 		{From: "hex/adapter:pgrepo", Relation: "implements", To: "hex/domain:repository"},
 		{From: "hex/domain:service", Relation: "field_ref", To: "hex/domain:repository"},
 		{From: "hex/domain:service.create", Relation: "calls", To: "hex/adapter:pgrepo"},
