@@ -6,37 +6,30 @@ function molecularChildSize(parentSize: number, childCount: number): number {
   return Math.max(0.5, ringInner / (1 + Math.sqrt(childCount) * packingK));
 }
 
-// Golden-angle sunflower layout with two constraints:
-// 1. Children don't overlap each other
-// 2. Children fit inside the parent ring
+// Bottom-up packing: leaf size is fixed, parent grows to contain.
 //
-// Sunflower packing: the outermost child is at r = R (orbit radius).
-// For non-overlap, consecutive children at radius r need angular
-// spacing > 2*childSize/r. The golden angle provides optimal spacing
-// when R = childSize * sqrt(n) * k (where k ≈ 1.13 for golden angle).
+// LEAF_SIZE is the minimum visible node size — fixed constant.
+// Parent size = LEAF_SIZE × (1 + sqrt(n) × PACKING_K) / 0.85
+// Orbit radius = LEAF_SIZE × sqrt(n) × PACKING_K
 //
-// For containment: R + childSize <= parentSize (ring inner edge ≈ 0.88 * parentSize)
+// This guarantees:
+// - Leaf nodes are always the same visible size
+// - Parents are always larger than children
+// - No overlaps (golden-angle sunflower with PACKING_K=1.3)
+// - Children fit inside parent ring
+
+export const LEAF_SIZE = 1.5;
+export const PACKING_K = 1.3;
+
+export function parentSizeForChildren(childSize: number, childCount: number): number {
+  const orbitRadius = childSize * Math.sqrt(childCount) * PACKING_K;
+  return (orbitRadius + childSize) / 0.85;
+}
+
 export function layoutChildren(parentSize: number, childCount: number) {
   const ringInner = parentSize * 0.85;
-  // Sunflower packing constant: for golden-angle spirals, R ≈ childSize * sqrt(n) * 1.13
-  // Solve for childSize: childSize * (1 + sqrt(n) * 1.13) <= ringInner
-  const packingK = 1.3;
-  let childSize = Math.max(0.5, ringInner / (1 + Math.sqrt(childCount) * packingK));
-  let orbitRadius = childSize * Math.sqrt(childCount) * packingK;
-
-  // If orbit exceeds parent ring, shrink both orbit AND child size to fit
-  if (orbitRadius + childSize > ringInner) {
-    // Solve: childSize * (1 + sqrt(n) * k) = ringInner with orbit = ringInner - childSize
-    // → childSize = ringInner / (1 + sqrt(n) * k) — but also orbit = ringInner - childSize
-    // → the non-overlap needs orbit >= childSize * sqrt(n) * k
-    // → childSize * sqrt(n) * k <= ringInner - childSize
-    // → childSize * (1 + sqrt(n) * k) <= ringInner  (same equation, just clamped)
-    // So the child size IS already correct, only the orbit was wrong.
-    // The real fix: derive childSize from the orbit constraint directly.
-    orbitRadius = ringInner * 0.85;
-    childSize = orbitRadius / (Math.sqrt(childCount) * packingK);
-    childSize = Math.max(0.15, childSize);
-  }
+  const childSize = ringInner / (1 + Math.sqrt(childCount) * PACKING_K);
+  const orbitRadius = childSize * Math.sqrt(childCount) * PACKING_K;
   const goldenAngle = 137.508 * Math.PI / 180;
 
   const positions: { x: number; y: number; size: number }[] = [];
@@ -48,78 +41,65 @@ export function layoutChildren(parentSize: number, childCount: number) {
   return positions;
 }
 
-describe('molecular packing', () => {
-  it('10 children in size-18 parent — each smaller than parent', () => {
-    const cs = molecularChildSize(18, 10);
-    expect(cs).toBeGreaterThan(1);
-    expect(cs).toBeLessThan(18);
+describe('bottom-up sizing', () => {
+  it('parent grows to fit children, not children shrink to fit parent', () => {
+    const needed = parentSizeForChildren(LEAF_SIZE, 10);
+    expect(needed).toBeGreaterThan(LEAF_SIZE * 3);
+    const layout = layoutChildren(needed, 10);
+    expect(layout[0].size).toBeCloseTo(LEAF_SIZE, 0);
   });
 
-  it('50 children → smaller than 10 children', () => {
-    const cs10 = molecularChildSize(18, 10);
-    const cs50 = molecularChildSize(18, 50);
-    expect(cs50).toBeLessThan(cs10);
+  it('more children → larger parent', () => {
+    const p10 = parentSizeForChildren(LEAF_SIZE, 10);
+    const p50 = parentSizeForChildren(LEAF_SIZE, 50);
+    expect(p50).toBeGreaterThan(p10);
   });
 
-  it('1 child → large but inside parent', () => {
-    const cs = molecularChildSize(18, 1);
-    expect(cs).toBeGreaterThan(5);
-    expect(cs).toBeLessThan(18);
+  it('1 child → parent slightly larger than child', () => {
+    const p = parentSizeForChildren(LEAF_SIZE, 1);
+    expect(p).toBeGreaterThan(LEAF_SIZE);
+    expect(p).toBeLessThan(LEAF_SIZE * 5);
   });
 
-  it('100 children → each is tiny but above minimum', () => {
-    const cs = molecularChildSize(18, 100);
-    expect(cs).toBeGreaterThanOrEqual(0.5);
-    expect(cs).toBeLessThan(3);
-  });
+  it('leaf size is constant across all nesting depths', () => {
+    // Scope → kind-groups (12) → artifacts (30)
+    const kgSize = parentSizeForChildren(LEAF_SIZE, 30);
+    const scopeSize = parentSizeForChildren(kgSize, 12);
 
-  it('small parent with many children clamps to minimum', () => {
-    const cs = molecularChildSize(2, 50);
-    expect(cs).toBe(0.5);
+    const level1 = layoutChildren(scopeSize, 12);
+    expect(level1[0].size).toBeCloseTo(kgSize, 1);
+
+    const level2 = layoutChildren(kgSize, 30);
+    expect(level2[0].size).toBeCloseTo(LEAF_SIZE, 0);
   });
 });
 
-describe('recursive packing: sub-subgraph fits inside host', () => {
-  it('kind-group children (50 nodes) stay inside kind-group ring', () => {
-    // Scope size=18 → kind-group with 10 siblings → kind-group size ≈ 2.99
-    const scopeSize = 18;
-    const kindGroupCount = 10;
-    const kindGroupLayout = layoutChildren(scopeSize, kindGroupCount);
-    const kindGroupSize = kindGroupLayout[0].size;
-
-    // Now expand that kind-group with 50 artifact children
-    const artifactLayout = layoutChildren(kindGroupSize, 50);
-    for (const p of artifactLayout) {
-      const distFromCenter = Math.hypot(p.x, p.y);
-      expect(distFromCenter + p.size).toBeLessThanOrEqual(kindGroupSize * 1.05);
-    }
-  });
-
-  it('kind-group children (100 nodes) stay inside kind-group ring', () => {
-    const kindGroupSize = 2.5;
-    const artifactLayout = layoutChildren(kindGroupSize, 100);
-    for (const p of artifactLayout) {
-      const distFromCenter = Math.hypot(p.x, p.y);
-      expect(distFromCenter + p.size).toBeLessThanOrEqual(kindGroupSize * 1.05);
-    }
-  });
+describe('containment: children fit inside parent ring', () => {
+  for (const [childCount, label] of [[5, '5'], [10, '10'], [30, '30'], [50, '50'], [100, '100']] as [number, string][]) {
+    it(`${label} children stay inside parent`, () => {
+      const ps = parentSizeForChildren(LEAF_SIZE, childCount);
+      const layout = layoutChildren(ps, childCount);
+      for (const p of layout) {
+        expect(Math.hypot(p.x, p.y) + p.size).toBeLessThanOrEqual(ps * 1.01);
+      }
+    });
+  }
 
   it('deeply nested: scope → kind-group → artifact all fit', () => {
-    const scopeSize = 18;
+    const artSize = LEAF_SIZE;
+    const kgSize = parentSizeForChildren(artSize, 30);
+    const scopeSize = parentSizeForChildren(kgSize, 12);
+
     const level1 = layoutChildren(scopeSize, 12);
-    const kgSize = level1[0].size;
+    for (const p of level1) {
+      expect(Math.hypot(p.x, p.y) + p.size).toBeLessThanOrEqual(scopeSize * 1.01);
+    }
 
     const level2 = layoutChildren(kgSize, 30);
-    const artSize = level2[0].size;
-
-    // Every level-2 node fits inside level-1 host
     for (const p of level2) {
-      expect(Math.hypot(p.x, p.y) + p.size).toBeLessThanOrEqual(kgSize * 1.05);
+      expect(Math.hypot(p.x, p.y) + p.size).toBeLessThanOrEqual(kgSize * 1.01);
     }
-    // Artifact size is smaller than kind-group size
-    expect(artSize).toBeLessThan(kgSize);
-    // Artifact size is above minimum (0.15 for deeply nested)
-    expect(artSize).toBeGreaterThanOrEqual(0.15);
+    expect(level2[0].size).toBeGreaterThanOrEqual(LEAF_SIZE * 0.95);
   });
 });
 
