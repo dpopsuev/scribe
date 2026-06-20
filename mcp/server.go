@@ -33,7 +33,9 @@ const baseInstructions = "Labeled Artifact Graph. " +
 	"SCHEMA: artifact(action=query, kind=label_definition, scope=_schema) to learn available kinds and labels. " +
 	"ORGANIZE: project: labels map to git repos (auto-detected). " +
 	"For grouping related artifacts within a project, use parent_of edges and kind:knowledge.context as containers — NOT sub-projects. " +
-	"Use area:/context:/domain: labels for cross-cutting concerns."
+	"Use area:/context:/domain: labels for cross-cutting concerns. " +
+	"DISCOVER: schema(kind=X) shows valid relations, sections, and lifecycle for any kind. " +
+	"RECOVERY: if connection fails, check that the Scribe server is running (scribe serve --transport http --addr :8080)"
 
 // workspaceUnconfiguredWarning is prepended to instructions when the client
 // has not declared workspace context in the initialize params.
