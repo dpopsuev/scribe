@@ -41,12 +41,12 @@ void main() {
   float aa = fwidth(dist) * 1.5;
   float outer = 1.0 - smoothstep(0.9 - aa, 0.9, dist);
   if (outer < 0.01) discard;
-  // Hollow mode: alpha < 0.3 → draw only a ring border, discard interior
+  // Hollow mode: alpha < 0.3 → draw only a thin ring border, discard interior
   if (v_color.a < 0.3) {
-    float inner = smoothstep(0.75 - aa, 0.75, dist);
+    float inner = smoothstep(0.88 - aa, 0.88, dist);
     float ring = outer * inner;
     if (ring < 0.01) discard;
-    fragColor = vec4(v_color.rgb, ring * 0.9);
+    fragColor = vec4(v_color.rgb, ring * 0.85);
     return;
   }
   fragColor = vec4(v_color.rgb, v_color.a * outer);

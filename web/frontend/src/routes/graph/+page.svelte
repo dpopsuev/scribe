@@ -86,17 +86,21 @@
     const parent = nodes[parentIdx];
     const childGoldenAngle = 137.508 * Math.PI / 180;
     const childCount = data.nodes.length || 1;
-    const maxChildSize = parent.size * 0.25;
-    const orbitRadius = parent.size * 0.7;
+    const maxChildSize = parent.size * 0.15;
+    const orbitRadius = parent.size * 0.6;
+
+    const vals = data.nodes.map((n: any) => n.val || 1);
+    const maxVal = Math.max(...vals, 1);
 
     const newNodes: GraphNode[] = data.nodes.map((raw: any, i: number) => {
       const angle = i * childGoldenAngle;
       const r = orbitRadius * Math.sqrt((i + 0.5) / childCount);
+      const t = Math.sqrt((raw.val || 1) / maxVal);
       return {
         id: raw.id, label: raw.name,
         x: parent.x + r * Math.cos(angle),
         y: parent.y + r * Math.sin(angle),
-        size: Math.min(Math.max(1, Math.cbrt(raw.val || 1) * 1.2), maxChildSize),
+        size: Math.max(1.5, t * maxChildSize),
         color: kindColor(raw.kind), kind: raw.kind,
         depth: (parent.depth || 0) + 1,
       };
@@ -128,8 +132,8 @@
     if (kindNodes.length === 0) return;
 
     const childGoldenAngle = 137.508 * Math.PI / 180;
-    const orbitRadius = Math.max(node.size * 0.7, 8);
-    const maxChildSize = node.size * 0.3;
+    const orbitRadius = Math.max(node.size * 0.6, 8);
+    const maxChildSize = node.size * 0.15;
 
     const newNodes: GraphNode[] = kindNodes.map((raw: any, i: number) => {
       const angle = i * childGoldenAngle;
@@ -138,7 +142,7 @@
         id: raw.id, label: raw.name,
         x: node.x + r * Math.cos(angle),
         y: node.y + r * Math.sin(angle),
-        size: Math.min(Math.max(1, Math.cbrt(raw.val || 1)), maxChildSize),
+        size: Math.max(1, Math.min(Math.cbrt(raw.val || 1) * 0.5, maxChildSize)),
         color: kindColor(raw.kind), kind: raw.kind,
         depth: (node.depth || 0) + 1,
       };
