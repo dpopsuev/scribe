@@ -149,6 +149,11 @@
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
 
+  // Position snapshot: written by uploadNodes, read by renderLabels.
+  // Both must use this same snapshot within a frame — never read simNodes
+  // positions directly in renderLabels.
+  let positionSnapshot: { x: number; y: number; size: number }[] = [];
+
   function uploadNodes() {
     if (!gl || !nodeInstanceBuf || simNodes.length === 0) return;
     const stride = 20; // x(f), y(f), size(f), color(4ub), pickColor(4ub)
@@ -156,13 +161,18 @@
     const floats = new Float32Array(buf);
     const bytes = new Uint8Array(buf);
 
+    positionSnapshot = new Array(simNodes.length);
     for (let i = 0; i < simNodes.length; i++) {
       const n = simNodes[i];
+      const x = n.x || 0;
+      const y = n.y || 0;
+      const size = n._size || 5;
+      positionSnapshot[i] = { x, y, size };
       const off = i * stride;
       const fOff = off / 4;
-      floats[fOff] = n.x || 0;
-      floats[fOff + 1] = n.y || 0;
-      floats[fOff + 2] = n._size || 5;
+      floats[fOff] = x;
+      floats[fOff + 1] = y;
+      floats[fOff + 2] = size;
       const [r, g, b] = hexToRgb(n._color || '#8a94a8');
       bytes[off + 12] = r;
       bytes[off + 13] = g;
@@ -464,6 +474,24 @@
     const centerY = cam.height / 2;
     const maxLabelDist = Math.max(cam.width, cam.height) * 0.6;
 
+    // Drift detection: compare snapshot (what WebGL drew) vs simNodes (what labels would read)
+    let maxDrift = 0;
+    let driftNode = '';
+    if (positionSnapshot.length === simNodes.length) {
+      for (let i = 0; i < simNodes.length; i++) {
+        const snap = positionSnapshot[i];
+        const sim = simNodes[i];
+        const dx = (snap?.x || 0) - (sim.x || 0);
+        const dy = (snap?.y || 0) - (sim.y || 0);
+        const d = Math.hypot(dx, dy);
+        if (d > maxDrift) { maxDrift = d; driftNode = sim._label || sim.id; }
+      }
+    }
+    if (maxDrift > 0.1) {
+      console.warn(`[graph-drift] max=${maxDrift.toFixed(2)}px node="${driftNode}" snapshot_len=${positionSnapshot.length} sim_len=${simNodes.length}`);
+    }
+    (window as any).__GRAPH_DRIFT__ = { maxDrift, driftNode, snapshotLen: positionSnapshot.length, simLen: simNodes.length };
+
     ctx.textBaseline = 'middle';
     let currentFont = '';
 
@@ -471,8 +499,12 @@
       const n = simNodes[i];
       if (!n._label) continue;
       const depth = n._depth || 0;
-      const [sx, sy] = worldToScreen(cam, n.x || 0, n.y || 0);
-      const screenSize = (n._size || 5) * cam.zoom;
+      // Read from position snapshot (same data WebGL drew), not live simNodes
+      const snap = positionSnapshot[i];
+      const wx = snap?.x ?? n.x ?? 0;
+      const wy = snap?.y ?? n.y ?? 0;
+      const [sx, sy] = worldToScreen(cam, wx, wy);
+      const screenSize = (snap?.size ?? n._size ?? 5) * cam.zoom;
 
       // Deeper nodes need more zoom to be visible
       const minSize = DEPTH_MIN_SCREEN_SIZE[Math.min(depth, 3)];
