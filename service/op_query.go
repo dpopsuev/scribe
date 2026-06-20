@@ -67,6 +67,7 @@ type listInput struct {
 
 	Mode           string `json:"mode,omitempty"`      // fts (default) | semantic | hybrid
 	Session        string `json:"session,omitempty"`   // shorthand for labels=["session:<value>"]
+	LeafOnly       bool   `json:"leaf_only,omitempty"` // topo: return only leaves (no children), excludes parent goals
 	Depth          int    `json:"depth,omitempty"`     // if >0, attach ArtifactTree to each result
 	Relation       string `json:"relation,omitempty"`  // edge relation to traverse with depth; default "*" (all)
 	Direction      string `json:"direction,omitempty"` // inbound | outbound | both (default)
@@ -153,6 +154,12 @@ func runTopoQuery(ctx context.Context, svc *Service, in *listInput) (string, err
 			return "no unblocked tasks found", nil
 		}
 	}
+	if in.LeafOnly {
+		entries = filterLeaves(ctx, svc, entries)
+		if len(entries) == 0 {
+			return "no leaf tasks found", nil
+		}
+	}
 	if in.Format == "json" {
 		data, _ := json.Marshal(entries)
 		return string(data), nil
@@ -202,6 +209,17 @@ func filterUnblocked(ctx context.Context, svc *Service, entries []parchment.Topo
 		}
 	}
 	return ready
+}
+
+func filterLeaves(ctx context.Context, svc *Service, entries []parchment.TopoEntry) []parchment.TopoEntry {
+	var leaves []parchment.TopoEntry
+	for _, e := range entries {
+		children, _ := svc.Proto.Store().Neighbors(ctx, e.ID, parchment.RelParentOf, parchment.Outgoing)
+		if len(children) == 0 {
+			leaves = append(leaves, e)
+		}
+	}
+	return leaves
 }
 
 func runSemanticQuery(ctx context.Context, svc *Service, in *listInput) (string, error) {

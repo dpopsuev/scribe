@@ -218,7 +218,7 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 		)
 	}()
 	if !adminActions[in.Action] {
-		return nil, nil, fmt.Errorf("unknown admin action %q; valid: lint, synthesize, history, hygiene, dashboard", in.Action) //nolint:err113 // agent-facing hint
+		return nil, nil, fmt.Errorf("unknown admin action %q; valid: lint, synthesize, history, hygiene, dashboard, changelog, status", in.Action) //nolint:err113 // agent-facing hint
 	}
 	if op := service.Find(in.Action); op != nil {
 		raw, _ := json.Marshal(in)

@@ -137,6 +137,7 @@ func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, webP
 		return err
 	}
 	defer cleanup()
+	svc.Version = Version
 	svc.RecordSession = cfg.RecordSession == nil || *cfg.RecordSession
 
 	if err := migrations.RunPending(ctx, svc.Proto, false); err != nil {

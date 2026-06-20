@@ -26,5 +26,6 @@ func Open(cfg *config.Config, embedFunc parchment.EmbeddingFunc, embedModel stri
 
 	proto := parchment.New(backend.Store(), nil, scopes, nil, idc)
 	svc := New(proto, backend.Snapshotter(), scopes)
+	svc.EmbedModel = embedModel
 	return svc, func() { _ = backend.Close() }, nil
 }

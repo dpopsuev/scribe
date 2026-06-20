@@ -25,7 +25,7 @@ var graphActions = map[string]bool{
 }
 
 var adminActions = map[string]bool{
-	"lint": true, "synthesize": true, "history": true, "hygiene": true, "dashboard": true, "changelog": true,
+	"lint": true, "synthesize": true, "history": true, "hygiene": true, "dashboard": true, "changelog": true, "status": true,
 }
 
 // baseInstructions is the core MCP server instructions shown to clients.
@@ -95,7 +95,8 @@ func NewServer(svc *service.Service, vocab []string, version string, stdioLabels
 		"READ: get(id=) full artifact; get(id=, format=context) for graph context. " +
 		"WRITE: create, set (single field), update (sections/extra patch). " +
 		"PLAN: query(id=, sort=topo) for dependency order; query(id=, sort=topo, unblocked=true) for ready queue. " +
-		"ORGANIZE: project: labels map to git repos. Use parent_of edges and kind:knowledge.context as containers."
+		"ORGANIZE: project: labels map to git repos. Use parent_of edges and kind:knowledge.context as containers. " +
+		"DISCOVER: schema(kind=X) shows valid relations, sections, and lifecycle for any kind."
 	var artifactSchema any
 	_ = json.Unmarshal(schemaFor[artifactInput](), &artifactSchema)
 	patchSchemaFromRegistry(artifactSchema, h)
@@ -140,7 +141,8 @@ func NewServer(svc *service.Service, vocab []string, version string, stdioLabels
 		"SYNTHESIZE: synthesize(id=) to auto-generate content. " +
 		"HISTORY: history(id=) for change log. " +
 		"CHANGELOG: changelog(id=) for field-level revision diffs. " +
-		"DASHBOARD: dashboard() for project overview."
+		"DASHBOARD: dashboard() for project overview. " +
+		"STATUS: status() for server version, DB size, scopes, embeddings."
 	var adminSchema any
 	_ = json.Unmarshal(schemaFor[adminInput](), &adminSchema)
 	sdk.AddTool(&sdkmcp.Tool{

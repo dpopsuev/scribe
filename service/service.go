@@ -21,6 +21,8 @@ type Service struct {
 	ReadLog       map[string]bool
 	SessionID     string
 	RecordSession bool
+	Version       string
+	EmbedModel    string
 }
 
 // New constructs a Service.

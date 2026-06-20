@@ -10,6 +10,7 @@ import (
 )
 
 type lintInput struct {
+	ID    string `json:"id,omitempty"`
 	Scope string `json:"scope,omitempty"`
 }
 
@@ -27,21 +28,38 @@ var opLint = Op{
 		var in lintInput
 		_ = json.Unmarshal(raw, &in)
 
-		schemaKinds := []string{
-			parchment.LabelPrefixKind + "edge_type_definition",
-			parchment.LabelPrefixKind + "label_definition",
-			parchment.LabelPrefixKind + "relationship",
-			parchment.LabelPrefixKind + "support.rule",
-			parchment.LabelPrefixKind + "support.config",
-			parchment.LabelPrefixKind + "support.template",
-		}
-		li := parchment.ListInput{ExcludeLabels: schemaKinds}
-		if in.Scope != "" {
-			li.Labels = []string{parchment.LabelPrefixScope + in.Scope}
-		}
-		arts, err := svc.Proto.ListArtifacts(ctx, li)
-		if err != nil {
-			return "", err
+		var arts []*parchment.Artifact
+
+		if in.ID != "" {
+			root, err := svc.Proto.GetArtifact(ctx, in.ID)
+			if err != nil {
+				return "", err
+			}
+			arts = append(arts, root)
+			_ = svc.Proto.Store().Walk(ctx, in.ID, parchment.RelParentOf, parchment.Outgoing, 0, func(_ int, e parchment.Edge) bool {
+				if child, err := svc.Proto.Store().Get(ctx, e.To); err == nil {
+					arts = append(arts, child)
+				}
+				return true
+			})
+		} else {
+			schemaKinds := []string{
+				parchment.LabelPrefixKind + "edge_type_definition",
+				parchment.LabelPrefixKind + "label_definition",
+				parchment.LabelPrefixKind + "relationship",
+				parchment.LabelPrefixKind + "support.rule",
+				parchment.LabelPrefixKind + "support.config",
+				parchment.LabelPrefixKind + "support.template",
+			}
+			li := parchment.ListInput{ExcludeLabels: schemaKinds}
+			if in.Scope != "" {
+				li.Labels = []string{parchment.LabelPrefixScope + in.Scope}
+			}
+			var err error
+			arts, err = svc.Proto.ListArtifacts(ctx, li)
+			if err != nil {
+				return "", err
+			}
 		}
 
 		var findings []lintFinding
