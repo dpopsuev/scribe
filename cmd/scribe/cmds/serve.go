@@ -158,6 +158,9 @@ func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, webP
 		defer embedder.Stop()
 	}
 
+	freshnessTicker := service.NewFreshnessTicker(svc.Proto, 1*time.Hour)
+	defer freshnessTicker.Stop()
+
 	runSeedDir(ctx, svc.Proto, cfg)
 	applyScopeLabels(svc.Proto.Store(), cfg)
 
