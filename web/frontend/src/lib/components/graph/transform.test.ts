@@ -113,6 +113,58 @@ describe('label-node sync: same camera + position = same screen coords', () => {
   });
 });
 
+describe('position preservation across simulation rebuild', () => {
+  it('settled position survives rebuild (not reset to layout)', () => {
+    const layoutPos = { x: 0, y: 0 };
+    const settledPos = { x: 42, y: -17 };
+
+    const prevPositions = new Map([['node-1', settledPos]]);
+    const result = prevPositions.get('node-1') ?? layoutPos;
+
+    expect(result.x).toBe(42);
+    expect(result.y).toBe(-17);
+  });
+
+  it('new node without previous position uses layout', () => {
+    const layoutPos = { x: 10, y: 20 };
+
+    const prevPositions = new Map<string, { x: number; y: number }>();
+    const result = prevPositions.get('new-node') ?? layoutPos;
+
+    expect(result.x).toBe(10);
+    expect(result.y).toBe(20);
+  });
+
+  it('filtered-out node loses position, gets layout on return', () => {
+    const layoutPos = { x: 5, y: 5 };
+    const settledPos = { x: 100, y: -50 };
+
+    // Node was in previous sim
+    const prevWithNode = new Map([['node-1', settledPos]]);
+    expect((prevWithNode.get('node-1') ?? layoutPos).x).toBe(100);
+
+    // After filter removed node and it returns, prevPositions is empty
+    const prevWithout = new Map<string, { x: number; y: number }>();
+    expect((prevWithout.get('node-1') ?? layoutPos).x).toBe(5);
+  });
+
+  it('label screen position matches WebGL after rebuild with preserved position', () => {
+    const cam: Camera = { x: 10, y: -5, zoom: 2, width: 800, height: 600 };
+    const settledPos = { x: 42, y: -17 };
+
+    const m = buildViewMatrix(cam);
+    const clipX = m[0] * settledPos.x + m[6];
+    const clipY = m[4] * settledPos.y + m[7];
+    const shaderX = (clipX + 1) / 2 * cam.width;
+    const shaderY = (1 - clipY) / 2 * cam.height;
+
+    const [labelX, labelY] = worldToScreen(cam, settledPos.x, settledPos.y);
+
+    expect(Math.abs(shaderX - labelX)).toBeLessThan(0.01);
+    expect(Math.abs(shaderY - labelY)).toBeLessThan(0.01);
+  });
+});
+
 describe('regression: old buggy buildViewMatrix', () => {
   it('FAILS with ty = +camY * sy (the bug in GraphCanvas.svelte)', () => {
     const cam: Camera = { x: 0, y: 50, zoom: 1, width: 800, height: 600 };

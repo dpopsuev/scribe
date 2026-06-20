@@ -223,9 +223,15 @@
   }
 
   function startSimulation() {
+    // Preserve settled positions from previous simulation so that
+    // prop-driven rebuilds (search filter, color change) don't reset
+    // nodes to their original layout positions.
+    const prevPositions = new Map(simNodes.map(n => [n.id, { x: n.x, y: n.y }]));
+
     const nodeMap = new Map<string, any>();
     simNodes = nodes.map(n => {
-      const sn = { id: n.id, _size: n.size, _color: n.color, _kind: n.kind, _label: n.label, _depth: n.depth || 0, x: n.x, y: n.y };
+      const prev = prevPositions.get(n.id);
+      const sn = { id: n.id, _size: n.size, _color: n.color, _kind: n.kind, _label: n.label, _depth: n.depth || 0, x: prev?.x ?? n.x, y: prev?.y ?? n.y };
       nodeMap.set(n.id, sn);
       return sn;
     });
