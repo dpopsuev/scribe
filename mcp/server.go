@@ -26,6 +26,7 @@ var graphActions = map[string]bool{
 
 var adminActions = map[string]bool{
 	"lint": true, "synthesize": true, "history": true, "hygiene": true, "dashboard": true, "changelog": true, "status": true, "triage": true,
+	"fold_campaign": true, "reparent_children": true, "repair_lifecycle": true,
 }
 
 // baseInstructions is the core MCP server instructions shown to clients.
