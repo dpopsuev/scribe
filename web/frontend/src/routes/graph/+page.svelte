@@ -92,7 +92,7 @@
 
     const newNodes: GraphNode[] = childData.map((raw, i) => {
       const angle = i * goldenAngle;
-      const r = orbitRadius * Math.sqrt((i + 0.5) / childCount);
+      const r = orbitRadius * Math.sqrt((i + 0.5) / childData.length);
       return {
         id: raw.id, label: raw.name,
         x: parent.x + r * Math.cos(angle),

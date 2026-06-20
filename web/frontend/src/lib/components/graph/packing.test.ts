@@ -95,6 +95,40 @@ describe('recursive nesting', () => {
   });
 });
 
+describe('expandNode simulation — mirrors production code path', () => {
+  function simulateExpandNode(parentSize: number, childCount: number) {
+    const pack = computePacking(parentSize, childCount);
+    const { childSize, orbitRadius, parentSize: newParentSize } = pack;
+    const goldenAngle = 137.508 * Math.PI / 180;
+
+    const children = [];
+    for (let i = 0; i < childCount; i++) {
+      const angle = i * goldenAngle;
+      const r = orbitRadius * Math.sqrt((i + 0.5) / childCount);
+      children.push({ x: r * Math.cos(angle), y: r * Math.sin(angle), size: childSize });
+    }
+    return { children, parentSize: newParentSize };
+  }
+
+  for (const [ps, n] of [[18, 10], [5, 20], [3, 50], [1.5, 30], [0.5, 5]] as [number, number][]) {
+    it(`parent=${ps} n=${n}: children smaller than parent, inside ring, no overlap`, () => {
+      const { children, parentSize } = simulateExpandNode(ps, n);
+
+      for (const c of children) {
+        expect(c.size).toBeLessThan(parentSize);
+        expect(Math.hypot(c.x, c.y) + c.size).toBeLessThanOrEqual(parentSize * 1.01);
+      }
+
+      let overlaps = 0;
+      for (let i = 0; i < children.length; i++)
+        for (let j = i + 1; j < children.length; j++)
+          if (Math.hypot(children[i].x - children[j].x, children[i].y - children[j].y) < children[i].size + children[j].size)
+            overlaps++;
+      expect(overlaps).toBe(0);
+    });
+  }
+});
+
 describe('parentSizeForChildren', () => {
   it('round-trips with layoutChildren', () => {
     const childSize = 1.5;
