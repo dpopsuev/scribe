@@ -7,6 +7,7 @@
   import type { LensInfo } from '$lib/api';
   import { kindColor } from '$lib/colors';
   import { layoutNodes, layoutEdges } from '$lib/components/graph/layout';
+  import { filterNodes, filterEdges } from '$lib/components/graph/search';
   import { onMount } from 'svelte';
 
   let nodes: GraphNode[] = $state([]);
@@ -17,31 +18,8 @@
   // ── Search state ──────────────────────────────────────────────────────
   let searchQuery = $state('');
   let searchInput: HTMLInputElement | undefined = $state();
-
-  function fuzzyMatch(text: string, query: string): boolean {
-    const lower = text.toLowerCase();
-    const q = query.toLowerCase();
-    let qi = 0;
-    for (let i = 0; i < lower.length && qi < q.length; i++) {
-      if (lower[i] === q[qi]) qi++;
-    }
-    return qi === q.length;
-  }
-
-  let filteredNodes = $derived.by(() => {
-    if (!searchQuery.trim()) return nodes;
-    return nodes.filter(n =>
-      fuzzyMatch(n.label || '', searchQuery) ||
-      fuzzyMatch(n.id || '', searchQuery) ||
-      fuzzyMatch(n.kind || '', searchQuery)
-    );
-  });
-
-  let filteredEdges = $derived.by(() => {
-    if (!searchQuery.trim()) return edges;
-    const ids = new Set(filteredNodes.map(n => n.id));
-    return edges.filter(e => ids.has(e.source) && ids.has(e.target));
-  });
+  let filteredNodes = $derived(filterNodes(nodes, searchQuery));
+  let filteredEdges = $derived(filterEdges(edges, filteredNodes));
 
   // ── Mode state ────────────────────────────────────────────────────────
   type MapMode = 'scopes' | 'lens';

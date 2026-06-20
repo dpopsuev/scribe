@@ -753,7 +753,8 @@
     const _e = edges;
     if (!_n || !_e || !gl || !nodeProg) return;
 
-    if (!simInitialized) {
+    const prevCount = simNodes.length;
+    if (!simInitialized || _n.length < prevCount || (_n.length > 0 && prevCount === 0)) {
       simulation?.stop();
       untrack(() => startSimulation());
       simInitialized = true;
