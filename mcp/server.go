@@ -39,17 +39,12 @@ const baseInstructions = "Labeled Artifact Graph. " +
 	"DISCOVER: schema(kind=X) shows valid relations, sections, and lifecycle for any kind. " +
 	"RECOVERY: if connection fails, check that the Scribe server is running (scribe serve --transport http --addr :8080)"
 
-// workspaceUnconfiguredWarning is prepended to instructions when the client
-// has not declared workspace context in the initialize params.
-const workspaceUnconfiguredWarning = "WORKSPACE UNSET: pass workspace={cwd,git_remote} in your initialize _meta params " +
-	"to scope artifacts to your repository. Until set, artifacts have no workspace context.\n\n"
-
-// buildInstructions returns the instructions string for a session,
-// prepending a warning when the workspace context has not been configured.
-func buildInstructions(configured bool) string {
-	if !configured {
-		return workspaceUnconfiguredWarning + baseInstructions
-	}
+// buildInstructions returns the instructions string for a session.
+// Workspace context is resolved lazily via the onInitialized handler
+// after the client connects, so the static instructions never show
+// the WORKSPACE UNSET warning (it was already stale by the time the
+// agent read it).
+func buildInstructions(_ bool) string {
 	return baseInstructions
 }
 
