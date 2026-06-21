@@ -23,13 +23,11 @@ const kindShapeMap: Record<string, number> = {
 	// Knowledge domain — circle (approachable, complete)
 	'note': SHAPE_CIRCLE,
 	'concept': SHAPE_CIRCLE,
+	'source': SHAPE_CIRCLE,
 	'journal': SHAPE_CIRCLE,
 	'context': SHAPE_CIRCLE,
 
 	// Code domain — square (stable, structural)
-	// knowledge.source maps here because Locus scans create package/file
-	// artifacts as knowledge.source — they contain code symbols
-	'source': SHAPE_SQUARE,
 	'file': SHAPE_SQUARE,
 	'struct': SHAPE_SQUARE,
 	'interface': SHAPE_SQUARE,

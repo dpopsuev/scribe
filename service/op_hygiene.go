@@ -51,7 +51,7 @@ type HygieneOutput struct {
 }
 
 func isCodeKind(kind string) bool {
-	return strings.HasPrefix(kind, "code.") || kind == "knowledge.source"
+	return strings.HasPrefix(kind, "code.")
 }
 
 func hygieneScore(impact, confidence string) int {

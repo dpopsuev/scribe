@@ -4,13 +4,9 @@ import { MIN_CHILD_SIZE, computePacking } from './packing';
 
 describe('kindShape mapping', () => {
   it('knowledge kinds → circle', () => {
-    for (const k of ['knowledge.note', 'knowledge.concept', 'knowledge.journal']) {
+    for (const k of ['knowledge.note', 'knowledge.concept', 'knowledge.source', 'knowledge.journal']) {
       expect(kindShape(k)).toBe(SHAPE_CIRCLE);
     }
-  });
-
-  it('knowledge.source → square (code domain — Locus scan packages)', () => {
-    expect(kindShape('knowledge.source')).toBe(SHAPE_SQUARE);
   });
 
   it('code kinds → square', () => {
