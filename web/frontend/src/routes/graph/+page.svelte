@@ -146,15 +146,24 @@
   async function expandScope(scopeName: string) {
     if (expanded.has(scopeName)) return;
     const status = 'work.draft,work.active,work.blocked,work.complete,note.fleeting,note.mature,note.evergreen,decision.proposed,decision.accepted,active';
-    const res = await fetch(`/api/v1/graph?scope=${encodeURIComponent(scopeName)}&status=${encodeURIComponent(status)}&relations=parent_of&max_nodes=200`);
+    const res = await fetch(`/api/v1/graph/kinds?scope=${encodeURIComponent(scopeName)}&status=${encodeURIComponent(status)}`);
     const data = await res.json();
-    // Show only top-level artifacts (campaigns) — those with no incoming parent_of edges
-    const hasParent = new Set(data.links.filter((l: any) => l.relation === 'parent_of').map((l: any) => l.target));
-    const topLevel = data.nodes.filter((n: any) => !hasParent.has(n.id));
-    const topIds = new Set(topLevel.map((n: any) => n.id));
-    const topLinks = data.links.filter((l: any) => topIds.has(l.source) && topIds.has(l.target));
-    expandNode(`project:${scopeName}`, topLevel, topLinks);
+    expandNode(`project:${scopeName}`, data.nodes, data.links);
     expanded = new Set([...expanded, scopeName]);
+  }
+
+  async function expandKindGroup(node: GraphNode) {
+    const parts = node.id.replace('kind:', '').split(':');
+    if (parts.length < 2) return;
+    const scope = parts[0];
+    const kindName = parts.slice(1).join(':');
+    const status = 'work.draft,work.active,work.blocked,work.complete,note.fleeting,note.mature,note.evergreen,decision.proposed,decision.accepted';
+    const res = await fetch(`/api/v1/graph?scope=${encodeURIComponent(scope)}&status=${encodeURIComponent(status)}&max_nodes=200`);
+    const data = await res.json();
+    const childIds = new Set(data.nodes.filter((n: any) => n.kind === kindName).map((n: any) => n.id));
+    const filtered = data.nodes.filter((n: any) => childIds.has(n.id));
+    const filteredLinks = data.links.filter((l: any) => childIds.has(l.source) && childIds.has(l.target));
+    expandNode(node.id, filtered, filteredLinks);
   }
 
   async function expandArtifact(node: GraphNode) {
@@ -208,13 +217,13 @@
       expandScope(node.label || node.id.replace('project:', ''));
       return;
     }
-    // Effort hierarchy: campaigns → goals → tasks (drill into children)
-    const effortKinds = ['effort.campaign', 'effort.goal', 'knowledge.context'];
-    if (effortKinds.includes(node.kind || '')) {
-      expandArtifact(node);
+    if (node.kind === 'kind-group') {
+      expandKindGroup(node);
       return;
     }
-    if (node.kind === 'kind-group') {
+    // Effort hierarchy: campaigns → goals → tasks (drill into children)
+    const expandableKinds = ['effort.campaign', 'effort.goal', 'knowledge.context'];
+    if (expandableKinds.includes(node.kind || '')) {
       expandArtifact(node);
       return;
     }
