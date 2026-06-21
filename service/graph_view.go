@@ -312,7 +312,7 @@ func fetchGraphArtifacts(ctx context.Context, svc *Service, scope string, status
 	if scope != "" {
 		labels = append(labels, parchment.LabelPrefixScope+scope)
 	}
-	return svc.Proto.ListArtifacts(ctx, parchment.ListInput{
+	return svc.Proto.ListGraphNodes(ctx, parchment.ListInput{
 		Labels:   labels,
 		LabelsOr: labelsOr,
 	})
