@@ -1,6 +1,8 @@
 <script lang="ts">
   import GraphCanvas from '$lib/components/graph/GraphCanvas.svelte';
   import type { GraphNode, GraphEdge } from '$lib/components/graph/GraphCanvas.svelte';
+  import SchematicCanvas from '$lib/components/graph/SchematicCanvas.svelte';
+  import { computeSchematicLayout, type SchematicLayout } from '$lib/components/graph/elk-layout';
   import Sidebar from '$lib/components/graph/Sidebar.svelte';
   import LensPanel from '$lib/components/graph/LensPanel.svelte';
   import { fetchLenses, fetchLensGraph } from '$lib/api';
@@ -15,6 +17,11 @@
   let edges: GraphEdge[] = $state([]);
   let loading = $state(true);
   let expanded = $state(new Set<string>());
+
+  // ── Raw data cache (for schematic layout) ─────────────────────────────
+  let rawNodes: any[] = $state([]);
+  let rawLinks: any[] = $state([]);
+  let schematicLayout: SchematicLayout | null = $state(null);
 
   // ── Search state ──────────────────────────────────────────────────────
   let searchQuery = $state('');
@@ -32,7 +39,7 @@
   let filteredEdges = $derived(filterEdges(edges, filteredNodes));
 
   // ── Mode state ────────────────────────────────────────────────────────
-  type MapMode = 'scopes' | 'lens';
+  type MapMode = 'scopes' | 'lens' | 'schematic';
   let activeMode: MapMode = $state('scopes');
   let lenses: LensInfo[] = $state([]);
   let activeLens: string | null = $state(null);
@@ -59,6 +66,8 @@
   async function fetchScopeGraph() {
     const res = await fetch('/api/v1/graph/scopes');
     const data = await res.json();
+    rawNodes = data.nodes;
+    rawLinks = data.links;
     nodes = layoutNodes(data.nodes);
     edges = layoutEdges(data.links);
     loading = false;
@@ -68,10 +77,23 @@
     loading = true;
     activeLens = lensId;
     const data = await fetchLensGraph({ context_id: lensId });
+    rawNodes = data.nodes;
+    rawLinks = data.links;
     nodes = layoutNodes(data.nodes, { minSize: 3, maxSize: 15, spread: 14 });
     edges = layoutEdges(data.links);
     lensStats = { traversed: data.nodes.length, edges: data.links.length };
     expanded = new Set();
+    loading = false;
+  }
+
+  async function switchToSchematic() {
+    loading = true;
+    schematicLayout = null;
+    try {
+      schematicLayout = await computeSchematicLayout(rawNodes, rawLinks);
+    } catch (e) {
+      console.error('ELK layout failed:', e);
+    }
     loading = false;
   }
 
@@ -142,6 +164,11 @@
   function switchMode(mode: MapMode) {
     activeMode = mode;
     focusNode(null);
+    if (mode === 'schematic') {
+      switchToSchematic();
+      return;
+    }
+    schematicLayout = null;
     if (mode === 'scopes' && activeLens) {
       activeLens = null;
       lensStats = null;
@@ -193,22 +220,31 @@
   {:else}
     <div class="mode-bar">
       <div class="mode-icons">
-        <button class="mode-icon" class:active={activeMode === 'scopes'} style="--mode-color: #6366f1" title="Scopes" onclick={() => switchMode('scopes')}>S</button>
+        <button class="mode-icon" class:active={activeMode === 'scopes'} style="--mode-color: #6366f1" title="Force-directed" onclick={() => switchMode('scopes')}>S</button>
         <button class="mode-icon" class:active={activeMode === 'lens'} style="--mode-color: #ec4899" title="Lens" onclick={() => switchMode('lens')}>L</button>
+        <button class="mode-icon" class:active={activeMode === 'schematic'} style="--mode-color: #10b981" title="Schematic (ELK layered)" onclick={() => switchMode('schematic')}>A</button>
       </div>
 
       <div class="mode-panel">
         <div class="mode-panel-header">
-          <span class="mode-label">{activeMode === 'scopes' ? 'Scopes' : 'Lens'}</span>
-          <span class="badge">{nodes.length} · {edges.length}</span>
+          <span class="mode-label">{activeMode === 'scopes' ? 'Scopes' : activeMode === 'lens' ? 'Lens' : 'Architecture'}</span>
+          {#if activeMode === 'schematic' && schematicLayout}
+            <span class="badge">{schematicLayout.nodes.length} · {schematicLayout.edges.length}</span>
+          {:else}
+            <span class="badge">{nodes.length} · {edges.length}</span>
+          {/if}
         </div>
 
         {#if activeMode === 'scopes'}
           <div class="mode-detail">
             {expanded.size > 0 ? `Expanded: ${[...expanded].join(', ')}` : 'Click a scope to drill in'}
           </div>
-        {:else}
+        {:else if activeMode === 'lens'}
           <LensPanel {lenses} {activeLens} {lensStats} onSelect={loadLens} onLensesChanged={l => { lenses = l; }} />
+        {:else}
+          <div class="mode-detail">
+            ELK layered layout · Y=depth N→S · orthogonal routing
+          </div>
         {/if}
       </div>
     </div>
@@ -232,7 +268,11 @@
       <button class="focus-indicator" onclick={() => focusNode(null)}>Focused · Click to clear</button>
     {/if}
 
-    <GraphCanvas nodes={filteredNodes} edges={filteredEdges} {highlightEdge} onNodeClick={handleNodeClick} />
+    {#if activeMode === 'schematic' && schematicLayout}
+      <SchematicCanvas layout={schematicLayout} {highlightEdge} onNodeClick={handleNodeClick} />
+    {:else}
+      <GraphCanvas nodes={filteredNodes} edges={filteredEdges} {highlightEdge} onNodeClick={handleNodeClick} />
+    {/if}
 
     <Sidebar
       state={sidebar}
