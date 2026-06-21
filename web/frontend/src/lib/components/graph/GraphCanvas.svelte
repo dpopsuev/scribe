@@ -3,6 +3,7 @@
   import { createProgram, hexToRgb, hexAlpha, indexToColor, colorToIndex } from './webgl';
   import { NODE_VERT, NODE_FRAG, EDGE_VERT, EDGE_FRAG, NODE_CORNERS } from './shaders';
   import { buildViewMatrix, worldToScreen } from './transform';
+  import { kindShape } from './shapes';
   import type { Camera } from './transform';
   import { createFocusLock, userTakeLock, pinToggle, checkIdle, systemCanMove, isTrackingNode, fitBounds, startTransition, tickTransition } from './camera';
   import type { FocusLock, CameraTransition } from './camera';
@@ -156,7 +157,7 @@
 
   function uploadNodes() {
     if (!gl || !nodeInstanceBuf || simNodes.length === 0) return;
-    const stride = 20; // x(f), y(f), size(f), color(4ub), pickColor(4ub)
+    const stride = 24; // x(f), y(f), size(f), color(4ub), pickColor(4ub), shape(f)
     const buf = new ArrayBuffer(simNodes.length * stride);
     const floats = new Float32Array(buf);
     const bytes = new Uint8Array(buf);
@@ -183,6 +184,7 @@
       bytes[off + 17] = pg;
       bytes[off + 18] = pb;
       bytes[off + 19] = pa;
+      floats[fOff + 5] = kindShape(n._kind || '');
     }
 
     gl.bindBuffer(gl.ARRAY_BUFFER, nodeInstanceBuf);
@@ -677,11 +679,12 @@
     gl.vertexAttribPointer(cLoc, 2, gl.FLOAT, false, 0, 0);
 
     gl.bindBuffer(gl.ARRAY_BUFFER, nodeInstanceBuf);
-    const stride = 20;
+    const stride = 24;
     const pLoc = gl.getAttribLocation(nodeProg, 'a_position');
     const sLoc = gl.getAttribLocation(nodeProg, 'a_size');
     const colLoc = gl.getAttribLocation(nodeProg, 'a_color');
     const pkLoc = gl.getAttribLocation(nodeProg, 'a_pickColor');
+    const shLoc = gl.getAttribLocation(nodeProg, 'a_shape');
 
     gl.enableVertexAttribArray(pLoc);
     gl.vertexAttribPointer(pLoc, 2, gl.FLOAT, false, stride, 0);
@@ -695,6 +698,9 @@
     gl.enableVertexAttribArray(pkLoc);
     gl.vertexAttribPointer(pkLoc, 4, gl.UNSIGNED_BYTE, true, stride, 16);
     gl.vertexAttribDivisor(pkLoc, 1);
+    gl.enableVertexAttribArray(shLoc);
+    gl.vertexAttribPointer(shLoc, 1, gl.FLOAT, false, stride, 20);
+    gl.vertexAttribDivisor(shLoc, 1);
     gl.bindVertexArray(null);
 
     // Edge VAO (simple GL_LINES)
