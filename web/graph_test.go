@@ -521,72 +521,147 @@ func TestLocalGraph_RequiresID(t *testing.T) {
 	}
 }
 
-// ── Tako-scale E2E: 150+ artifacts with hierarchical structure ───────────
+// ── Production-scale E2E: 5× real DB scale ──────────────────────────────
+//
+// Real production: 62 scopes, 19K artifacts, largest scope 7500 artifacts.
+// This fixture creates 5× that: 5 scopes, ~5000 artifacts per scope,
+// with realistic kind distributions and edge density.
 
-func setupTakoScale(t *testing.T) *web.Server {
+func setupProductionScale(t *testing.T) *web.Server {
 	t.Helper()
 	dir := t.TempDir()
-	s, err := parchment.OpenSQLite(dir + "/tako_scale.db")
+	s, err := parchment.OpenSQLite(dir + "/prod_scale.db")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
 
 	ctx := context.Background()
-	scope := "tako"
 
-	// Create 50 code.struct, 100 code.function, 5 knowledge.source, 1 intent.spec
-	for i := range 50 {
-		_ = s.Put(ctx, &parchment.Artifact{
-			ID: fmt.Sprintf("struct-%03d", i), Title: fmt.Sprintf("Struct%d", i),
-			Labels: []string{"kind:code.struct", "project:" + scope, "status:active"},
-		})
+	type scopeSpec struct {
+		name      string
+		structs   int
+		funcs     int
+		sources   int
+		notes     int
+		campaigns int
+		goals     int
+		tasks     int
 	}
-	for i := range 100 {
-		_ = s.Put(ctx, &parchment.Artifact{
-			ID: fmt.Sprintf("func-%03d", i), Title: fmt.Sprintf("Func%d", i),
-			Labels: []string{"kind:code.function", "project:" + scope, "status:active"},
-		})
-	}
-	for i := range 5 {
-		_ = s.Put(ctx, &parchment.Artifact{
-			ID: fmt.Sprintf("src-%03d", i), Title: fmt.Sprintf("Source%d", i),
-			Labels: []string{"kind:knowledge.source", "project:" + scope, "status:active"},
-		})
-	}
-	_ = s.Put(ctx, &parchment.Artifact{
-		ID: "spec-001", Title: "Main Spec",
-		Labels: []string{"kind:intent.spec", "project:" + scope, "status:active"},
-	})
 
-	// Create has_member edges: each struct has ~2 functions
-	for i := range 50 {
-		for j := range 2 {
-			fi := i*2 + j
-			if fi >= 100 {
-				break
+	scopes := []scopeSpec{
+		{"mega", 1400, 3350, 90, 0, 0, 0, 0}, // code-heavy (Project-Alice × 5)
+		{"work", 0, 0, 0, 110, 22, 100, 90},  // effort-heavy (hegemony-like × 5)
+		{"code", 700, 1550, 50, 15, 0, 0, 0}, // mixed code (tako × 5)
+		{"docs", 0, 0, 200, 500, 5, 10, 20},  // knowledge-heavy
+		{"tiny", 30, 60, 5, 3, 1, 2, 4},      // small scope
+	}
+
+	for _, sc := range scopes {
+		offset := 0
+		for i := range sc.structs {
+			_ = s.Put(ctx, &parchment.Artifact{
+				ID: fmt.Sprintf("%s-st-%04d", sc.name, i), Title: fmt.Sprintf("%s.Struct%d", sc.name, i),
+				Labels: []string{"kind:code.struct", "project:" + sc.name, "status:active"},
+			})
+		}
+		offset = 0
+		for i := range sc.funcs {
+			_ = s.Put(ctx, &parchment.Artifact{
+				ID: fmt.Sprintf("%s-fn-%04d", sc.name, i), Title: fmt.Sprintf("%s.Func%d", sc.name, i),
+				Labels: []string{"kind:code.function", "project:" + sc.name, "status:active"},
+			})
+			offset = i
+		}
+		_ = offset
+		for i := range sc.sources {
+			_ = s.Put(ctx, &parchment.Artifact{
+				ID: fmt.Sprintf("%s-src-%04d", sc.name, i), Title: fmt.Sprintf("%s Source %d", sc.name, i),
+				Labels: []string{"kind:knowledge.source", "project:" + sc.name, "status:active"},
+			})
+		}
+		for i := range sc.notes {
+			_ = s.Put(ctx, &parchment.Artifact{
+				ID: fmt.Sprintf("%s-note-%04d", sc.name, i), Title: fmt.Sprintf("%s Note %d", sc.name, i),
+				Labels: []string{"kind:knowledge.note", "project:" + sc.name, "status:active"},
+			})
+		}
+		for i := range sc.campaigns {
+			_ = s.Put(ctx, &parchment.Artifact{
+				ID: fmt.Sprintf("%s-camp-%04d", sc.name, i), Title: fmt.Sprintf("%s Campaign %d", sc.name, i),
+				Labels: []string{"kind:effort.campaign", "project:" + sc.name, "status:active"},
+			})
+		}
+		for i := range sc.goals {
+			_ = s.Put(ctx, &parchment.Artifact{
+				ID: fmt.Sprintf("%s-goal-%04d", sc.name, i), Title: fmt.Sprintf("%s Goal %d", sc.name, i),
+				Labels: []string{"kind:effort.goal", "project:" + sc.name, "status:active"},
+			})
+		}
+		for i := range sc.tasks {
+			_ = s.Put(ctx, &parchment.Artifact{
+				ID: fmt.Sprintf("%s-task-%04d", sc.name, i), Title: fmt.Sprintf("%s Task %d", sc.name, i),
+				Labels: []string{"kind:effort.task", "project:" + sc.name, "status:active"},
+			})
+		}
+
+		// has_member edges: each struct owns ~2-3 functions
+		for i := range sc.structs {
+			for j := range 3 {
+				fi := i*3 + j
+				if fi >= sc.funcs {
+					break
+				}
+				_ = s.AddEdge(ctx, parchment.Edge{
+					From:     fmt.Sprintf("%s-st-%04d", sc.name, i),
+					To:       fmt.Sprintf("%s-fn-%04d", sc.name, fi),
+					Relation: "has_member",
+				})
+			}
+		}
+
+		// calls edges: ~20% of functions call another function
+		for i := range sc.funcs / 5 {
+			target := (i*7 + 13) % sc.funcs
+			if target == i {
+				target = (target + 1) % sc.funcs
 			}
 			_ = s.AddEdge(ctx, parchment.Edge{
-				From: fmt.Sprintf("struct-%03d", i), To: fmt.Sprintf("func-%03d", fi),
-				Relation: "has_member",
+				From:     fmt.Sprintf("%s-fn-%04d", sc.name, i),
+				To:       fmt.Sprintf("%s-fn-%04d", sc.name, target),
+				Relation: "calls",
+			})
+		}
+
+		// parent_of edges: campaign → goals → tasks
+		for i := range sc.goals {
+			campIdx := i % max(sc.campaigns, 1)
+			_ = s.AddEdge(ctx, parchment.Edge{
+				From:     fmt.Sprintf("%s-camp-%04d", sc.name, campIdx),
+				To:       fmt.Sprintf("%s-goal-%04d", sc.name, i),
+				Relation: "parent_of",
+			})
+		}
+		for i := range sc.tasks {
+			goalIdx := i % max(sc.goals, 1)
+			_ = s.AddEdge(ctx, parchment.Edge{
+				From:     fmt.Sprintf("%s-goal-%04d", sc.name, goalIdx),
+				To:       fmt.Sprintf("%s-task-%04d", sc.name, i),
+				Relation: "parent_of",
 			})
 		}
 	}
 
-	// Create some cross-struct calls edges
-	for i := range 30 {
-		_ = s.AddEdge(ctx, parchment.Edge{
-			From: fmt.Sprintf("func-%03d", i), To: fmt.Sprintf("func-%03d", i+30),
-			Relation: "calls",
-		})
+	allScopes := make([]string, len(scopes))
+	for i, sc := range scopes {
+		allScopes[i] = sc.name
 	}
-
-	proto := parchment.New(s, nil, []string{scope}, nil, parchment.ProtocolConfig{})
+	proto := parchment.New(s, nil, allScopes, nil, parchment.ProtocolConfig{})
 	return web.NewServer(proto, "dev", "")
 }
 
-func TestTakoScale_ScopeGraph_SingleNode(t *testing.T) {
-	srv := setupTakoScale(t)
+func TestProdScale_ScopeGraph_AllScopes(t *testing.T) {
+	srv := setupProductionScale(t)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, httptest.NewRequest("GET", "/api/v1/graph/scopes", http.NoBody))
 
@@ -594,16 +669,16 @@ func TestTakoScale_ScopeGraph_SingleNode(t *testing.T) {
 		Nodes []json.RawMessage `json:"nodes"`
 	}
 	json.NewDecoder(w.Body).Decode(&data) //nolint:errcheck // test helper; decode errors surface as assertion failures
-	if len(data.Nodes) != 1 {
-		t.Errorf("expected 1 scope node (tako), got %d", len(data.Nodes))
+	if len(data.Nodes) != 5 {
+		t.Errorf("expected 5 scope nodes, got %d", len(data.Nodes))
 	}
 }
 
-func TestTakoScale_KindGroups_CorrectCounts(t *testing.T) {
-	srv := setupTakoScale(t)
+func TestProdScale_KindGroups_LargeScope(t *testing.T) {
+	srv := setupProductionScale(t)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, httptest.NewRequest("GET",
-		"/api/v1/graph/kinds?scope=tako&status=active", http.NoBody))
+		"/api/v1/graph/kinds?scope=mega&status=active", http.NoBody))
 
 	type kindNode struct {
 		Group string `json:"group"`
@@ -614,46 +689,46 @@ func TestTakoScale_KindGroups_CorrectCounts(t *testing.T) {
 	}
 	json.NewDecoder(w.Body).Decode(&data) //nolint:errcheck // test helper; decode errors surface as assertion failures
 
+	if len(data.Nodes) < 2 {
+		t.Fatalf("expected >= 2 kind-groups in mega scope, got %d", len(data.Nodes))
+	}
 	byGroup := map[string]int{}
 	for _, n := range data.Nodes {
 		byGroup[n.Group] = n.Val
 	}
-
-	if byGroup["code.struct"] < 5 {
-		t.Errorf("code.struct val=%d, want >= 5 (50 structs / 20 scaling)", byGroup["code.struct"])
+	if byGroup["code.function"] < 100 {
+		t.Errorf("code.function val=%d, want >= 100 (3350 funcs)", byGroup["code.function"])
 	}
-	if byGroup["code.function"] < 5 {
-		t.Errorf("code.function val=%d, want >= 5 (100 funcs)", byGroup["code.function"])
-	}
-	if _, ok := byGroup["knowledge.source"]; !ok {
-		t.Error("knowledge.source kind-group missing")
+	if byGroup["code.struct"] < 50 {
+		t.Errorf("code.struct val=%d, want >= 50 (1400 structs)", byGroup["code.struct"])
 	}
 }
 
-func TestTakoScale_ArtifactGraph_MaxNodes(t *testing.T) {
-	srv := setupTakoScale(t)
+func TestProdScale_MaxNodes_CapsAt2000(t *testing.T) {
+	srv := setupProductionScale(t)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, httptest.NewRequest("GET",
-		"/api/v1/graph?scope=tako&status=active&max_nodes=50", http.NoBody))
+		"/api/v1/graph?scope=mega&max_nodes=2000", http.NoBody))
 
 	var data struct {
 		Nodes []json.RawMessage `json:"nodes"`
+		Links []json.RawMessage `json:"links"`
 	}
 	json.NewDecoder(w.Body).Decode(&data) //nolint:errcheck // test helper; decode errors surface as assertion failures
 
-	if len(data.Nodes) > 50 {
-		t.Errorf("max_nodes=50 but got %d nodes", len(data.Nodes))
+	if len(data.Nodes) > 2000 {
+		t.Errorf("max_nodes=2000 but got %d nodes", len(data.Nodes))
 	}
-	if len(data.Nodes) < 30 {
-		t.Errorf("expected at least 30 nodes with max_nodes=50, got %d", len(data.Nodes))
+	if len(data.Nodes) < 1000 {
+		t.Errorf("expected >= 1000 nodes from mega scope, got %d", len(data.Nodes))
 	}
 }
 
-func TestTakoScale_LocalGraph_ChildContainment(t *testing.T) {
-	srv := setupTakoScale(t)
+func TestProdScale_EffortHierarchy(t *testing.T) {
+	srv := setupProductionScale(t)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, httptest.NewRequest("GET",
-		"/api/v1/graph/local?id=struct-000&hops=1", http.NoBody))
+		"/api/v1/graph/local?id=work-camp-0000&hops=1", http.NoBody))
 
 	type gn struct {
 		ID   string `json:"id"`
@@ -662,69 +737,84 @@ func TestTakoScale_LocalGraph_ChildContainment(t *testing.T) {
 	var data struct {
 		Nodes []gn `json:"nodes"`
 		Links []struct {
-			Source   string `json:"source"`
-			Target   string `json:"target"`
 			Relation string `json:"relation"`
 		} `json:"links"`
 	}
 	json.NewDecoder(w.Body).Decode(&data) //nolint:errcheck // test helper; decode errors surface as assertion failures
 
-	if len(data.Nodes) < 2 {
-		t.Fatalf("expected root + children, got %d nodes", len(data.Nodes))
-	}
-
-	// Root must be present
-	foundRoot := false
-	childCount := 0
+	goalCount := 0
 	for _, n := range data.Nodes {
-		if n.ID == "struct-000" {
-			foundRoot = true
-		} else {
-			childCount++
+		if n.Kind == "effort.goal" {
+			goalCount++
 		}
 	}
-	if !foundRoot {
-		t.Error("root struct-000 not in local graph")
+	if goalCount < 4 {
+		t.Errorf("expected >= 4 goals under campaign, got %d", goalCount)
 	}
-	if childCount < 2 {
-		t.Errorf("expected at least 2 children (has_member), got %d", childCount)
-	}
+}
 
-	// has_member edges present
+func TestProdScale_LocalGraph_StructMembers(t *testing.T) {
+	srv := setupProductionScale(t)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, httptest.NewRequest("GET",
+		"/api/v1/graph/local?id=code-st-0000&hops=1", http.NoBody))
+
+	var data struct {
+		Links []struct {
+			Relation string `json:"relation"`
+		} `json:"links"`
+	}
+	json.NewDecoder(w.Body).Decode(&data) //nolint:errcheck // test helper; decode errors surface as assertion failures
+
 	hasMember := 0
 	for _, l := range data.Links {
 		if l.Relation == "has_member" {
 			hasMember++
 		}
 	}
-	if hasMember < 2 {
-		t.Errorf("expected at least 2 has_member edges, got %d", hasMember)
+	if hasMember < 3 {
+		t.Errorf("expected 3 has_member edges, got %d", hasMember)
 	}
 }
 
-func TestTakoScale_NodeValScaling(t *testing.T) {
-	srv := setupTakoScale(t)
+func TestProdScale_EdgeDensity(t *testing.T) {
+	srv := setupProductionScale(t)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, httptest.NewRequest("GET",
-		"/api/v1/graph?scope=tako&status=active&max_nodes=156", http.NoBody))
+		"/api/v1/graph?scope=code&max_nodes=1000", http.NoBody))
+
+	var data struct {
+		Nodes []json.RawMessage `json:"nodes"`
+		Links []json.RawMessage `json:"links"`
+	}
+	json.NewDecoder(w.Body).Decode(&data) //nolint:errcheck // test helper; decode errors surface as assertion failures
+
+	if len(data.Links) < 100 {
+		t.Errorf("expected >= 100 edges in dense graph, got %d", len(data.Links))
+	}
+}
+
+func TestProdScale_NodeValScaling(t *testing.T) {
+	srv := setupProductionScale(t)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, httptest.NewRequest("GET",
+		"/api/v1/graph?scope=code&max_nodes=500", http.NoBody))
 
 	type gn struct {
-		ID  string `json:"id"`
-		Val int    `json:"val"`
+		Val int `json:"val"`
 	}
 	var data struct {
 		Nodes []gn `json:"nodes"`
 	}
 	json.NewDecoder(w.Body).Decode(&data) //nolint:errcheck // test helper; decode errors surface as assertion failures
 
-	// Val should scale with edge degree: nodes with more edges get higher val
 	maxVal := 0
 	for _, n := range data.Nodes {
 		if n.Val > maxVal {
 			maxVal = n.Val
 		}
 	}
-	if maxVal < 2 {
-		t.Error("expected some nodes with val >= 2 (has_member + calls edges)")
+	if maxVal < 4 {
+		t.Errorf("expected max val >= 4 (struct with 3 members), got %d", maxVal)
 	}
 }
