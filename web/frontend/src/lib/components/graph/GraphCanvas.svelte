@@ -873,7 +873,9 @@
       }
     }
 
-    // Reheat simulation so new nodes spread out via physics
+    // Reheat simulation so new nodes spread out via physics.
+    // Claim user lock so fitCamera() doesn't jump the viewport.
+    onUserInteract();
     simulation?.alpha(0.5).restart();
 
     uploadNodes();

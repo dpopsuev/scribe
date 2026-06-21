@@ -109,17 +109,23 @@
     const parent = nodes[parentIdx];
 
     const pack = computePacking(parent.size, childData.length);
-    const { childSize, orbitRadius, parentSize } = pack;
+    const { childSize, orbitRadius } = pack;
+    // Cap parent visual growth to 1.5× to prevent balloon effect
+    const parentSize = Math.min(pack.parentSize, parent.size * 1.5);
+    // Scale children to fit the capped parent
+    const scale = parentSize / pack.parentSize;
+    const scaledChildSize = childSize * scale;
+    const scaledOrbit = orbitRadius * scale;
     const goldenAngle = 137.508 * Math.PI / 180;
 
     const newNodes: GraphNode[] = childData.map((raw, i) => {
       const angle = i * goldenAngle;
-      const r = orbitRadius * Math.sqrt((i + 0.5) / childData.length);
+      const r = scaledOrbit * Math.sqrt((i + 0.5) / childData.length);
       return {
         id: raw.id, label: raw.name,
         x: parent.x + r * Math.cos(angle),
         y: parent.y + r * Math.sin(angle),
-        size: childSize,
+        size: scaledChildSize,
         color: kindColor(raw.kind), kind: raw.kind,
         depth: (parent.depth || 0) + 1,
       };
@@ -140,24 +146,25 @@
   async function expandScope(scopeName: string) {
     if (expanded.has(scopeName)) return;
     const status = 'work.draft,work.active,work.blocked,work.complete,note.fleeting,note.mature,note.evergreen,decision.proposed,decision.accepted,active';
-    const res = await fetch(`/api/v1/graph/kinds?scope=${encodeURIComponent(scopeName)}&status=${encodeURIComponent(status)}`);
+    const res = await fetch(`/api/v1/graph?scope=${encodeURIComponent(scopeName)}&status=${encodeURIComponent(status)}&relations=parent_of&max_nodes=200`);
     const data = await res.json();
-    expandNode(`project:${scopeName}`, data.nodes, data.links);
+    // Show only top-level artifacts (campaigns) — those with no incoming parent_of edges
+    const hasParent = new Set(data.links.filter((l: any) => l.relation === 'parent_of').map((l: any) => l.target));
+    const topLevel = data.nodes.filter((n: any) => !hasParent.has(n.id));
+    const topIds = new Set(topLevel.map((n: any) => n.id));
+    const topLinks = data.links.filter((l: any) => topIds.has(l.source) && topIds.has(l.target));
+    expandNode(`project:${scopeName}`, topLevel, topLinks);
     expanded = new Set([...expanded, scopeName]);
   }
 
-  async function expandKindGroup(node: GraphNode) {
-    const parts = node.id.replace('kind:', '').split(':');
-    if (parts.length < 2) return;
-    const scope = parts[0];
-    const kindName = parts.slice(1).join(':');
-    const status = 'work.draft,work.active,work.blocked,work.complete,note.fleeting,note.mature,note.evergreen,decision.proposed,decision.accepted';
-    const res = await fetch(`/api/v1/graph?scope=${encodeURIComponent(scope)}&status=${encodeURIComponent(status)}&max_nodes=200`);
+  async function expandArtifact(node: GraphNode) {
+    if (expanded.has(node.id)) return;
+    const res = await fetch(`/api/v1/graph/local?id=${encodeURIComponent(node.id)}&hops=1`);
     const data = await res.json();
-    const childIds = new Set(data.nodes.filter((n: any) => n.kind === kindName).map((n: any) => n.id));
-    const filtered = data.nodes.filter((n: any) => childIds.has(n.id));
-    const filteredLinks = data.links.filter((l: any) => childIds.has(l.source) && childIds.has(l.target));
-    expandNode(node.id, filtered, filteredLinks);
+    const children = data.nodes.filter((n: any) => n.id !== node.id);
+    const childLinks = data.links.filter((l: any) => l.source !== node.id || l.relation === 'parent_of');
+    expandNode(node.id, children, childLinks);
+    expanded = new Set([...expanded, node.id]);
   }
 
   // ── Interaction ───────────────────────────────────────────────────────
@@ -201,8 +208,14 @@
       expandScope(node.label || node.id.replace('project:', ''));
       return;
     }
+    // Effort hierarchy: campaigns → goals → tasks (drill into children)
+    const effortKinds = ['effort.campaign', 'effort.goal', 'knowledge.context'];
+    if (effortKinds.includes(node.kind || '')) {
+      expandArtifact(node);
+      return;
+    }
     if (node.kind === 'kind-group') {
-      expandKindGroup(node);
+      expandArtifact(node);
       return;
     }
     openSidebar(node.id);
