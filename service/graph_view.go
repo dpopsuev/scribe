@@ -105,7 +105,7 @@ func BuildArtifactGraph(ctx context.Context, svc *Service, scope string, statuse
 	for _, a := range arts {
 		ids = append(ids, a.ID)
 	}
-	edges, _ := svc.Proto.Store().ListEdges(ctx, ids, relations)
+	edges, _ := batchedListEdges(ctx, svc.Proto.Store(), ids, relations)
 	degree := make(map[string]int, len(ids))
 	for _, e := range edges {
 		degree[e.From]++
@@ -142,6 +142,39 @@ func BuildArtifactGraph(ctx context.Context, svc *Service, scope string, statuse
 		})
 	}
 	return GraphData{Nodes: nodes, Links: links}, nil
+}
+
+const edgeBatchSize = 400
+
+// batchedListEdges splits large ID sets into batches to avoid SQLite
+// bind-parameter overhead. At 4840 IDs, ListEdges generates 9680 bind
+// params — the bind() call alone takes 44% of CPU. Batching by from_id
+// via ListEdgesFrom and filtering to_id in memory reduces bind params ~10×.
+func batchedListEdges(ctx context.Context, store parchment.Store, ids, relations []string) ([]parchment.Edge, error) {
+	if len(ids) <= edgeBatchSize {
+		return store.ListEdges(ctx, ids, relations)
+	}
+
+	idSet := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		idSet[id] = true
+	}
+
+	var all []parchment.Edge
+	for i := 0; i < len(ids); i += edgeBatchSize {
+		end := min(i+edgeBatchSize, len(ids))
+		batch := ids[i:end]
+		edges, err := store.ListEdgesFrom(ctx, batch, relations)
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range edges {
+			if idSet[e.To] {
+				all = append(all, e)
+			}
+		}
+	}
+	return all, nil
 }
 
 // BuildLocalGraph returns a neighborhood graph rooted at one artifact.
