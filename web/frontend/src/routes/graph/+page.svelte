@@ -142,9 +142,32 @@
   async function expandScope(scopeName: string) {
     if (expanded.has(scopeName)) return;
     const status = 'work.draft,work.active,work.blocked,work.complete,note.fleeting,note.mature,note.evergreen,decision.proposed,decision.accepted,active';
-    const res = await fetch(`/api/v1/graph/kinds?scope=${encodeURIComponent(scopeName)}&status=${encodeURIComponent(status)}`);
-    const data = await res.json();
-    expandNode(`project:${scopeName}`, data.nodes, data.links);
+
+    // Fetch kind-groups and campaigns in parallel
+    const [kindsRes, campaignsRes] = await Promise.all([
+      fetch(`/api/v1/graph/kinds?scope=${encodeURIComponent(scopeName)}&status=${encodeURIComponent(status)}`),
+      fetch(`/api/v1/graph?scope=${encodeURIComponent(scopeName)}&status=${encodeURIComponent(status)}&max_nodes=50`),
+    ]);
+    const kindsData = await kindsRes.json();
+    const artData = await campaignsRes.json();
+
+    // Keep non-effort kind-groups (code.*, knowledge.*, support.*, intent.*)
+    const effortKinds = new Set(['effort.campaign', 'effort.goal', 'effort.task']);
+    const nonEffortGroups = kindsData.nodes.filter((n: any) => !effortKinds.has(n.name));
+    const nonEffortLinks = kindsData.links.filter((l: any) => {
+      const srcEffort = kindsData.nodes.find((n: any) => n.id === l.source && effortKinds.has(n.name));
+      const tgtEffort = kindsData.nodes.find((n: any) => n.id === l.target && effortKinds.has(n.name));
+      return !srcEffort && !tgtEffort;
+    });
+
+    // Add actual campaigns as direct children (not kind-groups)
+    const campaigns = artData.nodes.filter((n: any) => n.kind === 'effort.campaign');
+    const campaignLinks = artData.links.filter((l: any) => {
+      const campIds = new Set(campaigns.map((c: any) => c.id));
+      return campIds.has(l.source) && campIds.has(l.target);
+    });
+
+    expandNode(`project:${scopeName}`, [...nonEffortGroups, ...campaigns], [...nonEffortLinks, ...campaignLinks]);
     expanded = new Set([...expanded, scopeName]);
   }
 

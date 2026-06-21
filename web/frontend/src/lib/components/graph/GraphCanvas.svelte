@@ -263,38 +263,10 @@
     // Build parent lookup for containment clamping (O(1) per tick)
     simNodeById = new Map(simNodes.map((n: any) => [n.id, n]));
 
-    // Domain clustering: group same-prefix kinds together (effort.*, knowledge.*, etc.)
-    function forceDomainCluster(strength: number) {
-      return function(alpha: number) {
-        const centroids = new Map<string, { x: number; y: number; count: number }>();
-        for (const n of simNodes) {
-          const domain = (n._kind || '').split('.')[0] || '';
-          if (!domain) continue;
-          const c = centroids.get(domain) || { x: 0, y: 0, count: 0 };
-          c.x += n.x || 0;
-          c.y += n.y || 0;
-          c.count++;
-          centroids.set(domain, c);
-        }
-        for (const c of centroids.values()) {
-          c.x /= c.count;
-          c.y /= c.count;
-        }
-        for (const n of simNodes) {
-          const domain = (n._kind || '').split('.')[0] || '';
-          const c = centroids.get(domain);
-          if (!c || c.count < 2) continue;
-          n.vx = (n.vx || 0) + (c.x - (n.x || 0)) * strength * alpha;
-          n.vy = (n.vy || 0) + (c.y - (n.y || 0)) * strength * alpha;
-        }
-      };
-    }
-
     simulation = forceSimulation(simNodes)
       .force('gravity', forceGravity(0.2, avgSize * 3))
       .force('charge', forceManyBody().strength((d: any) => -(d._size || 5) * 2.5).distanceMax(avgSize * 12))
       .force('center', forceCenter(0, 0).strength(0.08))
-      .force('cluster', forceDomainCluster(0.15))
       .force('collision', forceCollide().radius((d: any) => (d._size || 5) * 1.6 + 4).strength(0.6).iterations(3))
       .force('link', forceLink(simLinks).id((d: any) => d.id)
         .distance((l: any) => {
