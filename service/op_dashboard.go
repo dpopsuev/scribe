@@ -10,11 +10,23 @@ import (
 	parchment "github.com/dpopsuev/parchment"
 )
 
+type dashboardInput struct {
+	Scope  string `json:"scope,omitempty"`
+	Format string `json:"format,omitempty"`
+}
+
 var opDashboard = Op{
 	Name: "dashboard",
 	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
+		var in dashboardInput
+		_ = json.Unmarshal(raw, &in)
+
+		campaignLabels := []string{labelCampaign}
+		if in.Scope != "" {
+			campaignLabels = append(campaignLabels, parchment.LabelPrefixScope+in.Scope)
+		}
 		campaigns, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{
-			Labels: []string{labelCampaign},
+			Labels: campaignLabels,
 		})
 
 		type campStats struct {

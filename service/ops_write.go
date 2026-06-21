@@ -255,6 +255,7 @@ type updateInput struct {
 	Kind           string              `json:"kind,omitempty"`
 	Sections       []map[string]string `json:"sections,omitempty"`
 	SectionsDelete []string            `json:"sections_delete,omitempty"`
+	Extra          map[string]any      `json:"extra,omitempty"`
 	Query          string              `json:"query,omitempty"`
 	Text           string              `json:"text,omitempty"`
 	Body           string              `json:"body,omitempty"`
@@ -289,8 +290,8 @@ var opUpdate = Op{
 			}
 		}
 		hasSectionReplace := in.Query != "" && (in.Text != "" || in.Body != "")
-		if len(fieldMap) == 0 && len(in.Sections) == 0 && !hasSectionReplace && len(in.SectionsDelete) == 0 {
-			return "", fmt.Errorf("update requires at least one field, section, sections_delete, or query+text for find-replace") //nolint:err113 // user-facing hint
+		if len(fieldMap) == 0 && len(in.Sections) == 0 && !hasSectionReplace && len(in.SectionsDelete) == 0 && len(in.Extra) == 0 {
+			return "", fmt.Errorf("update requires at least one field, section, sections_delete, extra, or query+text for find-replace") //nolint:err113 // user-facing hint
 		}
 		var lines []string
 		for _, id := range ids {
@@ -360,6 +361,18 @@ var opUpdate = Op{
 					lines = append(lines, fmt.Sprintf("%s: section %q removed", id, name))
 				} else {
 					lines = append(lines, fmt.Sprintf("%s: section %q not found", id, name))
+				}
+			}
+			if len(in.Extra) > 0 {
+				err := svc.Proto.PatchArtifact(ctx, id, parchment.ArtifactPatch{SetExtra: in.Extra})
+				if err != nil {
+					lines = append(lines, fmt.Sprintf("%s -> error: extra: %v", id, err))
+				} else {
+					keys := make([]string, 0, len(in.Extra))
+					for k := range in.Extra {
+						keys = append(keys, k)
+					}
+					lines = append(lines, fmt.Sprintf("%s: extra keys set: %s", id, strings.Join(keys, ", ")))
 				}
 			}
 		}

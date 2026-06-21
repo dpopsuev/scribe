@@ -85,3 +85,125 @@ func TestHygiene_Clean(t *testing.T) {
 		t.Errorf("expected clean result, got: %s", out)
 	}
 }
+
+func runHygieneJSON(t *testing.T, svc *service.Service) service.HygieneOutput {
+	t.Helper()
+	op := service.Find("hygiene")
+	if op == nil {
+		t.Fatal("hygiene op not registered")
+	}
+	raw, _ := json.Marshal(map[string]any{"scope": "test", "format": "full"})
+	out, err := op.Run(context.Background(), svc, raw)
+	if err != nil {
+		t.Fatalf("hygiene error: %v", err)
+	}
+	var ho service.HygieneOutput
+	if err := json.Unmarshal([]byte(out), &ho); err != nil {
+		t.Fatalf("failed to unmarshal hygiene JSON: %v\nraw: %s", err, out)
+	}
+	return ho
+}
+
+func TestHygiene_FormatFull_ReturnsJSON(t *testing.T) {
+	t.Parallel()
+	svc := newTestService(t, "test")
+	ctx := context.Background()
+
+	_ = svc.Proto.Store().Put(ctx, &parchment.Artifact{
+		ID: "camp-json", Title: "JSON Campaign",
+		Labels: []string{"kind:effort.campaign", "project:test", "work.active"},
+	})
+
+	ho := runHygieneJSON(t, svc)
+	if ho.Total == 0 {
+		t.Error("expected at least one finding in JSON output")
+	}
+	if len(ho.Findings) != ho.Total {
+		t.Errorf("findings count mismatch: total=%d, findings=%d", ho.Total, len(ho.Findings))
+	}
+	if len(ho.Summary) == 0 {
+		t.Error("expected non-empty summary in JSON output")
+	}
+}
+
+func TestHygiene_FindingsAreSortedByScore(t *testing.T) {
+	t.Parallel()
+	svc := newTestService(t, "test")
+	ctx := context.Background()
+
+	// Create a zombie campaign (high/certain → score 9) and an orphan (low/likely → score 2)
+	_ = svc.Proto.Store().Put(ctx, &parchment.Artifact{
+		ID: "camp-sort", Title: "Zombie",
+		Labels: []string{"kind:effort.campaign", "project:test", "work.active"},
+	})
+	_ = svc.Proto.Store().Put(ctx, &parchment.Artifact{
+		ID: "orphan-sort", Title: "Orphan",
+		Labels: []string{"kind:effort.task", "project:test", "work.draft"},
+	})
+
+	ho := runHygieneJSON(t, svc)
+	if len(ho.Findings) < 2 {
+		t.Fatalf("expected at least 2 findings, got %d", len(ho.Findings))
+	}
+	if ho.Findings[0].Score < ho.Findings[len(ho.Findings)-1].Score {
+		t.Error("findings should be sorted by score descending")
+	}
+}
+
+func TestHygiene_SafeAutofix_LifecycleMismatch(t *testing.T) {
+	t.Parallel()
+	svc := newTestService(t, "test")
+	ctx := context.Background()
+
+	_ = svc.Proto.Store().Put(ctx, &parchment.Artifact{
+		ID: "mismatch-test", Title: "Mismatch",
+		Labels: []string{"kind:effort.task", "project:test", "note.fleeting"},
+	})
+
+	ho := runHygieneJSON(t, svc)
+	found := false
+	for _, f := range ho.Findings {
+		if f.Category == "lifecycle_mismatch" {
+			found = true
+			if !f.SafeAutofix {
+				t.Error("lifecycle_mismatch should have safe_autofix=true")
+			}
+			if f.SuggestedFix == nil {
+				t.Error("lifecycle_mismatch should have a suggested_fix")
+			}
+		}
+	}
+	if !found {
+		t.Error("expected lifecycle_mismatch finding")
+	}
+}
+
+func TestHygiene_OwnerFromProvenance(t *testing.T) {
+	t.Parallel()
+	svc := newTestService(t, "test")
+	ctx := context.Background()
+
+	_ = svc.Proto.Store().Put(ctx, &parchment.Artifact{
+		ID: "prov-test", Title: "Provenance Test Campaign",
+		Labels: []string{"kind:effort.campaign", "project:test", "work.active"},
+		Extra: map[string]any{
+			"provenance": map[string]any{
+				"session_id": "ses-abc123",
+			},
+		},
+	})
+
+	ho := runHygieneJSON(t, svc)
+	found := false
+	for _, f := range ho.Findings {
+		if f.ID == "prov-test" {
+			found = true
+			if f.Owner != "ses-abc123" {
+				t.Errorf("expected owner=ses-abc123, got %q", f.Owner)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected finding for prov-test")
+	}
+}

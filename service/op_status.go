@@ -24,6 +24,15 @@ var opStatus = Op{
 
 		scopes := svc.HomeScopes
 		if len(scopes) == 0 {
+			if infos, err := svc.Proto.ListScopeInfo(ctx); err == nil {
+				for _, si := range infos {
+					if si.Scope != "" {
+						scopes = append(scopes, si.Scope)
+					}
+				}
+			}
+		}
+		if len(scopes) == 0 {
 			scopes = []string{"(none)"}
 		}
 
