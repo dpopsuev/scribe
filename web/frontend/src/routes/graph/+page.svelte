@@ -109,23 +109,17 @@
     const parent = nodes[parentIdx];
 
     const pack = computePacking(parent.size, childData.length);
-    const { childSize, orbitRadius } = pack;
-    // Cap parent visual growth to 1.5× to prevent balloon effect
-    const parentSize = Math.min(pack.parentSize, parent.size * 1.5);
-    // Scale children to fit the capped parent
-    const scale = parentSize / pack.parentSize;
-    const scaledChildSize = childSize * scale;
-    const scaledOrbit = orbitRadius * scale;
+    const { childSize, orbitRadius, parentSize } = pack;
     const goldenAngle = 137.508 * Math.PI / 180;
 
     const newNodes: GraphNode[] = childData.map((raw, i) => {
       const angle = i * goldenAngle;
-      const r = scaledOrbit * Math.sqrt((i + 0.5) / childData.length);
+      const r = orbitRadius * Math.sqrt((i + 0.5) / childData.length);
       return {
         id: raw.id, label: raw.name,
         x: parent.x + r * Math.cos(angle),
         y: parent.y + r * Math.sin(angle),
-        size: scaledChildSize,
+        size: childSize,
         color: kindColor(raw.kind), kind: raw.kind,
         depth: (parent.depth || 0) + 1,
       };

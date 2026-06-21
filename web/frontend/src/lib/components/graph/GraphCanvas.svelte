@@ -263,7 +263,7 @@
       .force('gravity', forceGravity(0.2, avgSize * 3))
       .force('charge', forceManyBody().strength((d: any) => -(d._size || 5) * 2.5).distanceMax(avgSize * 12))
       .force('center', forceCenter(0, 0).strength(0.08))
-      .force('collision', forceCollide().radius((d: any) => (d._size || 5) * 1.4 + 2).strength(0.5).iterations(3))
+      .force('collision', forceCollide().radius((d: any) => (d._size || 5) * 1.6 + 4).strength(0.6).iterations(3))
       .force('link', forceLink(simLinks).id((d: any) => d.id)
         .distance((l: any) => {
           const s1 = l.source?._size || 5;

@@ -7,7 +7,9 @@
 // 4. Leaf nodes are at least MIN_CHILD_SIZE
 
 export const PACKING_K = 1.3;
-export const MIN_CHILD_SIZE = 0.3;
+// Minimum child size guarantees label legibility: at default zoom (~2),
+// a node needs ≥3 world units to produce ≥6px screen diameter.
+export const MIN_CHILD_SIZE = 3;
 
 export interface PackResult {
   childSize: number;

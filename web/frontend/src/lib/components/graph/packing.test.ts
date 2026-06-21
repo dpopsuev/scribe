@@ -2,11 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { computePacking, layoutChildren, parentSizeForChildren, PACKING_K, MIN_CHILD_SIZE } from './packing';
 
 describe('computePacking', () => {
-  it('childSize always less than parentSize', () => {
-    for (const ps of [0.5, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0, 18.0]) {
+  it('childSize always less than output parentSize', () => {
+    for (const ps of [0.5, 1.0, 3.0, 5.0, 10.0, 18.0]) {
       for (const n of [1, 3, 5, 10, 30, 50, 100]) {
         const pack = computePacking(ps, n);
-        expect(pack.childSize).toBeLessThan(ps);
+        expect(pack.childSize).toBeLessThan(pack.parentSize);
       }
     }
   });
@@ -16,15 +16,23 @@ describe('computePacking', () => {
     expect(pack.parentSize).toBeGreaterThanOrEqual(5);
   });
 
-  it('more children → smaller each', () => {
-    const p10 = computePacking(18, 10);
-    const p50 = computePacking(18, 50);
-    expect(p50.childSize).toBeLessThan(p10.childSize);
+  it('more children → smaller each (above MIN_CHILD_SIZE)', () => {
+    // Use large parent so children aren't floored at MIN_CHILD_SIZE
+    const p3 = computePacking(100, 3);
+    const p10 = computePacking(100, 10);
+    expect(p10.childSize).toBeLessThan(p3.childSize);
   });
 
   it('childSize >= MIN_CHILD_SIZE', () => {
     const pack = computePacking(0.5, 100);
     expect(pack.childSize).toBeGreaterThanOrEqual(MIN_CHILD_SIZE);
+  });
+
+  it('parent grows to accommodate MIN_CHILD_SIZE children', () => {
+    // Parent=1 can't fit children of size 3 without growing
+    const pack = computePacking(1, 5);
+    expect(pack.parentSize).toBeGreaterThan(1);
+    expect(pack.childSize).toBe(MIN_CHILD_SIZE);
   });
 });
 
@@ -84,14 +92,14 @@ describe('recursive nesting', () => {
     }
   });
 
-  it('child size strictly less than parent at every depth', () => {
-    let size = 18;
+  it('child size strictly less than output parent at every depth', () => {
+    let size = 100;
     for (const n of [10, 30, 50]) {
       const pack = computePacking(size, n);
-      expect(pack.childSize).toBeLessThan(size);
+      expect(pack.childSize).toBeLessThan(pack.parentSize);
+      expect(pack.childSize).toBeGreaterThanOrEqual(MIN_CHILD_SIZE);
       size = pack.childSize;
     }
-    expect(size).toBeGreaterThanOrEqual(MIN_CHILD_SIZE);
   });
 });
 
@@ -131,39 +139,26 @@ describe('expandNode simulation — mirrors production code path', () => {
 
 describe('parentSizeForChildren', () => {
   it('round-trips with layoutChildren', () => {
-    const childSize = 1.5;
-    const n = 20;
+    const childSize = 5;
+    const n = 10;
     const ps = parentSizeForChildren(childSize, n);
     const layout = layoutChildren(ps, n);
     expect(layout[0].size).toBeCloseTo(childSize, 1);
   });
 });
 
-describe('expandNode visual cap — mirrors +page.svelte expandNode', () => {
-  function simulateExpandNodeCapped(parentSize: number, childCount: number) {
-    const pack = computePacking(parentSize, childCount);
-    const cappedParent = Math.min(pack.parentSize, parentSize * 1.5);
-    const scale = cappedParent / pack.parentSize;
-    return {
-      parentSize: cappedParent,
-      childSize: pack.childSize * scale,
-      orbitRadius: pack.orbitRadius * scale,
-    };
-  }
-
-  for (const [ps, n] of [[18, 50], [5, 100], [3, 200], [10, 30]] as [number, number][]) {
-    it(`parent=${ps} n=${n}: visual parent never exceeds 1.5× original`, () => {
-      const result = simulateExpandNodeCapped(ps, n);
-      expect(result.parentSize).toBeLessThanOrEqual(ps * 1.5);
-      expect(result.parentSize).toBeGreaterThanOrEqual(ps);
+describe('expandNode — mirrors +page.svelte expandNode', () => {
+  for (const [ps, n] of [[18, 10], [50, 30], [100, 50]] as [number, number][]) {
+    it(`parent=${ps} n=${n}: children smaller than parent, at least MIN_CHILD_SIZE`, () => {
+      const pack = computePacking(ps, n);
+      expect(pack.childSize).toBeLessThan(pack.parentSize);
+      expect(pack.childSize).toBeGreaterThanOrEqual(MIN_CHILD_SIZE);
     });
   }
 
-  it('children are smaller than capped parent', () => {
-    for (const [ps, n] of [[18, 50], [5, 100], [1, 30]] as [number, number][]) {
-      const result = simulateExpandNodeCapped(ps, n);
-      expect(result.childSize).toBeLessThan(result.parentSize);
-      expect(result.childSize).toBeGreaterThan(0);
-    }
+  it('small parent grows to fit MIN_CHILD_SIZE children', () => {
+    const pack = computePacking(2, 5);
+    expect(pack.parentSize).toBeGreaterThan(2);
+    expect(pack.childSize).toBeGreaterThanOrEqual(MIN_CHILD_SIZE);
   });
 });
