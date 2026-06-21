@@ -333,7 +333,7 @@
     }
     prevFrameTs = timestamp;
 
-    // Flush simulation positions — upload + camera in rAF so labels stay in sync
+    // Flush simulation positions — upload only, no camera auto-fit during settle
     if (simDirty) {
       simDirty = false;
       uploadNodes();
@@ -342,8 +342,6 @@
       if (isTrackingNode(lock)) {
         const fn = simNodes.find((n: any) => n.id === lock.focusNodeId);
         if (fn) { camX = fn.x || 0; camY = fn.y || 0; }
-      } else {
-        fitCamera();
       }
     }
 
@@ -529,7 +527,10 @@
       if (i === hoveredIndex) alpha = 1.0;
       if (alpha < 0.05) continue;
 
-      const fontSize = DEPTH_FONT[Math.min(depth, 3)];
+      // Scale font with zoom for deep nodes — at high zoom, small labels become readable
+      const baseFontSize = DEPTH_FONT[Math.min(depth, 3)];
+      const zoomBoost = depth > 0 ? Math.min(cam.zoom / 3, 4) : 1;
+      const fontSize = Math.round(baseFontSize * Math.max(1, zoomBoost));
       const font = `${fontSize}px system-ui, -apple-system, sans-serif`;
       if (font !== currentFont) {
         ctx.font = font;

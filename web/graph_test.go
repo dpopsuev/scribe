@@ -3,6 +3,7 @@ package web_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -517,5 +518,213 @@ func TestLocalGraph_RequiresID(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	if w.Code != 400 {
 		t.Errorf("expected 400 for missing id, got %d", w.Code)
+	}
+}
+
+// ── Tako-scale E2E: 150+ artifacts with hierarchical structure ───────────
+
+func setupTakoScale(t *testing.T) *web.Server {
+	t.Helper()
+	dir := t.TempDir()
+	s, err := parchment.OpenSQLite(dir + "/tako_scale.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	ctx := context.Background()
+	scope := "tako"
+
+	// Create 50 code.struct, 100 code.function, 5 knowledge.source, 1 intent.spec
+	for i := range 50 {
+		_ = s.Put(ctx, &parchment.Artifact{
+			ID: fmt.Sprintf("struct-%03d", i), Title: fmt.Sprintf("Struct%d", i),
+			Labels: []string{"kind:code.struct", "project:" + scope, "status:active"},
+		})
+	}
+	for i := range 100 {
+		_ = s.Put(ctx, &parchment.Artifact{
+			ID: fmt.Sprintf("func-%03d", i), Title: fmt.Sprintf("Func%d", i),
+			Labels: []string{"kind:code.function", "project:" + scope, "status:active"},
+		})
+	}
+	for i := range 5 {
+		_ = s.Put(ctx, &parchment.Artifact{
+			ID: fmt.Sprintf("src-%03d", i), Title: fmt.Sprintf("Source%d", i),
+			Labels: []string{"kind:knowledge.source", "project:" + scope, "status:active"},
+		})
+	}
+	_ = s.Put(ctx, &parchment.Artifact{
+		ID: "spec-001", Title: "Main Spec",
+		Labels: []string{"kind:intent.spec", "project:" + scope, "status:active"},
+	})
+
+	// Create has_member edges: each struct has ~2 functions
+	for i := range 50 {
+		for j := range 2 {
+			fi := i*2 + j
+			if fi >= 100 {
+				break
+			}
+			_ = s.AddEdge(ctx, parchment.Edge{
+				From: fmt.Sprintf("struct-%03d", i), To: fmt.Sprintf("func-%03d", fi),
+				Relation: "has_member",
+			})
+		}
+	}
+
+	// Create some cross-struct calls edges
+	for i := range 30 {
+		_ = s.AddEdge(ctx, parchment.Edge{
+			From: fmt.Sprintf("func-%03d", i), To: fmt.Sprintf("func-%03d", i+30),
+			Relation: "calls",
+		})
+	}
+
+	proto := parchment.New(s, nil, []string{scope}, nil, parchment.ProtocolConfig{})
+	return web.NewServer(proto, "dev", "")
+}
+
+func TestTakoScale_ScopeGraph_SingleNode(t *testing.T) {
+	srv := setupTakoScale(t)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, httptest.NewRequest("GET", "/api/v1/graph/scopes", http.NoBody))
+
+	var data struct {
+		Nodes []json.RawMessage `json:"nodes"`
+	}
+	json.NewDecoder(w.Body).Decode(&data) //nolint:errcheck // test helper; decode errors surface as assertion failures
+	if len(data.Nodes) != 1 {
+		t.Errorf("expected 1 scope node (tako), got %d", len(data.Nodes))
+	}
+}
+
+func TestTakoScale_KindGroups_CorrectCounts(t *testing.T) {
+	srv := setupTakoScale(t)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, httptest.NewRequest("GET",
+		"/api/v1/graph/kinds?scope=tako&status=active", http.NoBody))
+
+	type kindNode struct {
+		Group string `json:"group"`
+		Val   int    `json:"val"`
+	}
+	var data struct {
+		Nodes []kindNode `json:"nodes"`
+	}
+	json.NewDecoder(w.Body).Decode(&data) //nolint:errcheck // test helper; decode errors surface as assertion failures
+
+	byGroup := map[string]int{}
+	for _, n := range data.Nodes {
+		byGroup[n.Group] = n.Val
+	}
+
+	if byGroup["code.struct"] < 5 {
+		t.Errorf("code.struct val=%d, want >= 5 (50 structs / 20 scaling)", byGroup["code.struct"])
+	}
+	if byGroup["code.function"] < 5 {
+		t.Errorf("code.function val=%d, want >= 5 (100 funcs)", byGroup["code.function"])
+	}
+	if _, ok := byGroup["knowledge.source"]; !ok {
+		t.Error("knowledge.source kind-group missing")
+	}
+}
+
+func TestTakoScale_ArtifactGraph_MaxNodes(t *testing.T) {
+	srv := setupTakoScale(t)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, httptest.NewRequest("GET",
+		"/api/v1/graph?scope=tako&status=active&max_nodes=50", http.NoBody))
+
+	var data struct {
+		Nodes []json.RawMessage `json:"nodes"`
+	}
+	json.NewDecoder(w.Body).Decode(&data) //nolint:errcheck // test helper; decode errors surface as assertion failures
+
+	if len(data.Nodes) > 50 {
+		t.Errorf("max_nodes=50 but got %d nodes", len(data.Nodes))
+	}
+	if len(data.Nodes) < 30 {
+		t.Errorf("expected at least 30 nodes with max_nodes=50, got %d", len(data.Nodes))
+	}
+}
+
+func TestTakoScale_LocalGraph_ChildContainment(t *testing.T) {
+	srv := setupTakoScale(t)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, httptest.NewRequest("GET",
+		"/api/v1/graph/local?id=struct-000&hops=1", http.NoBody))
+
+	type gn struct {
+		ID   string `json:"id"`
+		Kind string `json:"kind"`
+	}
+	var data struct {
+		Nodes []gn `json:"nodes"`
+		Links []struct {
+			Source   string `json:"source"`
+			Target   string `json:"target"`
+			Relation string `json:"relation"`
+		} `json:"links"`
+	}
+	json.NewDecoder(w.Body).Decode(&data) //nolint:errcheck // test helper; decode errors surface as assertion failures
+
+	if len(data.Nodes) < 2 {
+		t.Fatalf("expected root + children, got %d nodes", len(data.Nodes))
+	}
+
+	// Root must be present
+	foundRoot := false
+	childCount := 0
+	for _, n := range data.Nodes {
+		if n.ID == "struct-000" {
+			foundRoot = true
+		} else {
+			childCount++
+		}
+	}
+	if !foundRoot {
+		t.Error("root struct-000 not in local graph")
+	}
+	if childCount < 2 {
+		t.Errorf("expected at least 2 children (has_member), got %d", childCount)
+	}
+
+	// has_member edges present
+	hasMember := 0
+	for _, l := range data.Links {
+		if l.Relation == "has_member" {
+			hasMember++
+		}
+	}
+	if hasMember < 2 {
+		t.Errorf("expected at least 2 has_member edges, got %d", hasMember)
+	}
+}
+
+func TestTakoScale_NodeValScaling(t *testing.T) {
+	srv := setupTakoScale(t)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, httptest.NewRequest("GET",
+		"/api/v1/graph?scope=tako&status=active&max_nodes=156", http.NoBody))
+
+	type gn struct {
+		ID  string `json:"id"`
+		Val int    `json:"val"`
+	}
+	var data struct {
+		Nodes []gn `json:"nodes"`
+	}
+	json.NewDecoder(w.Body).Decode(&data) //nolint:errcheck // test helper; decode errors surface as assertion failures
+
+	// Val should scale with edge degree: nodes with more edges get higher val
+	maxVal := 0
+	for _, n := range data.Nodes {
+		if n.Val > maxVal {
+			maxVal = n.Val
+		}
+	}
+	if maxVal < 2 {
+		t.Error("expected some nodes with val >= 2 (has_member + calls edges)")
 	}
 }
