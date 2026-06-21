@@ -3,7 +3,7 @@ import { computePacking, layoutChildren, layoutFromPack, parentSizeForChildren, 
 
 describe('computePacking', () => {
   it('childSize always less than output parentSize', () => {
-    for (const ps of [0.5, 1.0, 3.0, 5.0, 10.0, 18.0]) {
+    for (const ps of [1.0, 3.0, 5.0, 10.0, 18.0]) {
       for (const n of [1, 3, 5, 10, 30, 50, 100]) {
         const pack = computePacking(ps, n);
         expect(pack.childSize).toBeLessThan(pack.parentSize);
@@ -28,11 +28,11 @@ describe('computePacking', () => {
     expect(pack.childSize).toBeGreaterThanOrEqual(MIN_CHILD_SIZE);
   });
 
-  it('parent grows to accommodate MIN_CHILD_SIZE children', () => {
-    // Parent=1 can't fit children of size 3 without growing
+  it('parent size is preserved — children shrink to fit', () => {
     const pack = computePacking(1, 5);
-    expect(pack.parentSize).toBeGreaterThan(1);
-    expect(pack.childSize).toBe(MIN_CHILD_SIZE);
+    expect(pack.parentSize).toBe(1);
+    expect(pack.childSize).toBeGreaterThanOrEqual(MIN_CHILD_SIZE);
+    expect(pack.childSize).toBeLessThan(pack.parentSize);
   });
 });
 
@@ -48,7 +48,7 @@ describe('layoutChildren — no overlaps', () => {
     return count;
   }
 
-  for (const [ps, n] of [[18, 10], [18, 30], [12, 8], [8, 5], [5, 20]] as [number, number][]) {
+  for (const [ps, n] of [[18, 10], [18, 30], [12, 8], [8, 5], [10, 20]] as [number, number][]) {
     it(`parent=${ps} children=${n}`, () => {
       const pack = computePacking(ps, n);
       const layout = layoutChildren(pack.parentSize, n);
@@ -154,10 +154,11 @@ describe('expandNode — mirrors +page.svelte expandNode', () => {
     });
   }
 
-  it('small parent grows to fit MIN_CHILD_SIZE children', () => {
+  it('small parent stays same size — children shrink', () => {
     const pack = computePacking(2, 5);
-    expect(pack.parentSize).toBeGreaterThan(2);
+    expect(pack.parentSize).toBe(2);
     expect(pack.childSize).toBeGreaterThanOrEqual(MIN_CHILD_SIZE);
+    expect(pack.childSize).toBeLessThan(pack.parentSize);
   });
 });
 

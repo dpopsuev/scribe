@@ -108,8 +108,9 @@
     if (parentIdx < 0) return;
     const parent = nodes[parentIdx];
 
+    // Pack children inside the parent's CURRENT size — parent does not grow
     const pack = computePacking(parent.size, childData.length);
-    const { childSize, orbitRadius, parentSize } = pack;
+    const { childSize, orbitRadius } = pack;
     const goldenAngle = 137.508 * Math.PI / 180;
 
     const newNodes: GraphNode[] = childData.map((raw, i) => {
@@ -130,8 +131,9 @@
       ...newNodes.map(n => ({ source: parentId, target: n.id, color: '#4a4a6a' })),
     ];
 
+    // Parent keeps its original size — only goes hollow (alpha < 0.3)
     nodes = [
-      ...nodes.map((n, i) => i === parentIdx ? { ...n, size: parentSize, color: n.color.substring(0, 7) + '40' } : n),
+      ...nodes.map((n, i) => i === parentIdx ? { ...n, color: n.color.substring(0, 7) + '40' } : n),
       ...newNodes,
     ];
     edges = [...edges, ...newEdges];

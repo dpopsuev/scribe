@@ -18,23 +18,15 @@ export interface PackResult {
 }
 
 export function computePacking(parentSize: number, childCount: number): PackResult {
-  // Parent grows at most 2× to avoid visual explosion over neighbors
-  const maxParent = parentSize * 2;
-  const ringInner = maxParent * 0.85;
-
-  // Child size computed from the max-allowed parent ring
+  // Children fit inside the parent — parent size is fixed, children shrink
+  const ringInner = parentSize * 0.85;
   const childSize = Math.max(MIN_CHILD_SIZE, ringInner / (1 + Math.sqrt(childCount) * PACKING_K));
-  const orbitRadius = childSize * Math.sqrt(childCount) * PACKING_K;
-  const neededSize = (orbitRadius + childSize) / 0.85;
-
-  // Clamp parent, then scale orbit to fit
-  const finalParent = Math.min(Math.max(parentSize, neededSize), maxParent);
-  const finalOrbit = finalParent * 0.85 - childSize;
+  const orbitRadius = parentSize * 0.85 - childSize;
 
   return {
     childSize,
-    orbitRadius: finalOrbit,
-    parentSize: finalParent,
+    orbitRadius,
+    parentSize,
   };
 }
 
