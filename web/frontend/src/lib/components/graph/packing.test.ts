@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computePacking, layoutChildren, parentSizeForChildren, PACKING_K, MIN_CHILD_SIZE } from './packing';
+import { computePacking, layoutChildren, layoutFromPack, parentSizeForChildren, PACKING_K, MIN_CHILD_SIZE } from './packing';
 
 describe('computePacking', () => {
   it('childSize always less than output parentSize', () => {
@@ -61,7 +61,7 @@ describe('containment — children inside parent ring', () => {
   for (const [ps, n] of [[18, 10], [18, 50], [5, 20], [3, 30]] as [number, number][]) {
     it(`parent=${ps} children=${n}`, () => {
       const pack = computePacking(ps, n);
-      const layout = layoutChildren(pack.parentSize, n);
+      const layout = layoutFromPack(pack, n);
       for (const p of layout) {
         expect(Math.hypot(p.x, p.y) + p.size).toBeLessThanOrEqual(pack.parentSize * 1.01);
       }
@@ -76,7 +76,7 @@ describe('recursive nesting', () => {
 
     // Level 1: scope expands into 12 kind-groups
     const l1Pack = computePacking(scopeSize, 12);
-    const l1 = layoutChildren(l1Pack.parentSize, 12);
+    const l1 = layoutFromPack(l1Pack, 12);
     for (const p of l1) {
       expect(Math.hypot(p.x, p.y) + p.size).toBeLessThanOrEqual(l1Pack.parentSize * 1.01);
       expect(p.size).toBeLessThan(l1Pack.parentSize);
@@ -85,7 +85,7 @@ describe('recursive nesting', () => {
     // Level 2: a kind-group (size = l1 child) expands into 30 artifacts
     const kgSize = l1Pack.childSize;
     const l2Pack = computePacking(kgSize, 30);
-    const l2 = layoutChildren(l2Pack.parentSize, 30);
+    const l2 = layoutFromPack(l2Pack, 30);
     for (const p of l2) {
       expect(Math.hypot(p.x, p.y) + p.size).toBeLessThanOrEqual(l2Pack.parentSize * 1.01);
       expect(p.size).toBeLessThan(l2Pack.parentSize);
@@ -161,4 +161,40 @@ describe('expandNode — mirrors +page.svelte expandNode', () => {
     expect(pack.parentSize).toBeGreaterThan(2);
     expect(pack.childSize).toBeGreaterThanOrEqual(MIN_CHILD_SIZE);
   });
+});
+
+describe('parent contains collision circles — the #1 recurring bug', () => {
+  // The d3-force collision radius is: childSize * 1.6 + 4
+  // The parent must be large enough to contain N collision circles.
+  // Without this test, children escape the parent on every dense expansion.
+  const COLLISION_FACTOR = 1.6;
+  const COLLISION_PAD = 4;
+
+  function collisionArea(childSize: number, childCount: number): number {
+    const cr = childSize * COLLISION_FACTOR + COLLISION_PAD;
+    return childCount * Math.PI * cr * cr;
+  }
+
+  for (const [ps, n] of [
+    [18, 6],     // small scope (hegemony-like)
+    [18, 10],    // medium scope
+    [18, 200],   // Project-Alice scale — THE bug case
+    [18, 500],   // extreme
+    [5, 30],     // small parent, many children
+  ] as [number, number][]) {
+    it(`parent=${ps} n=${n}: parent area > total collision area`, () => {
+      const pack = computePacking(ps, n);
+      const parentArea = Math.PI * pack.parentSize * pack.parentSize;
+      const childCollisionArea = collisionArea(pack.childSize, n);
+      // Parent area must exceed collision area with headroom for packing gaps
+      expect(parentArea).toBeGreaterThan(childCollisionArea * 0.5);
+    });
+
+    it(`parent=${ps} n=${n}: no child collision circle exceeds parent radius`, () => {
+      const pack = computePacking(ps, n);
+      const cr = pack.childSize * COLLISION_FACTOR + COLLISION_PAD;
+      // Orbit + collision radius must fit inside parent
+      expect(pack.orbitRadius + cr).toBeLessThanOrEqual(pack.parentSize * 1.05);
+    });
+  }
 });
