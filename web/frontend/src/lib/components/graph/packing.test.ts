@@ -138,3 +138,32 @@ describe('parentSizeForChildren', () => {
     expect(layout[0].size).toBeCloseTo(childSize, 1);
   });
 });
+
+describe('expandNode visual cap — mirrors +page.svelte expandNode', () => {
+  function simulateExpandNodeCapped(parentSize: number, childCount: number) {
+    const pack = computePacking(parentSize, childCount);
+    const cappedParent = Math.min(pack.parentSize, parentSize * 1.5);
+    const scale = cappedParent / pack.parentSize;
+    return {
+      parentSize: cappedParent,
+      childSize: pack.childSize * scale,
+      orbitRadius: pack.orbitRadius * scale,
+    };
+  }
+
+  for (const [ps, n] of [[18, 50], [5, 100], [3, 200], [10, 30]] as [number, number][]) {
+    it(`parent=${ps} n=${n}: visual parent never exceeds 1.5× original`, () => {
+      const result = simulateExpandNodeCapped(ps, n);
+      expect(result.parentSize).toBeLessThanOrEqual(ps * 1.5);
+      expect(result.parentSize).toBeGreaterThanOrEqual(ps);
+    });
+  }
+
+  it('children are smaller than capped parent', () => {
+    for (const [ps, n] of [[18, 50], [5, 100], [1, 30]] as [number, number][]) {
+      const result = simulateExpandNodeCapped(ps, n);
+      expect(result.childSize).toBeLessThan(result.parentSize);
+      expect(result.childSize).toBeGreaterThan(0);
+    }
+  });
+});
