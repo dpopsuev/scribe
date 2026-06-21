@@ -87,6 +87,25 @@ func ownerFromProvenance(art *parchment.Artifact) string {
 	return sid
 }
 
+// reviewedAfterNeighbors returns true if Extra["hygiene_reviewed_at"]
+// is set and is after the artifact's own UpdatedAt. When an agent
+// reviews staleness findings and determines they are acceptable, it
+// sets this timestamp via update(extra={"hygiene_reviewed_at": "..."}).
+func reviewedAfterNeighbors(art *parchment.Artifact) bool {
+	if art == nil || art.Extra == nil {
+		return false
+	}
+	ts, ok := art.Extra["hygiene_reviewed_at"].(string)
+	if !ok || ts == "" {
+		return false
+	}
+	reviewed, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		return false
+	}
+	return reviewed.After(art.UpdatedAt)
+}
+
 // collectFindings runs all hygiene checks and returns annotated, scored findings.
 func collectFindings(ctx context.Context, svc *Service, scope string, includeCode bool) []HygieneFinding { //nolint:gocyclo,funlen // sequential independent checks
 	var findings []HygieneFinding
@@ -281,6 +300,10 @@ func collectFindings(ctx context.Context, svc *Service, scope string, includeCod
 		if status != labelStatusActive {
 			continue
 		}
+		// Skip if agent previously reviewed and dismissed staleness
+		if reviewedAfterNeighbors(art) {
+			continue
+		}
 		staleN := NeighborStaleness(ctx, svc.Proto.Store(), art)
 		if len(staleN) > 3 {
 			staleN = staleN[:3]
@@ -299,7 +322,8 @@ func collectFindings(ctx context.Context, svc *Service, scope string, includeCod
 				Category:   "stale_references",
 				ID:         art.ID,
 				Title:      art.Title,
-				Detail:     fmt.Sprintf("%d neighbor(s) changed: %s", len(staleN), strings.Join(ids, ", ")),
+				Detail:     fmt.Sprintf("%d neighbor(s) changed >24h after last update: %s", len(staleN), strings.Join(ids, ", ")),
+				Fix:        fmt.Sprintf("update(id=%q, extra={\"hygiene_reviewed_at\": %q})", art.ID, time.Now().UTC().Format(time.RFC3339)),
 				Impact:     "medium",
 				Confidence: "guess",
 				Owner:      ownerFromProvenance(art),

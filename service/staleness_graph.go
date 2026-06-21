@@ -17,9 +17,15 @@ type StaleNeighbor struct {
 	UpdatedAt time.Time
 }
 
+// stalenessThreshold is the minimum gap between subject and neighbor
+// UpdatedAt before the reference is considered stale. Artifacts co-edited
+// within this window are normal planning churn, not defects.
+const stalenessThreshold = 24 * time.Hour
+
 // NeighborStaleness checks if any artifact linked to id has been updated
-// more recently than the subject artifact. This signals that the subject
-// may reference outdated information from its neighbors.
+// significantly more recently than the subject artifact. Neighbors updated
+// within stalenessThreshold of the subject are treated as co-editing churn
+// and excluded.
 func NeighborStaleness(ctx context.Context, store parchment.Store, art *parchment.Artifact) []StaleNeighbor {
 	outEdges, _ := store.Neighbors(ctx, art.ID, "", parchment.Outgoing)
 	inEdges, _ := store.Neighbors(ctx, art.ID, "", parchment.Incoming)
@@ -42,7 +48,8 @@ func NeighborStaleness(ctx context.Context, store parchment.Store, art *parchmen
 		if err != nil {
 			continue
 		}
-		if neighbor.UpdatedAt.After(art.UpdatedAt) {
+		gap := neighbor.UpdatedAt.Sub(art.UpdatedAt)
+		if gap > stalenessThreshold {
 			stale = append(stale, StaleNeighbor{
 				ID:        neighborID,
 				Title:     neighbor.Title,

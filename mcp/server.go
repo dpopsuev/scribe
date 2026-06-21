@@ -178,6 +178,7 @@ func ToolRegistry() *Registry {
 func NewServerFromStore(s parchment.Store, homeScopes []string, idc parchment.ProtocolConfig, version string, workspaceLabels ...string) (*sdkmcp.Server, *Registry) {
 	proto := parchment.New(s, nil, homeScopes, nil, idc)
 	svc := service.New(proto, nil, homeScopes)
+	svc.Version = version
 	return NewServer(svc, nil, version, workspaceLabels...)
 }
 

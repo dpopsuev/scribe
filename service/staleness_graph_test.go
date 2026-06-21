@@ -15,29 +15,56 @@ func TestNeighborStaleness_DetectsChangedNeighbor(t *testing.T) {
 	ctx := context.Background()
 	store := svc.Proto.Store()
 
-	parent, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Title:  "campaign",
-		Labels: []string{"kind:effort.campaign"},
-	})
-	child, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
-		Title:  "goal under campaign",
-		Labels: []string{"kind:effort.goal"},
-	})
-	store.AddEdge(ctx, parchment.Edge{From: parent.ID, Relation: "parent_of", To: child.ID}) //nolint:errcheck // test setup
+	now := time.Now()
+	twoDaysAgo := now.Add(-48 * time.Hour)
 
-	// Touch parent to lock its UpdatedAt, then update child after.
-	time.Sleep(15 * time.Millisecond)
-	svc.Proto.SetField(ctx, []string{parent.ID}, "title", "campaign v2") //nolint:errcheck // test setup
-	time.Sleep(15 * time.Millisecond)
-	svc.Proto.SetField(ctx, []string{child.ID}, "title", "updated goal") //nolint:errcheck // test setup
+	// Parent updated 2 days ago, child updated just now → >24h gap triggers staleness
+	_ = store.Put(ctx, &parchment.Artifact{
+		ID: "parent1", Title: "campaign",
+		Labels:    []string{"kind:effort.campaign"},
+		UpdatedAt: twoDaysAgo,
+	})
+	_ = store.Put(ctx, &parchment.Artifact{
+		ID: "child1", Title: "goal under campaign",
+		Labels:    []string{"kind:effort.goal"},
+		UpdatedAt: now,
+	})
+	store.AddEdge(ctx, parchment.Edge{From: "parent1", Relation: "parent_of", To: "child1"}) //nolint:errcheck // test setup
 
-	parentArt, _ := store.Get(ctx, parent.ID)
+	parentArt, _ := store.Get(ctx, "parent1")
 	stale := service.NeighborStaleness(ctx, store, parentArt)
 	if len(stale) == 0 {
-		t.Fatal("expected child to appear as stale neighbor after update")
+		t.Fatal("expected child to appear as stale neighbor after >24h gap")
 	}
-	if stale[0].ID != child.ID {
-		t.Errorf("stale neighbor ID = %q, want %q", stale[0].ID, child.ID)
+	if stale[0].ID != "child1" {
+		t.Errorf("stale neighbor ID = %q, want %q", stale[0].ID, "child1")
+	}
+}
+
+func TestNeighborStaleness_IgnoresCoEditingChurn(t *testing.T) {
+	t.Parallel()
+	svc := newTestService(t)
+	ctx := context.Background()
+	store := svc.Proto.Store()
+
+	now := time.Now()
+	// Both updated within an hour of each other — below 24h threshold
+	_ = store.Put(ctx, &parchment.Artifact{
+		ID: "churnA", Title: "artifact A",
+		Labels:    []string{"kind:effort.goal"},
+		UpdatedAt: now.Add(-30 * time.Minute),
+	})
+	_ = store.Put(ctx, &parchment.Artifact{
+		ID: "churnB", Title: "artifact B",
+		Labels:    []string{"kind:effort.task"},
+		UpdatedAt: now,
+	})
+	store.AddEdge(ctx, parchment.Edge{From: "churnA", Relation: "parent_of", To: "churnB"}) //nolint:errcheck // test setup
+
+	aArt, _ := store.Get(ctx, "churnA")
+	stale := service.NeighborStaleness(ctx, store, aArt)
+	if len(stale) > 0 {
+		t.Errorf("co-editing churn (<24h gap) should not be flagged as stale, got %d findings", len(stale))
 	}
 }
 
