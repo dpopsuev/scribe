@@ -255,7 +255,9 @@
     const idealRadius = Math.sqrt(totalNodeArea / (0.25 * Math.PI)) * 1.5;
     const avgSize = simNodes.reduce((s, n) => s + (n._size || 5), 0) / (simNodes.length || 1);
 
-    const maxOrbit = idealRadius * 1.2;
+    // Rectangular boundary — aspect ratio ~4:3 to match rounded-rect parent shape
+    const boundW = idealRadius * 1.4;
+    const boundH = idealRadius * 1.05;
 
     simulation = forceSimulation(simNodes)
       .force('gravity', forceGravity(0.2, avgSize * 3))
@@ -272,14 +274,17 @@
       .velocityDecay(0.55)
       .alphaDecay(0.012)
       .on('tick', () => {
-        // Hard orbital boundary — clamp nodes that escape maxOrbit
+        // Rectangular boundary clamp — matches parent shape containment
         for (const node of simNodes) {
-          const dist = Math.hypot(node.x || 0, node.y || 0);
-          if (dist > maxOrbit) {
-            const scale = maxOrbit / dist;
-            node.x = (node.x || 0) * scale;
-            node.y = (node.y || 0) * scale;
+          const sz = (node._size || 5);
+          const maxX = boundW - sz;
+          const maxY = boundH - sz;
+          if (Math.abs(node.x || 0) > maxX) {
+            node.x = Math.sign(node.x || 0) * maxX;
             node.vx = (node.vx || 0) * 0.1;
+          }
+          if (Math.abs(node.y || 0) > maxY) {
+            node.y = Math.sign(node.y || 0) * maxY;
             node.vy = (node.vy || 0) * 0.1;
           }
         }
@@ -641,7 +646,7 @@
     e.preventDefault();
     onUserInteract();
     const factor = e.deltaY > 0 ? 0.9 : 1.1;
-    camZoom = Math.max(0.05, Math.min(50, camZoom * factor));
+    camZoom = Math.max(0.05, Math.min(200, camZoom * factor));
     // Don't set needsPickRedraw here — pick FBO only needed when mouse moves
     // (readPixels in handleMouseMove). This avoids a full extra draw on every scroll tick.
   }
