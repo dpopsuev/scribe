@@ -67,6 +67,7 @@
   let transition: CameraTransition | null = null;
   let simActive = false;
   let simDirty = false;
+  let simNodeById = new Map<string, any>();
 
   function onUserInteract(focusNode?: string) {
     const wasSystem = lock.owner === 'system';
@@ -259,6 +260,9 @@
     const boundW = idealRadius * 1.4;
     const boundH = idealRadius * 1.05;
 
+    // Build parent lookup for containment clamping (O(1) per tick)
+    simNodeById = new Map(simNodes.map((n: any) => [n.id, n]));
+
     simulation = forceSimulation(simNodes)
       .force('gravity', forceGravity(0.2, avgSize * 3))
       .force('charge', forceManyBody().strength((d: any) => -(d._size || 5) * 2.5).distanceMax(avgSize * 12))
@@ -286,6 +290,27 @@
           if (Math.abs(node.y || 0) > maxY) {
             node.y = Math.sign(node.y || 0) * maxY;
             node.vy = (node.vy || 0) * 0.1;
+          }
+
+          // Parent containment: clamp children inside parent boundary
+          if (node._parentId) {
+            const parent = simNodeById.get(node._parentId);
+            if (parent) {
+              const px = parent.x || 0;
+              const py = parent.y || 0;
+              const pr = (parent._size || 5) * 0.85;
+              const dx = (node.x || 0) - px;
+              const dy = (node.y || 0) - py;
+              const dist = Math.hypot(dx, dy);
+              const maxDist = pr - sz;
+              if (maxDist > 0 && dist > maxDist) {
+                const scale = maxDist / dist;
+                node.x = px + dx * scale;
+                node.y = py + dy * scale;
+                node.vx = (node.vx || 0) * 0.2;
+                node.vy = (node.vy || 0) * 0.2;
+              }
+            }
           }
         }
         if (prewarming) return;
@@ -870,6 +895,7 @@
       simNodes.push({
         id: n.id, _size: n.size, _color: n.color,
         _kind: n.kind, _label: n.label, _depth: n.depth || 0,
+        _parentId: parentId || null,
         x, y,
       });
     }
@@ -884,6 +910,9 @@
         simLinks.push({ source: e.source, target: e.target, _color: e.color });
       }
     }
+
+    // Rebuild parent lookup for containment clamping
+    simNodeById = new Map(simNodes.map((n: any) => [n.id, n]));
 
     // Reheat simulation so new nodes spread out via physics.
     // Claim user lock so fitCamera() doesn't jump the viewport.
