@@ -66,6 +66,7 @@ var opGet = Op{
 			if err != nil {
 				return "", err
 			}
+			StampComputedFields(ctx, svc, art)
 			FilterSections(art, in.SectionFilter)
 			svc.RecordRead(ctx, ids[0])
 			if in.IncludeEdges {

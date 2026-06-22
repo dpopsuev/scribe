@@ -422,6 +422,8 @@ var opQuery = Op{
 		if in.Sort != "" {
 			SortArtifacts(arts, in.Sort)
 		}
+		StampComputedFieldsBatch(ctx, svc, arts)
+
 		total := len(arts)
 		if li.Limit > 0 && li.Limit < len(arts) {
 			arts = arts[:li.Limit]
