@@ -41,6 +41,8 @@ github.com/dpopsuev/oculus/v3 v3.91.0 h1:Xc7tjI1LwTaVpC9N4U5up/vIeRwyJfPjDczjppZ
 github.com/dpopsuev/oculus/v3 v3.91.0/go.mod h1:NVYyxhesN/Z1WPIQDPDJu9NZopWOTC+XzQ1x3aw6seA=
 github.com/dpopsuev/parchment v1.65.0 h1:MjYYg97pmapOX6marNVki+O+q1k2bLGzmyTfSBrqDro=
 github.com/dpopsuev/parchment v1.65.0/go.mod h1:7KpyndnMLH1Yn8sSfybNkdHLp/XnwqMqtS6NhmtN8Jc=
+github.com/dpopsuev/parchment v1.66.0 h1:fA6VIG0E9C9fcy9z4KvuwvjIgshtaDHHYYsfEB2HuTk=
+github.com/dpopsuev/parchment v1.66.0/go.mod h1:7KpyndnMLH1Yn8sSfybNkdHLp/XnwqMqtS6NhmtN8Jc=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
 github.com/ebitengine/purego v0.9.1 h1:a/k2f2HQU3Pi399RPW1MOaZyhKJL9w/xFpKAg4q1s0A=
