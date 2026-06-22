@@ -1,0 +1,42 @@
+.scribe-error {
+	color: var(--text-error);
+	font-size: 13px;
+}
+
+.scribe-info {
+	color: var(--text-muted);
+	font-size: 12px;
+}
+
+.scribe-muted {
+	color: var(--text-faint);
+	font-size: 12px;
+	font-style: italic;
+}
+
+.scribe-mini-graph,
+.scribe-mini-board {
+	padding: 8px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	margin: 4px 0;
+}
+
+.scribe-mini-graph ul,
+.scribe-mini-board ul {
+	padding-left: 16px;
+	margin: 4px 0;
+}
+
+.scribe-mini-graph li,
+.scribe-mini-board li {
+	font-size: 13px;
+	line-height: 1.6;
+}
+
+.scribe-mini-board h5 {
+	margin: 8px 0 4px 0;
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--text-normal);
+}
