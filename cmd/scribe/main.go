@@ -60,6 +60,7 @@ func main() {
 		cmds.CapsuleCmd(),
 		cmds.SyncCmd(),
 		cmds.DaemonCmd(),
+		cmds.IngestCmd(),
 		cmds.ApplyCmd(),
 		cmds.SchemaCmd(),
 		cmds.HistoryCmd(),
