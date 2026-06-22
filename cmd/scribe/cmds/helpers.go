@@ -96,16 +96,6 @@ func RunOp(name string, input any) error {
 	return nil
 }
 
-func MustStore() parchment.Store {
-	cfg := MustConfig()
-	s, err := parchment.OpenSQLiteConfig(cfg.SQLiteConfig())
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: open store: %v\n", err)
-		os.Exit(1)
-	}
-	return s
-}
-
 // InitLogger configures the default slog handler from SCRIBE_LOG_LEVEL.
 func InitLogger() {
 	level := slog.LevelInfo

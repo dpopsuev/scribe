@@ -43,8 +43,12 @@ func (d Defaults) GetBriefRecentHours() int  { return orDefault(d.BriefRecentHou
 func (d Defaults) GetTreeMaxDepth() int      { return orDefault(d.TreeMaxDepth, 10) }
 
 // DBConfig supports both a simple path string and a structured SQLite config.
+// Backend selects the storage engine: "sqlite" (default), "libsql", "turso".
 type DBConfig struct {
-	SQLite parchment.SQLiteConfig `yaml:"sqlite,omitempty"`
+	Backend string                 `yaml:"backend,omitempty"`
+	SQLite  parchment.SQLiteConfig `yaml:"sqlite,omitempty"`
+	LibSQL  parchment.LibSQLConfig `yaml:"libsql,omitempty"`
+	Turso   parchment.TursoConfig  `yaml:"turso,omitempty"`
 }
 
 // ScopeConfig defines per-scope settings in YAML.

@@ -225,15 +225,32 @@ func (a *AgentLoop) Run(ctx context.Context) error {
 	return nil
 }
 
-// NewStore opens an isolated SQLite store for testing.
-func NewStore(t *testing.T) parchment.Store {
+// StoreOpener creates a Store at the given path.
+type StoreOpener func(path string) (parchment.Store, error)
+
+// NewStore opens an isolated store for testing. Default backend is SQLite;
+// pass an opener to test other backends (e.g. Turso).
+func NewStore(t *testing.T, openers ...StoreOpener) parchment.Store {
 	t.Helper()
-	db, err := parchment.OpenSQLite(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
+	open := func(path string) (parchment.Store, error) { return parchment.OpenSQLite(path) }
+	if len(openers) > 0 {
+		open = openers[0]
 	}
-	t.Cleanup(func() { _ = db.Close() })
+	db, err := open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() {
+		if c, ok := db.(interface{ Close() error }); ok {
+			_ = c.Close()
+		}
+	})
 	return db
+}
+
+// TursoOpener returns a StoreOpener that uses the Turso backend.
+func TursoOpener(path string) (parchment.Store, error) {
+	return parchment.OpenTursoConfig(parchment.TursoConfig{Path: path})
 }
 
 // CountByPrefix returns the number of artifacts whose ID starts with prefix.
