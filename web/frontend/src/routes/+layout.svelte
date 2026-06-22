@@ -7,6 +7,12 @@
 	const nav = [
 		{ href: '/app/board', label: 'Board', icon: '▦' },
 		{ href: '/app/graph', label: 'Graph', icon: '◉' },
+		{ href: '/app/schematic', label: 'Schematic', icon: '⊞' },
+		{ href: '/app/table', label: 'Table', icon: '☰' },
+		{ href: '/app/timeline', label: 'Timeline', icon: '⟶' },
+		{ href: '/app/matrix', label: 'Matrix', icon: '⊡' },
+		{ href: '/app/heatmap', label: 'Heatmap', icon: '▥' },
+		{ href: '/app/sunburst', label: 'Sunburst', icon: '◎' },
 	];
 
 	function isActive(href: string): boolean {
