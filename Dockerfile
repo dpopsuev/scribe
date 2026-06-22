@@ -15,7 +15,8 @@ COPY . .
 ARG VERSION=dev
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.Version=${VERSION}" -o /scribe ./cmd/scribe
 
-FROM scratch
+FROM alpine:3.22
+RUN apk add --no-cache ca-certificates
 COPY --from=build /scribe /scribe
 COPY --from=build /build/web/templates /web/templates
 COPY --from=build /build/web/static /web/static
