@@ -157,7 +157,7 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		}
 		progressCtx, progressCancel := context.WithCancel(ctx)
 		batterymcp.StartProgressHeartbeat(progressCtx, req, in.Action+" running", batterymcp.DefaultProgressInterval)
-		out, err := op.Run(ctx, h.svc, raw)
+		out, err := op.RunTraced(ctx, h.svc, raw)
 		progressCancel()
 		if err != nil {
 			return nil, nil, err
@@ -199,7 +199,7 @@ func (h *handler) handleGraph(ctx context.Context, req *sdkmcp.CallToolRequest, 
 		h.recordTurn(ctx, in.Action, raw)
 		progressCtx, progressCancel := context.WithCancel(ctx)
 		batterymcp.StartProgressHeartbeat(progressCtx, req, in.Action+" running", batterymcp.DefaultProgressInterval)
-		out, err := op.Run(ctx, h.svc, raw)
+		out, err := op.RunTraced(ctx, h.svc, raw)
 		progressCancel()
 		if err != nil {
 			return nil, nil, err
@@ -224,7 +224,7 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 		raw, _ := json.Marshal(in)
 		progressCtx, progressCancel := context.WithCancel(ctx)
 		batterymcp.StartProgressHeartbeat(progressCtx, req, in.Action+" running", batterymcp.DefaultProgressInterval)
-		out, err := op.Run(ctx, h.svc, raw)
+		out, err := op.RunTraced(ctx, h.svc, raw)
 		progressCancel()
 		if err != nil {
 			return nil, nil, err

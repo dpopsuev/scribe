@@ -199,6 +199,12 @@ func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, webP
 		}()
 	}
 
+	otelShutdown, err := service.InitTracer(ctx, Version)
+	if err != nil {
+		slog.WarnContext(ctx, "otel: tracer init failed", slog.Any(logKeyError, err))
+	}
+	defer func() { _ = otelShutdown(context.Background()) }()
+
 	watchdogCtx, watchdogCancel := context.WithCancel(context.Background())
 	defer watchdogCancel()
 	startMemoryWatchdog(watchdogCtx)

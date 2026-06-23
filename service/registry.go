@@ -3,6 +3,10 @@ package service
 import (
 	"context"
 	"encoding/json"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Op is a single named operation exposed on both the CLI and MCP surfaces.
@@ -13,6 +17,25 @@ import (
 type Op struct {
 	Name string
 	Run  func(ctx context.Context, svc *Service, in json.RawMessage) (string, error)
+}
+
+// RunTraced wraps Op.Run with an OpenTelemetry span.
+func (o *Op) RunTraced(ctx context.Context, svc *Service, in json.RawMessage) (string, error) {
+	ctx, span := Tracer().Start(ctx, "op."+o.Name, withOpAttributes(o.Name, in))
+	defer span.End()
+	out, err := o.Run(ctx, svc, in)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+	}
+	return out, err
+}
+
+func withOpAttributes(name string, in json.RawMessage) trace.SpanStartOption {
+	return trace.WithAttributes(
+		attribute.String("scribe.op", name),
+		attribute.Int("scribe.input_bytes", len(in)),
+	)
 }
 
 // Registry is the global operation table. Both the MCP handlers and the CLI
