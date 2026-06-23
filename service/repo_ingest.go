@@ -114,6 +114,10 @@ func (s *Service) RepoIngest(ctx context.Context, repoRoot string) (*IngestResul
 
 	arts = append(arts, commits...)
 
+	for _, art := range arts {
+		StampContentHash(art)
+	}
+
 	store := s.Proto.Store()
 	if len(arts) > 0 {
 		putErrs := store.BulkPut(ctx, arts)
