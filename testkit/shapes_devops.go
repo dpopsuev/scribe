@@ -18,7 +18,7 @@ var GitCommitShape ShapeFunc = func(i int, source, sha string) ingest.NodeRecord
 	subject := fmt.Sprintf("%s(%s): synthetic change %d [%s]", prefixes[rand.IntN(len(prefixes))], components[rand.IntN(len(components))], i, ticketID)
 	return ingest.NodeRecord{
 		ID:     fmt.Sprintf("%s:commit:%s", source, hash[:12]),
-		Kind:   "knowledge.source",
+		Kind:   "delivery.commit",
 		Title:  subject,
 		Status: "active",
 		Labels: []string{"source:" + source, "kind:commit", "project:ptp"},
@@ -40,7 +40,7 @@ var CIBuildShape ShapeFunc = func(i int, source, sha string) ingest.NodeRecord {
 	duration := rand.IntN(3600) + 120
 	return ingest.NodeRecord{
 		ID:     fmt.Sprintf("%s:ci:%s:%d", source, job, i+1),
-		Kind:   "knowledge.source",
+		Kind:   "delivery.build",
 		Title:  fmt.Sprintf("%s #%d — %s", job, i+1, result),
 		Status: "active",
 		Labels: []string{"source:" + source, "kind:ci-build", "result:" + result, "project:ptp"},
@@ -64,7 +64,7 @@ var TestResultShape ShapeFunc = func(i int, source, sha string) ingest.NodeRecor
 	duration := rand.IntN(300) + 1
 	return ingest.NodeRecord{
 		ID:     fmt.Sprintf("%s:test:%s:case-%d", source, suite, i),
-		Kind:   "knowledge.source",
+		Kind:   "test.result",
 		Title:  fmt.Sprintf("[%s] %s/test_case_%d — %s", suite, suite, i, status),
 		Status: "active",
 		Labels: []string{"source:" + source, "kind:test-result", "test-status:" + status, "project:ptp"},
@@ -85,7 +85,7 @@ var ReleaseShape ShapeFunc = func(i int, source, sha string) ingest.NodeRecord {
 	version := fmt.Sprintf("%d.%d.%d", major, minor, i)
 	return ingest.NodeRecord{
 		ID:     fmt.Sprintf("%s:release:v%s", source, version),
-		Kind:   "knowledge.source",
+		Kind:   "delivery.release",
 		Title:  fmt.Sprintf("Release v%s", version),
 		Status: "active",
 		Labels: []string{"source:" + source, "kind:release", "version:" + version, "project:ptp"},
@@ -106,7 +106,7 @@ var DeploymentShape ShapeFunc = func(i int, source, sha string) ingest.NodeRecor
 	depStatus := statuses[rand.IntN(len(statuses))]
 	return ingest.NodeRecord{
 		ID:     fmt.Sprintf("%s:deploy:%s:%d", source, env, i),
-		Kind:   "knowledge.source",
+		Kind:   "delivery.deployment",
 		Title:  fmt.Sprintf("Deploy #%d to %s — %s", i, env, depStatus),
 		Status: "active",
 		Labels: []string{"source:" + source, "kind:deployment", "environment:" + env, "project:ptp"},
@@ -137,7 +137,7 @@ var OperationalEventShape ShapeFunc = func(i int, source, sha string) ingest.Nod
 	msg := messages[rand.IntN(len(messages))]
 	return ingest.NodeRecord{
 		ID:     fmt.Sprintf("%s:event:%s:%d", source, svc, i),
-		Kind:   "knowledge.source",
+		Kind:   "delivery.event",
 		Title:  fmt.Sprintf("[%s] %s: %s", sev, svc, msg),
 		Status: "active",
 		Labels: []string{"source:" + source, "kind:operational-event", "severity:" + sev, "service:" + svc, "project:ptp"},
@@ -161,7 +161,7 @@ var AlertShape ShapeFunc = func(i int, source, sha string) ingest.NodeRecord {
 	value := rand.IntN(threshold * 3)
 	return ingest.NodeRecord{
 		ID:     fmt.Sprintf("%s:alert:%s:%d", source, metric, i),
-		Kind:   "investigation.observation",
+		Kind:   "delivery.alert",
 		Title:  fmt.Sprintf("Alert: %s = %d (threshold %d) [%s]", metric, value, threshold, state),
 		Status: "active",
 		Labels: []string{"source:" + source, "kind:alert", "alert-state:" + state, "project:ptp"},
