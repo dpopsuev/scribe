@@ -13,6 +13,8 @@ import (
 
 	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/service"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/renderer/html"
@@ -25,6 +27,22 @@ const (
 	logKeyStatus = "status"
 	logKeyDur    = "dur"
 )
+
+var (
+	httpRequestsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "scribe_http_requests_total",
+		Help: "Total HTTP requests by method and path",
+	}, []string{"method", "path"})
+	httpRequestDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "scribe_http_request_duration_seconds",
+		Help:    "HTTP request latency in seconds",
+		Buckets: prometheus.DefBuckets,
+	}, []string{"method", "path"})
+)
+
+func init() {
+	prometheus.MustRegister(httpRequestsTotal, httpRequestDuration)
+}
 
 var markdownParser = goldmark.New(
 	goldmark.WithExtensions(extension.GFM),
@@ -115,6 +133,24 @@ func NewServer(proto *parchment.Protocol, version, webPath string) *Server {
 	s.mux.HandleFunc("PATCH /api/v1/artifacts/{id}", s.handleAPIPatchArtifact)
 	s.mux.HandleFunc("POST /api/v1/edges", s.handleAPICreateEdge)
 	s.mux.HandleFunc("DELETE /api/v1/edges/{from}/{relation}/{to}", s.handleAPIDeleteEdge)
+
+	// Prometheus metrics
+	s.mux.Handle("GET /metrics", promhttp.Handler())
+
+	// Health probes (Kubernetes liveness/readiness)
+	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "ok")
+	})
+	s.mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+		if _, err := proto.Store().List(r.Context(), parchment.Filter{Limit: 1}); err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			fmt.Fprintf(w, "not ready: %v", err)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "ready")
+	})
 
 	// Legacy /api/* → /api/v1/* (301 permanent redirect).
 	// Preserves query string so old bookmarks and curl scripts keep working.
