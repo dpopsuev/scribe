@@ -161,6 +161,11 @@ func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, webP
 	freshnessTicker := service.NewFreshnessTicker(svc.Proto, 1*time.Hour)
 	defer freshnessTicker.Stop()
 
+	if len(cfg.ScopeConfigs) > 0 {
+		mat := service.NewMaterializer(svc, cfg.ScopeConfigs, cfg.Materialize.Interval())
+		defer mat.Stop()
+	}
+
 	runSeedDir(ctx, svc.Proto, cfg)
 	applyScopeLabels(svc.Proto.Store(), cfg)
 

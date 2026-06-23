@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	parchment "github.com/dpopsuev/parchment"
 	"gopkg.in/yaml.v3"
@@ -60,6 +61,20 @@ type ScopeConfig struct {
 	DefaultPriority string   `yaml:"default_priority,omitempty"`
 }
 
+// MaterializeConfig controls the background materializer that sweeps
+// scope repos and ingests them into the artifact graph.
+type MaterializeConfig struct {
+	IntervalSec int `yaml:"interval_sec,omitempty"` // sweep period; 0 = one-shot on startup only (default: 600)
+}
+
+// Interval returns the sweep interval as a Duration.
+func (m MaterializeConfig) Interval() time.Duration {
+	if m.IntervalSec <= 0 {
+		return 0
+	}
+	return time.Duration(m.IntervalSec) * time.Second
+}
+
 // Config is the top-level configuration loaded from scribe.yaml.
 // EmbedConfig controls the background embedding worker.
 // All fields are optional; zero value disables embeddings.
@@ -99,6 +114,7 @@ type Config struct {
 	SeedDir          string                 `yaml:"seed_dir,omitempty"`
 	Defaults         Defaults               `yaml:"defaults,omitempty"`
 	Embed            EmbedConfig            `yaml:"embed,omitempty"`
+	Materialize      MaterializeConfig      `yaml:"materialize,omitempty"`
 	RecordSession    *bool                  `yaml:"record_session,omitempty"`
 }
 
