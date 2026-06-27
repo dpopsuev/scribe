@@ -43,6 +43,9 @@ var errEmptyEmbedding = errors.New("ollama returned empty embedding")
 
 const logKeyWorkers = "workers"
 const logKeyLatencyMs = "latency_ewma_ms"
+const logKeyCallsPerMin = "calls_per_min"
+const logKeyTotalCalls = "total_calls"
+const logKeyModel = "model"
 
 // Embedder runs the background embedding loop with an adaptive worker pool.
 // Optionally also runs metadata extraction via an LLM sidecar.
@@ -62,6 +65,9 @@ type Embedder struct {
 	ewmaLatencyMs     float64       // exponential weighted moving average latency in ms
 	ewmaLatencyMu     sync.Mutex
 	workersActive     int32 // atomic: number of workers currently holding a workerSemaphore token
+
+	// throughput tripwire
+	embedCalls int64 // atomic: total embedding API calls since start
 }
 
 // OllamaFunc returns a parchment.EmbeddingFunc that calls the Ollama
@@ -178,11 +184,16 @@ func (e *Embedder) dispatcher(ctx context.Context) {
 	}
 }
 
+// throughputWarnPerMin: if embedding calls exceed this rate per minute,
+// log at WARN. 1200/min = 20/sec sustained, which will saturate CPU-only Ollama.
+const throughputWarnPerMin = 600
+
 // controller adjusts semaphore capacity every controlInterval based on EWMA latency.
 // AIMD: +1 worker when fast, -1 when slow; bounds [1, maxWorkers].
 func (e *Embedder) controller(ctx context.Context) {
 	ticker := time.NewTicker(controlInterval)
 	defer ticker.Stop()
+	var prevCalls int64
 	for {
 		select {
 		case <-e.stop:
@@ -191,6 +202,18 @@ func (e *Embedder) controller(ctx context.Context) {
 			e.ewmaLatencyMu.Lock()
 			latency := e.ewmaLatencyMs
 			e.ewmaLatencyMu.Unlock()
+
+			curCalls := atomic.LoadInt64(&e.embedCalls)
+			delta := curCalls - prevCalls
+			prevCalls = curCalls
+			callsPerMin := float64(delta) * (60.0 / controlInterval.Seconds())
+			if callsPerMin > throughputWarnPerMin {
+				slog.WarnContext(ctx, "embed: throughput tripwire — embedding rate too high for CPU-only inference",
+					slog.Float64(logKeyCallsPerMin, math.Round(callsPerMin)),
+					slog.Int64(logKeyTotalCalls, curCalls),
+					slog.Float64(logKeyLatencyMs, math.Round(latency)),
+				)
+			}
 
 			e.workerSemaphoreMu.Lock()
 			cur := cap(e.workerSemaphore)
@@ -250,6 +273,7 @@ func (e *Embedder) ProcessOne(ctx context.Context, id string) {
 		return
 	}
 	text := embeddingText(art)
+	atomic.AddInt64(&e.embedCalls, 1)
 	vec, err := e.embedFunc(ctx, text)
 	if err != nil {
 		slog.WarnContext(ctx, "embed: call failed",
@@ -282,6 +306,7 @@ func (e *Embedder) embedSections(ctx context.Context, art *parchment.Artifact) {
 		if len(text) > maxEmbedChars {
 			text = text[:maxEmbedChars]
 		}
+		atomic.AddInt64(&e.embedCalls, 1)
 		vec, err := e.embedFunc(ctx, text)
 		if err != nil {
 			continue
@@ -303,6 +328,11 @@ func (e *Embedder) extractMetadata(ctx context.Context, art *parchment.Artifact)
 	}
 }
 
+// sweepWarnThreshold: log at WARN if a single sweep queues more artifacts
+// than this. High counts indicate labels are being lost or bulk ingestion is
+// outpacing the worker pool.
+const sweepWarnThreshold = 100
+
 // Sweep finds artifacts without the "encoded" label and queues them.
 func (e *Embedder) Sweep(ctx context.Context) {
 	arts, err := e.proto.ListArtifacts(ctx, parchment.ListInput{
@@ -315,7 +345,13 @@ func (e *Embedder) Sweep(ctx context.Context) {
 	for _, art := range arts {
 		e.Enqueue(art.ID)
 	}
-	if len(arts) > 0 {
+	if len(arts) > sweepWarnThreshold {
+		slog.WarnContext(ctx, "embed: sweep volume high — bulk ingestion or label churn?",
+			slog.Int(parchment.LogKeyCount, len(arts)),
+			slog.Int(logKeyWorkers, cap(e.workerSemaphore)),
+			slog.String(logKeyModel, e.model),
+		)
+	} else if len(arts) > 0 {
 		slog.InfoContext(ctx, "embed: sweep queued artifacts",
 			slog.Int(parchment.LogKeyCount, len(arts)),
 			slog.Int(logKeyWorkers, cap(e.workerSemaphore)),
