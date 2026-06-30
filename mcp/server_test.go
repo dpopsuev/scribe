@@ -2646,3 +2646,21 @@ func TestArtifactSchema_KindDescriptionFromRegistry(t *testing.T) {
 		t.Error("kind description is still the hardcoded stub — registry patch did not apply")
 	}
 }
+
+func TestWorkspaceWarning_SuppressedWhenArtifactHasScope(t *testing.T) {
+	// Bug: workspace unset warning fires even when the artifact has an explicit scope.
+	// No workspace labels passed to NewServerFromStore → session is unconfigured.
+	s := openStore(t)
+	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	text := callTool(t, cs, "artifact", map[string]any{
+		"action": "create",
+		"kind":   "effort.task",
+		"title":  "scoped task",
+		"scope":  "myproject",
+	})
+	if strings.Contains(text, "workspace unset") {
+		t.Errorf("workspace warning should be suppressed when artifact has explicit scope, got: %s", text)
+	}
+}

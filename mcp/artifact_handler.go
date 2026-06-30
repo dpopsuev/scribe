@@ -165,7 +165,7 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		if in.Action == "get" && in.ID != "" {
 			return h.buildGetResult(ctx, in.ID, out)
 		}
-		if !h.workspaceConfigured && !h.workspaceWarned && isWriteAction(in.Action) {
+		if !h.workspaceConfigured && !h.workspaceWarned && isWriteAction(in.Action) && in.Scope == "" && !hasProjectLabel(in.Labels) {
 			out += workspaceUnconfiguredSuffix
 			h.workspaceWarned = true
 		}
@@ -288,6 +288,15 @@ func (h *handler) buildGetResult(ctx context.Context, id, textOut string) (*sdkm
 }
 
 // isWriteAction reports whether the action mutates the graph.
+func hasProjectLabel(labels []string) bool {
+	for _, l := range labels {
+		if strings.HasPrefix(l, parchment.LabelPrefixScope) {
+			return true
+		}
+	}
+	return false
+}
+
 func isWriteAction(action string) bool {
 	switch action {
 	case actionCreate, "set", "update", "link":
