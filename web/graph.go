@@ -38,9 +38,10 @@ func (s *Server) handleAPIGraphKinds(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAPIGraph(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	statuses, relations := parseFilters(q.Get("status"), q.Get("relations"))
+	const defaultMaxNodes = 2000
 	maxNodes, _ := strconv.Atoi(q.Get("max_nodes"))
 	if maxNodes <= 0 {
-		maxNodes = 2000
+		maxNodes = defaultMaxNodes
 	}
 	data, err := service.BuildArtifactGraph(r.Context(), s.svc, q.Get("scope"), statuses, relations, maxNodes)
 	if err != nil {

@@ -28,8 +28,10 @@ linters:
 
     # --- Lex: code-smells ---
     - gocyclo         # cyclomatic complexity
+    - gocognit        # cognitive complexity (readability, distinct from cyclomatic)
     - funlen          # function length
     - dupl            # code duplication
+    - mnd             # magic number detection
 
     # --- Lex: naming ---
     - revive          # naming conventions, style
@@ -82,12 +84,28 @@ linters:
     gocyclo:
       min-complexity: 20
 
+    gocognit:
+      min-complexity: 30
+
     funlen:
       lines: 120
       statements: 70
 
     dupl:
       threshold: 100
+
+    mnd:
+      ignored-numbers:
+        - "0"
+        - "1"
+        - "2"
+        - "10"
+        - "100"
+      ignored-functions:
+        - "strconv.ParseInt"
+        - "strconv.ParseFloat"
+        - "strconv.FormatInt"
+        - "strconv.FormatFloat"
 
     misspell:
       locale: US
@@ -149,6 +167,8 @@ linters:
           - goconst
           - gosec
           - err113
+          - mnd
+          - gocognit
       - path: testkit/
         linters:
           - errcheck

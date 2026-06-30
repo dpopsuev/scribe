@@ -506,8 +506,12 @@ func dumpGoroutineProfile(ctx context.Context, label string) string {
 // startMemoryWatchdog launches a background goroutine that samples memory every 60s.
 // On threshold breach, it auto-captures heap profiles to the crash directory.
 func startMemoryWatchdog(ctx context.Context) {
-	warnMB := 512
-	critMB := 2048
+	const (
+		defaultWarnMB = 512
+		defaultCritMB = 2048
+	)
+	warnMB := defaultWarnMB
+	critMB := defaultCritMB
 	if v := os.Getenv("SCRIBE_MEM_WARN_MB"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			warnMB = n
