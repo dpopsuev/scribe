@@ -42,6 +42,16 @@ var opSchema = Op{
 		var b strings.Builder
 		fmt.Fprintf(&b, "schema for %s:\n\n", kind)
 
+		defaultStatus, _, transitions := svc.Proto.KindLifecycle(kind)
+		if len(transitions) > 0 {
+			fmt.Fprintf(&b, "lifecycle:\n")
+			fmt.Fprintf(&b, "  default: %s\n", defaultStatus)
+			for _, t := range transitions {
+				fmt.Fprintf(&b, "  %s\n", t)
+			}
+			b.WriteString("\n")
+		}
+
 		must := svc.Proto.MustSections(kind)
 		should := svc.Proto.ShouldSections(kind)
 		if len(must) > 0 || len(should) > 0 {

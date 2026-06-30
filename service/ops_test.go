@@ -285,6 +285,21 @@ func TestOpSet_FieldErrorPropagated(t *testing.T) {
 	}
 }
 
+func TestOpSchema_IncludesLifecycle(t *testing.T) {
+	svc := newTestService(t)
+	op := service.Find("schema")
+	raw, _ := json.Marshal(map[string]any{"kind": "effort.task"})
+	out, err := op.Run(context.Background(), svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"lifecycle:", "default:", "work.draft", "work.active", "work.complete"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("schema output missing %q\nfull output:\n%s", want, out)
+		}
+	}
+}
+
 // --- recall (RED) ---
 
 func TestOpList_RankedReturnsMatchingArtifacts(t *testing.T) {
