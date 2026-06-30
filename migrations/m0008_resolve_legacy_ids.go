@@ -69,15 +69,20 @@ func buildAliasMap(ctx context.Context, store parchment.Store) (map[string]strin
 				m[a] = art.ID
 			}
 		}
-		if extra, ok := art.Extra["aliases"]; ok {
-			if raw, err := json.Marshal(extra); err == nil {
-				var aliases []string
-				if json.Unmarshal(raw, &aliases) == nil {
-					for _, a := range aliases {
-						m[a] = art.ID
-					}
-				}
-			}
+		extra, ok := art.Extra["aliases"]
+		if !ok {
+			continue
+		}
+		raw, err := json.Marshal(extra)
+		if err != nil {
+			continue
+		}
+		var extraAliases []string
+		if json.Unmarshal(raw, &extraAliases) != nil {
+			continue
+		}
+		for _, a := range extraAliases {
+			m[a] = art.ID
 		}
 	}
 	return m, nil

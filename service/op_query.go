@@ -378,28 +378,7 @@ var opQuery = Op{
 
 		if in.Count {
 			if in.GroupBy != "" {
-				groups := make(map[string]int)
-				for _, a := range arts {
-					var key string
-					switch in.GroupBy {
-					case "status":
-						key = parchment.StatusFromLabels(a.Labels)
-					case "scope":
-						key = a.Label(parchment.LabelPrefixScope)
-					case sortFieldKind:
-						key = a.Label(parchment.LabelPrefixKind)
-					case "sprint":
-						key = a.Label(parchment.LabelPrefixSprint)
-					default:
-						key = "unknown"
-					}
-					if key == "" {
-						key = "(none)"
-					}
-					groups[key]++
-				}
-				data, _ := json.Marshal(groups)
-				return string(data), nil
+				return groupedCount(arts, in.GroupBy)
 			}
 			return fmt.Sprintf("%d", len(arts)), nil
 		}
@@ -454,6 +433,37 @@ var opQuery = Op{
 		}
 		return out, nil
 	},
+}
+
+// groupedCount tallies artifacts by the given field and returns JSON.
+func groupedCount(arts []*parchment.Artifact, field string) (string, error) {
+	groups := make(map[string]int)
+	for _, a := range arts {
+		key := groupKey(a, field)
+		groups[key]++
+	}
+	data, _ := json.Marshal(groups)
+	return string(data), nil
+}
+
+func groupKey(a *parchment.Artifact, field string) string {
+	var key string
+	switch field {
+	case sortFieldStatus:
+		key = parchment.StatusFromLabels(a.Labels)
+	case sortFieldScope:
+		key = a.Label(parchment.LabelPrefixScope)
+	case sortFieldKind:
+		key = a.Label(parchment.LabelPrefixKind)
+	case sortFieldSprint:
+		key = a.Label(parchment.LabelPrefixSprint)
+	default:
+		key = "unknown"
+	}
+	if key == "" {
+		key = "(none)"
+	}
+	return key
 }
 
 const rrfK = 60

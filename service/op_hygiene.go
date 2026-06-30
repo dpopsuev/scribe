@@ -106,16 +106,8 @@ func reviewedAfterNeighbors(art *parchment.Artifact) bool {
 	return reviewed.After(art.UpdatedAt)
 }
 
-// collectFindings runs all hygiene checks and returns annotated, scored findings.
-func collectFindings(ctx context.Context, svc *Service, scope string, includeCode bool) []HygieneFinding { //nolint:gocyclo,funlen // sequential independent checks
+func findZombieCampaigns(ctx context.Context, svc *Service, labels []string) []HygieneFinding {
 	var findings []HygieneFinding
-
-	labels := []string{}
-	if scope != "" {
-		labels = append(labels, parchment.LabelPrefixScope+scope)
-	}
-
-	// ── Critical: zombie campaigns ──
 	campaigns, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{
 		Labels: append(labels, labelCampaign),
 	})
@@ -151,8 +143,11 @@ func collectFindings(ctx context.Context, svc *Service, scope string, includeCod
 			})
 		}
 	}
+	return findings
+}
 
-	// ── Critical: lifecycle mismatch ──
+func findLifecycleMismatches(ctx context.Context, svc *Service, labels []string) []HygieneFinding {
+	var findings []HygieneFinding
 	effortArts, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{
 		Labels: labels, KindPrefix: "effort",
 	})
@@ -181,8 +176,11 @@ func collectFindings(ctx context.Context, svc *Service, scope string, includeCod
 			})
 		}
 	}
+	return findings
+}
 
-	// ── Planning: stale active tasks ──
+func findStaleTasks(ctx context.Context, svc *Service, labels []string) []HygieneFinding {
+	var findings []HygieneFinding
 	tasks, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{
 		Labels: append(labels, labelTask),
 	})
@@ -211,8 +209,11 @@ func collectFindings(ctx context.Context, svc *Service, scope string, includeCod
 			})
 		}
 	}
+	return findings
+}
 
-	// ── Planning/Index: orphans ──
+func findOrphans(ctx context.Context, svc *Service, labels []string, includeCode bool) []HygieneFinding {
+	var findings []HygieneFinding
 	allArts, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: labels})
 	for _, art := range allArts {
 		kind := art.Label(parchment.LabelPrefixKind)
@@ -251,8 +252,11 @@ func collectFindings(ctx context.Context, svc *Service, scope string, includeCod
 			})
 		}
 	}
+	return findings
+}
 
-	// ── Content: incomplete knowledge ──
+func findIncompleteKnowledge(ctx context.Context, svc *Service, labels []string) []HygieneFinding {
+	var findings []HygieneFinding
 	knowledgeArts, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{
 		Labels: labels, KindPrefix: "knowledge",
 	})
@@ -286,11 +290,12 @@ func collectFindings(ctx context.Context, svc *Service, scope string, includeCod
 			})
 		}
 	}
+	return findings
+}
 
-	// ── Index: stale references ──
-	if allArts == nil {
-		allArts, _ = svc.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: labels})
-	}
+func findStaleReferences(ctx context.Context, svc *Service, labels []string, includeCode bool) []HygieneFinding {
+	var findings []HygieneFinding
+	allArts, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: labels})
 	for _, art := range allArts {
 		kind := art.Label(parchment.LabelPrefixKind)
 		if isCodeKind(kind) && !includeCode {
@@ -300,7 +305,6 @@ func collectFindings(ctx context.Context, svc *Service, scope string, includeCod
 		if status != labelStatusActive {
 			continue
 		}
-		// Skip if agent previously reviewed and dismissed staleness
 		if reviewedAfterNeighbors(art) {
 			continue
 		}
@@ -330,8 +334,23 @@ func collectFindings(ctx context.Context, svc *Service, scope string, includeCod
 			})
 		}
 	}
+	return findings
+}
 
-	// Score and sort
+func collectFindings(ctx context.Context, svc *Service, scope string, includeCode bool) []HygieneFinding {
+	labels := []string{}
+	if scope != "" {
+		labels = append(labels, parchment.LabelPrefixScope+scope)
+	}
+
+	var findings []HygieneFinding //nolint:prealloc // count unknown before extraction
+	findings = append(findings, findZombieCampaigns(ctx, svc, labels)...)
+	findings = append(findings, findLifecycleMismatches(ctx, svc, labels)...)
+	findings = append(findings, findStaleTasks(ctx, svc, labels)...)
+	findings = append(findings, findOrphans(ctx, svc, labels, includeCode)...)
+	findings = append(findings, findIncompleteKnowledge(ctx, svc, labels)...)
+	findings = append(findings, findStaleReferences(ctx, svc, labels, includeCode)...)
+
 	for i := range findings {
 		findings[i].Score = hygieneScore(findings[i].Impact, findings[i].Confidence)
 	}
