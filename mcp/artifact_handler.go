@@ -319,8 +319,6 @@ func mergeLabels(dst, src []string) []string {
 	return dst
 }
 
-func newSessionID() string { return service.NewSessionID() }
-
 func loadReadLog(ctx context.Context, store parchment.Store, proto *parchment.Protocol, sessionID string) map[string]bool {
 	return service.LoadReadLog(ctx, store, proto, sessionID)
 }

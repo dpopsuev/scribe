@@ -54,7 +54,7 @@ func buildInstructions(_ bool) string {
 // the initialize handler.
 func NewServer(svc *service.Service, vocab []string, version string, stdioLabels ...string) (*sdkmcp.Server, *Registry) {
 	reg := newRegistry()
-	sid := newSessionID()
+	sid := service.NewSessionID()
 	var store parchment.Store
 	if svc.Proto != nil {
 		store = svc.Proto.Store()
@@ -196,7 +196,7 @@ type handler struct {
 // --- consolidated input types ---
 
 type artifactInput struct {
-	Action string `json:"action" jsonschema:"required,create | get | query | set | update | delete | attach | detach | recent | brief | schema"`
+	Action string `json:"action" jsonschema:"required,create | get | query | set | update | delete | attach | detach | recent | brief | schema | kernel_create | kernel_confirm | kernel_reject"`
 
 	ID     string `json:"id,omitempty"`
 	Target string `json:"target,omitempty" jsonschema:"single target ID for link mode=replace; or new parent ID for set(field=parent)"`
@@ -288,6 +288,13 @@ type artifactInput struct {
 	// Name (shared with section operations) is the attachment filename.
 	ContentType string `json:"content_type,omitempty" jsonschema:"MIME type for attach action — e.g. image/png, image/svg+xml"`
 	Data        string `json:"data,omitempty"         jsonschema:"base64-encoded binary content for attach action"`
+
+	// Kernel fields — used by kernel_create, kernel_confirm, kernel_reject actions.
+	PointerID string `json:"pointer_id,omitempty" jsonschema:"source pointer artifact ID (kernel_create)"`
+	Content   string `json:"content,omitempty"    jsonschema:"kernel text content (kernel_create)"`
+	Line      int    `json:"line,omitempty"       jsonschema:"1-based line in section (kernel_create selector)"`
+	Anchor    string `json:"anchor,omitempty"     jsonschema:"heading anchor (kernel_create selector)"`
+	Section   string `json:"section,omitempty"    jsonschema:"section name (kernel_create selector)"`
 }
 
 type edgeInput struct {

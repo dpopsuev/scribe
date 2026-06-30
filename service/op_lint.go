@@ -79,27 +79,12 @@ var opLint = Op{
 
 			score := svc.Proto.CompletionScore(ctx, art)
 			if score < 1.0 && score > 0 {
-				shouldSections := svc.Proto.ShouldSections(kind)
-				if len(shouldSections) > 0 {
-					var missing []string
-					existing := make(map[string]bool)
-					for _, s := range art.Sections {
-						if strings.TrimSpace(s.Text) != "" {
-							existing[s.Name] = true
-						}
-					}
-					for _, name := range shouldSections {
-						if !existing[name] {
-							missing = append(missing, name)
-						}
-					}
-					if len(missing) > 0 {
-						findings = append(findings, lintFinding{
-							ID: art.ID, Title: art.Title, Kind: kind,
-							Category: "incomplete",
-							Detail:   fmt.Sprintf("missing sections: %s", strings.Join(missing, ", ")),
-						})
-					}
+				if missing := missingSections(svc.Proto.ShouldSections(kind), art.Sections); len(missing) > 0 {
+					findings = append(findings, lintFinding{
+						ID: art.ID, Title: art.Title, Kind: kind,
+						Category: "incomplete",
+						Detail:   fmt.Sprintf("missing sections: %s", strings.Join(missing, ", ")),
+					})
 				}
 			}
 		}
@@ -115,4 +100,23 @@ var opLint = Op{
 		}
 		return b.String(), nil
 	},
+}
+
+func missingSections(should []string, sections []parchment.Section) []string {
+	if len(should) == 0 {
+		return nil
+	}
+	existing := make(map[string]bool, len(sections))
+	for _, s := range sections {
+		if strings.TrimSpace(s.Text) != "" {
+			existing[s.Name] = true
+		}
+	}
+	var missing []string
+	for _, name := range should {
+		if !existing[name] {
+			missing = append(missing, name)
+		}
+	}
+	return missing
 }

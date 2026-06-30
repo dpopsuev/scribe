@@ -328,28 +328,17 @@ var opUpdate = Op{
 				}
 				lines = append(lines, fmt.Sprintf("%s: section %q %s", id, name, action))
 			}
-			if hasSectionReplace { //nolint:nestif // find-replace path is inherently branchy
+			if hasSectionReplace {
 				replacement := in.Text
 				if replacement == "" {
 					replacement = in.Body
 				}
-				art, err := svc.Proto.GetArtifact(ctx, id)
+				frLines, err := findReplaceInSections(ctx, svc, id, in.Query, replacement)
 				if err != nil {
 					lines = append(lines, fmt.Sprintf("%s -> error: %v", id, err))
 					continue
 				}
-				updated := 0
-				for _, sec := range art.Sections {
-					if strings.Contains(sec.Text, in.Query) {
-						newText := strings.ReplaceAll(sec.Text, in.Query, replacement)
-						if _, err := svc.Proto.AttachSection(ctx, id, sec.Name, newText); err != nil {
-							lines = append(lines, fmt.Sprintf("%s -> error: section %q: %v", id, sec.Name, err))
-							continue
-						}
-						updated++
-					}
-				}
-				lines = append(lines, fmt.Sprintf("%s: %d section(s) updated", id, updated))
+				lines = append(lines, frLines...)
 			}
 			for _, name := range in.SectionsDelete {
 				removed, err := svc.Proto.DetachSection(ctx, id, name)
@@ -378,6 +367,28 @@ var opUpdate = Op{
 		}
 		return strings.Join(lines, "\n"), nil
 	},
+}
+
+func findReplaceInSections(ctx context.Context, svc *Service, id, query, replacement string) ([]string, error) {
+	art, err := svc.Proto.GetArtifact(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	var lines []string
+	updated := 0
+	for _, sec := range art.Sections {
+		if !strings.Contains(sec.Text, query) {
+			continue
+		}
+		newText := strings.ReplaceAll(sec.Text, query, replacement)
+		if _, err := svc.Proto.AttachSection(ctx, id, sec.Name, newText); err != nil {
+			lines = append(lines, fmt.Sprintf("%s -> error: section %q: %v", id, sec.Name, err))
+			continue
+		}
+		updated++
+	}
+	lines = append(lines, fmt.Sprintf("%s: %d section(s) updated", id, updated))
+	return lines, nil
 }
 
 type setInput struct {
