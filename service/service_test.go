@@ -138,6 +138,24 @@ func TestInventory_CountsByKindAndStatus(t *testing.T) {
 	}
 }
 
+// --- StampComputedFields: completeness ---
+
+func TestStampComputedFields_OrphanDoneStatusRejectsAtCreate(t *testing.T) {
+	// Bug: scribe-bug-done-knowledge-context-shows-zero-completion
+	// An agent created an artifact with labels including "status:done".
+	// This bypasses lifecycle validation — "done" is not a registered status.
+	// CreateArtifact should reject unknown status labels.
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Labels: []string{"kind:knowledge.context", "status:done"}, Title: "done-context",
+	})
+	if err == nil {
+		t.Error("expected CreateArtifact to reject unknown status 'done'")
+	}
+}
+
 // --- BulkSetField in parchment ---
 
 func TestBulkSetField_UpdatesMatchingArtifacts(t *testing.T) {
