@@ -45,8 +45,8 @@ github.com/dpopsuev/locus v0.107.1-0.20260620115833-03069ed6850a h1:UZ4eRzfYeMSW
 github.com/dpopsuev/locus v0.107.1-0.20260620115833-03069ed6850a/go.mod h1:d7BkV7SBLvg+M26YK/1NiMhLbpV+RALLVMenEsSc7vc=
 github.com/dpopsuev/oculus/v3 v3.91.0 h1:Xc7tjI1LwTaVpC9N4U5up/vIeRwyJfPjDczjppZnw/g=
 github.com/dpopsuev/oculus/v3 v3.91.0/go.mod h1:NVYyxhesN/Z1WPIQDPDJu9NZopWOTC+XzQ1x3aw6seA=
-github.com/dpopsuev/parchment v1.73.0 h1:w5/ibRn4MIFfTiiHx1QRR9w+GTI2BP7ZjMYpIGLq0XY=
-github.com/dpopsuev/parchment v1.73.0/go.mod h1:7KpyndnMLH1Yn8sSfybNkdHLp/XnwqMqtS6NhmtN8Jc=
+github.com/dpopsuev/parchment v1.74.0 h1:RUdvDypyE5kkkOfn9AMHe8Ty09gAQU4ofC+ISPjsunQ=
+github.com/dpopsuev/parchment v1.74.0/go.mod h1:7KpyndnMLH1Yn8sSfybNkdHLp/XnwqMqtS6NhmtN8Jc=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
 github.com/ebitengine/purego v0.9.1 h1:a/k2f2HQU3Pi399RPW1MOaZyhKJL9w/xFpKAg4q1s0A=

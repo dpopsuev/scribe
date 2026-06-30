@@ -2,10 +2,10 @@ package service
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
+
+	parchment "github.com/dpopsuev/parchment"
 )
 
 type kernelCreateInput struct {
@@ -39,9 +39,7 @@ var opKernelCreate = Op{
 
 		id := in.ID
 		if id == "" {
-			b := make([]byte, 4) //nolint:mnd // 4 bytes = 8 hex chars for kernel ID suffix
-			_, _ = rand.Read(b)
-			id = "KRN-" + hex.EncodeToString(b)
+			id = parchment.GenerateUUID()
 		}
 
 		sel := Selector{
