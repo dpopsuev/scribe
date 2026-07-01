@@ -36,7 +36,7 @@ var opFoldCampaign = Op{
 			return "", fmt.Errorf("target campaign %q not found", in.To) //nolint:err113 // agent-facing
 		}
 
-		children, _ := svc.Proto.Store().Neighbors(ctx, src.ID, parchment.RelParentOf, parchment.Outgoing)
+		children, _ := svc.Proto.Neighbors(ctx, src.ID, parchment.RelParentOf, parchment.Outgoing)
 		moved := 0
 		for _, e := range children {
 			child, _ := svc.Proto.GetArtifact(ctx, e.To)
@@ -47,8 +47,8 @@ var opFoldCampaign = Op{
 			if svc.Proto.IsTerminal(status) {
 				continue
 			}
-			_ = svc.Proto.Store().RemoveEdge(ctx, e)
-			_ = svc.Proto.Store().AddEdge(ctx, parchment.Edge{From: in.To, To: e.To, Relation: parchment.RelParentOf})
+			_ = svc.Proto.RemoveEdge(ctx, e)
+			_ = svc.Proto.AddEdge(ctx, parchment.Edge{From: in.To, To: e.To, Relation: parchment.RelParentOf})
 			moved++
 		}
 
@@ -81,7 +81,7 @@ var opReparentChildren = Op{
 			return "", fmt.Errorf("target %q not found", in.To) //nolint:err113 // agent-facing
 		}
 
-		children, _ := svc.Proto.Store().Neighbors(ctx, in.From, parchment.RelParentOf, parchment.Outgoing)
+		children, _ := svc.Proto.Neighbors(ctx, in.From, parchment.RelParentOf, parchment.Outgoing)
 		moved := 0
 		for _, e := range children {
 			child, _ := svc.Proto.GetArtifact(ctx, e.To)
@@ -95,8 +95,8 @@ var opReparentChildren = Op{
 			if svc.Proto.IsTerminal(status) {
 				continue
 			}
-			_ = svc.Proto.Store().RemoveEdge(ctx, e)
-			_ = svc.Proto.Store().AddEdge(ctx, parchment.Edge{From: in.To, To: e.To, Relation: parchment.RelParentOf})
+			_ = svc.Proto.RemoveEdge(ctx, e)
+			_ = svc.Proto.AddEdge(ctx, parchment.Edge{From: in.To, To: e.To, Relation: parchment.RelParentOf})
 			moved++
 		}
 
@@ -104,27 +104,16 @@ var opReparentChildren = Op{
 	},
 }
 
-const (
-	statusComplete = "work.complete" //nolint:goconst // repair-specific
-	statusCanceled = "canceled"
-	kindEffort     = "effort"
-)
+const kindEffort = "effort"
 
-var lifecycleFixMap = map[string]string{
-	"note.fleeting":     labelStatusDraft,
-	"note.mature":       labelStatusActive,
-	"note.evergreen":    statusComplete,
-	"decision.proposed": labelStatusDraft,
-	"decision.accepted": statusComplete,
-	"decision.rejected": statusCanceled,
-	"decision.deferred": labelStatusDraft,
-	"inv.open":          labelStatusDraft,
-	"inv.investigating": labelStatusActive,
-	"inv.resolved":      statusComplete,
-	"obs.open":          labelStatusDraft,
-	"obs.explained":     statusComplete,
-	"cause.proposed":    labelStatusDraft,
-	"cause.confirmed":   statusComplete,
+func lifecycleFix(proto *parchment.Protocol, status string) (string, bool) {
+	if proto.IsTerminal(status) {
+		return "work.complete", true
+	}
+	if parchment.IsDomainStatusLabel(status) && !strings.HasPrefix(status, "work.") {
+		return labelStatusDraft, true
+	}
+	return "", false
 }
 
 type repairInput struct {
@@ -167,8 +156,8 @@ var opRepairLifecycle = Op{
 				continue
 			}
 			status := parchment.StatusFromLabels(art.Labels)
-			fix, needsFix := lifecycleFixMap[status]
-			if !needsFix {
+			fix, needsFix := lifecycleFix(svc.Proto, status)
+			if !needsFix || strings.HasPrefix(status, "work.") {
 				continue
 			}
 			results, err := svc.Proto.SetField(ctx, []string{art.ID}, "status", fix, parchment.SetFieldOptions{Force: true})

@@ -36,7 +36,7 @@ type GraphData struct {
 
 // BuildScopeGraph returns one node per scope and one link per cross-scope edge.
 func BuildScopeGraph(ctx context.Context, svc *Service) (GraphData, error) {
-	counts, weights, err := svc.Proto.Store().ScopeGraph(ctx)
+	counts, weights, err := svc.Proto.ScopeGraph(ctx)
 	if err != nil {
 		return GraphData{}, err
 	}
@@ -64,7 +64,7 @@ func BuildScopeGraph(ctx context.Context, svc *Service) (GraphData, error) {
 // BuildKindGraph returns one node per kind within a scope.
 func BuildKindGraph(ctx context.Context, svc *Service, scope string, statuses, relations []string) (GraphData, error) {
 	statusLabels := normalizeStatuses(statuses)
-	counts, weights, err := svc.Proto.Store().KindGraph(ctx, scope, statusLabels, relations)
+	counts, weights, err := svc.Proto.KindGraph(ctx, scope, statusLabels, relations)
 	if err != nil {
 		return GraphData{}, err
 	}
@@ -203,7 +203,7 @@ func bfsCollect(ctx context.Context, svc *Service, rootID string, hops int) (map
 	for range hops {
 		var next []string
 		for _, id := range frontier {
-			neighbors, _ := svc.Proto.Store().Neighbors(ctx, id, "", parchment.Both)
+			neighbors, _ := svc.Proto.Neighbors(ctx, id, "", parchment.Both)
 			for _, e := range neighbors {
 				edges = append(edges, e)
 				peerID := peerOf(e, id)

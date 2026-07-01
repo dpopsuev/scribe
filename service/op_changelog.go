@@ -30,7 +30,7 @@ var opChangelog = Op{
 			limit = 10
 		}
 
-		revs, err := svc.Proto.Store().ListRevisions(ctx, in.ID, limit)
+		revs, err := svc.Proto.ListRevisions(ctx, in.ID, limit)
 		if err != nil {
 			return "", err
 		}

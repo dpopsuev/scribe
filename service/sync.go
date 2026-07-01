@@ -152,7 +152,7 @@ func (s *Service) ExportScope(ctx context.Context, scope, outDir string) (int, e
 		return 0, fmt.Errorf("mkdir %s: %w", outDir, err)
 	}
 
-	arts, err := s.Proto.Store().List(ctx, parchment.Filter{Labels: []string{parchment.LabelPrefixScope + scope}})
+	arts, err := s.Proto.List(ctx, parchment.Filter{Labels: []string{parchment.LabelPrefixScope + scope}})
 	if err != nil {
 		return 0, err
 	}

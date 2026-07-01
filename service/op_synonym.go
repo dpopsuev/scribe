@@ -47,7 +47,7 @@ func runSynonymAdd(ctx context.Context, svc *Service, in *synonymInput) (string,
 	if err != nil {
 		return "", err
 	}
-	if err := svc.Proto.Store().AddAlias(ctx, art.ID, in.Alias); err != nil {
+	if err := svc.Proto.AddAlias(ctx, art.ID, in.Alias); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("alias %q added for %s (%s)", in.Alias, art.ID, art.Title), nil
@@ -61,7 +61,7 @@ func runSynonymRemove(ctx context.Context, svc *Service, in *synonymInput) (stri
 	if err != nil {
 		return "", err
 	}
-	if err := svc.Proto.Store().RemoveAlias(ctx, art.ID, in.Alias); err != nil {
+	if err := svc.Proto.RemoveAlias(ctx, art.ID, in.Alias); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("alias %q removed from %s", in.Alias, art.ID), nil
@@ -75,7 +75,7 @@ func runSynonymList(ctx context.Context, svc *Service, in *synonymInput) (string
 	if err != nil {
 		return "", err
 	}
-	aliases, _ := svc.Proto.Store().ListAliases(ctx, art.ID)
+	aliases, _ := svc.Proto.ListAliases(ctx, art.ID)
 	var b strings.Builder
 	fmt.Fprintf(&b, "aliases for %s (%s):\n", art.ID, art.Title)
 	for _, a := range aliases {

@@ -51,7 +51,7 @@ var opTriage = Op{
 		})
 		for _, c := range campaigns {
 			status := parchment.StatusFromLabels(c.Labels)
-			children, _ := svc.Proto.Store().Neighbors(ctx, c.ID, parchment.RelParentOf, parchment.Outgoing)
+			children, _ := svc.Proto.Neighbors(ctx, c.ID, parchment.RelParentOf, parchment.Outgoing)
 
 			summary := triageCampaignSummary{
 				ID: c.ID, Title: c.Title, Status: status, TotalGoals: len(children),
@@ -96,7 +96,7 @@ var opTriage = Op{
 				out.LifecycleMismatch++
 			}
 
-			incoming, _ := svc.Proto.Store().Neighbors(ctx, art.ID, parchment.RelParentOf, parchment.Incoming)
+			incoming, _ := svc.Proto.Neighbors(ctx, art.ID, parchment.RelParentOf, parchment.Incoming)
 			if len(incoming) == 0 && !svc.Proto.IsTerminal(status) {
 				kind := art.Label(parchment.LabelPrefixKind)
 				if kind != "effort.campaign" {

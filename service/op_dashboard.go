@@ -71,7 +71,7 @@ func collectCampStats(ctx context.Context, svc *Service, c *parchment.Artifact) 
 		status: parchment.StatusFromLabels(c.Labels),
 		score:  svc.Proto.CompletionScore(ctx, c),
 	}
-	goalEdges, _ := svc.Proto.Store().Neighbors(ctx, c.ID, parchment.RelParentOf, parchment.Outgoing)
+	goalEdges, _ := svc.Proto.Neighbors(ctx, c.ID, parchment.RelParentOf, parchment.Outgoing)
 	for _, e := range goalEdges {
 		goal, _ := svc.Proto.GetArtifact(ctx, e.To)
 		if goal == nil || goal.Label(parchment.LabelPrefixKind) != "effort.goal" {
@@ -96,7 +96,7 @@ func tallyGoalStatus(svc *Service, cs *campStats, goal *parchment.Artifact) {
 }
 
 func tallyTaskStats(ctx context.Context, svc *Service, cs *campStats, goal *parchment.Artifact) {
-	taskEdges, _ := svc.Proto.Store().Neighbors(ctx, goal.ID, parchment.RelParentOf, parchment.Outgoing)
+	taskEdges, _ := svc.Proto.Neighbors(ctx, goal.ID, parchment.RelParentOf, parchment.Outgoing)
 	for _, te := range taskEdges {
 		task, _ := svc.Proto.GetArtifact(ctx, te.To)
 		if task == nil {

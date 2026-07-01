@@ -12,7 +12,7 @@ import (
 // the given file path. This is the core of contextual rule resolution —
 // "given this file, which rules apply?"
 func (s *Service) MatchRules(ctx context.Context, filePath string, extraLabels []string) ([]RecallResult, error) {
-	rules, err := s.Proto.Store().List(ctx, parchment.Filter{
+	rules, err := s.Proto.List(ctx, parchment.Filter{
 		Labels: []string{parchment.LabelPrefixKind + "support.rule"},
 	})
 	if err != nil {
