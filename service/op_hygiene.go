@@ -116,7 +116,7 @@ func findZombieCampaigns(ctx context.Context, svc *Service, labels []string) []H
 		if status != labelStatusActive {
 			continue
 		}
-		children, _ := svc.Proto.Store().Neighbors(ctx, c.ID, parchment.RelParentOf, parchment.Outgoing)
+		children, _ := svc.Proto.Neighbors(ctx, c.ID, parchment.RelParentOf, parchment.Outgoing)
 		activeGoals := 0
 		for _, e := range children {
 			goal, _ := svc.Proto.GetArtifact(ctx, e.To)
@@ -153,11 +153,8 @@ func findLifecycleMismatches(ctx context.Context, svc *Service, labels []string)
 	})
 	for _, art := range effortArts {
 		status := parchment.StatusFromLabels(art.Labels)
-		if strings.HasPrefix(status, "note.") || strings.HasPrefix(status, "decision.") || strings.HasPrefix(status, "inv.") {
-			fix := lifecycleFixMap[status]
-			if fix == "" {
-				fix = labelStatusDraft
-			}
+		fix, isMismatch := lifecycleFix(svc.Proto, status)
+		if isMismatch && !strings.HasPrefix(status, "work.") {
 			findings = append(findings, HygieneFinding{
 				Severity:    "critical",
 				Category:    "lifecycle_mismatch",
@@ -226,8 +223,8 @@ func findOrphans(ctx context.Context, svc *Service, labels []string, includeCode
 		if isCodeKind(kind) && !includeCode {
 			continue
 		}
-		outE, _ := svc.Proto.Store().Neighbors(ctx, art.ID, "", parchment.Outgoing)
-		inE, _ := svc.Proto.Store().Neighbors(ctx, art.ID, "", parchment.Incoming)
+		outE, _ := svc.Proto.Neighbors(ctx, art.ID, "", parchment.Outgoing)
+		inE, _ := svc.Proto.Neighbors(ctx, art.ID, "", parchment.Incoming)
 		if len(outE) == 0 && len(inE) == 0 {
 			if svc.Proto.IsAuditRetain(kind) || hasAuditValue(art) {
 				continue
@@ -405,7 +402,7 @@ var opHygiene = Op{
 		pruneArts, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: pruneLabels})
 		revisionsPruned := 0
 		for _, art := range pruneArts {
-			n, _ := svc.Proto.Store().PruneRevisions(ctx, art.ID, 20)
+			n, _ := svc.Proto.PruneRevisions(ctx, art.ID, 20) //nolint:mnd // max revisions to keep
 			revisionsPruned += n
 		}
 		if c, ok := svc.Proto.Store().(parchment.Compactor); ok && revisionsPruned > 0 {

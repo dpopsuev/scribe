@@ -193,7 +193,7 @@ func filterUnblocked(ctx context.Context, svc *Service, entries []parchment.Topo
 			continue
 		}
 		blocked := false
-		depEdges, _ := svc.Proto.Store().Neighbors(ctx, art.ID, parchment.RelDependsOn, parchment.Outgoing)
+		depEdges, _ := svc.Proto.Neighbors(ctx, art.ID, parchment.RelDependsOn, parchment.Outgoing)
 		for _, de := range depEdges {
 			dep, _ := svc.Proto.GetArtifact(ctx, de.To)
 			if dep != nil && !svc.Proto.IsTerminal(parchment.StatusFromLabels(dep.Labels)) {
@@ -214,7 +214,7 @@ func filterUnblocked(ctx context.Context, svc *Service, entries []parchment.Topo
 func filterLeaves(ctx context.Context, svc *Service, entries []parchment.TopoEntry) []parchment.TopoEntry {
 	var leaves []parchment.TopoEntry
 	for _, e := range entries {
-		children, _ := svc.Proto.Store().Neighbors(ctx, e.ID, parchment.RelParentOf, parchment.Outgoing)
+		children, _ := svc.Proto.Neighbors(ctx, e.ID, parchment.RelParentOf, parchment.Outgoing)
 		if len(children) == 0 {
 			leaves = append(leaves, e)
 		}

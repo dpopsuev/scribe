@@ -546,7 +546,7 @@ func checkReadLogGuard(ctx context.Context, svc *Service, ids []string) string {
 		if err != nil || art.Label(parchment.LabelPrefixKind) != kindTask {
 			continue
 		}
-		implEdges, _ := svc.Proto.Store().Neighbors(ctx, id, parchment.RelImplements, parchment.Outgoing)
+		implEdges, _ := svc.Proto.Neighbors(ctx, id, parchment.RelImplements, parchment.Outgoing)
 		for _, e := range implEdges {
 			if !svc.ReadLog[e.To] {
 				return fmt.Sprintf("%s -> error: must read %s first (call get on implementing spec before activating)", id, e.To)

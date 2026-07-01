@@ -36,8 +36,8 @@ var opLint = Op{
 				return "", err
 			}
 			arts = append(arts, root)
-			_ = svc.Proto.Store().Walk(ctx, in.ID, parchment.RelParentOf, parchment.Outgoing, 0, func(_ int, e parchment.Edge) bool {
-				if child, err := svc.Proto.Store().Get(ctx, e.To); err == nil {
+			_ = svc.Proto.Walk(ctx, in.ID, parchment.RelParentOf, parchment.Outgoing, 0, func(_ int, e parchment.Edge) bool {
+				if child, err := svc.Proto.Get(ctx, e.To); err == nil {
 					arts = append(arts, child)
 				}
 				return true
@@ -67,8 +67,8 @@ var opLint = Op{
 		for _, art := range arts {
 			kind := art.Label(parchment.LabelPrefixKind)
 
-			outEdges, _ := svc.Proto.Store().Neighbors(ctx, art.ID, "", parchment.Outgoing)
-			inEdges, _ := svc.Proto.Store().Neighbors(ctx, art.ID, "", parchment.Incoming)
+			outEdges, _ := svc.Proto.Neighbors(ctx, art.ID, "", parchment.Outgoing)
+			inEdges, _ := svc.Proto.Neighbors(ctx, art.ID, "", parchment.Incoming)
 			if len(outEdges) == 0 && len(inEdges) == 0 {
 				findings = append(findings, lintFinding{
 					ID: art.ID, Title: art.Title, Kind: kind,

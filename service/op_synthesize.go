@@ -46,7 +46,7 @@ var opSynthesize = Op{
 			if _, err := svc.Proto.GetArtifact(ctx, src); err != nil {
 				continue
 			}
-			_ = svc.Proto.Store().AddEdgeSource(ctx, art.ID, parchment.RelCites, src, "synthesize")
+			_ = svc.Proto.AddEdgeSource(ctx, art.ID, parchment.RelCites, src, "synthesize")
 		}
 
 		out := fmt.Sprintf("created %s (%s)", art.ID, art.Title)

@@ -244,7 +244,7 @@ func getImpact(ctx context.Context, svc *Service, id string) (string, error) {
 	}
 	var lines []string
 	lines = append(lines, fmt.Sprintf("Impact analysis for %s [%s] %s:", id, parchment.StatusFromLabels(art.Labels), art.Title))
-	children, _ := svc.Proto.Store().Children(ctx, id)
+	children, _ := svc.Proto.Children(ctx, id)
 	if len(children) > 0 {
 		lines = append(lines, fmt.Sprintf("\nChildren (%d):", len(children)))
 		for _, ch := range children {
@@ -298,7 +298,7 @@ func getContext(ctx context.Context, svc *Service, id string) (string, error) {
 }
 
 func writeHeritage(ctx context.Context, svc *Service, b *strings.Builder, id string) {
-	parents, _ := svc.Proto.Store().Neighbors(ctx, id, parchment.RelParentOf, parchment.Incoming)
+	parents, _ := svc.Proto.Neighbors(ctx, id, parchment.RelParentOf, parchment.Incoming)
 	if len(parents) == 0 {
 		return
 	}
@@ -309,7 +309,7 @@ func writeHeritage(ctx context.Context, svc *Service, b *strings.Builder, id str
 			continue
 		}
 		fmt.Fprintf(b, "  %s [%s] %s\n", p.ID, p.Label(parchment.LabelPrefixKind), p.Title)
-		grandparents, _ := svc.Proto.Store().Neighbors(ctx, e.From, parchment.RelParentOf, parchment.Incoming)
+		grandparents, _ := svc.Proto.Neighbors(ctx, e.From, parchment.RelParentOf, parchment.Incoming)
 		for _, gp := range grandparents {
 			g, err := svc.Proto.GetArtifact(ctx, gp.From)
 			if err != nil {
@@ -322,7 +322,7 @@ func writeHeritage(ctx context.Context, svc *Service, b *strings.Builder, id str
 }
 
 func writeChildren(ctx context.Context, svc *Service, b *strings.Builder, id string) {
-	children, _ := svc.Proto.Store().Children(ctx, id)
+	children, _ := svc.Proto.Children(ctx, id)
 	if len(children) == 0 {
 		return
 	}
@@ -334,7 +334,7 @@ func writeChildren(ctx context.Context, svc *Service, b *strings.Builder, id str
 }
 
 func writeDependencies(ctx context.Context, svc *Service, b *strings.Builder, id string) {
-	deps, _ := svc.Proto.Store().Neighbors(ctx, id, parchment.RelDependsOn, parchment.Outgoing)
+	deps, _ := svc.Proto.Neighbors(ctx, id, parchment.RelDependsOn, parchment.Outgoing)
 	if len(deps) == 0 {
 		return
 	}
@@ -354,7 +354,7 @@ func writeReferences(ctx context.Context, svc *Service, b *strings.Builder, id s
 	var lines []string
 	seen := map[string]bool{}
 	for _, rel := range knowledgeRels {
-		edges, _ := svc.Proto.Store().Neighbors(ctx, id, rel, parchment.Outgoing)
+		edges, _ := svc.Proto.Neighbors(ctx, id, rel, parchment.Outgoing)
 		for _, e := range edges {
 			if seen[e.To] {
 				continue
