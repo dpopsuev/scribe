@@ -285,6 +285,28 @@ func TestOpSet_FieldErrorPropagated(t *testing.T) {
 	}
 }
 
+func TestCreateSections_TitleKeyAlias(t *testing.T) {
+	// Bug: agents send {"title":"context","body":"..."} instead of {"name":"context","text":"..."}
+	// parseSections must accept "title" as alias for "name"
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	op := service.Find("create")
+	raw, _ := json.Marshal(map[string]any{
+		"kind": "knowledge.context", "title": "title-key-test", "scope": "test",
+		"sections": []map[string]string{
+			{"title": "content", "body": "hello from title key"},
+		},
+	})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "Stored sections: content") {
+		t.Errorf("section with title key not stored: %s", out)
+	}
+}
+
 func TestOpSchema_IncludesLifecycle(t *testing.T) {
 	svc := newTestService(t)
 	op := service.Find("schema")

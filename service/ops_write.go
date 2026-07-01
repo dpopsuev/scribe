@@ -50,19 +50,21 @@ var opCreate = Op{
 func parseSections(raw []map[string]string) []parchment.Section {
 	var out []parchment.Section
 	for _, sec := range raw {
-		name := sec["name"]
-		if name == "" {
-			name = sec["slug"]
-		}
+		name := firstNonEmpty(sec, "name", "slug", "title")
 		if name != "" {
-			t := sec["text"]
-			if t == "" {
-				t = sec["body"]
-			}
-			out = append(out, parchment.Section{Name: name, Text: t})
+			out = append(out, parchment.Section{Name: name, Text: firstNonEmpty(sec, "text", "body")})
 		}
 	}
 	return out
+}
+
+func firstNonEmpty(m map[string]string, keys ...string) string {
+	for _, k := range keys {
+		if v := m[k]; v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func createSingle(ctx context.Context, svc *Service, in *createInput) (string, error) {
