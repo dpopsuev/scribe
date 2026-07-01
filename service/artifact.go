@@ -18,6 +18,8 @@ var (
 	labelStatusDraft  = "work.draft"
 )
 
+const kindTask = "effort.task"
+
 // labelVal extracts the value after prefix from the first matching label in labels.
 func labelVal(labels []string, prefix string) string {
 	for _, l := range labels {

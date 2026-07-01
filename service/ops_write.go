@@ -310,80 +310,46 @@ var opUpdate = Op{
 		if len(fieldMap) == 0 && len(in.Sections) == 0 && !hasSectionReplace && len(in.SectionsDelete) == 0 && len(in.Extra) == 0 {
 			return "", fmt.Errorf("update requires at least one field, section, sections_delete, extra, or query+text for find-replace") //nolint:err113 // user-facing hint
 		}
-		var lines []string
-		for _, id := range ids {
-			for field, value := range fieldMap {
-				results, err := svc.Proto.SetField(ctx, []string{id}, field, value, parchment.SetFieldOptions{Force: in.Force})
-				if err != nil {
-					lines = append(lines, fmt.Sprintf("%s -> error: set %s: %v", id, field, err))
-					continue
-				}
-				r := results[0]
-				if !r.OK {
-					lines = append(lines, fmt.Sprintf("%s -> error: set %s: %s", id, field, r.Error))
-					continue
-				}
-				lines = append(lines, fmt.Sprintf("%s.%s = %s", id, field, value))
-			}
-			for _, sec := range in.Sections {
-				name, ok := sec["name"]
-				if !ok || name == "" {
-					continue
-				}
-				t := sec["text"]
-				replaced, err := svc.Proto.AttachSection(ctx, id, name, t)
-				if err != nil {
-					lines = append(lines, fmt.Sprintf("%s -> error: section %q: %v", id, name, err))
-					continue
-				}
-				if t != "" {
-					_, _ = svc.Proto.SyncWikilinks(ctx, id)
-				}
-				action := "added"
-				if replaced {
-					action = "replaced"
-				}
-				lines = append(lines, fmt.Sprintf("%s: section %q %s", id, name, action))
-			}
-			if hasSectionReplace {
+		ops := []updateOp{
+			{active: len(fieldMap) > 0, run: func(ctx context.Context, svc *Service, id string) []string {
+				return updateFields(ctx, svc, id, fieldMap, in.Force)
+			}},
+			{active: len(in.Sections) > 0, run: func(ctx context.Context, svc *Service, id string) []string {
+				return updateSections(ctx, svc, id, in.Sections)
+			}},
+			{active: hasSectionReplace, run: func(ctx context.Context, svc *Service, id string) []string {
 				replacement := in.Text
 				if replacement == "" {
 					replacement = in.Body
 				}
-				frLines, err := findReplaceInSections(ctx, svc, id, in.Query, replacement)
+				lines, err := findReplaceInSections(ctx, svc, id, in.Query, replacement)
 				if err != nil {
-					lines = append(lines, fmt.Sprintf("%s -> error: %v", id, err))
-					continue
+					return []string{fmt.Sprintf("%s -> error: %v", id, err)}
 				}
-				lines = append(lines, frLines...)
-			}
-			for _, name := range in.SectionsDelete {
-				removed, err := svc.Proto.DetachSection(ctx, id, name)
-				if err != nil {
-					lines = append(lines, fmt.Sprintf("%s -> error: detach %q: %v", id, name, err))
-					continue
-				}
-				if removed {
-					lines = append(lines, fmt.Sprintf("%s: section %q removed", id, name))
-				} else {
-					lines = append(lines, fmt.Sprintf("%s: section %q not found", id, name))
-				}
-			}
-			if len(in.Extra) > 0 {
-				err := svc.Proto.PatchArtifact(ctx, id, parchment.ArtifactPatch{SetExtra: in.Extra})
-				if err != nil {
-					lines = append(lines, fmt.Sprintf("%s -> error: extra: %v", id, err))
-				} else {
-					keys := make([]string, 0, len(in.Extra))
-					for k := range in.Extra {
-						keys = append(keys, k)
-					}
-					lines = append(lines, fmt.Sprintf("%s: extra keys set: %s", id, strings.Join(keys, ", ")))
+				return lines
+			}},
+			{active: len(in.SectionsDelete) > 0, run: func(ctx context.Context, svc *Service, id string) []string {
+				return deleteSections(ctx, svc, id, in.SectionsDelete)
+			}},
+			{active: len(in.Extra) > 0, run: func(ctx context.Context, svc *Service, id string) []string {
+				return patchExtra(ctx, svc, id, in.Extra)
+			}},
+		}
+		var lines []string
+		for _, id := range ids {
+			for _, op := range ops {
+				if op.active {
+					lines = append(lines, op.run(ctx, svc, id)...)
 				}
 			}
 		}
 		return strings.Join(lines, "\n"), nil
 	},
+}
+
+type updateOp struct {
+	active bool
+	run    func(ctx context.Context, svc *Service, id string) []string
 }
 
 func findReplaceInSections(ctx context.Context, svc *Service, id, query, replacement string) ([]string, error) {
@@ -406,6 +372,79 @@ func findReplaceInSections(ctx context.Context, svc *Service, id, query, replace
 	}
 	lines = append(lines, fmt.Sprintf("%s: %d section(s) updated", id, updated))
 	return lines, nil
+}
+
+func updateFields(ctx context.Context, svc *Service, id string, fieldMap map[string]string, force bool) []string {
+	var lines []string
+	for field, value := range fieldMap {
+		results, err := svc.Proto.SetField(ctx, []string{id}, field, value, parchment.SetFieldOptions{Force: force})
+		if err != nil {
+			lines = append(lines, fmt.Sprintf("%s -> error: set %s: %v", id, field, err))
+			continue
+		}
+		if r := results[0]; !r.OK {
+			lines = append(lines, fmt.Sprintf("%s -> error: set %s: %s", id, field, r.Error))
+		} else {
+			lines = append(lines, fmt.Sprintf("%s.%s = %s", id, field, value))
+		}
+	}
+	return lines
+}
+
+func updateSections(ctx context.Context, svc *Service, id string, sections []map[string]string) []string {
+	var lines []string
+	for _, sec := range sections {
+		name := firstNonEmpty(sec, "name", "slug", "title")
+		if name == "" {
+			continue
+		}
+		t := firstNonEmpty(sec, "text", "body")
+		replaced, err := svc.Proto.AttachSection(ctx, id, name, t)
+		if err != nil {
+			lines = append(lines, fmt.Sprintf("%s -> error: section %q: %v", id, name, err))
+			continue
+		}
+		if t != "" {
+			_, _ = svc.Proto.SyncWikilinks(ctx, id)
+		}
+		action := "added"
+		if replaced {
+			action = "replaced"
+		}
+		lines = append(lines, fmt.Sprintf("%s: section %q %s", id, name, action))
+	}
+	return lines
+}
+
+func deleteSections(ctx context.Context, svc *Service, id string, names []string) []string {
+	var lines []string
+	for _, name := range names {
+		removed, err := svc.Proto.DetachSection(ctx, id, name)
+		if err != nil {
+			lines = append(lines, fmt.Sprintf("%s -> error: detach %q: %v", id, name, err))
+			continue
+		}
+		if removed {
+			lines = append(lines, fmt.Sprintf("%s: section %q removed", id, name))
+		} else {
+			lines = append(lines, fmt.Sprintf("%s: section %q not found", id, name))
+		}
+	}
+	return lines
+}
+
+func patchExtra(ctx context.Context, svc *Service, id string, extra map[string]any) []string {
+	if len(extra) == 0 {
+		return nil
+	}
+	if err := svc.Proto.PatchArtifact(ctx, id, parchment.ArtifactPatch{SetExtra: extra}); err != nil {
+		return []string{fmt.Sprintf("%s -> error: extra: %v", id, err)}
+	}
+	keys := make([]string, 0, len(extra))
+	for k := range extra {
+		keys = append(keys, k)
+	}
+	return []string{fmt.Sprintf("%s: extra keys set: %s", id, strings.Join(keys, ", "))}
 }
 
 type setInput struct {
@@ -472,17 +511,8 @@ var opSet = Op{
 			return "", fmt.Errorf("provide id, ids, or filter params (scope, kind, status)") //nolint:err113 // user-facing hint
 		}
 		if in.Field == parchment.FieldStatus && in.Value == statusWorkActive && !in.Force {
-			for _, id := range ids {
-				art, err := svc.Proto.GetArtifact(ctx, id)
-				if err != nil || art.Label(parchment.LabelPrefixKind) != "effort.task" {
-					continue
-				}
-				implEdges, _ := svc.Proto.Store().Neighbors(ctx, id, parchment.RelImplements, parchment.Outgoing)
-				for _, e := range implEdges {
-					if !svc.ReadLog[e.To] {
-						return fmt.Sprintf("%s -> error: must read %s first (call get on implementing spec before activating)", id, e.To), nil
-					}
-				}
+			if msg := checkReadLogGuard(ctx, svc, ids); msg != "" {
+				return msg, nil
 			}
 		}
 		if in.DryRun {
@@ -508,6 +538,22 @@ var opSet = Op{
 		}
 		return strings.Join(lines, "\n"), nil
 	},
+}
+
+func checkReadLogGuard(ctx context.Context, svc *Service, ids []string) string {
+	for _, id := range ids {
+		art, err := svc.Proto.GetArtifact(ctx, id)
+		if err != nil || art.Label(parchment.LabelPrefixKind) != kindTask {
+			continue
+		}
+		implEdges, _ := svc.Proto.Store().Neighbors(ctx, id, parchment.RelImplements, parchment.Outgoing)
+		for _, e := range implEdges {
+			if !svc.ReadLog[e.To] {
+				return fmt.Sprintf("%s -> error: must read %s first (call get on implementing spec before activating)", id, e.To)
+			}
+		}
+	}
+	return ""
 }
 
 func stripSystemLabels(source, override []string, scope string) []string {
@@ -594,22 +640,18 @@ func updateBatch(ctx context.Context, svc *Service, items []json.RawMessage) (st
 				fieldMap[field] = value
 			}
 		}
+		fieldLines := updateFields(ctx, svc, item.ID, fieldMap, item.Force)
+		secLines := updateSections(ctx, svc, item.ID, item.Sections)
 		errored := false
-		for field, value := range fieldMap {
-			results, err := svc.Proto.SetField(ctx, []string{item.ID}, field, value, parchment.SetFieldOptions{Force: item.Force})
-			if err != nil {
-				lines = append(lines, fmt.Sprintf("%s: set %s failed: %v", item.ID, field, err))
-				errored = true
-				continue
-			}
-			if !results[0].OK {
-				lines = append(lines, fmt.Sprintf("%s: set %s: %s", item.ID, field, results[0].Error))
+		for _, l := range fieldLines {
+			lines = append(lines, l)
+			if strings.Contains(l, "error") {
 				errored = true
 			}
 		}
-		for _, sec := range item.Sections {
-			if _, err := svc.Proto.AttachSection(ctx, item.ID, sec["name"], sec["text"]); err != nil {
-				lines = append(lines, fmt.Sprintf("%s: section %s: %v", item.ID, sec["name"], err))
+		for _, l := range secLines {
+			lines = append(lines, l)
+			if strings.Contains(l, "error") {
 				errored = true
 			}
 		}
