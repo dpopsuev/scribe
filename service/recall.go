@@ -14,53 +14,53 @@ import (
 	parchment "github.com/dpopsuev/parchment"
 )
 
-// knowledgeKinds are always recallable regardless of status.
-var knowledgeKinds = map[string]bool{
+const (
+	kindCampaign = "effort.campaign"
+	kindGoal     = "effort.goal"
+)
+
+// recallableKinds are always recallable regardless of status.
+var recallableKinds = map[string]bool{
 	"knowledge.note":    true,
 	"knowledge.journal": true,
 	"knowledge.source":  true,
 	"knowledge.concept": true,
 	"knowledge.context": true,
 	"agent.memory":      true,
+	kindCampaign:        true,
+	kindGoal:            true,
+	kindTask:            true,
+	"intent.bug":        true,
+	"intent.spec":       true,
+	"intent.need":       true,
+	"intent.decision":   true,
 }
 
 // IsRecallable returns true when an artifact should be included in recall.
 func IsRecallable(art *parchment.Artifact, proto *parchment.Protocol) bool {
-	if knowledgeKinds[art.Label(parchment.LabelPrefixKind)] {
+	kind := art.Label(parchment.LabelPrefixKind)
+	if proto.IsRecallable(kind) {
+		return true
+	}
+	if recallableKinds[kind] {
 		return true
 	}
 	return proto.IsTerminal(parchment.StatusFromLabels(art.Labels))
 }
 
 // KindWeight returns the relevance multiplier for a kind + status combination.
-func KindWeight(kind, status string) float64 {
-	switch kind {
-	case "knowledge.note":
-		if status == "note.evergreen" {
-			return 2.0
+const defaultRecallWeight = 0.7 //nolint:mnd // baseline for unknown kinds
+
+// KindWeight returns the recall ranking weight for a kind.
+// Uses trait-driven RecallWeight when available, falls back to hardcoded map.
+func KindWeight(kind, status string, proto *parchment.Protocol) float64 {
+	if w := proto.RecallWeight(kind); w > 0 {
+		if kind == "knowledge.note" && status == "note.evergreen" {
+			return w * 2 //nolint:mnd // evergreen notes get 2x boost
 		}
-		return 1.0
-	case "knowledge.concept":
-		return 1.4
-	case "intent.decision":
-		return 1.3
-	case "intent.bug":
-		return 1.2
-	case "knowledge.source":
-		return 1.1
-	case "intent.spec":
-		return 1.0
-	case "knowledge.context":
-		return 1.0
-	case "effort.task":
-		return 0.9
-	case "agent.memory":
-		return 1.3
-	case "knowledge.journal":
-		return 0.8
-	default:
-		return 0.7
+		return w
 	}
+	return defaultRecallWeight
 }
 
 // RecencyWeight returns a [0.5, 1.0] multiplier decaying over 90 days.
@@ -117,7 +117,7 @@ func (s *Service) Recall(ctx context.Context, query, scope string, top int) ([]R
 	var results []RecallResult
 	for _, a := range candidates {
 		bm25 := TermOverlap(a, queryTerms)
-		score := bm25 * KindWeight(a.Label(parchment.LabelPrefixKind), parchment.StatusFromLabels(a.Labels)) * RecencyWeight(a.UpdatedAt)
+		score := bm25 * KindWeight(a.Label(parchment.LabelPrefixKind), parchment.StatusFromLabels(a.Labels), s.Proto) * RecencyWeight(a.UpdatedAt)
 		fanIn, _ := FanIn(ctx, s.Proto.Store(), a.ID)
 		score *= 1.0 + math.Log1p(float64(fanIn))*0.1
 		results = append(results, RecallResult{a, score})

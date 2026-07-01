@@ -245,7 +245,7 @@ func ingestGitLog(_ context.Context, repoRoot string, pb *IngestPlaybook) ([]*pa
 			edges = append(edges, parchment.Edge{
 				From:     commitID,
 				To:       ref,
-				Relation: edgeImplements,
+				Relation: parchment.RelImplements,
 			})
 		}
 	}

@@ -42,7 +42,7 @@ func (r *CrossSourceResolver) ResolveRef(ctx context.Context, ref parchment.Wiki
 		Relation:  ref.Relation,
 	}
 	if result.Relation == "" {
-		result.Relation = edgeMentions
+		result.Relation = parchment.RelMentions
 	}
 
 	scope, target := splitScopeTarget(ref.Target)

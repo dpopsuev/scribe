@@ -20,23 +20,21 @@ const (
 )
 
 const (
-	edgeContains   = "contains"
-	edgeImplements = "implements" //nolint:goconst // freshness-specific
-	edgeEmbeds     = "embeds"
-	edgeFieldRef   = "field_ref"
-	edgeCalls      = "calls"
-	edgeDependsOn  = "depends_on" //nolint:goconst // freshness-specific
-	edgeMentions   = "mentions"
+	edgeContains = "contains"
+	edgeEmbeds   = "embeds"
+	edgeFieldRef = "field_ref"
+	edgeCalls    = "calls"
 )
 
+//nolint:mnd // edge weight tuning constants
 var edgeWeights = map[string]float64{
-	edgeContains:   1.0,
-	edgeImplements: 0.8,
-	edgeEmbeds:     0.8,
-	edgeFieldRef:   0.6,
-	edgeCalls:      0.4,
-	edgeDependsOn:  0.3,
-	edgeMentions:   0.1,
+	edgeContains:            1.0,
+	parchment.RelImplements: 0.8,
+	edgeEmbeds:              0.8,
+	edgeFieldRef:            0.6,
+	edgeCalls:               0.4,
+	parchment.RelDependsOn:  0.3,
+	parchment.RelMentions:   0.1,
 }
 
 // Freshness computes a multi-signal freshness score in [0, 1] for a code artifact.

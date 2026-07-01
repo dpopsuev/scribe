@@ -77,20 +77,21 @@ func collectCampStats(ctx context.Context, svc *Service, c *parchment.Artifact) 
 		if goal == nil || goal.Label(parchment.LabelPrefixKind) != "effort.goal" {
 			continue
 		}
-		tallyGoalStatus(&cs, goal)
+		tallyGoalStatus(svc, &cs, goal)
 		tallyTaskStats(ctx, svc, &cs, goal)
 	}
 	return cs
 }
 
-func tallyGoalStatus(cs *campStats, goal *parchment.Artifact) {
-	switch parchment.StatusFromLabels(goal.Labels) {
-	case "work.active":
-		cs.goalsActive++
-	case "work.draft":
-		cs.goalsDraft++
-	case "work.complete", "done", "complete":
+func tallyGoalStatus(svc *Service, cs *campStats, goal *parchment.Artifact) {
+	status := parchment.StatusFromLabels(goal.Labels)
+	switch {
+	case svc.Proto.IsTerminal(status):
 		cs.goalsDone++
+	case status == svc.Proto.ActiveStatus(goal.Label(parchment.LabelPrefixKind)):
+		cs.goalsActive++
+	default:
+		cs.goalsDraft++
 	}
 }
 
@@ -98,14 +99,14 @@ func tallyTaskStats(ctx context.Context, svc *Service, cs *campStats, goal *parc
 	taskEdges, _ := svc.Proto.Store().Neighbors(ctx, goal.ID, parchment.RelParentOf, parchment.Outgoing)
 	for _, te := range taskEdges {
 		task, _ := svc.Proto.GetArtifact(ctx, te.To)
-		if task == nil || task.Label(parchment.LabelPrefixKind) != "effort.task" {
+		if task == nil {
 			continue
 		}
-		switch parchment.StatusFromLabels(task.Labels) {
-		case "work.active":
-			cs.tasksActive++
-		case "work.complete", "done", "complete":
+		status := parchment.StatusFromLabels(task.Labels)
+		if svc.Proto.IsTerminal(status) {
 			cs.tasksDone++
+		} else if status == svc.Proto.ActiveStatus(task.Label(parchment.LabelPrefixKind)) {
+			cs.tasksActive++
 		}
 	}
 }

@@ -23,7 +23,7 @@ func PropagateChanges(ctx context.Context, proto *parchment.Protocol, pointerID 
 	result := &PropagateResult{PointerID: pointerID}
 
 	store := proto.Store()
-	incoming, err := store.Neighbors(ctx, pointerID, "traces_to", parchment.Incoming)
+	incoming, err := store.Neighbors(ctx, pointerID, edgeTracesTo, parchment.Incoming)
 	if err != nil {
 		result.Errors = append(result.Errors, err.Error())
 		return result

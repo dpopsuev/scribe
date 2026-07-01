@@ -256,9 +256,9 @@ func getImpact(ctx context.Context, svc *Service, id string) (string, error) {
 	for _, e := range depEdges {
 		if e.Direction == "incoming" { //nolint:goconst // "incoming" is a domain constant defined in parchment
 			switch e.Relation {
-			case "depends_on":
+			case parchment.RelDependsOn:
 				dependents = append(dependents, fmt.Sprintf("  %s [%s] %s", e.Target.ID, parchment.StatusFromLabels(e.Target.Labels), e.Target.Title))
-			case "implements":
+			case parchment.RelImplements:
 				implementors = append(implementors, fmt.Sprintf("  %s [%s] %s", e.Target.ID, parchment.StatusFromLabels(e.Target.Labels), e.Target.Title))
 			}
 		}
@@ -350,7 +350,7 @@ func writeDependencies(ctx context.Context, svc *Service, b *strings.Builder, id
 }
 
 func writeReferences(ctx context.Context, svc *Service, b *strings.Builder, id string) {
-	knowledgeRels := []string{"cites", "elaborates", "documents", "implements", "justifies"}
+	knowledgeRels := []string{parchment.RelCites, parchment.RelElaborates, parchment.RelDocuments, parchment.RelImplements, parchment.RelJustifies}
 	var lines []string
 	seen := map[string]bool{}
 	for _, rel := range knowledgeRels {
