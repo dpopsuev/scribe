@@ -99,17 +99,32 @@ func createSingle(ctx context.Context, svc *Service, in *createInput) (string, e
 		fmt.Fprintf(&b, " (parent: %s)", parentOf(ctx, svc.Proto.Store(), art.ID))
 	}
 	kind := art.Label(parchment.LabelPrefixKind)
+	if len(art.Sections) > 0 {
+		names := make([]string, len(art.Sections))
+		for i, s := range art.Sections {
+			names[i] = s.Name
+		}
+		fmt.Fprintf(&b, "\nStored sections: %s", strings.Join(names, ", "))
+	}
 	must := svc.Proto.MustSections(kind)
 	should := svc.Proto.ShouldSections(kind)
-	var hints []string
+	var missing []string
+	have := make(map[string]bool, len(art.Sections))
+	for _, s := range art.Sections {
+		have[s.Name] = true
+	}
 	for _, s := range must {
-		hints = append(hints, s+" (must)")
+		if !have[s] {
+			missing = append(missing, s+" (must)")
+		}
 	}
 	for _, s := range should {
-		hints = append(hints, s+" (should)")
+		if !have[s] {
+			missing = append(missing, s+" (should)")
+		}
 	}
-	if len(hints) > 0 {
-		fmt.Fprintf(&b, "\nSections: %s", strings.Join(hints, ", "))
+	if len(missing) > 0 {
+		fmt.Fprintf(&b, "\nMissing sections: %s", strings.Join(missing, ", "))
 	}
 	return b.String(), nil
 }
