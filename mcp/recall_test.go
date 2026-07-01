@@ -64,21 +64,19 @@ func TestRecall_FindsRelevantNote(t *testing.T) {
 
 // TestRecall_ActiveWorkExcluded verifies that ACTIVE work artifacts are not
 // returned by recall — they are current work, not memory.
-func TestRecall_ActiveWorkExcluded(t *testing.T) {
+func TestRecall_ActiveWorkIncluded(t *testing.T) {
 	proto, call := newRecallServer(t)
 	ctx := context.Background()
 
-	// Active task — should NOT appear in recall
 	activeTask, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + "effort.task"}, Title: "implement retry logic"})
-	// Knowledge note — SHOULD appear
 	note, _ := proto.CreateArtifact(ctx, parchment.CreateInput{Labels: []string{parchment.LabelPrefixKind + "knowledge.note"}, Title: "retry logic pattern",
 		Sections: []parchment.Section{{Name: "body", Text: "exponential backoff with jitter, cap at 5 retries"}},
 	})
 
 	out := call(map[string]any{"action": "query", "ranked": true, "query": "retry logic", "scope": "test"})
 
-	if strings.Contains(out, activeTask.ID) {
-		t.Errorf("recall must not return active task %s\nGot: %s", activeTask.ID, out)
+	if !strings.Contains(out, activeTask.ID) {
+		t.Errorf("recall should return active task %s\nGot: %s", activeTask.ID, out)
 	}
 	if !strings.Contains(out, note.ID) && !strings.Contains(strings.ToLower(out), "retry") {
 		t.Errorf("recall must return knowledge note\nGot: %s", out)

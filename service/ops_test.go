@@ -1601,3 +1601,87 @@ func TestOpDelete_RequiresFilters(t *testing.T) {
 		t.Fatal("expected error for empty delete")
 	}
 }
+
+// --- Campaign task: recompute completion when children added ---
+
+func TestLink_DraftChildReopensCompleteParent(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	goal, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Labels: []string{"kind:effort.goal"}, Title: "parent goal",
+	})
+	svc.Proto.SetField(ctx, []string{goal.ID}, "status", "work.complete", parchment.SetFieldOptions{Force: true}) //nolint:errcheck // test setup
+
+	task, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Labels: []string{"kind:effort.task"}, Title: "new draft child",
+	})
+
+	op := service.Find("link")
+	raw, _ := json.Marshal(map[string]any{
+		"id": goal.ID, "relation": "parent_of", "targets": []string{task.ID},
+	})
+	_, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	updated, _ := svc.Proto.GetArtifact(ctx, goal.ID)
+	status := parchment.StatusFromLabels(updated.Labels)
+	if status == "work.complete" {
+		t.Errorf("parent should reopen after adding draft child, still %s", status)
+	}
+}
+
+// --- Campaign task: hygiene preserves archived verification evidence ---
+
+func TestHygiene_PreservesArchivedVerificationEvidence(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{ //nolint:errcheck // test setup
+		Labels: []string{"kind:knowledge.context", "status:archived", "project:test"},
+		Title:  "Scribe verification evidence 2026-07-01",
+	})
+
+	op := service.Find("hygiene")
+	raw, _ := json.Marshal(map[string]any{"scope": "test"})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "verification") && strings.Contains(out, "delete") {
+		t.Errorf("hygiene should not recommend deleting verification evidence: %s", out)
+	}
+}
+
+// --- Campaign task: ranked search recall for planning artifacts ---
+
+func TestRankedSearch_PlanningArtifactTitleMatch(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{ //nolint:errcheck // test setup
+		Labels: []string{"kind:effort.campaign", "project:test"}, Title: "Hegemony performance instrumentation campaign",
+	})
+	svc.Proto.CreateArtifact(ctx, parchment.CreateInput{ //nolint:errcheck // test setup
+		Labels: []string{"kind:knowledge.context", "project:test"}, Title: "Hegemony performance notes",
+	})
+
+	op := service.Find("query")
+	raw, _ := json.Marshal(map[string]any{
+		"ranked": true, "query": "Hegemony performance instrumentation campaign", "scope": "test",
+	})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "effort.campaign") {
+		t.Errorf("campaign missing from ranked results, got:\n%s", out)
+	}
+	campIdx := strings.Index(out, "effort.campaign")
+	noteIdx := strings.Index(out, "knowledge.context")
+	if noteIdx >= 0 && campIdx > noteIdx {
+		t.Errorf("campaign should rank above knowledge.context, got:\n%s", out)
+	}
+}

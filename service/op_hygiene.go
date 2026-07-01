@@ -220,8 +220,7 @@ func findOrphans(ctx context.Context, svc *Service, labels []string, includeCode
 		if kind == "" || kind == "knowledge.concept" || kind == "support.config" {
 			continue
 		}
-		status := parchment.StatusFromLabels(art.Labels)
-		if status == "status:archived" || status == "status:retired" {
+		if svc.Proto.IsTerminal(parchment.StatusFromLabels(art.Labels)) {
 			continue
 		}
 		if isCodeKind(kind) && !includeCode {
@@ -230,6 +229,9 @@ func findOrphans(ctx context.Context, svc *Service, labels []string, includeCode
 		outE, _ := svc.Proto.Store().Neighbors(ctx, art.ID, "", parchment.Outgoing)
 		inE, _ := svc.Proto.Store().Neighbors(ctx, art.ID, "", parchment.Incoming)
 		if len(outE) == 0 && len(inE) == 0 {
+			if hasAuditValue(art) {
+				continue
+			}
 			sev := "planning"
 			if isCodeKind(kind) {
 				sev = "index"
@@ -253,6 +255,29 @@ func findOrphans(ctx context.Context, svc *Service, labels []string, includeCode
 		}
 	}
 	return findings
+}
+
+var auditContextLabels = map[string]bool{
+	"context:verification": true,
+	"context:audit":        true,
+	"context:evidence":     true,
+	"context:regression":   true,
+	"context:release":      true,
+}
+
+func hasAuditValue(art *parchment.Artifact) bool {
+	for _, l := range art.Labels {
+		if auditContextLabels[l] {
+			return true
+		}
+	}
+	lower := strings.ToLower(art.Title)
+	for _, keyword := range []string{"verification", "evidence", "regression", "audit", "release"} {
+		if strings.Contains(lower, keyword) {
+			return true
+		}
+	}
+	return false
 }
 
 func findIncompleteKnowledge(ctx context.Context, svc *Service, labels []string) []HygieneFinding {

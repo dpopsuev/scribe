@@ -14,19 +14,31 @@ import (
 	parchment "github.com/dpopsuev/parchment"
 )
 
-// knowledgeKinds are always recallable regardless of status.
-var knowledgeKinds = map[string]bool{
+const (
+	kindCampaign = "effort.campaign"
+	kindGoal     = "effort.goal"
+)
+
+// recallableKinds are always recallable regardless of status.
+var recallableKinds = map[string]bool{
 	"knowledge.note":    true,
 	"knowledge.journal": true,
 	"knowledge.source":  true,
 	"knowledge.concept": true,
 	"knowledge.context": true,
 	"agent.memory":      true,
+	kindCampaign:        true,
+	kindGoal:            true,
+	kindTask:            true,
+	"intent.bug":        true,
+	"intent.spec":       true,
+	"intent.need":       true,
+	"intent.decision":   true,
 }
 
 // IsRecallable returns true when an artifact should be included in recall.
 func IsRecallable(art *parchment.Artifact, proto *parchment.Protocol) bool {
-	if knowledgeKinds[art.Label(parchment.LabelPrefixKind)] {
+	if recallableKinds[art.Label(parchment.LabelPrefixKind)] {
 		return true
 	}
 	return proto.IsTerminal(parchment.StatusFromLabels(art.Labels))
@@ -52,8 +64,12 @@ func KindWeight(kind, status string) float64 {
 		return 1.0
 	case "knowledge.context":
 		return 1.0
-	case "effort.task":
-		return 0.9
+	case kindCampaign:
+		return 1.5 //nolint:mnd // recall weight tuning
+	case kindGoal:
+		return 1.4 //nolint:mnd // recall weight tuning
+	case kindTask:
+		return 1.3 //nolint:mnd // recall weight tuning
 	case "agent.memory":
 		return 1.3
 	case "knowledge.journal":
