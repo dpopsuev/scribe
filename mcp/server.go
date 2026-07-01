@@ -95,7 +95,10 @@ func NewServer(svc *service.Service, vocab []string, version string, stdioLabels
 		"WRITE: create, set (single field), update (sections/extra patch). " +
 		"PLAN: query(id=, sort=topo) for dependency order; query(id=, sort=topo, unblocked=true) for ready queue. " +
 		"ORGANIZE: project: labels map to git repos. Use parent_of edges and kind:knowledge.context as containers. " +
-		"DISCOVER: schema(kind=X) shows valid relations, sections, and lifecycle for any kind."
+		"DISCOVER: schema(kind=X) shows valid relations, sections, and lifecycle for any kind. " +
+		"SORT: id (default), title, status, scope, kind, sprint, priority, topo. " +
+		"TIME FILTERS: created_after/before (first creation), updated_after/before (last change), inserted_after/before (DB row write). All RFC3339, e.g. 2026-07-01T00:00:00Z. " +
+		"PAGINATION: response includes next_cursor — pass as cursor= to continue."
 	var artifactSchema any
 	_ = json.Unmarshal(schemaFor[artifactInput](), &artifactSchema)
 	patchSchemaFromRegistry(artifactSchema, h)
@@ -216,9 +219,9 @@ type artifactInput struct {
 
 	Format  string   `json:"format,omitempty" jsonschema:"summary or full (default)"`
 	GroupBy string   `json:"group_by,omitempty" jsonschema:"status, scope, kind, sprint"`
-	Sort    string   `json:"sort,omitempty" jsonschema:"id, title, status, scope, kind"`
+	Sort    string   `json:"sort,omitempty" jsonschema:"id, title, status, scope, kind, sprint, priority, topo"`
 	Limit   int      `json:"limit,omitempty"`
-	Cursor  string   `json:"cursor,omitempty" jsonschema:"pagination cursor from previous list response"`
+	Cursor  string   `json:"cursor,omitempty" jsonschema:"opaque pagination cursor returned as next_cursor in previous response — pass verbatim to continue"`
 	Count   bool     `json:"count,omitempty"`
 	Ranked  bool     `json:"ranked,omitempty" jsonschema:"scored FTS with kind and recency weighting"`
 	Mode    string   `json:"mode,omitempty" jsonschema:"fts (default) | semantic | hybrid"`
@@ -228,12 +231,12 @@ type artifactInput struct {
 	Query   string   `json:"query,omitempty" jsonschema:"substring search across title, goal, sections"`
 
 	TitleContains  string   `json:"title_contains,omitempty"`
-	CreatedAfter   string   `json:"created_after,omitempty"`
-	CreatedBefore  string   `json:"created_before,omitempty"`
-	UpdatedAfter   string   `json:"updated_after,omitempty"`
-	UpdatedBefore  string   `json:"updated_before,omitempty"`
-	InsertedAfter  string   `json:"inserted_after,omitempty"`
-	InsertedBefore string   `json:"inserted_before,omitempty"`
+	CreatedAfter   string   `json:"created_after,omitempty" jsonschema:"RFC3339 lower bound on created_at (when the artifact was first created), e.g. 2026-07-01T00:00:00Z"`
+	CreatedBefore  string   `json:"created_before,omitempty" jsonschema:"RFC3339 upper bound on created_at"`
+	UpdatedAfter   string   `json:"updated_after,omitempty" jsonschema:"RFC3339 lower bound on updated_at (last field/section/status change)"`
+	UpdatedBefore  string   `json:"updated_before,omitempty" jsonschema:"RFC3339 upper bound on updated_at"`
+	InsertedAfter  string   `json:"inserted_after,omitempty" jsonschema:"RFC3339 lower bound on inserted_at (when the row was first written to the DB — immutable)"`
+	InsertedBefore string   `json:"inserted_before,omitempty" jsonschema:"RFC3339 upper bound on inserted_at"`
 	IDPrefix       string   `json:"id_prefix,omitempty"`
 	Sprint         string   `json:"sprint,omitempty"`
 	ExcludeKind    string   `json:"exclude_kind,omitempty"`
