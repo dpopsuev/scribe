@@ -307,6 +307,72 @@ func TestCreateSections_TitleKeyAlias(t *testing.T) {
 	}
 }
 
+func TestUpdateSections_ReplacesExistingContent(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Labels:   []string{"kind:effort.task", "priority:low"},
+		Title:    "section-update-test",
+		Sections: []parchment.Section{{Name: "context", Text: "original"}},
+	})
+
+	op := service.Find("update")
+	raw, _ := json.Marshal(map[string]any{
+		"id":       art.ID,
+		"sections": []map[string]string{{"name": "context", "text": "updated"}},
+	})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "replaced") {
+		t.Errorf("expected 'replaced' in output, got: %s", out)
+	}
+
+	got, _ := svc.Proto.GetArtifact(ctx, art.ID)
+	for _, s := range got.Sections {
+		if s.Name == "context" {
+			if s.Text != "updated" {
+				t.Errorf("context section text = %q, want 'updated'", s.Text)
+			}
+			return
+		}
+	}
+	t.Error("context section not found after update")
+}
+
+func TestUpdateSections_TitleBodyAliases(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Labels: []string{"kind:effort.task", "priority:low"},
+		Title:  "alias-update-test",
+	})
+
+	op := service.Find("update")
+	raw, _ := json.Marshal(map[string]any{
+		"id":       art.ID,
+		"sections": []map[string]string{{"title": "context", "body": "via aliases"}},
+	})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "added") {
+		t.Errorf("expected 'added' in output, got: %s", out)
+	}
+
+	got, _ := svc.Proto.GetArtifact(ctx, art.ID)
+	for _, s := range got.Sections {
+		if s.Name == "context" && s.Text == "via aliases" {
+			return
+		}
+	}
+	t.Error("context section with aliased keys not found after update")
+}
+
 func TestOpSchema_IncludesLifecycle(t *testing.T) {
 	svc := newTestService(t)
 	op := service.Find("schema")
