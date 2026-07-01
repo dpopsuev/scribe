@@ -1604,6 +1604,31 @@ func TestOpDelete_RequiresFilters(t *testing.T) {
 
 // --- Campaign task: recompute completion when children added ---
 
+func TestLink_ActiveGoalChildReopensCompleteCampaign(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	campaign, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Labels: []string{"kind:effort.campaign"}, Title: "campaign",
+	})
+	goal, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Labels: []string{"kind:effort.goal"}, Title: "active goal",
+	})
+	svc.Proto.LinkArtifacts(ctx, campaign.ID, "parent_of", []string{goal.ID}, 0)                                      //nolint:errcheck // test setup
+	svc.Proto.SetField(ctx, []string{goal.ID}, "status", "work.active", parchment.SetFieldOptions{Force: true})       //nolint:errcheck // test setup
+	svc.Proto.SetField(ctx, []string{campaign.ID}, "status", "work.complete", parchment.SetFieldOptions{Force: true}) //nolint:errcheck // test setup
+
+	task, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Labels: []string{"kind:effort.task"}, Title: "draft task under active goal",
+	})
+	svc.Proto.LinkArtifacts(ctx, goal.ID, "parent_of", []string{task.ID}, 0) //nolint:errcheck // triggers propagation
+
+	updatedCampaign, _ := svc.Proto.GetArtifact(ctx, campaign.ID)
+	if parchment.StatusFromLabels(updatedCampaign.Labels) == "work.complete" {
+		t.Error("campaign should reopen when non-terminal child goal gets a new child — goal was already active, campaign was complete")
+	}
+}
+
 func TestLink_DraftChildReopensAncestorCampaign(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
