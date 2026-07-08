@@ -373,6 +373,76 @@ func TestUpdateSections_TitleBodyAliases(t *testing.T) {
 	t.Error("context section with aliased keys not found after update")
 }
 
+func TestUpdateSections_ContentAlias(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Labels:   []string{"kind:effort.task", "priority:low"},
+		Title:    "content-alias-update-test",
+		Sections: []parchment.Section{{Name: "context", Text: "original"}},
+	})
+
+	op := service.Find("update")
+	raw, _ := json.Marshal(map[string]any{
+		"id":       art.ID,
+		"sections": []map[string]string{{"name": "context", "content": "via content alias"}},
+	})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "replaced") {
+		t.Errorf("expected 'replaced' in output, got: %s", out)
+	}
+
+	got, _ := svc.Proto.GetArtifact(ctx, art.ID)
+	for _, s := range got.Sections {
+		if s.Name == "context" {
+			if s.Text != "via content alias" {
+				t.Errorf("context section text = %q, want content alias value", s.Text)
+			}
+			return
+		}
+	}
+	t.Error("context section not found after content alias update")
+}
+
+func TestUpdateSections_MissingTextDoesNotEraseExistingContent(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+
+	art, _ := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Labels:   []string{"kind:effort.task", "priority:low"},
+		Title:    "missing-content-update-test",
+		Sections: []parchment.Section{{Name: "context", Text: "keep me"}},
+	})
+
+	op := service.Find("update")
+	raw, _ := json.Marshal(map[string]any{
+		"id":       art.ID,
+		"sections": []map[string]string{{"name": "context"}},
+	})
+	out, err := op.Run(ctx, svc, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "missing text, body, or content") {
+		t.Errorf("expected missing content error in output, got: %s", out)
+	}
+
+	got, _ := svc.Proto.GetArtifact(ctx, art.ID)
+	for _, s := range got.Sections {
+		if s.Name == "context" {
+			if s.Text != "keep me" {
+				t.Errorf("context section text = %q, want original text preserved", s.Text)
+			}
+			return
+		}
+	}
+	t.Error("context section not found after rejected update")
+}
+
 func TestOpSchema_IncludesLifecycle(t *testing.T) {
 	svc := newTestService(t)
 	op := service.Find("schema")

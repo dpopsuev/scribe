@@ -9,6 +9,12 @@ import (
 	parchment "github.com/dpopsuev/parchment"
 )
 
+const (
+	sectionKeyText    = "text"
+	sectionKeyBody    = "body"
+	sectionKeyContent = "content"
+)
+
 type createInput struct {
 	Kind      string              `json:"kind,omitempty"`
 	Title     string              `json:"title,omitempty"`
@@ -52,10 +58,20 @@ func parseSections(raw []map[string]string) []parchment.Section {
 	for _, sec := range raw {
 		name := firstNonEmpty(sec, "name", "slug", "title")
 		if name != "" {
-			out = append(out, parchment.Section{Name: name, Text: firstNonEmpty(sec, "text", "body")})
+			text, _ := sectionText(sec)
+			out = append(out, parchment.Section{Name: name, Text: text})
 		}
 	}
 	return out
+}
+
+func sectionText(sec map[string]string) (string, bool) {
+	for _, key := range []string{sectionKeyText, sectionKeyBody, sectionKeyContent} {
+		if v, ok := sec[key]; ok {
+			return v, true
+		}
+	}
+	return "", false
 }
 
 func firstNonEmpty(m map[string]string, keys ...string) string {
@@ -398,7 +414,11 @@ func updateSections(ctx context.Context, svc *Service, id string, sections []map
 		if name == "" {
 			continue
 		}
-		t := firstNonEmpty(sec, "text", "body")
+		t, ok := sectionText(sec)
+		if !ok {
+			lines = append(lines, fmt.Sprintf("%s -> error: section %q: missing text, body, or content", id, name))
+			continue
+		}
 		replaced, err := svc.Proto.AttachSection(ctx, id, name, t)
 		if err != nil {
 			lines = append(lines, fmt.Sprintf("%s -> error: section %q: %v", id, name, err))
