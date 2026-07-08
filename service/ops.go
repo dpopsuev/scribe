@@ -1,5 +1,5 @@
 package service
 
 func init() {
-	Registry = append(Registry, opSet, opQuery, opUpdate, opCreate, opGet, opLink, opLint, opSynthesize, opSchema, opHistory, opDelete, opHygiene, opDashboard, opRecent, opBrief, opAnalyze, opSynonym, opChangelog)
+	Registry = append(Registry, opSet, opQuery, opUpdate, opCreate, opGet, opLink, opLint, opSynthesize, opSchema, opHistory, opDelete, opHygiene, opDashboard, opRecent, opBrief, opAnalyze, opSynonym, opChangelog, opKernelCreate, opKernelConfirm, opKernelReject)
 }
