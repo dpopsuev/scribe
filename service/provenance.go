@@ -39,6 +39,25 @@ func StampProvenance(extra map[string]any, p Provenance) map[string]any {
 	return extra
 }
 
+// StampLastMutation records who last mutated an artifact without clobbering create provenance.
+func StampLastMutation(extra map[string]any, action, sessionID, harness string) map[string]any {
+	if extra == nil {
+		extra = make(map[string]any)
+	}
+	mut := map[string]any{
+		"action":    action,
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+	}
+	if sessionID != "" {
+		mut["session_id"] = sessionID
+	}
+	if harness != "" {
+		mut["harness"] = harness
+	}
+	extra["last_mutation"] = mut
+	return extra
+}
+
 // AgentProvenance returns default provenance for agent-created artifacts.
 func AgentProvenance(harness, harnessVersion, sessionID string) Provenance {
 	return Provenance{

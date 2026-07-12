@@ -293,6 +293,7 @@ type updateInput struct {
 	Text           string              `json:"text,omitempty"`
 	Body           string              `json:"body,omitempty"`
 	Force          bool                `json:"force,omitempty"`
+	BypassGuards   bool                `json:"bypass_guards,omitempty"`
 }
 
 var opUpdate = Op{
@@ -308,6 +309,16 @@ var opUpdate = Op{
 		ids := resolveIDs(in.IDs, in.ID)
 		if len(ids) == 0 {
 			return "", fmt.Errorf("id or ids required") //nolint:err113 // user-facing hint
+		}
+		if !in.Force && !in.BypassGuards {
+			for _, id := range ids {
+				if err := checkClaimGuard(ctx, svc, id, "", in.Force, in.BypassGuards); err != nil {
+					return "", err
+				}
+			}
+		}
+		if _, hasClaim := in.Extra[parchment.ExtraKeyClaim]; hasClaim && !in.Force && !in.BypassGuards {
+			return "", fmt.Errorf("extra.claim must be set via claim/release actions") //nolint:err113 // agent-facing
 		}
 		fieldMap := map[string]string{}
 		for k, v := range in.Patch {
@@ -359,6 +370,7 @@ var opUpdate = Op{
 				}
 			}
 		}
+		stampLastMutations(ctx, svc, ids, "update")
 		return strings.Join(lines, "\n"), nil
 	},
 }
@@ -467,6 +479,16 @@ func patchExtra(ctx context.Context, svc *Service, id string, extra map[string]a
 	return []string{fmt.Sprintf("%s: extra keys set: %s", id, strings.Join(keys, ", "))}
 }
 
+func stampLastMutations(ctx context.Context, svc *Service, ids []string, action string) {
+	if svc == nil || len(ids) == 0 {
+		return
+	}
+	extra := StampLastMutation(nil, action, svc.SessionID, svc.ClientHarness)
+	for _, id := range ids {
+		_ = svc.Proto.PatchArtifact(ctx, id, parchment.ArtifactPatch{SetExtra: extra})
+	}
+}
+
 type setInput struct {
 	ID           string   `json:"id"`
 	IDs          []string `json:"ids,omitempty"`
@@ -535,6 +557,13 @@ var opSet = Op{
 				return msg, nil
 			}
 		}
+		if !in.Force && !in.BypassGuards {
+			for _, id := range ids {
+				if err := checkClaimGuard(ctx, svc, id, "", in.Force, in.BypassGuards); err != nil {
+					return "", err
+				}
+			}
+		}
 		if in.DryRun {
 			return fmt.Sprintf("dry run: would set %s=%s on %d artifact(s): %v", in.Field, in.Value, len(ids), ids), nil
 		}
@@ -545,17 +574,22 @@ var opSet = Op{
 			return "", err
 		}
 		var lines []string
+		var okIDs []string
 		for _, r := range results {
 			if r.OK {
 				line := fmt.Sprintf("%s.%s = %s", r.ID, in.Field, in.Value)
 				if r.NewID != "" {
 					line += fmt.Sprintf(" (renamed → %s)", r.NewID)
+					okIDs = append(okIDs, r.NewID)
+				} else {
+					okIDs = append(okIDs, r.ID)
 				}
 				lines = append(lines, line)
 			} else {
 				lines = append(lines, fmt.Sprintf("%s -> error: %s", r.ID, r.Error))
 			}
 		}
+		stampLastMutations(ctx, svc, okIDs, "set")
 		return strings.Join(lines, "\n"), nil
 	},
 }

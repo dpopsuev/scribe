@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"fmt"
@@ -9,8 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 
 	parchment "github.com/dpopsuev/parchment"
 )
@@ -142,91 +139,4 @@ func syncDerivedID(rel string) string {
 		return '-'
 	}, slug)
 	return fmt.Sprintf("SYN-%x--%s", h[:3], slug)
-}
-
-// ExportScope writes all artifacts in scope to outDir as .md files.
-// Each file contains YAML frontmatter + ## section headings.
-// Round-trip: ExportScope then SyncDir reproduces the same graph.
-func (s *Service) ExportScope(ctx context.Context, scope, outDir string) (int, error) {
-	if err := os.MkdirAll(outDir, 0o750); err != nil { //nolint:gosec // operator-controlled output dir
-		return 0, fmt.Errorf("mkdir %s: %w", outDir, err)
-	}
-
-	arts, err := s.Proto.List(ctx, parchment.Filter{Labels: []string{parchment.LabelPrefixScope + scope}})
-	if err != nil {
-		return 0, err
-	}
-
-	for _, art := range arts {
-		slug := toSlug(art.Title)
-		if len(slug) > 80 {
-			slug = slug[:80]
-		}
-		slug = strings.TrimRight(slug, "-")
-		filename := fmt.Sprintf("%s--%s.md", art.ID, slug)
-		path := filepath.Join(outDir, filename)
-
-		content, err := serializeArtifact(art)
-		if err != nil {
-			slog.WarnContext(ctx, "export: serialize failed",
-				slog.String(logKeySyncID, art.ID), slog.Any(logKeySyncError, err))
-			continue
-		}
-		if err := os.WriteFile(path, content, 0o644); err != nil { //nolint:gosec // operator-controlled path
-			return 0, fmt.Errorf("write %s: %w", path, err)
-		}
-	}
-
-	slog.InfoContext(ctx, "export: done",
-		slog.String(logKeySyncScope, scope), slog.Int(logKeySyncCount, len(arts)))
-	return len(arts), nil
-}
-
-func serializeArtifact(art *parchment.Artifact) ([]byte, error) {
-	fm := map[string]any{"id": art.ID, "kind": art.Label(parchment.LabelPrefixKind)}
-	if art.Title != "" {
-		fm["title"] = art.Title
-	}
-	if art.Label(parchment.LabelPrefixScope) != "" {
-		fm["scope"] = art.Label(parchment.LabelPrefixScope)
-	}
-	if s := parchment.StatusFromLabels(art.Labels); s != "" {
-		fm["status"] = s
-	}
-	if art.Label(parchment.LabelPrefixPriority) != "" && art.Label(parchment.LabelPrefixPriority) != "none" {
-		fm["priority"] = art.Label(parchment.LabelPrefixPriority)
-	}
-	if len(art.Labels) > 0 {
-		fm["labels"] = art.Labels
-	}
-
-	fmBytes, err := yaml.Marshal(fm)
-	if err != nil {
-		return nil, err
-	}
-
-	var buf bytes.Buffer
-	buf.WriteString("---\n")
-	buf.Write(fmBytes)
-	buf.WriteString("---\n")
-
-	for _, sec := range art.Sections {
-		buf.WriteString("\n## ")
-		buf.WriteString(strings.ReplaceAll(sec.Name, "_", " "))
-		buf.WriteString("\n\n")
-		buf.WriteString(strings.TrimSpace(sec.Text))
-		buf.WriteString("\n")
-	}
-
-	return buf.Bytes(), nil
-}
-
-func toSlug(s string) string {
-	s = strings.ToLower(s)
-	return strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			return r
-		}
-		return '-'
-	}, s)
 }

@@ -125,7 +125,7 @@ func TestExportScope_WritesFiles(t *testing.T) {
 	}
 
 	outDir := t.TempDir()
-	n, err := svc.ExportScope(ctx, "scribe", outDir)
+	n, err := svc.ExportScope(ctx, "scribe", outDir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestRoundTrip_ExportThenSync(t *testing.T) {
 	}
 
 	outDir := t.TempDir()
-	n, err := svc.ExportScope(ctx, "test", outDir)
+	n, err := svc.ExportScope(ctx, "test", outDir, false)
 	if err != nil {
 		t.Fatal(err)
 	}

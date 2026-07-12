@@ -182,7 +182,7 @@ func ExportMdCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, cleanup := MustService()
 			defer cleanup()
-			n, err := svc.ExportScope(cmd.Context(), args[0], args[1])
+			n, err := svc.ExportScope(cmd.Context(), args[0], args[1], false)
 			if err != nil {
 				return err
 			}
