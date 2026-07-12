@@ -1,9 +1,0 @@
-{
-	"id": "scribe-graph",
-	"name": "Scribe Graph",
-	"version": "0.1.0",
-	"minAppVersion": "1.0.0",
-	"description": "Render Scribe artifact graph views inside Obsidian — Board, Graph, Schematic, Table, and more.",
-	"author": "dpopsuev",
-	"isDesktopOnly": false
-}
