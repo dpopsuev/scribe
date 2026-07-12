@@ -21,6 +21,7 @@ var helpTopics = map[string]string{
   artifact(action=query, query="search terms")           FTS search
   artifact(action=query, ranked=true, query="...")        scored recall (kind+recency weighted)
   artifact(action=query, mode=semantic, query="...")      vector similarity (requires embeddings)
+  artifact(action=query, mode=working_set, scope=myproj)  session + campaigns + ready + recent + hygiene_top
   artifact(action=query, kind=effort.task, scope=myproj)  filter by kind + scope
   artifact(action=query, status=work.active)              filter by status
   artifact(action=query, title_contains="foo")            substring match on title
@@ -81,7 +82,24 @@ Use schema(kind=X) to see required/recommended sections.`,
 
 Fields: status, title, goal, scope, parent, priority, sprint, kind, depends_on, labels, alias.
 Use force=true to bypass lifecycle validation.
-Use cascade=true to apply status to all children.`,
+Use cascade=true to apply status to all children.
+Blocked when Extra.claim is held by another agent.`,
+
+	"export": `EXPORT — portable markdown
+
+  artifact(action=export, id=note-abc, format=markdown)
+  artifact(action=export, scope=myproj, out_dir=/tmp/export)
+  artifact(action=export, scope=myproj, out_dir=/tmp/export, force=true)
+
+Incremental: skips unchanged files; writes .conflict.md when disk is newer and differs.`,
+
+	"claim": `CLAIM / RELEASE / HANDOFF — multi-agent leases
+
+  artifact(action=claim, id=task-abc, agent=agent-1, ttl_seconds=3600)
+  artifact(action=release, id=task-abc, agent=agent-1)
+  artifact(action=handoff, artifact_id=task-abc, from_session=s1, to_session=s2, agent=agent-1, to_agent=agent-2)
+
+Claims live in Extra.claim. Expired claims are free.`,
 
 	"update": `UPDATE — change multiple fields and sections at once
 
@@ -120,6 +138,29 @@ and typed relations with their allowed targets.
   artifact(action=query, kind=label_definition, scope=_schema)
 
 Lists all registered kinds and their label definitions.`,
+
+	"tools": `TOOLS — why the MCP schema looks huge
+
+Three tools with action= dispatch: artifact, graph, admin.
+Hosts dump every optional field on each tool — that is a flat union of kwargs, not
+"fill all params". Pass only fields for the action you chose.
+
+  artifact  create/get/query/set/update/... (+ export/claim/release/handoff)
+  graph     link / analyze / synonym
+  admin     hygiene / history / dashboard / lint / auto_repair / ...
+
+Daily path: query, get, create, set, update, graph.link.
+After hygiene: admin(action=auto_repair, scope=..., dry_run=true) then apply.
+See support.doc why-scribe-mcp-looks-like-it-has-so-many-actions-6ec9.`,
+
+	"hygiene": `HYGIENE + AUTO_REPAIR
+
+  admin(action=hygiene, scope=myproj)
+  admin(action=auto_repair, scope=myproj, dry_run=true)
+  admin(action=auto_repair, scope=myproj)
+
+Hygiene ranks findings; safe_autofix items are applied by auto_repair.
+Always dry_run first. working_set includes repair.safe_count + hint.`,
 }
 
 var helpIndex string
@@ -139,6 +180,8 @@ func init() {
 		{"lifecycle", "Status transitions and schema discovery"},
 		{"relations", "Link artifacts with typed edges"},
 		{"schema", "Discover kind properties, sections, transitions"},
+		{"tools", "Why MCP lists so many fields — flat action kwargs"},
+		{"hygiene", "Hygiene findings then auto_repair dry_run/apply"},
 	} {
 		b.WriteString("  ")
 		b.WriteString(topic.name)

@@ -32,38 +32,42 @@ func (h *handler) onInitialized(ctx context.Context, req *sdkmcp.InitializedRequ
 		return // stdio: already set from server CWD at startup
 	}
 
-	if req == nil || req.Params == nil {
-		return
-	}
-
 	var inputs workspace.WorkspaceInputs
-	wsRaw, hasWorkspace := req.Params.Meta["workspace"]
-	if hasWorkspace {
-		if wsMap, ok := wsRaw.(map[string]any); ok {
-			inputs.CWD = stringFromMap(wsMap, "cwd")
-			inputs.GitRemote = stringFromMap(wsMap, "git_remote")
+	var wsRaw any
+	hasWorkspace := false
+	if req != nil && req.Params != nil {
+		wsRaw, hasWorkspace = req.Params.Meta["workspace"]
+		if hasWorkspace {
+			if wsMap, ok := wsRaw.(map[string]any); ok {
+				inputs.CWD = stringFromMap(wsMap, "cwd")
+				inputs.GitRemote = stringFromMap(wsMap, "git_remote")
+			}
 		}
 	}
 
-	// Auto-detect from server CWD when client declares workspace but provides no cwd.
-	if hasWorkspace && inputs.CWD == "" {
+	// Fall back to server CWD when client omits workspace Meta or leaves cwd empty.
+	if inputs.CWD == "" {
 		if cwd, err := os.Getwd(); err == nil {
 			inputs.CWD = cwd
 		}
-	}
-
-	if !hasWorkspace {
-		return
 	}
 
 	labels := workspace.Detect(inputs, workspace.DefaultDetectors())
 	if len(labels) > 0 {
 		h.workspaceLabels = labels
 		h.workspaceConfigured = true
+		h.workspaceFromClient = hasWorkspace
+		if h.svc != nil {
+			h.svc.WorkspaceLabels = labels
+		}
 		slog.InfoContext(ctx, "workspace configured", slog.Any(logKeyWorkspace, labels))
 	}
-	// Capture client identity for creator provenance.
-	h.extractClientIdentity(wsRaw)
+	if hasWorkspace {
+		h.extractClientIdentity(wsRaw)
+	}
+	if h.svc != nil && h.clientHarness != "" {
+		h.svc.ClientHarness = h.clientHarness
+	}
 }
 
 func (h *handler) extractClientIdentity(wsRaw any) {
@@ -130,7 +134,8 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		case actionCreate:
 			in.Labels = mergeLabels(in.Labels, h.workspaceLabels)
 		case "query":
-			if len(in.Labels) == 0 && in.Kind == "" && in.Query == "" {
+			// Only auto-scope bare query when the client declared workspace Meta.
+			if h.workspaceFromClient && len(in.Labels) == 0 && in.Kind == "" && in.Query == "" {
 				in.Labels = h.workspaceLabels
 			}
 		}

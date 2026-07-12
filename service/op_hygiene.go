@@ -480,6 +480,20 @@ var opHygiene = Op{
 				}
 			}
 		}
+		safeCount := 0
+		for _, f := range findings {
+			if f.SafeAutofix && f.SuggestedFix != nil {
+				safeCount++
+			}
+		}
+		if safeCount > 0 {
+			scopeArg := in.Scope
+			if scopeArg == "" {
+				scopeArg = "<scope>"
+			}
+			fmt.Fprintf(&b, "\n→ %d safe autofix(es): admin(action=auto_repair, scope=%s, dry_run=true) then omit dry_run to apply\n",
+				safeCount, scopeArg)
+		}
 		return b.String(), nil
 	},
 }

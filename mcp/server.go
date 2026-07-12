@@ -90,7 +90,8 @@ func NewServer(svc *service.Service, vocab []string, version string, stdioLabels
 
 	// --- artifact tool: CRUD + query (the 80% path) ---
 	artifactDesc := "Labeled Artifact Graph — CRUD + query. " +
-		"FIND: query(query=) for FTS; query(ranked=true, query=) for scored recall; query(mode=semantic, query=) for vector similarity. " +
+		"SCHEMA: flat input union — pass only fields for the chosen action (hosts list every kwarg). " +
+		"FIND: query(query=) for FTS; query(ranked=true, query=) for scored recall; query(mode=semantic, query=) for vector similarity; query(mode=working_set) for session+ready+recent+hygiene. " +
 		"READ: get(id=) full artifact; get(id=, format=context) for graph context. " +
 		"WRITE: create, set (single field), update (sections/extra patch). " +
 		"PLAN: query(id=, sort=topo) for dependency order; query(id=, sort=topo, unblocked=true) for ready queue. " +
@@ -188,6 +189,7 @@ type handler struct {
 	homeScopes          []string // default scopes; narrowable at runtime
 	workspaceLabels     []string // context labels stamped on every artifact this session
 	workspaceConfigured bool     // true once workspace context has been set
+	workspaceFromClient bool     // true when client sent Meta.workspace (vs server CWD fallback)
 	workspaceWarned     bool     // true after first workspace-unset warning (suppress repeats)
 	recordSession       bool     // when true, create agent.session/agent.turn artifacts
 	sessionArtifactID   string   // lazily created agent.session artifact
@@ -199,7 +201,7 @@ type handler struct {
 // --- consolidated input types ---
 
 type artifactInput struct {
-	Action string `json:"action" jsonschema:"required,create | get | query | set | update | delete | attach | detach | recent | brief | schema | help | kernel_create | kernel_confirm | kernel_reject"`
+	Action string `json:"action" jsonschema:"required,create | get | query | set | update | delete | attach | detach | recent | brief | schema | help | kernel_create | kernel_confirm | kernel_reject | export | claim | release | handoff"`
 
 	ID     string `json:"id,omitempty"`
 	Target string `json:"target,omitempty" jsonschema:"single target ID for link mode=replace; or new parent ID for set(field=parent)"`
@@ -217,14 +219,14 @@ type artifactInput struct {
 	Extra     map[string]any      `json:"extra,omitempty"`
 	Sections  []map[string]string `json:"sections,omitempty" jsonschema:"[{name, text}, ...]"`
 
-	Format  string   `json:"format,omitempty" jsonschema:"summary or full (default)"`
+	Format  string   `json:"format,omitempty" jsonschema:"summary or full (default); export: markdown"`
 	GroupBy string   `json:"group_by,omitempty" jsonschema:"status, scope, kind, sprint"`
 	Sort    string   `json:"sort,omitempty" jsonschema:"id, title, status, scope, kind, sprint, priority, topo"`
 	Limit   int      `json:"limit,omitempty"`
 	Cursor  string   `json:"cursor,omitempty" jsonschema:"opaque pagination cursor returned as next_cursor in previous response — pass verbatim to continue"`
 	Count   bool     `json:"count,omitempty"`
 	Ranked  bool     `json:"ranked,omitempty" jsonschema:"scored FTS with kind and recency weighting"`
-	Mode    string   `json:"mode,omitempty" jsonschema:"fts (default) | semantic | hybrid"`
+	Mode    string   `json:"mode,omitempty" jsonschema:"fts (default) | semantic | hybrid | working_set"`
 	Session string   `json:"session,omitempty" jsonschema:"scope results to a single agent session ID"`
 	Top     int      `json:"top,omitempty" jsonschema:"N most relevant by status+priority+recency"`
 	Fields  []string `json:"fields,omitempty" jsonschema:"id, kind, scope, status, title, parent, priority"`
@@ -244,6 +246,14 @@ type artifactInput struct {
 	LabelsOr       []string `json:"labels_or,omitempty"`
 	ExcludeLabels  []string `json:"exclude_labels,omitempty"`
 	ExcerptChars   int      `json:"excerpt_chars,omitempty" jsonschema:"include first N characters of most relevant section per result (0=off)"`
+	IncludeCode    bool     `json:"include_code,omitempty" jsonschema:"working_set/hygiene: include index-severity findings"`
+	OutDir         string   `json:"out_dir,omitempty" jsonschema:"export: output directory for scope export"`
+	Agent          string   `json:"agent,omitempty" jsonschema:"claim/release/handoff: agent identity"`
+	TTLSeconds     int      `json:"ttl_seconds,omitempty" jsonschema:"claim: lease duration in seconds (default 3600)"`
+	FromSession    string   `json:"from_session,omitempty" jsonschema:"handoff: source session"`
+	ToSession      string   `json:"to_session,omitempty" jsonschema:"handoff: destination session"`
+	Evidence       []string `json:"evidence,omitempty" jsonschema:"handoff: evidence artifact IDs"`
+	ArtifactID     string   `json:"artifact_id,omitempty" jsonschema:"handoff: primary artifact being handed off"`
 
 	Field        string `json:"field,omitempty" jsonschema:"title, goal, scope, status, parent, priority, kind, depends_on, labels"`
 	Value        string `json:"value,omitempty" jsonschema:"new value (comma-separated for list fields)"`
