@@ -11,12 +11,17 @@ import (
 )
 
 const (
-	sortFieldTitle    = "title"
-	sortFieldStatus   = "status"
-	sortFieldScope    = "scope"
-	sortFieldKind     = "kind"
-	sortFieldSprint   = "sprint"
-	sortFieldPriority = "priority"
+	sortFieldTitle     = "title"
+	sortFieldStatus    = "status"
+	sortFieldScope     = "scope"
+	sortFieldKind      = "kind"
+	sortFieldSprint    = "sprint"
+	sortFieldPriority  = "priority"
+	modeWorkingSet     = "working_set"
+	severityIndex      = "index"
+	severityCritical   = "critical"
+	severityPlanning   = "planning"
+	kindLabelKnowledge = "kind:knowledge.note"
 )
 
 // SortArtifacts sorts a slice of artifacts in-place by the named field.
@@ -65,7 +70,7 @@ type listInput struct {
 	Format        string   `json:"format,omitempty"`
 	Ranked        bool     `json:"ranked,omitempty"`
 
-	Mode           string `json:"mode,omitempty"`      // fts (default) | semantic | hybrid
+	Mode           string `json:"mode,omitempty"`      // fts (default) | semantic | hybrid | working_set
 	Session        string `json:"session,omitempty"`   // shorthand for labels=["session:<value>"]
 	LeafOnly       bool   `json:"leaf_only,omitempty"` // topo: return only leaves (no children), excludes parent goals
 	Depth          int    `json:"depth,omitempty"`     // if >0, attach ArtifactTree to each result
@@ -78,6 +83,7 @@ type listInput struct {
 	InsertedAfter  string `json:"inserted_after,omitempty"`
 	InsertedBefore string `json:"inserted_before,omitempty"`
 	ExcerptChars   int    `json:"excerpt_chars,omitempty"`
+	IncludeCode    bool   `json:"include_code,omitempty"` // working_set: include index-severity hygiene
 }
 
 func resolveIDs(ids []string, id string) []string {
@@ -292,6 +298,9 @@ var opQuery = Op{
 		}
 		if in.Sort == "topo" {
 			return runTopoQuery(ctx, svc, &in)
+		}
+		if in.Mode == modeWorkingSet {
+			return runWorkingSet(ctx, svc, &in)
 		}
 		if in.Session != "" {
 			in.Labels = append([]string{"session:" + in.Session}, in.Labels...)
