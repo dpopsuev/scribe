@@ -1,6 +1,7 @@
 package mcp_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -118,5 +119,39 @@ func TestGet_TextOnlySucceeds(t *testing.T) {
 	}
 	if text == "" {
 		t.Fatal("expected text content from get")
+	}
+}
+
+func TestArtifactInputSchema_NoGraphOnlyFields(t *testing.T) {
+	s := openStore(t)
+	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+	tools, err := cs.ListTools(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema map[string]any
+	for _, tool := range tools.Tools {
+		if tool.Name != "artifact" {
+			continue
+		}
+		raw, _ := json.Marshal(tool.InputSchema)
+		if err := json.Unmarshal(raw, &schema); err != nil {
+			t.Fatal(err)
+		}
+		break
+	}
+	if schema == nil {
+		t.Fatal("artifact tool missing")
+	}
+	props, _ := schema["properties"].(map[string]any)
+	for _, banned := range []string{"targets", "edges", "alias", "term", "min_shared", "iterations", "old_target"} {
+		if _, ok := props[banned]; ok {
+			t.Errorf("artifact InputSchema still exposes graph-only field %q", banned)
+		}
+	}
+	raw, _ := json.Marshal(schema)
+	if len(raw) > 9000 {
+		t.Fatalf("artifact InputSchema still too fat: %d bytes", len(raw))
 	}
 }

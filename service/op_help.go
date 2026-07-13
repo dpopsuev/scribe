@@ -165,9 +165,24 @@ or Extra.intentional_orphan=true. Default orphan suggestion is acknowledge, not 
 
 content_completeness  required sections filled (docs can be 100% without delivery)
 delivery_progress     lifecycle-weighted work leaves (all-draft → 0)
-verified_progress     terminal leaves with evidence/verification
+verified_progress     terminal leaves with evidenced_by/tested_by → test.*|delivery.*
+
+Agents cannot self-verify via Extra or an "evidence" section. Link evidence:
+  graph(action=link, id=<task>, relation=tested_by, targets=[<test.run>])
+  # or evidenced_by where the kind allows it (observations → refs)
 
 Stamped on get/query Extra. Dashboard shows CONT/DELV/VERF columns.`,
+
+	"session": `MCP SESSION RECOVERY
+
+HTTP Streamable defaults to stateless (SCRIBE_MCP_STATELESS unset/true): stale
+Mcp-Session-Id after make restart is accepted. Sticky mode (=0) returns HTTP 404
+"session not found" — clients MUST re-initialize (many don't; reconnect MCP).
+
+Prefer local stdio to avoid session IDs:
+  scribe serve --transport stdio
+
+After restart: reconnect Scribe MCP in Cursor if tools fail.`,
 
 	"governed_by": `CANONICAL ARCHITECTURE
 
@@ -197,6 +212,7 @@ func init() {
 		{"tools", "Why MCP lists so many fields — flat action kwargs"},
 		{"hygiene", "Hygiene findings (soft graph health)"},
 		{"progress", "Content vs delivery vs verified progress metrics"},
+		{"session", "MCP HTTP session recovery after restart"},
 		{"governed_by", "Canonical architecture decision relation"},
 	} {
 		b.WriteString("  ")

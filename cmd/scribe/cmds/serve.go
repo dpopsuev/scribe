@@ -32,6 +32,7 @@ import (
 const (
 	logKeyAddr           = "addr"
 	logKeySessionTimeout = "session_timeout"
+	logKeyMCPStateless   = "mcp_stateless"
 
 	// slog key constants for serve logging — sloglint no-raw-keys.
 	logKeyVersion     = "version"
@@ -229,6 +230,7 @@ func runHTTP(sigCtx, logCtx context.Context, cmd *cobra.Command, srvFactory func
 		srvFactory,
 		&sdkmcp.StreamableHTTPOptions{
 			SessionTimeout: SessionTimeout(),
+			Stateless:      MCPStateless(),
 		},
 	)
 
@@ -278,7 +280,16 @@ func runHTTP(sigCtx, logCtx context.Context, cmd *cobra.Command, srvFactory func
 		_ = httpSrv.Shutdown(shutCtx)
 	}()
 
-	slog.InfoContext(cmd.Context(), "listening", slog.String(logKeyAddr, addr), slog.Duration(logKeySessionTimeout, SessionTimeout()))
+	slog.InfoContext(cmd.Context(), "listening",
+		slog.String(logKeyAddr, addr),
+		slog.Duration(logKeySessionTimeout, SessionTimeout()),
+		slog.Bool(logKeyMCPStateless, MCPStateless()),
+	)
+	if MCPStateless() {
+		slog.InfoContext(logCtx, "mcp http is stateless — stale Mcp-Session-Id after restart is accepted; set SCRIBE_MCP_STATELESS=0 for sticky sessions")
+	} else {
+		slog.InfoContext(logCtx, "mcp http is sticky — after restart clients must reconnect (session not found → re-initialize); prefer stdio for local Cursor")
+	}
 	if err := httpSrv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

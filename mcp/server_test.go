@@ -2384,7 +2384,8 @@ func TestStreamableHTTP_ToolsListPreservesTypedInputSchemas(t *testing.T) {
 	}
 
 	expectedProps := map[string][]string{
-		"artifact": {"action", "kind", "id", "relation", "targets"},
+		"artifact": {"action", "kind", "id"},
+		"graph":    {"action", "relation", "targets"},
 	}
 	seen := make(map[string]bool, len(expectedProps))
 

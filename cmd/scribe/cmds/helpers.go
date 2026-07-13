@@ -152,3 +152,19 @@ func SessionTimeout() time.Duration {
 	}
 	return 8 * time.Hour
 }
+
+// MCPStateless reports whether Streamable HTTP should ignore stale session IDs.
+// Default true so make restart does not kill Cursor/Claude MCP until reconnect.
+// Set SCRIBE_MCP_STATELESS=0 to require sticky sessions (spec 404 on unknown id).
+func MCPStateless() bool {
+	v := strings.TrimSpace(os.Getenv("SCRIBE_MCP_STATELESS"))
+	if v == "" {
+		return true
+	}
+	switch strings.ToLower(v) {
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return true
+	}
+}

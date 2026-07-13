@@ -50,6 +50,85 @@ func TestProgress_AllDraftCampaign_ZeroDelivery(t *testing.T) {
 	}
 }
 
+func TestProgress_VerifiedRequiresEvidenceEdge(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+	task, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Title: "Done task", Labels: []string{"kind:effort.task", "scope:verf-test", "work.complete"},
+		Sections: []parchment.Section{
+			{Name: "context", Text: "c"},
+			{Name: "evidence", Text: "I pinky-promise this works"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task.Extra = map[string]any{"verification": "true"}
+	_ = svc.Proto.Store().Put(ctx, task)
+
+	m := service.ComputeProgress(ctx, svc, task)
+	if m.VerifiedProgress != 0 {
+		t.Fatalf("self-claim must not verify: got %v", m.VerifiedProgress)
+	}
+
+	build, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Title: "CI build 42", Labels: []string{"kind:delivery.build", "scope:verf-test"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Proto.Store().AddEdge(ctx, parchment.Edge{
+		From: task.ID, Relation: parchment.RelEvidencedBy, To: build.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	task, _ = svc.Proto.GetArtifact(ctx, task.ID)
+	m = service.ComputeProgress(ctx, svc, task)
+	if m.VerifiedProgress != 1 {
+		t.Fatalf("evidenced_by delivery.build should verify: got %v", m.VerifiedProgress)
+	}
+}
+
+func TestProgress_CampaignVERFFromLeafEvidence(t *testing.T) {
+	svc := newTestService(t)
+	ctx := context.Background()
+	camp, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Title: "Camp", Labels: []string{"kind:effort.campaign", "scope:verf-camp"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	goal, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Title: "Goal", Parent: camp.ID, Labels: []string{"kind:effort.goal", "scope:verf-camp"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Title: "Leaf", Parent: goal.ID, Labels: []string{"kind:effort.task", "scope:verf-camp", "work.complete"},
+		Sections: []parchment.Section{{Name: "context", Text: "c"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := svc.Proto.CreateArtifact(ctx, parchment.CreateInput{
+		Title: "go test ./...", Labels: []string{"kind:test.run", "scope:verf-camp"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Proto.Store().AddEdge(ctx, parchment.Edge{
+		From: task.ID, Relation: parchment.RelEvidencedBy, To: run.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	camp, _ = svc.Proto.GetArtifact(ctx, camp.ID)
+	m := service.ComputeProgress(ctx, svc, camp)
+	if m.VerifiedProgress != 1 {
+		t.Fatalf("campaign VERF want 1, got %v", m.VerifiedProgress)
+	}
+}
+
 func TestSetLinkDelete_Structured(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()

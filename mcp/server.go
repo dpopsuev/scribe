@@ -35,8 +35,9 @@ const baseInstructions = "Labeled Artifact Graph. " +
 	"ORGANIZE: project: labels map to git repos (auto-detected). " +
 	"For grouping related artifacts within a project, use parent_of edges and kind:knowledge.context as containers — NOT sub-projects. " +
 	"Use area:/context:/domain: labels for cross-cutting concerns. " +
-	"DISCOVER: schema(kind=X) shows valid relations, sections, and lifecycle for any kind. " +
-	"RECOVERY: if connection fails: Scribe MCP unavailable — start with systemctl --user start container-scribe.service (or scribe serve --transport http --addr :8080)"
+	"DISCOVER: schema(kind=X) or schema(name=create) for kind/action contracts — do not invent kwargs from the fat InputSchema alone. " +
+	"RECOVERY: if connection fails start systemctl --user start container-scribe.service (or scribe serve --transport http --addr :8080). " +
+	"SESSION: after server restart, reconnect MCP if tools fail with session not found; HTTP defaults to stateless (SCRIBE_MCP_STATELESS=0 for sticky). Prefer stdio for local agents."
 
 // buildInstructions returns the instructions string for a session.
 // Workspace context is resolved lazily via the onInitialized handler
@@ -203,120 +204,104 @@ type handler struct {
 // --- consolidated input types ---
 
 type artifactInput struct {
-	Action string `json:"action" jsonschema:"required,create | get | query | set | update | delete | attach | detach | recent | brief | schema | help | kernel_create | kernel_confirm | kernel_reject | export | claim | release | handoff"`
+	Action string `json:"action" jsonschema:"required,create get query set update delete attach detach recent brief schema help kernel_create kernel_confirm kernel_reject export claim release handoff"`
 
 	ID     string `json:"id,omitempty"`
-	Target string `json:"target,omitempty" jsonschema:"single target ID for link mode=replace; or new parent ID for set(field=parent)"`
-	Kind   string `json:"kind,omitempty" jsonschema:"task, spec, bug, goal, campaign, doc, ref, need, decision"`
+	Target string `json:"target,omitempty" jsonschema:"new parent ID for set field parent"`
+	Kind   string `json:"kind,omitempty" jsonschema:"effort.task or short alias task spec bug"`
 	Scope  string `json:"scope,omitempty"`
 
 	Title     string              `json:"title,omitempty"`
 	Goal      string              `json:"goal,omitempty"`
 	Parent    string              `json:"parent,omitempty"`
-	Status    string              `json:"status,omitempty" jsonschema:"work.draft, work.active, work.blocked, work.complete, note.fleeting, note.mature, note.evergreen, decision.proposed, decision.accepted, decision.rejected, decision.deferred"`
-	Priority  string              `json:"priority,omitempty" jsonschema:"none, low, medium, high, critical"`
+	Status    string              `json:"status,omitempty" jsonschema:"work.draft work.active work.complete note.fleeting decision.accepted"`
+	Priority  string              `json:"priority,omitempty" jsonschema:"none low medium high critical"`
 	DependsOn []string            `json:"depends_on,omitempty"`
 	Labels    []string            `json:"labels,omitempty"`
 	Links     map[string][]string `json:"links,omitempty"`
 	Extra     map[string]any      `json:"extra,omitempty"`
-	Sections  []map[string]string `json:"sections,omitempty" jsonschema:"[{name, text}, ...]"`
+	Sections  []map[string]string `json:"sections,omitempty" jsonschema:"array of name and text"`
 
-	Format  string   `json:"format,omitempty" jsonschema:"summary or full (default); export: markdown"`
-	GroupBy string   `json:"group_by,omitempty" jsonschema:"status, scope, kind, sprint"`
-	Sort    string   `json:"sort,omitempty" jsonschema:"id, title, status, scope, kind, sprint, priority, topo"`
+	Format  string   `json:"format,omitempty" jsonschema:"summary or full; export markdown"`
+	GroupBy string   `json:"group_by,omitempty"`
+	Sort    string   `json:"sort,omitempty" jsonschema:"id title status scope kind sprint priority topo"`
 	Limit   int      `json:"limit,omitempty"`
-	Cursor  string   `json:"cursor,omitempty" jsonschema:"opaque pagination cursor returned as next_cursor in previous response — pass verbatim to continue"`
+	Cursor  string   `json:"cursor,omitempty"`
 	Count   bool     `json:"count,omitempty"`
-	Ranked  bool     `json:"ranked,omitempty" jsonschema:"scored FTS with kind and recency weighting"`
-	Mode    string   `json:"mode,omitempty" jsonschema:"query: fts|semantic|hybrid|working_set; create: plan|apply"`
-	Session string   `json:"session,omitempty" jsonschema:"scope results to a single agent session ID"`
-	Top     int      `json:"top,omitempty" jsonschema:"N most relevant by status+priority+recency"`
-	Fields  []string `json:"fields,omitempty" jsonschema:"id, kind, scope, status, title, parent, priority"`
-	Query   string   `json:"query,omitempty" jsonschema:"substring search across title, goal, sections"`
+	Ranked  bool     `json:"ranked,omitempty"`
+	Mode    string   `json:"mode,omitempty" jsonschema:"query fts semantic hybrid working_set; create plan or apply"`
+	Session string   `json:"session,omitempty"`
+	Top     int      `json:"top,omitempty"`
+	Fields  []string `json:"fields,omitempty"`
+	Query   string   `json:"query,omitempty"`
 
 	TitleContains  string   `json:"title_contains,omitempty"`
-	CreatedAfter   string   `json:"created_after,omitempty" jsonschema:"RFC3339 lower bound on created_at (when the artifact was first created), e.g. 2026-07-01T00:00:00Z"`
-	CreatedBefore  string   `json:"created_before,omitempty" jsonschema:"RFC3339 upper bound on created_at"`
-	UpdatedAfter   string   `json:"updated_after,omitempty" jsonschema:"RFC3339 lower bound on updated_at (last field/section/status change)"`
-	UpdatedBefore  string   `json:"updated_before,omitempty" jsonschema:"RFC3339 upper bound on updated_at"`
-	InsertedAfter  string   `json:"inserted_after,omitempty" jsonschema:"RFC3339 lower bound on inserted_at (when the row was first written to the DB — immutable)"`
-	InsertedBefore string   `json:"inserted_before,omitempty" jsonschema:"RFC3339 upper bound on inserted_at"`
+	CreatedAfter   string   `json:"created_after,omitempty" jsonschema:"RFC3339"`
+	CreatedBefore  string   `json:"created_before,omitempty" jsonschema:"RFC3339"`
+	UpdatedAfter   string   `json:"updated_after,omitempty" jsonschema:"RFC3339"`
+	UpdatedBefore  string   `json:"updated_before,omitempty" jsonschema:"RFC3339"`
+	InsertedAfter  string   `json:"inserted_after,omitempty" jsonschema:"RFC3339"`
+	InsertedBefore string   `json:"inserted_before,omitempty" jsonschema:"RFC3339"`
 	IDPrefix       string   `json:"id_prefix,omitempty"`
 	Sprint         string   `json:"sprint,omitempty"`
 	ExcludeKind    string   `json:"exclude_kind,omitempty"`
 	ExcludeStatus  string   `json:"exclude_status,omitempty"`
 	LabelsOr       []string `json:"labels_or,omitempty"`
 	ExcludeLabels  []string `json:"exclude_labels,omitempty"`
-	ExcerptChars   int      `json:"excerpt_chars,omitempty" jsonschema:"include first N characters of most relevant section per result (0=off)"`
-	IncludeCode    bool     `json:"include_code,omitempty" jsonschema:"working_set/hygiene: include index-severity findings"`
-	OutDir         string   `json:"out_dir,omitempty" jsonschema:"export: output directory for scope export"`
-	Agent          string   `json:"agent,omitempty" jsonschema:"claim/release/handoff: agent identity"`
-	TTLSeconds     int      `json:"ttl_seconds,omitempty" jsonschema:"claim: lease duration in seconds (default 3600)"`
-	FromSession    string   `json:"from_session,omitempty" jsonschema:"handoff: source session"`
-	ToSession      string   `json:"to_session,omitempty" jsonschema:"handoff: destination session"`
-	Evidence       []string `json:"evidence,omitempty" jsonschema:"handoff: evidence artifact IDs"`
-	ArtifactID     string   `json:"artifact_id,omitempty" jsonschema:"handoff: primary artifact being handed off"`
+	ExcerptChars   int      `json:"excerpt_chars,omitempty"`
+	IncludeCode    bool     `json:"include_code,omitempty"`
+	OutDir         string   `json:"out_dir,omitempty"`
+	Agent          string   `json:"agent,omitempty"`
+	TTLSeconds     int      `json:"ttl_seconds,omitempty"`
+	FromSession    string   `json:"from_session,omitempty"`
+	ToSession      string   `json:"to_session,omitempty"`
+	Evidence       []string `json:"evidence,omitempty"`
+	ArtifactID     string   `json:"artifact_id,omitempty"`
 
-	Field        string `json:"field,omitempty" jsonschema:"title, goal, scope, status, parent, priority, kind, depends_on, labels"`
-	Value        string `json:"value,omitempty" jsonschema:"new value (comma-separated for list fields)"`
-	Force        bool   `json:"force,omitempty" jsonschema:"bypass transition validation — allows status moves that would normally be blocked by lifecycle rules"`
-	BypassGuards bool   `json:"bypass_guards,omitempty" jsonschema:"skip rule evaluator guards entirely (use for migrations or emergency fixes)"`
-	RenameID     bool   `json:"rename_id,omitempty" jsonschema:"when field is scope: atomically renames the artifact ID to match the new scope key; result.new_id contains the new ID; all edge references cascade automatically"`
-
-	Alias      string `json:"alias,omitempty" jsonschema:"alias for synonym add/remove"`
-	Term       string `json:"term,omitempty" jsonschema:"term for synonym resolve"`
-	From       string `json:"from,omitempty" jsonschema:"source artifact for paths mode"`
-	To         string `json:"to,omitempty" jsonschema:"target artifact for paths mode"`
-	MinShared  int    `json:"min_shared,omitempty" jsonschema:"minimum shared neighbors for co_citation/coupling"`
-	MaxDepth   int    `json:"max_depth,omitempty" jsonschema:"max hops for path search"`
-	Iterations int    `json:"iterations,omitempty" jsonschema:"iterations for pagerank (default 20)"`
+	Field        string `json:"field,omitempty" jsonschema:"title goal scope status parent priority kind depends_on labels"`
+	Value        string `json:"value,omitempty"`
+	Force        bool   `json:"force,omitempty"`
+	BypassGuards bool   `json:"bypass_guards,omitempty"`
+	RenameID     bool   `json:"rename_id,omitempty"`
 
 	Name           string   `json:"name,omitempty"`
 	Text           string   `json:"text,omitempty"`
 	Body           string   `json:"body,omitempty"`
 	SectionFilter  []string `json:"section_filter,omitempty"`
-	SectionsDelete []string `json:"sections_delete,omitempty" jsonschema:"section names to remove"`
-	Against        string   `json:"against,omitempty"`
+	SectionsDelete []string `json:"sections_delete,omitempty"`
 
 	IDs        []string `json:"ids,omitempty"`
-	Cascade    bool     `json:"cascade,omitempty" jsonschema:"apply status transition recursively to all children"`
-	DryRun     bool     `json:"dry_run,omitempty" jsonschema:"simulate the operation and return what would change without writing anything"`
-	MutationID string   `json:"mutation_id,omitempty" jsonschema:"client mutation ID for idempotent create plan/apply replay"`
+	Cascade    bool     `json:"cascade,omitempty"`
+	DryRun     bool     `json:"dry_run,omitempty"`
+	MutationID string   `json:"mutation_id,omitempty"`
 
-	Patch        map[string]string `json:"patch,omitempty" jsonschema:"{field: value} pairs for batch_update"`
+	Patch        map[string]string `json:"patch,omitempty"`
 	Artifacts    []map[string]any  `json:"artifacts,omitempty"`
 	SkipHooks    bool              `json:"skip_hooks,omitempty"`
-	CloneFrom    string            `json:"clone_from,omitempty" jsonschema:"create: source artifact ID to clone from"`
+	CloneFrom    string            `json:"clone_from,omitempty"`
 	IncludeEdges bool              `json:"include_edges,omitempty"`
 	CreatedAt    string            `json:"created_at,omitempty"`
 	Prefix       string            `json:"prefix,omitempty"`
 
-	Relation     string      `json:"relation,omitempty" jsonschema:"parent_of, depends_on, follows, justifies, governed_by, implements, documents, blocks, duplicates, relates_to, clones, mentions, tested_by, supersedes, cites, elaborates, contradicts, traces_to, calls, explains, causes, resolves"` //nolint:misspell // relation names are domain terms // synthesises intentionally omitted (British spelling causes linter noise)
-	Weight       float64     `json:"weight,omitempty" jsonschema:"edge coupling strength (0.0 = boolean, 1.0 = max; default 0)"`
-	Direction    string      `json:"direction,omitempty" jsonschema:"outbound (default) or inbound"`
-	Depth        int         `json:"depth,omitempty" jsonschema:"tree/briefing: max depth; query sort=topo: max results when unblocked=true"`
-	Unblocked    bool        `json:"unblocked,omitempty" jsonschema:"query sort=topo: return only unblocked ready tasks"`
-	LeafOnly     bool        `json:"leaf_only,omitempty" jsonschema:"query sort=topo: return only leaf tasks (no children)"`
-	WaiveReason  string      `json:"waive_reason,omitempty" jsonschema:"set status: audited exception to complete with unfinished descendants"`
-	RelationTo   string      `json:"relation_to,omitempty" jsonschema:"query: filter artifacts with an edge to this ID"`
-	RepoRevision string      `json:"repo_revision,omitempty" jsonschema:"query: exact Extra.repo.revision match"`
-	ExternalID   string      `json:"external_id,omitempty" jsonschema:"query: exact Extra opaque ID match (github_run_id, jira_id, …)"`
-	TitleExact   string      `json:"title_exact,omitempty" jsonschema:"query: exact title match (case-insensitive)"`
-	Targets      []string    `json:"targets,omitempty"`
-	OldTarget    string      `json:"old_target,omitempty"`
-	Edges        []edgeInput `json:"edges,omitempty" jsonschema:"link/unlink bulk mode: [{from, relation, to}]"`
+	Depth        int    `json:"depth,omitempty" jsonschema:"topo max results when unblocked"`
+	Unblocked    bool   `json:"unblocked,omitempty"`
+	LeafOnly     bool   `json:"leaf_only,omitempty"`
+	WaiveReason  string `json:"waive_reason,omitempty"`
+	Relation     string `json:"relation,omitempty" jsonschema:"get tree/briefing edge filter; use graph tool to link"`
+	Direction    string `json:"direction,omitempty" jsonschema:"outbound or inbound for tree/briefing"`
+	RelationTo   string `json:"relation_to,omitempty"`
+	RepoRevision string `json:"repo_revision,omitempty"`
+	ExternalID   string `json:"external_id,omitempty"`
+	TitleExact   string `json:"title_exact,omitempty"`
 
-	// Attachment fields — used by attach and detach actions.
-	// Name (shared with section operations) is the attachment filename.
-	ContentType string `json:"content_type,omitempty" jsonschema:"MIME type for attach action — e.g. image/png, image/svg+xml"`
-	Data        string `json:"data,omitempty"         jsonschema:"base64-encoded binary content for attach action"`
+	ContentType string `json:"content_type,omitempty"`
+	Data        string `json:"data,omitempty"`
 
-	// Kernel fields — used by kernel_create, kernel_confirm, kernel_reject actions.
-	PointerID string `json:"pointer_id,omitempty" jsonschema:"source pointer artifact ID (kernel_create)"`
-	Content   string `json:"content,omitempty"    jsonschema:"kernel text content (kernel_create)"`
-	Line      int    `json:"line,omitempty"       jsonschema:"1-based line in section (kernel_create selector)"`
-	Anchor    string `json:"anchor,omitempty"     jsonschema:"heading anchor (kernel_create selector)"`
-	Section   string `json:"section,omitempty"    jsonschema:"section name (kernel_create selector)"`
+	PointerID string `json:"pointer_id,omitempty"`
+	Content   string `json:"content,omitempty"`
+	Line      int    `json:"line,omitempty"`
+	Anchor    string `json:"anchor,omitempty"`
+	Section   string `json:"section,omitempty"`
 }
 
 type edgeInput struct {

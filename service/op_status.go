@@ -50,6 +50,7 @@ func runStatusStructured(ctx context.Context, svc *Service, _ json.RawMessage) (
 		Scopes:     scopes,
 		EmbedModel: svc.EmbedModel,
 		SessionID:  svc.SessionID,
+		Recovery:   "session not found after restart → reconnect Scribe MCP (or use stdio). HTTP defaults to SCRIBE_MCP_STATELESS=true.",
 	}
 
 	b, _ := json.Marshal(status)
@@ -63,4 +64,5 @@ type statusReport struct {
 	Scopes     []string `json:"scopes"`
 	EmbedModel string   `json:"embed_model,omitempty"`
 	SessionID  string   `json:"session_id"`
+	Recovery   string   `json:"recovery,omitempty"`
 }

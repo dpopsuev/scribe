@@ -152,16 +152,29 @@ func isWorkKind(kind string) bool {
 }
 
 func hasVerificationEvidence(ctx context.Context, svc *Service, art *parchment.Artifact) bool {
-	for _, s := range art.Sections {
-		if (s.Name == "evidence" || s.Name == "verification") && strings.TrimSpace(s.Text) != "" {
-			return true
+	// Agents must not self-verify via Extra or free-text sections. Only graph
+	// evidence to delivery/test artifacts counts (loopctl/verity style).
+	for _, rel := range []string{parchment.RelEvidencedBy, parchment.RelTestedBy} {
+		edges, _ := svc.Proto.Neighbors(ctx, art.ID, rel, parchment.Outgoing)
+		for _, e := range edges {
+			target, err := svc.Proto.GetArtifact(ctx, e.To)
+			if err != nil {
+				continue
+			}
+			if isEvidenceKind(target.Label(parchment.LabelPrefixKind)) {
+				return true
+			}
 		}
 	}
-	if art.Extra != nil {
-		if v, ok := art.Extra["verification"]; ok && v != nil && v != "" {
-			return true
-		}
+	return false
+}
+
+func isEvidenceKind(kind string) bool {
+	switch kind {
+	case "test.run", "test.result", "test.suite",
+		"delivery.build", "delivery.commit", "delivery.deployment",
+		"delivery.release", "delivery.event", "delivery.alert":
+		return true
 	}
-	edges, _ := svc.Proto.Neighbors(ctx, art.ID, parchment.RelEvidencedBy, parchment.Outgoing)
-	return len(edges) > 0
+	return strings.HasPrefix(kind, "test.") || strings.HasPrefix(kind, "delivery.")
 }

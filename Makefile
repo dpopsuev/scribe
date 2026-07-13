@@ -35,7 +35,10 @@ run:
 			-v $(SCRIBE_DATA):/data:Z \
 			$(IMAGE) --transport http --addr :8080 --ui --ui-addr :8082; \
 	fi
-	@sleep 1 && podman logs scribe 2>&1 | tail -3
+	@sleep 1 && podman logs scribe 2>&1 | tail -5
+	@echo ""
+	@echo "MCP: if Cursor/Claude still shows session not found, reconnect the Scribe MCP server (HTTP is stateless by default on this image)."
+	@echo "Prefer local stdio: scribe serve --transport stdio  (avoids session IDs entirely)."
 
 restart: build-image run
 

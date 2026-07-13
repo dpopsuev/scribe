@@ -161,7 +161,7 @@ func runSchemaStructured(ctx context.Context, svc *Service, raw json.RawMessage)
 	b.WriteString("\nprogress metrics:\n")
 	b.WriteString("  content_completeness  required sections filled\n")
 	b.WriteString("  delivery_progress     lifecycle-weighted work leaves\n")
-	b.WriteString("  verified_progress     terminal leaves with evidence\n")
+	b.WriteString("  verified_progress     terminal leaves with evidenced_by/tested_by to test.*|delivery.*\n")
 
 	payload := map[string]any{
 		"kind":               kind,
