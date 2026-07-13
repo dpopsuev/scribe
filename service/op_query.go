@@ -84,6 +84,11 @@ type listInput struct {
 	InsertedBefore string `json:"inserted_before,omitempty"`
 	ExcerptChars   int    `json:"excerpt_chars,omitempty"`
 	IncludeCode    bool   `json:"include_code,omitempty"` // working_set: include index-severity hygiene
+	RelationTo     string `json:"relation_to,omitempty"`
+	RepoRevision   string `json:"repo_revision,omitempty"`
+	ExternalID     string `json:"external_id,omitempty"`
+	TitleExact     string `json:"title_exact,omitempty"`
+	Parent         string `json:"parent,omitempty"` // exact parent filter for query
 }
 
 func resolveIDs(ids []string, id string) []string {
@@ -384,6 +389,7 @@ var opQuery = Op{
 		if err != nil {
 			return "", err
 		}
+		arts = applyExactQueryFilters(ctx, svc, arts, &in)
 
 		if in.Count {
 			if in.GroupBy != "" {
@@ -558,6 +564,87 @@ func firstSectionPreview(sections []parchment.Section, chars int) string {
 		return text
 	}
 	return ""
+}
+
+func applyExactQueryFilters(ctx context.Context, svc *Service, arts []*parchment.Artifact, in *listInput) []*parchment.Artifact {
+	if in.TitleExact == "" && in.Parent == "" && in.RelationTo == "" && in.RepoRevision == "" && in.ExternalID == "" {
+		return arts
+	}
+	out := make([]*parchment.Artifact, 0, len(arts))
+	for _, art := range arts {
+		if in.TitleExact != "" && !strings.EqualFold(art.Title, in.TitleExact) {
+			continue
+		}
+		if in.Parent != "" && parentOf(ctx, svc.Proto.Store(), art.ID) != in.Parent {
+			continue
+		}
+		if in.RelationTo != "" && !hasEdgeTo(ctx, svc, art.ID, in.RelationTo, in.Relation) {
+			continue
+		}
+		if in.RepoRevision != "" && !extraRepoRevisionEquals(art, in.RepoRevision) {
+			continue
+		}
+		if in.ExternalID != "" && !extraContainsID(art, in.ExternalID) {
+			continue
+		}
+		out = append(out, art)
+	}
+	return out
+}
+
+func hasEdgeTo(ctx context.Context, svc *Service, from, to, relation string) bool {
+	outE, _ := svc.Proto.Neighbors(ctx, from, relation, parchment.Outgoing)
+	for _, e := range outE {
+		if e.To == to {
+			return true
+		}
+	}
+	inE, _ := svc.Proto.Neighbors(ctx, from, relation, parchment.Incoming)
+	for _, e := range inE {
+		if e.From == to {
+			return true
+		}
+	}
+	return false
+}
+
+func extraRepoRevisionEquals(art *parchment.Artifact, rev string) bool {
+	if art.Extra == nil {
+		return false
+	}
+	repo, _ := art.Extra["repo"].(map[string]any)
+	if repo == nil {
+		return false
+	}
+	got, _ := repo["revision"].(string)
+	return got == rev
+}
+
+func extraContainsID(art *parchment.Artifact, id string) bool {
+	if art.Extra == nil {
+		return false
+	}
+	return extraWalkContains(art.Extra, id)
+}
+
+func extraWalkContains(v any, id string) bool {
+	switch t := v.(type) {
+	case string:
+		return t == id
+	case map[string]any:
+		for _, vv := range t {
+			if extraWalkContains(vv, id) {
+				return true
+			}
+		}
+	case []any:
+		for _, vv := range t {
+			if extraWalkContains(vv, id) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func parentOf(ctx context.Context, store parchment.Store, id string) string {

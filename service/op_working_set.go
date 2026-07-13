@@ -18,11 +18,13 @@ type workingSetItem struct {
 }
 
 type workingSetOutput struct {
-	Session    map[string]any          `json:"session,omitempty"`
-	Campaigns  []triageCampaignSummary `json:"campaigns"`
-	Ready      []workingSetItem        `json:"ready"`
-	Recent     []workingSetItem        `json:"recent"`
-	HygieneTop []HygieneFinding        `json:"hygiene_top"`
+	Session            map[string]any          `json:"session,omitempty"`
+	Campaigns          []triageCampaignSummary `json:"campaigns"`
+	Ready              []workingSetItem        `json:"ready"`
+	Recent             []workingSetItem        `json:"recent"`
+	HygieneTop         []HygieneFinding        `json:"hygiene_top"`
+	CanonicalDecisions []workingSetItem        `json:"canonical_decisions,omitempty"`
+	LifecycleDrift     []map[string]any        `json:"lifecycle_drift,omitempty"`
 }
 
 func runWorkingSet(ctx context.Context, svc *Service, in *listInput) (string, error) {
@@ -52,6 +54,8 @@ func runWorkingSet(ctx context.Context, svc *Service, in *listInput) (string, er
 	})
 	out.Recent = appendRecent(nil, recentArts, in.ExcerptChars)
 	out.HygieneTop = buildWorkingSetHygiene(ctx, svc, in)
+	out.CanonicalDecisions = collectCanonicalDecisions(ctx, svc, active)
+	out.LifecycleDrift = LifecycleDriftPreview(ctx, svc, in.Scope)
 
 	b, err := json.Marshal(out)
 	if err != nil {
@@ -167,4 +171,23 @@ func excerptArtifact(art *parchment.Artifact, n int) string {
 		return text
 	}
 	return ""
+}
+
+func collectCanonicalDecisions(ctx context.Context, svc *Service, active []triageCampaignSummary) []workingSetItem {
+	seen := map[string]bool{}
+	var out []workingSetItem
+	for _, camp := range active {
+		d, _ := ResolveCanonicalDecision(ctx, svc, camp.ID)
+		if d == nil || seen[d.ID] {
+			continue
+		}
+		seen[d.ID] = true
+		out = append(out, workingSetItem{
+			ID:     d.ID,
+			Title:  d.Title,
+			Kind:   d.Label(parchment.LabelPrefixKind),
+			Status: parchment.StatusFromLabels(d.Labels),
+		})
+	}
+	return out
 }

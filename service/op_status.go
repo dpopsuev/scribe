@@ -13,41 +13,47 @@ func init() {
 }
 
 var opStatus = Op{
-	Name: "status", //nolint:goconst // op name, not sort field
-	Run: func(ctx context.Context, svc *Service, _ json.RawMessage) (string, error) {
-		store := svc.Proto.Store()
+	Name:       "status", //nolint:goconst // op name, not sort field
+	Structured: runStatusStructured,
+	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
+		r, err := runStatusStructured(ctx, svc, raw)
+		return r.Text, err
+	},
+}
 
-		var dbBytes int64
-		if sizer, ok := store.(parchment.DBSizer); ok {
-			dbBytes, _ = sizer.DBSizeBytes(ctx)
-		}
+func runStatusStructured(ctx context.Context, svc *Service, _ json.RawMessage) (Result, error) {
+	store := svc.Proto.Store()
 
-		scopes := svc.HomeScopes
-		if len(scopes) == 0 {
-			if infos, err := svc.Proto.ListScopeInfo(ctx); err == nil {
-				for _, si := range infos {
-					if si.Scope != "" {
-						scopes = append(scopes, si.Scope)
-					}
+	var dbBytes int64
+	if sizer, ok := store.(parchment.DBSizer); ok {
+		dbBytes, _ = sizer.DBSizeBytes(ctx)
+	}
+
+	scopes := svc.HomeScopes
+	if len(scopes) == 0 {
+		if infos, err := svc.Proto.ListScopeInfo(ctx); err == nil {
+			for _, si := range infos {
+				if si.Scope != "" {
+					scopes = append(scopes, si.Scope)
 				}
 			}
 		}
-		if len(scopes) == 0 {
-			scopes = []string{"(none)"}
-		}
+	}
+	if len(scopes) == 0 {
+		scopes = []string{"(none)"}
+	}
 
-		status := statusReport{
-			Version:    svc.Version,
-			DBBytes:    dbBytes,
-			DBMB:       fmt.Sprintf("%.1f", float64(dbBytes)/(1024*1024)),
-			Scopes:     scopes,
-			EmbedModel: svc.EmbedModel,
-			SessionID:  svc.SessionID,
-		}
+	status := statusReport{
+		Version:    svc.Version,
+		DBBytes:    dbBytes,
+		DBMB:       fmt.Sprintf("%.1f", float64(dbBytes)/(1024*1024)), //nolint:mnd // bytes→MiB
+		Scopes:     scopes,
+		EmbedModel: svc.EmbedModel,
+		SessionID:  svc.SessionID,
+	}
 
-		b, _ := json.Marshal(status)
-		return string(b), nil
-	},
+	b, _ := json.Marshal(status)
+	return Result{Text: string(b), Data: status}, nil
 }
 
 type statusReport struct {

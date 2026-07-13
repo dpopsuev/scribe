@@ -88,11 +88,11 @@ func RunOp(name string, input any) error {
 	if err != nil {
 		return err
 	}
-	out, err := op.Run(context.Background(), svc, raw)
+	out, err := op.Execute(context.Background(), svc, raw)
 	if err != nil {
 		return err
 	}
-	fmt.Println(out)
+	fmt.Println(out.Text)
 	return nil
 }
 

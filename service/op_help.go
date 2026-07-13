@@ -128,12 +128,12 @@ Use force=true on set to bypass transition validation.`,
 Use schema(kind=X) to see valid outbound relations and their allowed targets.
 Wrong-target errors name the valid targets for that specific relation.`,
 
-	"schema": `SCHEMA — discover kind properties
+	"schema": `SCHEMA — discover kind properties or action field contracts
 
   artifact(action=schema, kind=effort.task)
+  artifact(action=schema, name=create)   # progressive disclosure: fields for one action
 
-Returns: lifecycle (default status + all valid transitions), required/recommended sections,
-and typed relations with their allowed targets.
+Returns: lifecycle, sections, relations (incl. governed_by alias), or action-specific required/optional fields.
 
   artifact(action=query, kind=label_definition, scope=_schema)
 
@@ -145,6 +145,7 @@ Three tools with action= dispatch: artifact, graph, admin.
 Hosts dump every optional field on each tool — that is a flat union of kwargs, not
 "fill all params". Pass only fields for the action you chose.
 
+  artifact(action=schema, name=create)  # see only create fields
   artifact  create/get/query/set/update/... (+ export/claim/release/handoff)
   graph     link / analyze / synonym
   admin     hygiene / history / dashboard / lint / ...
@@ -156,7 +157,24 @@ See support.doc why-scribe-mcp-looks-like-it-has-so-many-actions-6ec9.`,
 
   admin(action=hygiene, scope=myproj)
 
-Hygiene ranks soft graph-health findings (orphans, stale work). Status legality is enforced at write time.`,
+Hygiene ranks soft graph-health findings (orphans, stale work). Status legality is enforced at write time.
+Code-index kinds are excluded unless include_code=true. Intentional orphans: label hygiene:intentional_orphan
+or Extra.intentional_orphan=true. Default orphan suggestion is acknowledge, not delete.`,
+
+	"progress": `PROGRESS METRICS
+
+content_completeness  required sections filled (docs can be 100% without delivery)
+delivery_progress     lifecycle-weighted work leaves (all-draft → 0)
+verified_progress     terminal leaves with evidence/verification
+
+Stamped on get/query Extra. Dashboard shows CONT/DELV/VERF columns.`,
+
+	"governed_by": `CANONICAL ARCHITECTURE
+
+  graph(action=link, id=<campaign>, relation=governed_by, targets=[<decision>])
+
+Stores as decision -justifies-> campaign. Discover via get(format=context) Canonical architecture section.
+Prefer decision.accepted; label role:canonical-architecture to disambiguate.`,
 }
 
 var helpIndex string
@@ -178,6 +196,8 @@ func init() {
 		{"schema", "Discover kind properties, sections, transitions"},
 		{"tools", "Why MCP lists so many fields — flat action kwargs"},
 		{"hygiene", "Hygiene findings (soft graph health)"},
+		{"progress", "Content vs delivery vs verified progress metrics"},
+		{"governed_by", "Canonical architecture decision relation"},
 	} {
 		b.WriteString("  ")
 		b.WriteString(topic.name)

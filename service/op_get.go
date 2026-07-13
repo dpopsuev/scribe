@@ -380,8 +380,13 @@ func writeReferences(ctx context.Context, svc *Service, b *strings.Builder, id s
 func writeMetrics(ctx context.Context, svc *Service, b *strings.Builder, id string, art *parchment.Artifact) {
 	fanIn, _ := FanIn(ctx, svc.Proto.Store(), id)
 	fanOut, _ := FanOut(ctx, svc.Proto.Store(), id)
-	score := svc.Proto.CompletionScore(ctx, art)
-	fmt.Fprintf(b, "## Metrics\n  Fan-in: %d  Fan-out: %d  Completion: %.0f%%\n", fanIn, fanOut, score*100)
+	m := ComputeProgress(ctx, svc, art)
+	fmt.Fprintf(b, "## Metrics\n  Fan-in: %d  Fan-out: %d\n  Content: %.0f%%  Delivery: %.0f%%  Verified: %.0f%%\n",
+		fanIn, fanOut, m.ContentCompleteness*100, m.DeliveryProgress*100, m.VerifiedProgress*100)
+	if d, via := ResolveCanonicalDecision(ctx, svc, id); d != nil {
+		fmt.Fprintf(b, "## Canonical architecture (%s)\n  %s [%s|%s] %s\n",
+			via, d.ID, d.Label(parchment.LabelPrefixKind), parchment.StatusFromLabels(d.Labels), d.Title)
+	}
 }
 
 func getBulk(ctx context.Context, svc *Service, ids, sectionFilter []string) (string, error) {

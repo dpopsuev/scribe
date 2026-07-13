@@ -117,7 +117,21 @@ func serializeArtifactMarkdown(ctx context.Context, svc *Service, art *parchment
 		}
 	}
 	links := parchment.ExportLinksFromEdges(edges, titles)
-	return parchment.ExportMarkdown(art, links)
+	md := parchment.ExportMarkdown(art, links)
+	scope := art.Label(parchment.LabelPrefixScope)
+	stable := StableArtifactLink(scope, art.ID)
+	if d, via := ResolveCanonicalDecision(ctx, svc, art.ID); d != nil {
+		return fmt.Sprintf("<!-- scribe:%s -->\n<!-- canonical:%s via=%s -->\n%s", stable, d.ID, via, md)
+	}
+	return fmt.Sprintf("<!-- scribe:%s -->\n%s", stable, md)
+}
+
+// StableArtifactLink is a portable reference: scribe://scope/id
+func StableArtifactLink(scope, id string) string {
+	if scope == "" {
+		scope = "_"
+	}
+	return fmt.Sprintf("scribe://%s/%s", scope, id)
 }
 
 func exportFilename(art *parchment.Artifact) string {

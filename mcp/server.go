@@ -36,7 +36,7 @@ const baseInstructions = "Labeled Artifact Graph. " +
 	"For grouping related artifacts within a project, use parent_of edges and kind:knowledge.context as containers — NOT sub-projects. " +
 	"Use area:/context:/domain: labels for cross-cutting concerns. " +
 	"DISCOVER: schema(kind=X) shows valid relations, sections, and lifecycle for any kind. " +
-	"RECOVERY: if connection fails, check that the Scribe server is running (scribe serve --transport http --addr :8080)"
+	"RECOVERY: if connection fails: Scribe MCP unavailable — start with systemctl --user start container-scribe.service (or scribe serve --transport http --addr :8080)"
 
 // buildInstructions returns the instructions string for a session.
 // Workspace context is resolved lazily via the onInitialized handler
@@ -103,11 +103,12 @@ func NewServer(svc *service.Service, vocab []string, version string, stdioLabels
 	_ = json.Unmarshal(schemaFor[artifactInput](), &artifactSchema)
 	patchSchemaFromRegistry(artifactSchema, h)
 	sdk.AddTool(&sdkmcp.Tool{
-		Name:        toolNameArtifact,
-		Title:       "Artifact",
-		Description: artifactDesc,
-		InputSchema: artifactSchema,
-		Annotations: &sdkmcp.ToolAnnotations{DestructiveHint: &destructiveHint},
+		Name:         toolNameArtifact,
+		Title:        "Artifact",
+		Description:  artifactDesc,
+		InputSchema:  artifactSchema,
+		OutputSchema: service.MutationOutputSchema(),
+		Annotations:  &sdkmcp.ToolAnnotations{DestructiveHint: &destructiveHint},
 	}, bindHandler(h.handleArtifact))
 	reg.register(ToolMeta{
 		Name: toolNameArtifact, Description: artifactDesc,
@@ -224,7 +225,7 @@ type artifactInput struct {
 	Cursor  string   `json:"cursor,omitempty" jsonschema:"opaque pagination cursor returned as next_cursor in previous response — pass verbatim to continue"`
 	Count   bool     `json:"count,omitempty"`
 	Ranked  bool     `json:"ranked,omitempty" jsonschema:"scored FTS with kind and recency weighting"`
-	Mode    string   `json:"mode,omitempty" jsonschema:"fts (default) | semantic | hybrid | working_set"`
+	Mode    string   `json:"mode,omitempty" jsonschema:"query: fts|semantic|hybrid|working_set; create: plan|apply"`
 	Session string   `json:"session,omitempty" jsonschema:"scope results to a single agent session ID"`
 	Top     int      `json:"top,omitempty" jsonschema:"N most relevant by status+priority+recency"`
 	Fields  []string `json:"fields,omitempty" jsonschema:"id, kind, scope, status, title, parent, priority"`
@@ -274,9 +275,10 @@ type artifactInput struct {
 	SectionsDelete []string `json:"sections_delete,omitempty" jsonschema:"section names to remove"`
 	Against        string   `json:"against,omitempty"`
 
-	IDs     []string `json:"ids,omitempty"`
-	Cascade bool     `json:"cascade,omitempty" jsonschema:"apply status transition recursively to all children"`
-	DryRun  bool     `json:"dry_run,omitempty" jsonschema:"simulate the operation and return what would change without writing anything"`
+	IDs        []string `json:"ids,omitempty"`
+	Cascade    bool     `json:"cascade,omitempty" jsonschema:"apply status transition recursively to all children"`
+	DryRun     bool     `json:"dry_run,omitempty" jsonschema:"simulate the operation and return what would change without writing anything"`
+	MutationID string   `json:"mutation_id,omitempty" jsonschema:"client mutation ID for idempotent create plan/apply replay"`
 
 	Patch        map[string]string `json:"patch,omitempty" jsonschema:"{field: value} pairs for batch_update"`
 	Artifacts    []map[string]any  `json:"artifacts,omitempty"`
@@ -286,14 +288,20 @@ type artifactInput struct {
 	CreatedAt    string            `json:"created_at,omitempty"`
 	Prefix       string            `json:"prefix,omitempty"`
 
-	Relation  string      `json:"relation,omitempty" jsonschema:"parent_of, depends_on, follows, justifies, implements, documents, blocks, duplicates, relates_to, clones, mentions, tested_by, supersedes, cites, elaborates, contradicts, traces_to, calls, explains, causes, resolves"` //nolint:misspell // relation names are domain terms // synthesises intentionally omitted (British spelling causes linter noise)
-	Weight    float64     `json:"weight,omitempty" jsonschema:"edge coupling strength (0.0 = boolean, 1.0 = max; default 0)"`
-	Direction string      `json:"direction,omitempty" jsonschema:"outbound (default) or inbound"`
-	Depth     int         `json:"depth,omitempty" jsonschema:"tree/briefing: max depth; query sort=topo: max results when unblocked=true"`
-	Unblocked bool        `json:"unblocked,omitempty" jsonschema:"query sort=topo: return only unblocked ready tasks"`
-	Targets   []string    `json:"targets,omitempty"`
-	OldTarget string      `json:"old_target,omitempty"`
-	Edges     []edgeInput `json:"edges,omitempty" jsonschema:"link/unlink bulk mode: [{from, relation, to}]"`
+	Relation     string      `json:"relation,omitempty" jsonschema:"parent_of, depends_on, follows, justifies, governed_by, implements, documents, blocks, duplicates, relates_to, clones, mentions, tested_by, supersedes, cites, elaborates, contradicts, traces_to, calls, explains, causes, resolves"` //nolint:misspell // relation names are domain terms // synthesises intentionally omitted (British spelling causes linter noise)
+	Weight       float64     `json:"weight,omitempty" jsonschema:"edge coupling strength (0.0 = boolean, 1.0 = max; default 0)"`
+	Direction    string      `json:"direction,omitempty" jsonschema:"outbound (default) or inbound"`
+	Depth        int         `json:"depth,omitempty" jsonschema:"tree/briefing: max depth; query sort=topo: max results when unblocked=true"`
+	Unblocked    bool        `json:"unblocked,omitempty" jsonschema:"query sort=topo: return only unblocked ready tasks"`
+	LeafOnly     bool        `json:"leaf_only,omitempty" jsonschema:"query sort=topo: return only leaf tasks (no children)"`
+	WaiveReason  string      `json:"waive_reason,omitempty" jsonschema:"set status: audited exception to complete with unfinished descendants"`
+	RelationTo   string      `json:"relation_to,omitempty" jsonschema:"query: filter artifacts with an edge to this ID"`
+	RepoRevision string      `json:"repo_revision,omitempty" jsonschema:"query: exact Extra.repo.revision match"`
+	ExternalID   string      `json:"external_id,omitempty" jsonschema:"query: exact Extra opaque ID match (github_run_id, jira_id, …)"`
+	TitleExact   string      `json:"title_exact,omitempty" jsonschema:"query: exact title match (case-insensitive)"`
+	Targets      []string    `json:"targets,omitempty"`
+	OldTarget    string      `json:"old_target,omitempty"`
+	Edges        []edgeInput `json:"edges,omitempty" jsonschema:"link/unlink bulk mode: [{from, relation, to}]"`
 
 	// Attachment fields — used by attach and detach actions.
 	// Name (shared with section operations) is the attachment filename.
@@ -320,7 +328,7 @@ type graphInput struct {
 
 	ID        string      `json:"id,omitempty"`
 	Target    string      `json:"target,omitempty" jsonschema:"single target ID for link mode=replace"`
-	Relation  string      `json:"relation,omitempty" jsonschema:"parent_of, depends_on, follows, justifies, implements, documents, blocks, duplicates, relates_to, clones, mentions, tested_by, supersedes, cites, elaborates, contradicts, traces_to, calls, explains, causes, resolves"` //nolint:misspell // relation names are domain terms
+	Relation  string      `json:"relation,omitempty" jsonschema:"parent_of, depends_on, follows, justifies, governed_by, implements, documents, blocks, duplicates, relates_to, clones, mentions, tested_by, supersedes, cites, elaborates, contradicts, traces_to, calls, explains, causes, resolves"` //nolint:misspell // relation names are domain terms
 	Weight    float64     `json:"weight,omitempty" jsonschema:"edge coupling strength (0.0 = boolean, 1.0 = max; default 0)"`
 	Direction string      `json:"direction,omitempty" jsonschema:"outbound (default) or inbound"`
 	Depth     int         `json:"depth,omitempty" jsonschema:"tree/briefing: max depth"`
@@ -345,7 +353,7 @@ type graphInput struct {
 
 // adminInput is the schema for the admin tool — ops + introspection.
 type adminInput struct {
-	Action string `json:"action" jsonschema:"required,lint | synthesize | history | hygiene | dashboard | changelog"`
+	Action string `json:"action" jsonschema:"required,lint | synthesize | history | hygiene | dashboard | changelog | status | triage"`
 
 	ID      string `json:"id,omitempty"`
 	Scope   string `json:"scope,omitempty"`
@@ -357,11 +365,18 @@ type adminInput struct {
 	Cursor  string `json:"cursor,omitempty"`
 	DryRun  bool   `json:"dry_run,omitempty"`
 	Cascade bool   `json:"cascade,omitempty"`
+
+	IncludeCode    bool     `json:"include_code,omitempty"`
+	Severity       string   `json:"severity,omitempty"`
+	Prune          bool     `json:"prune,omitempty" jsonschema:"hygiene: opt-in revision pruning (default read-only)"`
+	BaselineIDs    []string `json:"baseline_ids,omitempty" jsonschema:"hygiene: return only findings whose IDs are not in this baseline"`
+	AcknowledgeIDs []string `json:"acknowledge_ids,omitempty" jsonschema:"hygiene: non-semantic stale_reference acknowledgements"`
 }
 
 // --- dispatchers ---
 
 // bindHandler bridges a typed Scribe handler to sdkmcp.ToolHandler.
+// The handler's second return value becomes CallToolResult.StructuredContent.
 func bindHandler[In any](h func(context.Context, *sdkmcp.CallToolRequest, In) (*sdkmcp.CallToolResult, any, error)) sdkmcp.ToolHandler {
 	return func(ctx context.Context, req *sdkmcp.CallToolRequest) (res *sdkmcp.CallToolResult, err error) {
 		defer func() {
@@ -378,14 +393,28 @@ func bindHandler[In any](h func(context.Context, *sdkmcp.CallToolRequest, In) (*
 			}
 		}
 		req.Params = &sdkmcp.CallToolParamsRaw{Arguments: req.Params.Arguments}
-		out, _, err := h(ctx, req, in)
+		out, data, err := h(ctx, req, in)
 		if err != nil {
 			errRes := text(err.Error())
 			errRes.IsError = true
 			return errRes, nil
 		}
+		if out == nil {
+			out = text("")
+		}
+		if data != nil && out.StructuredContent == nil {
+			out.StructuredContent = data
+		}
 		return out, nil
 	}
+}
+
+func textResult(s string, data any) *sdkmcp.CallToolResult {
+	res := text(s)
+	if data != nil {
+		res.StructuredContent = data
+	}
+	return res
 }
 
 func text(s string) *sdkmcp.CallToolResult {

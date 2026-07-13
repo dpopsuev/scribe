@@ -9,7 +9,7 @@ import (
 )
 
 // StampComputedFields adds virtual computed fields to art.Extra.
-// Fields: age_days, staleness_days, completeness (0.0–1.0).
+// Fields: age_days, staleness_days, content/delivery/verified progress.
 func StampComputedFields(ctx context.Context, svc *Service, art *parchment.Artifact) {
 	if art.Extra == nil {
 		art.Extra = make(map[string]any)
@@ -25,8 +25,11 @@ func StampComputedFields(ctx context.Context, svc *Service, art *parchment.Artif
 		art.Extra["staleness_days"] = days
 	}
 
-	score := svc.Proto.CompletionScore(ctx, art)
-	art.Extra["completeness"] = math.Round(score*100) / 100
+	m := ComputeProgress(ctx, svc, art)
+	art.Extra["content_completeness"] = m.ContentCompleteness
+	art.Extra["delivery_progress"] = m.DeliveryProgress
+	art.Extra["verified_progress"] = m.VerifiedProgress
+	art.Extra["completeness"] = m.Completeness
 }
 
 // StampComputedFieldsBatch stamps computed fields on a slice of artifacts.

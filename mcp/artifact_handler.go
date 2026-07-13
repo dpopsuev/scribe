@@ -149,6 +149,13 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		return h.handleDetach(ctx, &in)
 	}
 
+	if graphActions[in.Action] {
+		return nil, nil, fmt.Errorf("action %q belongs to the 'graph' tool, not 'artifact'", in.Action) //nolint:err113 // agent-facing hint
+	}
+	if adminActions[in.Action] {
+		return nil, nil, fmt.Errorf("action %q belongs to the 'admin' tool, not 'artifact'", in.Action) //nolint:err113 // agent-facing hint
+	}
+
 	// Stamp creator provenance on artifact creation.
 	if in.Action == actionCreate {
 		prov := service.AgentProvenance(h.clientHarness, h.clientVersion, h.svc.SessionID)
@@ -162,11 +169,12 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 		}
 		progressCtx, progressCancel := context.WithCancel(ctx)
 		batterymcp.StartProgressHeartbeat(progressCtx, req, in.Action+" running", batterymcp.DefaultProgressInterval)
-		out, err := op.RunTraced(ctx, h.svc, raw)
+		result, err := op.RunTraced(ctx, h.svc, raw)
 		progressCancel()
 		if err != nil {
 			return nil, nil, err
 		}
+		out := result.Text
 		if in.Action == "get" && in.ID != "" {
 			return h.buildGetResult(ctx, in.ID, out)
 		}
@@ -174,13 +182,7 @@ func (h *handler) handleArtifact(ctx context.Context, req *sdkmcp.CallToolReques
 			out += workspaceUnconfiguredSuffix
 			h.workspaceWarned = true
 		}
-		return text(out), nil, nil
-	}
-	if graphActions[in.Action] {
-		return nil, nil, fmt.Errorf("action %q belongs to the 'graph' tool, not 'artifact'", in.Action) //nolint:err113 // agent-facing hint
-	}
-	if adminActions[in.Action] {
-		return nil, nil, fmt.Errorf("action %q belongs to the 'admin' tool, not 'artifact'", in.Action) //nolint:err113 // agent-facing hint
+		return textResult(out, result.Data), result.Data, nil
 	}
 	return nil, nil, fmt.Errorf("unknown artifact action %q", in.Action) //nolint:err113 // agent-facing hint
 }
@@ -204,12 +206,12 @@ func (h *handler) handleGraph(ctx context.Context, req *sdkmcp.CallToolRequest, 
 		h.recordTurn(ctx, in.Action, raw)
 		progressCtx, progressCancel := context.WithCancel(ctx)
 		batterymcp.StartProgressHeartbeat(progressCtx, req, in.Action+" running", batterymcp.DefaultProgressInterval)
-		out, err := op.RunTraced(ctx, h.svc, raw)
+		result, err := op.RunTraced(ctx, h.svc, raw)
 		progressCancel()
 		if err != nil {
 			return nil, nil, err
 		}
-		return text(out), nil, nil
+		return textResult(result.Text, result.Data), result.Data, nil
 	}
 	return nil, nil, fmt.Errorf("graph action %q not found in registry", in.Action) //nolint:err113 // agent-facing hint
 }
@@ -229,12 +231,12 @@ func (h *handler) handleAdmin(ctx context.Context, req *sdkmcp.CallToolRequest, 
 		raw, _ := json.Marshal(in)
 		progressCtx, progressCancel := context.WithCancel(ctx)
 		batterymcp.StartProgressHeartbeat(progressCtx, req, in.Action+" running", batterymcp.DefaultProgressInterval)
-		out, err := op.RunTraced(ctx, h.svc, raw)
+		result, err := op.RunTraced(ctx, h.svc, raw)
 		progressCancel()
 		if err != nil {
 			return nil, nil, err
 		}
-		return text(out), nil, nil
+		return textResult(result.Text, result.Data), result.Data, nil
 	}
 	return nil, nil, fmt.Errorf("admin action %q not found in registry", in.Action) //nolint:err113 // agent-facing hint
 }

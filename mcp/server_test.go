@@ -720,7 +720,7 @@ func TestTemplate_MCPLinkSatisfiesBlocksMissingSections(t *testing.T) {
 
 	// Try to link to template via MCP - should fail because "problem" (MustSection) is missing
 	result, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "artifact",
+		Name: "graph",
 		Arguments: map[string]any{
 			"action":   "link",
 			"id":       "SPEC-2026-001",
@@ -772,7 +772,7 @@ func TestTemplate_MCPLinkSatisfiesAllowsConformant(t *testing.T) {
 	cs := connectClient(t, srv)
 
 	// Link to template via MCP - should succeed
-	text := callTool(t, cs, "artifact", map[string]any{
+	text := callTool(t, cs, "graph", map[string]any{
 		"action":   "link",
 		"id":       "SPEC-2026-002",
 		"relation": "satisfies",
@@ -1692,7 +1692,7 @@ func TestTemplate_SectionsAttachedAfterCreationValidatedOnLink(t *testing.T) {
 	// Try to add satisfies link WITHOUT having sections — should fail
 	ctx := context.Background()
 	linkResult, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "artifact",
+		Name: "graph",
 		Arguments: map[string]any{
 			"action":   "link",
 			"id":       id,
@@ -1720,7 +1720,7 @@ func TestTemplate_SectionsAttachedAfterCreationValidatedOnLink(t *testing.T) {
 
 	// Now adding satisfies link should succeed
 	linkResult2, err := cs.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "artifact",
+		Name: "graph",
 		Arguments: map[string]any{
 			"action":   "link",
 			"id":       id,
@@ -2281,7 +2281,7 @@ func TestErrorMessages_ContainParamNames(t *testing.T) {
 
 	// Call graph link with no id -> assert error contains "id"
 	result, err = cs.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "artifact",
+		Name: "graph",
 		Arguments: map[string]any{
 			"action":   "link",
 			"relation": "depends_on",
@@ -2301,7 +2301,7 @@ func TestErrorMessages_ContainParamNames(t *testing.T) {
 
 	// Call graph link with no targets -> assert error contains "targets"
 	result, err = cs.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "artifact",
+		Name: "graph",
 		Arguments: map[string]any{
 			"action":   "link",
 			"id":       "T-001",
@@ -2321,7 +2321,7 @@ func TestErrorMessages_ContainParamNames(t *testing.T) {
 
 	// Call graph link with no relation -> assert error contains "relation"
 	result, err = cs.CallTool(ctx, &sdkmcp.CallToolParams{
-		Name: "artifact",
+		Name: "graph",
 		Arguments: map[string]any{
 			"action":  "link",
 			"id":      "T-001",

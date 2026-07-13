@@ -1,3 +1,4 @@
+//nolint:goconst,gocognit,gocyclo,funlen,nestif // set action/status literals; set path is branched
 package service
 
 import (
@@ -36,22 +37,7 @@ type createInput struct {
 	Artifacts []map[string]any    `json:"artifacts,omitempty"`
 }
 
-var opCreate = Op{
-	Name: "create",
-	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) { //nolint:cyclop // routing: clone|batch|single — each path is simple
-		var in createInput
-		if err := json.Unmarshal(raw, &in); err != nil {
-			return "", err
-		}
-		if in.CloneFrom != "" {
-			return createClone(ctx, svc, &in)
-		}
-		if len(in.Artifacts) > 0 {
-			return createBatch(ctx, svc, &in)
-		}
-		return createSingle(ctx, svc, &in)
-	},
-}
+// opCreate is defined in op_create.go (structured plan/apply + dry_run).
 
 func parseSections(raw []map[string]string) []parchment.Section {
 	var out []parchment.Section
@@ -469,6 +455,7 @@ func patchExtra(ctx context.Context, svc *Service, id string, extra map[string]a
 	if len(extra) == 0 {
 		return nil
 	}
+	extra = EnrichWriteExtra(extra, ".", false)
 	if err := svc.Proto.PatchArtifact(ctx, id, parchment.ArtifactPatch{SetExtra: extra}); err != nil {
 		return []string{fmt.Sprintf("%s -> error: extra: %v", id, err)}
 	}
@@ -499,6 +486,7 @@ type setInput struct {
 	Cascade      bool     `json:"cascade,omitempty"`
 	DryRun       bool     `json:"dry_run,omitempty"`
 	RenameID     bool     `json:"rename_id,omitempty"`
+	WaiveReason  string   `json:"waive_reason,omitempty"`
 	Scope        string   `json:"scope,omitempty"`
 	Kind         string   `json:"kind,omitempty"`
 	Status       string   `json:"status,omitempty"`
@@ -507,91 +495,138 @@ type setInput struct {
 }
 
 var opSet = Op{
-	Name: "set",
+	Name:       "set",
+	Structured: runSetStructured,
 	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
-		var in setInput
-		if err := json.Unmarshal(raw, &in); err != nil {
-			return "", err
+		r, err := runSetStructured(ctx, svc, raw)
+		return r.Text, err
+	},
+}
+
+func runSetStructured(ctx context.Context, svc *Service, raw json.RawMessage) (Result, error) {
+	var in setInput
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return Result{}, err
+	}
+	ids := resolveIDs(in.IDs, in.ID)
+	hasBulkFilter := in.Scope != "" || in.Kind != "" || in.Status != "" || in.IDPrefix != "" || in.ExcludeKind != ""
+	if hasBulkFilter && len(ids) == 0 {
+		var bulkLabels, bulkExclude []string
+		if in.Kind != "" {
+			bulkLabels = append(bulkLabels, parchment.LabelPrefixKind+in.Kind)
 		}
-		ids := resolveIDs(in.IDs, in.ID)
-		hasBulkFilter := in.Scope != "" || in.Kind != "" || in.Status != "" || in.IDPrefix != "" || in.ExcludeKind != ""
-		if hasBulkFilter && len(ids) == 0 {
-			var bulkLabels, bulkExclude []string
-			if in.Kind != "" {
-				bulkLabels = append(bulkLabels, parchment.LabelPrefixKind+in.Kind)
-			}
-			if in.Status != "" {
-				bulkLabels = append(bulkLabels, statusLabelFor(in.Status))
-			}
-			if in.Scope != "" {
-				bulkLabels = append(bulkLabels, parchment.LabelPrefixScope+in.Scope)
-			}
-			if in.ExcludeKind != "" {
-				bulkExclude = append(bulkExclude, parchment.LabelPrefixKind+in.ExcludeKind)
-			}
-			arts, err := svc.Proto.ListArtifacts(ctx, parchment.ListInput{
-				IDPrefix: in.IDPrefix, Labels: bulkLabels, ExcludeLabels: bulkExclude,
-			})
-			if err != nil {
-				return "", err
-			}
-			if in.DryRun {
-				affectedIDs := make([]string, len(arts))
-				for i, a := range arts {
-					affectedIDs[i] = a.ID
-				}
-				return fmt.Sprintf("dry run: would set %s=%s on %d artifact(s): %v", in.Field, in.Value, len(arts), affectedIDs), nil
-			}
-			for _, a := range arts {
-				ids = append(ids, a.ID)
-			}
-			if len(ids) == 0 {
-				return "0 artifacts matched filter", nil
-			}
+		if in.Status != "" {
+			bulkLabels = append(bulkLabels, statusLabelFor(in.Status))
 		}
-		if len(ids) == 0 {
-			return "", fmt.Errorf("provide id, ids, or filter params (scope, kind, status)") //nolint:err113 // user-facing hint
+		if in.Scope != "" {
+			bulkLabels = append(bulkLabels, parchment.LabelPrefixScope+in.Scope)
 		}
-		if in.Field == parchment.FieldStatus && in.Value == statusWorkActive && !in.Force {
-			if msg := checkReadLogGuard(ctx, svc, ids); msg != "" {
-				return msg, nil
-			}
+		if in.ExcludeKind != "" {
+			bulkExclude = append(bulkExclude, parchment.LabelPrefixKind+in.ExcludeKind)
 		}
-		if !in.Force && !in.BypassGuards {
-			for _, id := range ids {
-				if err := checkClaimGuard(ctx, svc, id, "", in.Force, in.BypassGuards); err != nil {
-					return "", err
-				}
-			}
-		}
-		if in.DryRun {
-			return fmt.Sprintf("dry run: would set %s=%s on %d artifact(s): %v", in.Field, in.Value, len(ids), ids), nil
-		}
-		results, err := svc.Proto.SetField(ctx, ids, in.Field, in.Value, parchment.SetFieldOptions{
-			Force: in.Force, BypassGuards: in.BypassGuards, Cascade: in.Cascade, RenameID: in.RenameID,
+		arts, err := svc.Proto.ListArtifacts(ctx, parchment.ListInput{
+			IDPrefix: in.IDPrefix, Labels: bulkLabels, ExcludeLabels: bulkExclude,
 		})
 		if err != nil {
-			return "", err
+			return Result{}, err
 		}
-		var lines []string
-		var okIDs []string
-		for _, r := range results {
-			if r.OK {
-				line := fmt.Sprintf("%s.%s = %s", r.ID, in.Field, in.Value)
-				if r.NewID != "" {
-					line += fmt.Sprintf(" (renamed → %s)", r.NewID)
-					okIDs = append(okIDs, r.NewID)
-				} else {
-					okIDs = append(okIDs, r.ID)
-				}
-				lines = append(lines, line)
-			} else {
-				lines = append(lines, fmt.Sprintf("%s -> error: %s", r.ID, r.Error))
+		if in.DryRun {
+			affectedIDs := make([]string, len(arts))
+			for i, a := range arts {
+				affectedIDs[i] = a.ID
+			}
+			text := fmt.Sprintf("dry run: would set %s=%s on %d artifact(s): %v", in.Field, in.Value, len(arts), affectedIDs)
+			mr := MutationResult{Action: "set", Status: "dry_run", DryRun: true, IDs: affectedIDs, Count: len(affectedIDs)}
+			return Result{Text: text, Data: mr}, nil
+		}
+		for _, a := range arts {
+			ids = append(ids, a.ID)
+		}
+		if len(ids) == 0 {
+			mr := MutationResult{Action: "set", Status: "ok", Count: 0}
+			return Result{Text: "0 artifacts matched filter", Data: mr}, nil
+		}
+	}
+	if len(ids) == 0 {
+		return Result{}, fmt.Errorf("provide id, ids, or filter params (scope, kind, status)") //nolint:err113 // user-facing hint
+	}
+	if in.Field == parchment.FieldStatus && in.Value == statusWorkActive && !in.Force && !in.BypassGuards {
+		if msg := checkReadLogGuard(ctx, svc, ids); msg != "" {
+			mr := MutationResult{Action: "set", Status: "error", IDs: ids, Warnings: []string{msg}}
+			return Result{Text: msg, Data: mr}, nil
+		}
+	}
+	if !in.Force && !in.BypassGuards {
+		for _, id := range ids {
+			if err := checkClaimGuard(ctx, svc, id, "", in.Force, in.BypassGuards); err != nil {
+				return Result{}, err
 			}
 		}
+	}
+	if in.DryRun {
+		text := fmt.Sprintf("dry run: would set %s=%s on %d artifact(s): %v", in.Field, in.Value, len(ids), ids)
+		mr := MutationResult{Action: "set", Status: "dry_run", DryRun: true, IDs: ids, Count: len(ids)}
+		if in.WaiveReason != "" {
+			mr.Warnings = append(mr.Warnings, "would waive incomplete-children with reason: "+in.WaiveReason)
+		}
+		return Result{Text: text, Data: mr}, nil
+	}
+
+	var lines []string
+	var okIDs []string
+	var warnings []string
+
+	if in.Field == parchment.FieldStatus && in.WaiveReason != "" && svc.Proto.IsTerminal(in.Value) {
+		for _, id := range ids {
+			art, err := WaiveComplete(ctx, svc, id, in.Value, in.WaiveReason)
+			if err != nil {
+				lines = append(lines, fmt.Sprintf("%s -> error: %s", id, err))
+				warnings = append(warnings, err.Error())
+				continue
+			}
+			lines = append(lines, fmt.Sprintf("%s.%s = %s (waived: %s)", art.ID, in.Field, in.Value, in.WaiveReason))
+			okIDs = append(okIDs, art.ID)
+			warnings = append(warnings, ProposedIntentWarnings(ctx, svc, art.ID)...)
+		}
 		stampLastMutations(ctx, svc, okIDs, "set")
-		return strings.Join(lines, "\n"), nil
-	},
+		mr := MutationResult{Action: "set", Status: "ok", IDs: okIDs, Count: len(okIDs), Warnings: warnings}
+		return Result{Text: strings.Join(lines, "\n"), Data: mr}, nil
+	}
+
+	results, err := svc.Proto.SetField(ctx, ids, in.Field, in.Value, parchment.SetFieldOptions{
+		Force: in.Force, BypassGuards: in.BypassGuards, Cascade: in.Cascade, RenameID: in.RenameID,
+	})
+	if err != nil {
+		return Result{}, err
+	}
+	for _, r := range results {
+		if r.OK {
+			line := fmt.Sprintf("%s.%s = %s", r.ID, in.Field, in.Value)
+			if r.NewID != "" {
+				line += fmt.Sprintf(" (renamed → %s)", r.NewID)
+				okIDs = append(okIDs, r.NewID)
+			} else {
+				okIDs = append(okIDs, r.ID)
+			}
+			lines = append(lines, line)
+			if in.Field == parchment.FieldStatus && svc.Proto.IsTerminal(in.Value) {
+				warnings = append(warnings, ProposedIntentWarnings(ctx, svc, r.ID)...)
+			}
+			if r.Error != "" {
+				warnings = append(warnings, r.Error)
+			}
+		} else {
+			msg := r.Error
+			if strings.Contains(msg, "incomplete children") || strings.Contains(msg, "terminal status before completing") {
+				msg += ` — pass waive_reason="…" to complete with unfinished descendants (audited)`
+			}
+			lines = append(lines, fmt.Sprintf("%s -> error: %s", r.ID, msg))
+			warnings = append(warnings, msg)
+		}
+	}
+	stampLastMutations(ctx, svc, okIDs, "set")
+	mr := MutationResult{Action: "set", Status: "ok", IDs: okIDs, Count: len(okIDs), Warnings: warnings}
+	return Result{Text: strings.Join(lines, "\n"), Data: mr}, nil
 }
 
 func checkReadLogGuard(ctx context.Context, svc *Service, ids []string) string {

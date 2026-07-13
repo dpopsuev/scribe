@@ -193,6 +193,9 @@ func findOrphans(ctx context.Context, svc *Service, labels []string, includeCode
 		if isCodeKind(kind) && !includeCode {
 			continue
 		}
+		if isIntentionalOrphan(art) {
+			continue
+		}
 		outE, _ := svc.Proto.Neighbors(ctx, art.ID, "", parchment.Outgoing)
 		inE, _ := svc.Proto.Neighbors(ctx, art.ID, "", parchment.Incoming)
 		if len(outE) == 0 && len(inE) == 0 {
@@ -209,19 +212,41 @@ func findOrphans(ctx context.Context, svc *Service, labels []string, includeCode
 				ID:          art.ID,
 				Title:       art.Title,
 				Detail:      fmt.Sprintf("no edges — kind=%s", kind),
-				Fix:         fmt.Sprintf("delete(id=%q)", art.ID),
+				Fix:         fmt.Sprintf("acknowledge_ids=[%q] or label hygiene:intentional_orphan", art.ID),
 				Impact:      "low",
-				Confidence:  "likely",
+				Confidence:  "guess",
 				SafeAutofix: false,
 				Owner:       ownerFromProvenance(art),
 				SuggestedFix: &SuggestedFix{
-					Action: "delete",
-					Params: map[string]any{"id": art.ID},
+					Action: "acknowledge",
+					Params: map[string]any{"acknowledge_ids": []string{art.ID}},
 				},
 			})
 		}
 	}
 	return findings
+}
+
+func isIntentionalOrphan(art *parchment.Artifact) bool {
+	if art == nil {
+		return false
+	}
+	for _, l := range art.Labels {
+		if l == "hygiene:intentional_orphan" || l == "disposition:retain" {
+			return true
+		}
+	}
+	if art.Extra == nil {
+		return false
+	}
+	switch v := art.Extra["intentional_orphan"].(type) {
+	case bool:
+		return v
+	case string:
+		return v == "true" || v == "1"
+	default:
+		return false
+	}
 }
 
 var auditContextLabels = map[string]bool{
@@ -297,10 +322,10 @@ func findStaleReferences(ctx context.Context, svc *Service, labels []string, inc
 		if status != labelStatusActive {
 			continue
 		}
-		if reviewedAfterNeighbors(art) {
+		staleN := NeighborStaleness(ctx, svc.Proto.Store(), art)
+		if reviewedOK(art, staleN) {
 			continue
 		}
-		staleN := NeighborStaleness(ctx, svc.Proto.Store(), art)
 		if len(staleN) > 3 {
 			staleN = staleN[:3]
 		}
@@ -319,7 +344,7 @@ func findStaleReferences(ctx context.Context, svc *Service, labels []string, inc
 				ID:         art.ID,
 				Title:      art.Title,
 				Detail:     fmt.Sprintf("%d neighbor(s) changed >24h after last update: %s", len(staleN), strings.Join(ids, ", ")),
-				Fix:        fmt.Sprintf("update(id=%q, extra={\"hygiene_reviewed_at\": %q})", art.ID, time.Now().UTC().Format(time.RFC3339)),
+				Fix:        fmt.Sprintf("hygiene(acknowledge_ids=[%q]) — non-semantic review, no updated_at bump", art.ID),
 				Impact:     "medium",
 				Confidence: "guess",
 				Owner:      ownerFromProvenance(art),
@@ -356,96 +381,10 @@ func collectFindings(ctx context.Context, svc *Service, scope string, includeCod
 }
 
 var opHygiene = Op{
-	Name: "hygiene",
+	Name:       "hygiene",
+	Structured: runHygieneStructured,
 	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
-		var in hygieneInput
-		_ = json.Unmarshal(raw, &in)
-
-		findings := collectFindings(ctx, svc, in.Scope, in.IncludeCode)
-
-		// ── Revision pruning ──
-		var pruneLabels []string
-		if in.Scope != "" {
-			pruneLabels = append(pruneLabels, parchment.LabelPrefixScope+in.Scope)
-		}
-		pruneArts, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{Labels: pruneLabels})
-		revisionsPruned := 0
-		for _, art := range pruneArts {
-			n, _ := svc.Proto.PruneRevisions(ctx, art.ID, 20) //nolint:mnd // max revisions to keep
-			revisionsPruned += n
-		}
-		if c, ok := svc.Proto.Store().(parchment.Compactor); ok && revisionsPruned > 0 {
-			_ = c.IncrementalVacuum(ctx)
-		}
-
-		// ── Filter by severity ──
-		if in.Severity != "" {
-			var filtered []HygieneFinding
-			for _, f := range findings {
-				if f.Severity == in.Severity {
-					filtered = append(filtered, f)
-				}
-			}
-			findings = filtered
-		}
-
-		if len(findings) == 0 {
-			scope := in.Scope
-			if scope == "" {
-				scope = "all scopes"
-			}
-			msg := fmt.Sprintf("hygiene: %s is clean — no issues found", scope)
-			if revisionsPruned > 0 {
-				msg += fmt.Sprintf(" (pruned %d old revisions)", revisionsPruned)
-			}
-			return msg, nil
-		}
-
-		// ── JSON output (format=full) ──
-		if in.Format == "full" {
-			out := HygieneOutput{
-				Total:    len(findings),
-				Summary:  map[string]int{},
-				Findings: findings,
-				Pruned:   revisionsPruned,
-			}
-			for _, f := range findings {
-				out.Summary[f.Impact]++
-			}
-			b, _ := json.Marshal(out)
-			return string(b), nil
-		}
-
-		// ── Text output (default, backward-compatible) ──
-		severityGroups := map[string][]HygieneFinding{}
-		for _, f := range findings {
-			severityGroups[f.Severity] = append(severityGroups[f.Severity], f)
-		}
-
-		var b strings.Builder
-		fmt.Fprintf(&b, "hygiene: %d issues found", len(findings))
-		for sev, items := range severityGroups {
-			fmt.Fprintf(&b, " | %s:%d", sev, len(items))
-		}
-		b.WriteString("\n")
-		if revisionsPruned > 0 {
-			fmt.Fprintf(&b, "(pruned %d old revisions)\n", revisionsPruned)
-		}
-
-		for _, sev := range []string{"critical", "planning", "content", "index"} {
-			items := severityGroups[sev]
-			if len(items) == 0 {
-				continue
-			}
-			fmt.Fprintf(&b, "\n## %s (%d)\n", strings.ToUpper(sev), len(items))
-			for _, f := range items {
-				fmt.Fprintf(&b, "  [%s] %s  %s\n", f.Category, f.ID, f.Title)
-				fmt.Fprintf(&b, "    %s\n", f.Detail)
-				if f.Fix != "" {
-					fmt.Fprintf(&b, "    fix: %s\n", f.Fix)
-				}
-			}
-		}
-		return b.String(), nil
+		r, err := runHygieneStructured(ctx, svc, raw)
+		return r.Text, err
 	},
 }

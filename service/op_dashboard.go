@@ -21,55 +21,74 @@ type campStats struct {
 	goalsActive, goalsDraft, goalsDone int
 	tasksActive, tasksDone             int
 	score                              float64
+	content, delivery, verified        float64
 }
 
 var opDashboard = Op{
-	Name: "dashboard",
+	Name:       "dashboard",
+	Structured: runDashboardStructured,
 	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
-		var in dashboardInput
-		_ = json.Unmarshal(raw, &in)
-
-		campaignLabels := []string{labelCampaign}
-		if in.Scope != "" {
-			campaignLabels = append(campaignLabels, parchment.LabelPrefixScope+in.Scope)
-		}
-		campaigns, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{
-			Labels: campaignLabels,
-		})
-
-		stats := make([]campStats, 0, len(campaigns))
-		for _, c := range campaigns {
-			cs := collectCampStats(ctx, svc, c)
-			stats = append(stats, cs)
-		}
-
-		var b strings.Builder
-		fmt.Fprintf(&b, "%-10s %-8s %-50s %4s %4s %4s %4s %4s %5s\n",
-			"SCOPE", "STATUS", "CAMPAIGN", "G.AC", "G.DR", "G.DN", "T.AC", "T.DN", "SCORE")
-		fmt.Fprintf(&b, "%-10s %-8s %-50s %4s %4s %4s %4s %4s %5s\n",
-			"-----", "------", "--------", "----", "----", "----", "----", "----", "-----")
-		for _, cs := range stats {
-			title := cs.title
-			if len(title) > 50 {
-				title = title[:47] + "..."
-			}
-			fmt.Fprintf(&b, "%-10s %-8s %-50s %4d %4d %4d %4d %4d %4.0f%%\n",
-				cs.scope, cs.status, title,
-				cs.goalsActive, cs.goalsDraft, cs.goalsDone,
-				cs.tasksActive, cs.tasksDone,
-				cs.score*100)
-		}
-		fmt.Fprintf(&b, "\n(%d campaigns)\n", len(stats))
-		return b.String(), nil
+		r, err := runDashboardStructured(ctx, svc, raw)
+		return r.Text, err
 	},
 }
 
+func runDashboardStructured(ctx context.Context, svc *Service, raw json.RawMessage) (Result, error) {
+	var in dashboardInput
+	_ = json.Unmarshal(raw, &in)
+
+	campaignLabels := []string{labelCampaign}
+	if in.Scope != "" {
+		campaignLabels = append(campaignLabels, parchment.LabelPrefixScope+in.Scope)
+	}
+	campaigns, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{
+		Labels: campaignLabels,
+	})
+
+	stats := make([]campStats, 0, len(campaigns))
+	for _, c := range campaigns {
+		cs := collectCampStats(ctx, svc, c)
+		stats = append(stats, cs)
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "%-10s %-8s %-40s %4s %4s %4s %4s %4s %5s %5s %5s\n",
+		"SCOPE", "STATUS", "CAMPAIGN", "G.AC", "G.DR", "G.DN", "T.AC", "T.DN", "CONT", "DELV", "VERF")
+	fmt.Fprintf(&b, "%-10s %-8s %-40s %4s %4s %4s %4s %4s %5s %5s %5s\n",
+		"-----", "------", "--------", "----", "----", "----", "----", "----", "----", "----", "----")
+	rows := make([]map[string]any, 0, len(stats))
+	for _, cs := range stats {
+		title := cs.title
+		const titleColWidth = 40
+		if len(title) > titleColWidth {
+			title = title[:titleColWidth-3] + "..."
+		}
+		fmt.Fprintf(&b, "%-10s %-8s %-40s %4d %4d %4d %4d %4d %4.0f%% %4.0f%% %4.0f%%\n",
+			cs.scope, cs.status, title,
+			cs.goalsActive, cs.goalsDraft, cs.goalsDone,
+			cs.tasksActive, cs.tasksDone,
+			cs.content*100, cs.delivery*100, cs.verified*100)
+		rows = append(rows, map[string]any{
+			"scope": cs.scope, "status": cs.status, "title": cs.title,
+			"content_completeness": cs.content, "delivery_progress": cs.delivery, "verified_progress": cs.verified,
+			"goals_active": cs.goalsActive, "goals_draft": cs.goalsDraft, "goals_done": cs.goalsDone,
+			"tasks_active": cs.tasksActive, "tasks_done": cs.tasksDone,
+		})
+	}
+	fmt.Fprintf(&b, "\n(%d campaigns)\n", len(stats))
+	return Result{Text: b.String(), Data: map[string]any{"campaigns": rows, "count": len(rows)}}, nil
+}
+
 func collectCampStats(ctx context.Context, svc *Service, c *parchment.Artifact) campStats {
+	m := ComputeProgress(ctx, svc, c)
 	cs := campStats{
-		title:  c.Title,
-		scope:  c.Label(parchment.LabelPrefixScope),
-		status: parchment.StatusFromLabels(c.Labels),
-		score:  svc.Proto.CompletionScore(ctx, c),
+		title:    c.Title,
+		scope:    c.Label(parchment.LabelPrefixScope),
+		status:   parchment.StatusFromLabels(c.Labels),
+		score:    m.DeliveryProgress,
+		content:  m.ContentCompleteness,
+		delivery: m.DeliveryProgress,
+		verified: m.VerifiedProgress,
 	}
 	goalEdges, _ := svc.Proto.Neighbors(ctx, c.ID, parchment.RelParentOf, parchment.Outgoing)
 	for _, e := range goalEdges {

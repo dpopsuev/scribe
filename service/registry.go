@@ -10,20 +10,29 @@ import (
 )
 
 // Op is a single named operation exposed on both the CLI and MCP surfaces.
-// Run receives the raw JSON input (already parsed from flags or MCP request),
-// executes the operation against svc, and returns human-readable text output.
-// The caller is responsible for presenting the text (MCP wraps it in a tool
-// result; CLI prints it to stdout).
+// Run receives the raw JSON input and returns human-readable text.
+// Structured, when set, is preferred by MCP and returns typed Data for
+// structuredContent while still populating Text for display.
 type Op struct {
-	Name string
-	Run  func(ctx context.Context, svc *Service, in json.RawMessage) (string, error)
+	Name       string
+	Run        func(ctx context.Context, svc *Service, in json.RawMessage) (string, error)
+	Structured func(ctx context.Context, svc *Service, in json.RawMessage) (Result, error)
 }
 
-// RunTraced wraps Op.Run with an OpenTelemetry span.
-func (o *Op) RunTraced(ctx context.Context, svc *Service, in json.RawMessage) (string, error) {
+// Execute runs Structured when present, otherwise Run wrapped as Result.
+func (o *Op) Execute(ctx context.Context, svc *Service, in json.RawMessage) (Result, error) {
+	if o.Structured != nil {
+		return o.Structured(ctx, svc, in)
+	}
+	text, err := o.Run(ctx, svc, in)
+	return Result{Text: text}, err
+}
+
+// RunTraced wraps Execute with an OpenTelemetry span.
+func (o *Op) RunTraced(ctx context.Context, svc *Service, in json.RawMessage) (Result, error) {
 	ctx, span := Tracer().Start(ctx, "op."+o.Name, withOpAttributes(o.Name, in))
 	defer span.End()
-	out, err := o.Run(ctx, svc, in)
+	out, err := o.Execute(ctx, svc, in)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())

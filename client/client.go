@@ -54,12 +54,21 @@ func Post(ctx context.Context, records []translate.Record, edges []translate.Edg
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("POST ingest: %w", err)
+		return FormatUnavailable(ingestURL, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode >= 400 {
+	const httpClientError = 400
+	if resp.StatusCode >= httpClientError {
 		return fmt.Errorf("%w: HTTP %d", ErrIngestFailed, resp.StatusCode)
 	}
 	return nil
+}
+
+// FormatUnavailable turns dial/transport failures into an actionable recovery hint.
+func FormatUnavailable(addr string, err error) error {
+	if addr == "" {
+		addr = "localhost:8080"
+	}
+	return fmt.Errorf("scribe MCP unavailable at %s — start with: systemctl --user start container-scribe.service (or: scribe serve --transport http --addr :8080); underlying: %w", addr, err)
 }
