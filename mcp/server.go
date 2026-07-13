@@ -102,13 +102,16 @@ func NewServer(svc *service.Service, vocab []string, version string, stdioLabels
 	var artifactSchema any
 	_ = json.Unmarshal(schemaFor[artifactInput](), &artifactSchema)
 	patchSchemaFromRegistry(artifactSchema, h)
+	// Do not advertise OutputSchema on artifact: Cursor validates structuredContent
+	// against it on every call. Mutations still return MutationResult as SC; reads
+	// (get/query/help/schema) return different shapes or text-only and must not be
+	// forced through MutationOutputSchema (required action/status).
 	sdk.AddTool(&sdkmcp.Tool{
-		Name:         toolNameArtifact,
-		Title:        "Artifact",
-		Description:  artifactDesc,
-		InputSchema:  artifactSchema,
-		OutputSchema: service.MutationOutputSchema(),
-		Annotations:  &sdkmcp.ToolAnnotations{DestructiveHint: &destructiveHint},
+		Name:        toolNameArtifact,
+		Title:       "Artifact",
+		Description: artifactDesc,
+		InputSchema: artifactSchema,
+		Annotations: &sdkmcp.ToolAnnotations{DestructiveHint: &destructiveHint},
 	}, bindHandler(h.handleArtifact))
 	reg.register(ToolMeta{
 		Name: toolNameArtifact, Description: artifactDesc,

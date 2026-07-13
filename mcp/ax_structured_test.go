@@ -68,3 +68,55 @@ func TestCreate_DryRun_StructuredPlan(t *testing.T) {
 		t.Fatalf("expected plan text, got %q", text)
 	}
 }
+
+func TestArtifactTool_NoOutputSchema(t *testing.T) {
+	s := openStore(t)
+	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	tools, err := cs.ListTools(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range tools.Tools {
+		if tool.Name != "artifact" {
+			continue
+		}
+		if tool.OutputSchema != nil {
+			t.Fatalf("artifact must not advertise OutputSchema (Cursor rejects polymorphic SC); got %#v", tool.OutputSchema)
+		}
+		return
+	}
+	t.Fatal("artifact tool not found")
+}
+
+func TestGet_TextOnlySucceeds(t *testing.T) {
+	s := openStore(t)
+	if err := s.Put(t.Context(), &parchment.Artifact{
+		ID:     "get-sc-probe",
+		Title:  "Get SC probe",
+		Labels: []string{"kind:knowledge.note", "scope:test"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	srv, _ := scribemcp.NewServerFromStore(s, nil, parchment.ProtocolConfig{}, "test")
+	cs := connectClient(t, srv)
+
+	result := callToolRaw(t, cs, "artifact", map[string]any{
+		"action": "get",
+		"id":     "get-sc-probe",
+		"format": "summary",
+	})
+	if result.IsError {
+		t.Fatalf("get failed: %#v", result)
+	}
+	var text string
+	for _, c := range result.Content {
+		if tc, ok := c.(*sdkmcp.TextContent); ok {
+			text = tc.Text
+		}
+	}
+	if text == "" {
+		t.Fatal("expected text content from get")
+	}
+}
