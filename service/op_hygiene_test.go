@@ -150,53 +150,7 @@ func TestHygiene_FindingsAreSortedByScore(t *testing.T) {
 	}
 }
 
-func TestHygiene_SafeAutofix_LifecycleMismatch(t *testing.T) {
-	t.Parallel()
-	svc := newTestService(t, "test")
-	ctx := context.Background()
 
-	_ = svc.Proto.Store().Put(ctx, &parchment.Artifact{
-		ID: "mismatch-test", Title: "Mismatch",
-		Labels: []string{"kind:effort.task", "project:test", "note.fleeting"},
-	})
-
-	ho := runHygieneJSON(t, svc)
-	found := false
-	for _, f := range ho.Findings {
-		if f.Category == "lifecycle_mismatch" {
-			found = true
-			if !f.SafeAutofix {
-				t.Error("lifecycle_mismatch should have safe_autofix=true")
-			}
-			if f.SuggestedFix == nil {
-				t.Error("lifecycle_mismatch should have a suggested_fix")
-			}
-		}
-	}
-	if !found {
-		t.Error("expected lifecycle_mismatch finding")
-	}
-}
-
-func TestHygiene_ValidTerminals_NotLifecycleMismatch(t *testing.T) {
-	t.Parallel()
-	svc := newTestService(t, "test")
-	ctx := context.Background()
-
-	_ = svc.Proto.Store().Put(ctx, &parchment.Artifact{
-		ID: "cancelled-ok", Title: "Cancelled Task", //nolint:misspell // British spelling matches stored status
-		Labels: []string{"kind:effort.task", "project:test", "status:cancelled"}, //nolint:misspell // British spelling matches stored status
-	})
-	_ = svc.Proto.Store().Put(ctx, &parchment.Artifact{
-		ID: "archived-ok", Title: "Archived Campaign",
-		Labels: []string{"kind:effort.campaign", "project:test", "status:archived"},
-	})
-
-	out := runHygiene(t, svc)
-	if strings.Contains(out, "cancelled-ok") || strings.Contains(out, "archived-ok") { //nolint:misspell // British spelling matches stored status
-		t.Errorf("valid effort terminals flagged by hygiene:\n%s", out)
-	}
-}
 
 func TestHygiene_OwnerFromProvenance(t *testing.T) {
 	t.Parallel()

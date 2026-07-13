@@ -146,36 +146,6 @@ func findZombieCampaigns(ctx context.Context, svc *Service, labels []string) []H
 	return findings
 }
 
-func findLifecycleMismatches(ctx context.Context, svc *Service, labels []string) []HygieneFinding {
-	var findings []HygieneFinding
-	effortArts, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{
-		Labels: labels, KindPrefix: "effort",
-	})
-	for _, art := range effortArts {
-		status := parchment.StatusFromLabels(art.Labels)
-		fix, isMismatch := lifecycleFix(svc.Proto, status)
-		if isMismatch && !strings.HasPrefix(status, "work.") {
-			findings = append(findings, HygieneFinding{
-				Severity:    "critical",
-				Category:    "lifecycle_mismatch",
-				ID:          art.ID,
-				Title:       art.Title,
-				Detail:      fmt.Sprintf("effort artifact has invalid status %q", status),
-				Fix:         fmt.Sprintf("set(id=%q, field=status, value=%s, force=true)", art.ID, fix),
-				Impact:      "high",
-				Confidence:  "certain",
-				SafeAutofix: true,
-				Owner:       ownerFromProvenance(art),
-				SuggestedFix: &SuggestedFix{
-					Action: "set",
-					Params: map[string]any{"id": art.ID, "field": "status", "value": fix, "force": true},
-				},
-			})
-		}
-	}
-	return findings
-}
-
 func findStaleTasks(ctx context.Context, svc *Service, labels []string) []HygieneFinding {
 	var findings []HygieneFinding
 	tasks, _ := svc.Proto.ListArtifacts(ctx, parchment.ListInput{
@@ -367,7 +337,6 @@ func collectFindings(ctx context.Context, svc *Service, scope string, includeCod
 
 	var findings []HygieneFinding //nolint:prealloc // count unknown before extraction
 	findings = append(findings, findZombieCampaigns(ctx, svc, labels)...)
-	findings = append(findings, findLifecycleMismatches(ctx, svc, labels)...)
 	findings = append(findings, findStaleTasks(ctx, svc, labels)...)
 	findings = append(findings, findOrphans(ctx, svc, labels, includeCode)...)
 	findings = append(findings, findIncompleteKnowledge(ctx, svc, labels)...)
@@ -472,27 +441,10 @@ var opHygiene = Op{
 			for _, f := range items {
 				fmt.Fprintf(&b, "  [%s] %s  %s\n", f.Category, f.ID, f.Title)
 				fmt.Fprintf(&b, "    %s\n", f.Detail)
-				if f.SafeAutofix {
-					fmt.Fprintf(&b, "    safe_autofix: true\n")
-				}
 				if f.Fix != "" {
 					fmt.Fprintf(&b, "    fix: %s\n", f.Fix)
 				}
 			}
-		}
-		safeCount := 0
-		for _, f := range findings {
-			if f.SafeAutofix && f.SuggestedFix != nil {
-				safeCount++
-			}
-		}
-		if safeCount > 0 {
-			scopeArg := in.Scope
-			if scopeArg == "" {
-				scopeArg = "<scope>"
-			}
-			fmt.Fprintf(&b, "\n→ %d safe autofix(es): admin(action=auto_repair, scope=%s, dry_run=true) then omit dry_run to apply\n",
-				safeCount, scopeArg)
 		}
 		return b.String(), nil
 	},

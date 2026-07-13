@@ -147,20 +147,16 @@ Hosts dump every optional field on each tool — that is a flat union of kwargs,
 
   artifact  create/get/query/set/update/... (+ export/claim/release/handoff)
   graph     link / analyze / synonym
-  admin     hygiene / history / dashboard / lint / auto_repair / ...
+  admin     hygiene / history / dashboard / lint / ...
 
 Daily path: query, get, create, set, update, graph.link.
-After hygiene: admin(action=auto_repair, scope=..., dry_run=true) then apply.
 See support.doc why-scribe-mcp-looks-like-it-has-so-many-actions-6ec9.`,
 
-	"hygiene": `HYGIENE + AUTO_REPAIR
+	"hygiene": `HYGIENE
 
   admin(action=hygiene, scope=myproj)
-  admin(action=auto_repair, scope=myproj, dry_run=true)
-  admin(action=auto_repair, scope=myproj)
 
-Hygiene ranks findings; safe_autofix items are applied by auto_repair.
-Always dry_run first. working_set includes repair.safe_count + hint.`,
+Hygiene ranks soft graph-health findings (orphans, stale work). Status legality is enforced at write time.`,
 }
 
 var helpIndex string
@@ -181,7 +177,7 @@ func init() {
 		{"relations", "Link artifacts with typed edges"},
 		{"schema", "Discover kind properties, sections, transitions"},
 		{"tools", "Why MCP lists so many fields — flat action kwargs"},
-		{"hygiene", "Hygiene findings then auto_repair dry_run/apply"},
+		{"hygiene", "Hygiene findings (soft graph health)"},
 	} {
 		b.WriteString("  ")
 		b.WriteString(topic.name)

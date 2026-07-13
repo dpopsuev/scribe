@@ -17,18 +17,12 @@ type workingSetItem struct {
 	Excerpt  string `json:"excerpt,omitempty"`
 }
 
-type workingSetRepair struct {
-	SafeCount int    `json:"safe_count"`
-	Hint      string `json:"hint,omitempty"`
-}
-
 type workingSetOutput struct {
 	Session    map[string]any          `json:"session,omitempty"`
 	Campaigns  []triageCampaignSummary `json:"campaigns"`
 	Ready      []workingSetItem        `json:"ready"`
 	Recent     []workingSetItem        `json:"recent"`
 	HygieneTop []HygieneFinding        `json:"hygiene_top"`
-	Repair     *workingSetRepair       `json:"repair,omitempty"`
 }
 
 func runWorkingSet(ctx context.Context, svc *Service, in *listInput) (string, error) {
@@ -57,7 +51,7 @@ func runWorkingSet(ctx context.Context, svc *Service, in *listInput) (string, er
 		Limit:        recentLimit,
 	})
 	out.Recent = appendRecent(nil, recentArts, in.ExcerptChars)
-	out.HygieneTop, out.Repair = buildWorkingSetHygiene(ctx, svc, in)
+	out.HygieneTop = buildWorkingSetHygiene(ctx, svc, in)
 
 	b, err := json.Marshal(out)
 	if err != nil {
@@ -114,16 +108,12 @@ func appendRecent(dst []workingSetItem, arts []*parchment.Artifact, excerptChars
 	return dst
 }
 
-func buildWorkingSetHygiene(ctx context.Context, svc *Service, in *listInput) ([]HygieneFinding, *workingSetRepair) {
+func buildWorkingSetHygiene(ctx context.Context, svc *Service, in *listInput) []HygieneFinding {
 	findings := collectFindings(ctx, svc, in.Scope, in.IncludeCode)
 	const hygieneCap = 10
-	safeCount := 0
 	var top []HygieneFinding
 	for i := range findings {
 		f := &findings[i]
-		if f.SafeAutofix && f.SuggestedFix != nil {
-			safeCount++
-		}
 		if !in.IncludeCode && f.Severity == severityIndex {
 			continue
 		}
@@ -135,14 +125,7 @@ func buildWorkingSetHygiene(ctx context.Context, svc *Service, in *listInput) ([
 			break
 		}
 	}
-	scopeHint := in.Scope
-	if scopeHint == "" {
-		scopeHint = "<scope>"
-	}
-	return top, &workingSetRepair{
-		SafeCount: safeCount,
-		Hint:      "admin(action=auto_repair, scope=" + scopeHint + ") — dry_run=true first",
-	}
+	return top
 }
 
 func buildWorkingSetSession(svc *Service, in *listInput) map[string]any {

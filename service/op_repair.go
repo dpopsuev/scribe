@@ -4,13 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	parchment "github.com/dpopsuev/parchment"
 )
 
 func init() {
-	Registry = append(Registry, opFoldCampaign, opReparentChildren, opRepairLifecycle)
+	Registry = append(Registry, opFoldCampaign, opReparentChildren)
 }
 
 type foldInput struct {
@@ -101,86 +100,5 @@ var opReparentChildren = Op{
 		}
 
 		return fmt.Sprintf("reparent_children: moved %d children from %s to %s", moved, in.From, in.To), nil
-	},
-}
-
-const kindEffort = "effort"
-
-// lifecycleFix maps wrong-domain statuses on effort artifacts to a work.* status.
-// Bare system terminals (cancel/retire/archive) are valid — not mismatches.
-func lifecycleFix(proto *parchment.Protocol, status string) (string, bool) {
-	if !parchment.IsDomainStatusLabel(status) || strings.HasPrefix(status, "work.") {
-		return "", false
-	}
-	if proto.IsTerminal(status) {
-		return "work.complete", true
-	}
-	return labelStatusDraft, true
-}
-
-type repairInput struct {
-	ID    string `json:"id,omitempty"`
-	Scope string `json:"scope,omitempty"`
-	Kind  string `json:"kind,omitempty"`
-}
-
-var opRepairLifecycle = Op{
-	Name: "repair_lifecycle",
-	Run: func(ctx context.Context, svc *Service, raw json.RawMessage) (string, error) {
-		var in repairInput
-		_ = json.Unmarshal(raw, &in)
-
-		var arts []*parchment.Artifact
-		if in.ID != "" {
-			art, err := svc.Proto.GetArtifact(ctx, in.ID)
-			if err != nil {
-				return "", err
-			}
-			arts = []*parchment.Artifact{art}
-		} else {
-			var labels []string
-			if in.Scope != "" {
-				labels = append(labels, parchment.LabelPrefixScope+in.Scope)
-			}
-			li := parchment.ListInput{Labels: labels, KindPrefix: kindEffort}
-			if in.Kind != "" {
-				li.Labels = append(li.Labels, parchment.LabelPrefixKind+in.Kind)
-				li.KindPrefix = ""
-			}
-			arts, _ = svc.Proto.ListArtifacts(ctx, li)
-		}
-
-		repaired := 0
-		var details []string
-		for _, art := range arts {
-			kind := art.Label(parchment.LabelPrefixKind)
-			if !strings.HasPrefix(kind, kindEffort+".") {
-				continue
-			}
-			status := parchment.StatusFromLabels(art.Labels)
-			fix, needsFix := lifecycleFix(svc.Proto, status)
-			if !needsFix || strings.HasPrefix(status, "work.") {
-				continue
-			}
-			results, err := svc.Proto.SetField(ctx, []string{art.ID}, "status", fix, parchment.SetFieldOptions{Force: true})
-			if err != nil || !results[0].OK {
-				errMsg := ""
-				if err != nil {
-					errMsg = err.Error()
-				} else {
-					errMsg = results[0].Error
-				}
-				details = append(details, fmt.Sprintf("  %s: %s → %s FAILED: %s", art.ID, status, fix, errMsg))
-				continue
-			}
-			details = append(details, fmt.Sprintf("  %s: %s → %s", art.ID, status, fix))
-			repaired++
-		}
-
-		if repaired == 0 && len(details) == 0 {
-			return "repair_lifecycle: no malformed artifacts found", nil
-		}
-
-		return fmt.Sprintf("repair_lifecycle: %d repaired\n%s", repaired, strings.Join(details, "\n")), nil
 	},
 }

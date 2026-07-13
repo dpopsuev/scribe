@@ -36,16 +36,8 @@ func TestOpQuery_WorkingSet_EmptyScope(t *testing.T) {
 	if _, ok := got["hygiene_top"]; !ok {
 		t.Fatalf("missing hygiene_top: %s", out)
 	}
-	repair, _ := got["repair"].(map[string]any)
-	if repair == nil {
-		t.Fatalf("missing repair: %s", out)
-	}
-	if _, ok := repair["safe_count"]; !ok {
-		t.Fatalf("missing repair.safe_count: %s", out)
-	}
-	hint, _ := repair["hint"].(string)
-	if !strings.Contains(hint, "auto_repair") {
-		t.Fatalf("repair.hint=%q", hint)
+	if _, ok := got["repair"]; ok {
+		t.Fatalf("repair key should be removed: %s", out)
 	}
 }
 
