@@ -106,14 +106,16 @@ var opReparentChildren = Op{
 
 const kindEffort = "effort"
 
+// lifecycleFix maps wrong-domain statuses on effort artifacts to a work.* status.
+// Bare system terminals (cancel/retire/archive) are valid — not mismatches.
 func lifecycleFix(proto *parchment.Protocol, status string) (string, bool) {
+	if !parchment.IsDomainStatusLabel(status) || strings.HasPrefix(status, "work.") {
+		return "", false
+	}
 	if proto.IsTerminal(status) {
 		return "work.complete", true
 	}
-	if parchment.IsDomainStatusLabel(status) && !strings.HasPrefix(status, "work.") {
-		return labelStatusDraft, true
-	}
-	return "", false
+	return labelStatusDraft, true
 }
 
 type repairInput struct {
