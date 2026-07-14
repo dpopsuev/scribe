@@ -306,7 +306,7 @@ func hasProjectLabel(labels []string) bool {
 
 func isWriteAction(action string) bool {
 	switch action {
-	case actionCreate, "set", "update", "link", "comment_add", "librarian", "claim", "release", "handoff":
+	case actionCreate, "set", "update", "link", "comment_add", "librarian", "claim", "release", "handoff", "message_add", "cursor_mark":
 		return true
 	}
 	return false

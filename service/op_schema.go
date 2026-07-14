@@ -81,7 +81,26 @@ var actionFieldSchemas = map[string]map[string]any{
 	"comment_list": {
 		"required": []string{"action", "id"},
 		"optional": []string{"since", "limit"},
-		"notes":    "Oldest-first stream of comments discussing id. since= unix ms exclusive lower bound.",
+		"notes":    "Alias of message_list(mode=discusses).",
+	},
+	"message_add": {
+		"required": []string{"action"},
+		"optional": []string{"text", "content", "author", "title", "scope", "parent", "discusses"},
+		"notes":    "text or content required. parent and/or discusses required. SyncWikilinks on body.",
+	},
+	"message_list": {
+		"required": []string{"action", "id"},
+		"optional": []string{"mode", "since", "limit", "session", "key"},
+		"notes":    "mode=children|discusses. session= applies Extra.read_cursors[key|id] when since omitted.",
+	},
+	"cursor_mark": {
+		"required": []string{"action", "session", "key"},
+		"optional": []string{"since", "scope"},
+		"notes":    "Stores unread cursor on agent.session Extra.read_cursors. since default=now.",
+	},
+	"cursor_get": {
+		"required": []string{"action", "session", "key"},
+		"optional": []string{"scope"},
 	},
 	"librarian": {
 		"required": []string{"action", "mode"},

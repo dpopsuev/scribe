@@ -53,42 +53,28 @@ scribe serve --transport http  # Streamable HTTP on :8080
 }
 ```
 
-### Agent runtime attachment (HTTP -- preferred for multi-agent)
+### Agent runtime attachment (HTTP)
 
-Agent runtimes (Alef, Cursor via MCP HTTP, etc.) should attach via Streamable HTTP so N agents share one Scribe process. Stdio is for single-shot Cursor/dev only.
+Prefer Streamable HTTP so multiple agents share one Scribe process. Stdio is fine for single-client local use.
 
 ```bash
 scribe serve --transport http --addr :8080
-# or: SCRIBE_TRANSPORT=http SCRIBE_ADDR=:8080 scribe serve
-```
-
-```json
-{
-  "mcpServers": {
-    "scribe": {
-      "url": "http://localhost:8080/?workspace=myproj"
-    }
-  }
-}
 ```
 
 | Concern | How |
 |---|---|
-| Liveness | `GET /healthz` → `{"status":"ok","version",…}` (no auth) |
-| Version | `GET /version` |
-| Scope | `?workspace=<scope>` or comma-separated scopes (e.g. `myproj,shared`) |
-| Workspace hints | Headers `X-Workspace-CWD`, `X-Workspace-Git-Remote` when the client cannot send MCP init `_meta` |
-| Auth | `SCRIBE_AUTH_TOKEN` → Bearer on MCP routes; `/healthz` stays open |
-| Ingest (Locus) | `POST /api/v1/ingest` — NDJSON nodes/edges from `locus scan --ingest` / `LOCUS_INGEST_URL` |
-| Provenance | Agent harness may stamp `created_by` / session (`harness` may be `alef`, `cursor`, `cli`, …) |
+| Liveness | `GET /healthz` |
+| Scope | `?workspace=<scope>` (comma-separated for multi-scope) |
+| Auth | `SCRIBE_AUTH_TOKEN` → Bearer on MCP routes; `/healthz` open |
+| Ingest | `POST /api/v1/ingest` (NDJSON; used by code-intel scanners) |
 
-**Claim ≈ assignee:** `artifact(action=claim, id=…, agent=…)` is the multi-agent ownership lease (`Extra.claim`). Use claim/release/handoff — not a separate assignee field. See `help(query=claim)`.
+**Claim ≈ assignee:** `artifact(action=claim, …)` — TTL lease in `Extra.claim`. See `help(query=claim)`.
 
-**Comment stream:** `comment_add` / `comment_list` — append-only notes with `discusses` → target (does not edit target sections). See `help(query=comment)`.
+**Message stream:** `message_add` / `message_list` (+ `comment_*` aliases) and `cursor_mark` / `cursor_get`. See `help(query=message)`.
 
-**Librarian:** `artifact(action=librarian, mode=merge|split|link|unlink|stale)` — mesh compaction with `source=librarian` edges. See `help(query=librarian)`.
+**Librarian:** mesh compaction operators. See `help(query=librarian)`.
 
-**Sessions in the vault:** kinds `agent.session` / `agent.turn` hold durable conversation provenance when `record_session` is on. Distinct from MCP HTTP session recovery (`help(query=session)`).
+**Sessions:** `agent.session` / `agent.turn` when `record_session` is on — not the same as MCP HTTP session IDs.
 
 ## Workflow
 

@@ -107,10 +107,22 @@ Handoff transfers ownership across sessions/agents with optional evidence.`,
 
   artifact(action=comment_add, id=task-abc, text="looks blocked on deploy", author=alice)
   artifact(action=comment_list, id=task-abc)
-  artifact(action=comment_list, id=task-abc, since=1710000000000, limit=20)
 
-Creates a knowledge.note (role:comment) with discusses → target. List returns oldest-first
-ordered stream (id, unix_ms, title, body). Does not mutate the target's sections.`,
+Alias of message_add(discusses=id) / message_list(mode=discusses). [[wikilinks]] auto-link.`,
+
+	"message": `MESSAGE STREAM — append-only notes under a parent and/or discussing a target
+
+  artifact(action=message_add, parent=ctx-thread, text="…", author=alice)
+  artifact(action=message_add, discusses=task-abc, text="…")
+  artifact(action=message_add, parent=ctx-thread, discusses=task-abc, text="[[task-abc]] …")
+  artifact(action=message_list, id=ctx-thread, mode=children)
+  artifact(action=message_list, id=task-abc, mode=discusses, since=…)
+  artifact(action=message_list, id=ctx-thread, mode=children, session=s1)  # since=cursor key=id
+  artifact(action=cursor_mark, session=s1, key=ctx-thread)
+  artifact(action=cursor_get, session=s1, key=ctx-thread)
+
+Containers (channels/threads) are ordinary knowledge.context (or any parent) via create/upsert.
+Apps choose labels/IDs; Scribe does not name topics or Discourse.`,
 
 	"librarian": `LIBRARIAN — mesh compaction (merge / split / link / unlink / stale)
 
@@ -190,7 +202,7 @@ Hosts dump every optional field on each tool — that is a flat union of kwargs,
 "fill all params". Pass only fields for the action you chose.
 
   artifact(action=schema, name=create)  # see only create fields
-  artifact  create/get/query/set/update/... (+ export/claim/release/handoff/comment_*/librarian)
+  artifact  create/get/query/set/update/... (+ export/claim/release/handoff/comment_*/message_*/librarian)
   graph     link / analyze / synonym
   admin     hygiene / history / dashboard / lint / ...
 
@@ -253,6 +265,7 @@ func init() {
 		{"update", "Change multiple fields and sections at once"},
 		{"claim", "Claim/release/handoff — agent assignee leases"},
 		{"comment", "Append-only comment stream (discusses edges)"},
+		{"message", "Append/list messages under parent or discusses"},
 		{"librarian", "Mesh compaction — merge/split/link/unlink/stale"},
 		{"agent.session", "Durable agent.session / agent.turn provenance"},
 		{"lifecycle", "Status transitions and schema discovery"},

@@ -204,7 +204,7 @@ type handler struct {
 // --- consolidated input types ---
 
 type artifactInput struct {
-	Action string `json:"action" jsonschema:"required,create get query set update delete attach detach recent brief schema help kernel_create kernel_confirm kernel_reject export claim release handoff comment_add comment_list librarian"`
+	Action string `json:"action" jsonschema:"required,create get query set update delete attach detach recent brief schema help kernel_create kernel_confirm kernel_reject export claim release handoff comment_add comment_list librarian message_add message_list cursor_mark cursor_get"`
 
 	ID     string `json:"id,omitempty"`
 	Target string `json:"target,omitempty" jsonschema:"new parent ID for set field parent"`
