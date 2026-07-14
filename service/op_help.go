@@ -93,13 +93,55 @@ Blocked when Extra.claim is held by another agent.`,
 
 Incremental: skips unchanged files; writes .conflict.md when disk is newer and differs.`,
 
-	"claim": `CLAIM / RELEASE / HANDOFF — multi-agent leases
+	"claim": `CLAIM / RELEASE / HANDOFF — multi-agent leases (assignee)
 
   artifact(action=claim, id=task-abc, agent=agent-1, ttl_seconds=3600)
   artifact(action=release, id=task-abc, agent=agent-1)
   artifact(action=handoff, artifact_id=task-abc, from_session=s1, to_session=s2, agent=agent-1, to_agent=agent-2)
 
-Claims live in Extra.claim. Expired claims are free.`,
+Claim.agent is the assignee for agent work — a TTL lease in Extra.claim, not a separate assignee field.
+Mutations are blocked while another agent holds the claim. Expired claims are free.
+Handoff transfers ownership across sessions/agents with optional evidence.`,
+
+	"comment": `COMMENT STREAM — append-only discussion on any artifact
+
+  artifact(action=comment_add, id=task-abc, text="looks blocked on deploy", author=alice)
+  artifact(action=comment_list, id=task-abc)
+  artifact(action=comment_list, id=task-abc, since=1710000000000, limit=20)
+
+Creates a knowledge.note (role:comment) with discusses → target. List returns oldest-first
+ordered stream (id, unix_ms, title, body). Does not mutate the target's sections.`,
+
+	"librarian": `LIBRARIAN — mesh compaction (merge / split / link / unlink / stale)
+
+  artifact(action=librarian, mode=merge, from=note-dup, to=note-keep)
+  artifact(action=librarian, mode=split, id=note-big, text="extracted idea…")
+  artifact(action=librarian, mode=link, from=a, to=b, relation=relates_to)
+  artifact(action=librarian, mode=unlink, from=a, to=b, relation=relates_to)
+  artifact(action=librarian, mode=stale, id=note-old, status=code.stale)
+
+Background compaction operators — parallel to context-window compaction. Edges stamped
+source=librarian. Not write-time SyncWikilinks; organic mentions stay the write path.`,
+
+	"working_set": `WORKING_SET — session briefing for agents
+
+  artifact(action=query, mode=working_set, scope=myproj)
+  artifact(action=query, mode=working_set, scope=myproj, include_code=true, excerpt_chars=200)
+
+Returns active campaigns, ready (unblocked) tasks, recent updates, hygiene_top, and session context.
+Prefer this over ad-hoc list+filter for “what should I do next?”.
+Code-index kinds are excluded unless include_code=true.`,
+
+	"agent.session": `AGENT.SESSION / AGENT.TURN — durable agent provenance in the vault
+
+Kinds:
+  agent.session — one agent run/session (sections: model, summary, usage)
+  agent.turn    — one turn under a session (section: content)
+
+When record_session is enabled, write actions auto-create session+turn nodes.
+Agent harnesses should write turns here for cross-session recall —
+distinct from MCP HTTP transport session recovery (help query=session).
+Query: artifact(action=query, kind=agent.session) or labels session:<id>.`,
 
 	"update": `UPDATE — change multiple fields and sections at once
 
@@ -124,8 +166,10 @@ Use force=true on set to bypass transition validation.`,
   graph(action=link, id=source-id, relation=parent_of, targets=["child-id"])
   graph(action=link, id=task-id, relation=depends_on, targets=["other-task"])
   graph(action=link, id=task-id, relation=resolves, targets=["bug-id"])
+  graph(action=link, id=comment-id, relation=discusses, targets=["task-id"])
 
-Use schema(kind=X) to see valid outbound relations and their allowed targets.
+discusses: comment/message → issue|task|bug|ref (what discussed this?).
+comment_add stamps discusses automatically. Use schema(kind=X) for allowed targets.
 Wrong-target errors name the valid targets for that specific relation.`,
 
 	"schema": `SCHEMA — discover kind properties or action field contracts
@@ -146,7 +190,7 @@ Hosts dump every optional field on each tool — that is a flat union of kwargs,
 "fill all params". Pass only fields for the action you chose.
 
   artifact(action=schema, name=create)  # see only create fields
-  artifact  create/get/query/set/update/... (+ export/claim/release/handoff)
+  artifact  create/get/query/set/update/... (+ export/claim/release/handoff/comment_*/librarian)
   graph     link / analyze / synonym
   admin     hygiene / history / dashboard / lint / ...
 
@@ -200,12 +244,17 @@ func init() {
 	b.WriteString("Topics (use help(query=\"topic\") for details):\n\n")
 	for _, topic := range []struct{ name, summary string }{
 		{"query", "Find artifacts — FTS, ranked recall, filters"},
+		{"working_set", "Session briefing — campaigns, ready, recent, hygiene"},
 		{"sort", "Sort query results — id, title, status, kind, topo, priority"},
 		{"time", "Time filters — created_after/before, updated_after/before"},
 		{"pagination", "Cursor-based result continuation"},
 		{"create", "Create new artifacts with sections"},
 		{"set", "Change a single field (status, title, priority, ...)"},
 		{"update", "Change multiple fields and sections at once"},
+		{"claim", "Claim/release/handoff — agent assignee leases"},
+		{"comment", "Append-only comment stream (discusses edges)"},
+		{"librarian", "Mesh compaction — merge/split/link/unlink/stale"},
+		{"agent.session", "Durable agent.session / agent.turn provenance"},
 		{"lifecycle", "Status transitions and schema discovery"},
 		{"relations", "Link artifacts with typed edges"},
 		{"schema", "Discover kind properties, sections, transitions"},

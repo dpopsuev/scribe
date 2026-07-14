@@ -51,7 +51,42 @@ var actionFieldSchemas = map[string]map[string]any{
 	},
 	"query": {
 		"required": []string{"action"},
-		"optional": []string{"query", "kind", "scope", "status", "mode", "ranked", "sort", "limit", "cursor", "labels"},
+		"optional": []string{"query", "kind", "scope", "status", "mode", "ranked", "sort", "limit", "cursor", "labels", "include_code", "excerpt_chars", "created_after", "updated_after", "unblocked", "title_contains"},
+		"notes":    "mode=fts|semantic|hybrid|working_set. For working_set see schema(name=working_set).",
+	},
+	"working_set": {
+		"required": []string{"action", "mode"},
+		"optional": []string{"scope", "include_code", "excerpt_chars", "limit"},
+		"notes":    "Pass mode=working_set on query. Returns campaigns, ready tasks, recent, hygiene_top, session.",
+	},
+	"claim": {
+		"required": []string{"action", "id", "agent"},
+		"optional": []string{"ttl_seconds", "session", "force"},
+		"notes":    "Assignee lease in Extra.claim. release needs id+agent; handoff needs artifact_id, from_session, to_session.",
+	},
+	"release": {
+		"required": []string{"action", "id", "agent"},
+		"optional": []string{"force"},
+	},
+	"handoff": {
+		"required": []string{"action", "from_session", "to_session"},
+		"optional": []string{"id", "artifact_id", "agent", "to_agent", "evidence", "summary"},
+		"notes":    "id or artifact_id required.",
+	},
+	"comment_add": {
+		"required": []string{"action", "id", "text"},
+		"optional": []string{"author", "title", "scope"},
+		"notes":    "Creates knowledge.note role:comment with discusses→id. Append-only; does not edit target sections.",
+	},
+	"comment_list": {
+		"required": []string{"action", "id"},
+		"optional": []string{"since", "limit"},
+		"notes":    "Oldest-first stream of comments discussing id. since= unix ms exclusive lower bound.",
+	},
+	"librarian": {
+		"required": []string{"action", "mode"},
+		"optional": []string{"from", "to", "id", "relation", "text", "status", "force"},
+		"notes":    "mode=merge|split|link|unlink|stale. Edges stamped source=librarian.",
 	},
 	"update": {
 		"required": []string{"action", "id"},

@@ -53,6 +53,43 @@ scribe serve --transport http  # Streamable HTTP on :8080
 }
 ```
 
+### Agent runtime attachment (HTTP -- preferred for multi-agent)
+
+Agent runtimes (Alef, Cursor via MCP HTTP, etc.) should attach via Streamable HTTP so N agents share one Scribe process. Stdio is for single-shot Cursor/dev only.
+
+```bash
+scribe serve --transport http --addr :8080
+# or: SCRIBE_TRANSPORT=http SCRIBE_ADDR=:8080 scribe serve
+```
+
+```json
+{
+  "mcpServers": {
+    "scribe": {
+      "url": "http://localhost:8080/?workspace=myproj"
+    }
+  }
+}
+```
+
+| Concern | How |
+|---|---|
+| Liveness | `GET /healthz` → `{"status":"ok","version",…}` (no auth) |
+| Version | `GET /version` |
+| Scope | `?workspace=<scope>` or comma-separated scopes (e.g. `myproj,shared`) |
+| Workspace hints | Headers `X-Workspace-CWD`, `X-Workspace-Git-Remote` when the client cannot send MCP init `_meta` |
+| Auth | `SCRIBE_AUTH_TOKEN` → Bearer on MCP routes; `/healthz` stays open |
+| Ingest (Locus) | `POST /api/v1/ingest` — NDJSON nodes/edges from `locus scan --ingest` / `LOCUS_INGEST_URL` |
+| Provenance | Agent harness may stamp `created_by` / session (`harness` may be `alef`, `cursor`, `cli`, …) |
+
+**Claim ≈ assignee:** `artifact(action=claim, id=…, agent=…)` is the multi-agent ownership lease (`Extra.claim`). Use claim/release/handoff — not a separate assignee field. See `help(query=claim)`.
+
+**Comment stream:** `comment_add` / `comment_list` — append-only notes with `discusses` → target (does not edit target sections). See `help(query=comment)`.
+
+**Librarian:** `artifact(action=librarian, mode=merge|split|link|unlink|stale)` — mesh compaction with `source=librarian` edges. See `help(query=librarian)`.
+
+**Sessions in the vault:** kinds `agent.session` / `agent.turn` hold durable conversation provenance when `record_session` is on. Distinct from MCP HTTP session recovery (`help(query=session)`).
+
 ## Workflow
 
 Scribe is designed for natural language. You talk to your agent, and it builds the work graph behind the scenes.
@@ -401,6 +438,8 @@ podman run -d --name scribe \
 | `SCRIBE_CONFIG` | `./scribe.yaml` or `$SCRIBE_ROOT/scribe.yaml` | Path to config file (first found wins) |
 | `SCRIBE_LOG_LEVEL` | `info` | Log level: `debug`, `info`, `warn`, `error`. JSON to stderr. |
 | `SCRIBE_WORKSPACE` | — | Workspace name for stdio transport (resolves scopes from config). |
+| `SCRIBE_AUTH_TOKEN` | — | If set, MCP HTTP routes require `Authorization: Bearer …`. `/healthz` stays open. |
+| `SCRIBE_MCP_STATELESS` | `true` | HTTP: accept stale Mcp-Session-Id after restart. Set `0` for sticky sessions. |
 
 ## License
 

@@ -204,7 +204,7 @@ type handler struct {
 // --- consolidated input types ---
 
 type artifactInput struct {
-	Action string `json:"action" jsonschema:"required,create get query set update delete attach detach recent brief schema help kernel_create kernel_confirm kernel_reject export claim release handoff"`
+	Action string `json:"action" jsonschema:"required,create get query set update delete attach detach recent brief schema help kernel_create kernel_confirm kernel_reject export claim release handoff comment_add comment_list librarian"`
 
 	ID     string `json:"id,omitempty"`
 	Target string `json:"target,omitempty" jsonschema:"new parent ID for set field parent"`
@@ -252,11 +252,15 @@ type artifactInput struct {
 	IncludeCode    bool     `json:"include_code,omitempty"`
 	OutDir         string   `json:"out_dir,omitempty"`
 	Agent          string   `json:"agent,omitempty"`
+	Author         string   `json:"author,omitempty"`
 	TTLSeconds     int      `json:"ttl_seconds,omitempty"`
 	FromSession    string   `json:"from_session,omitempty"`
 	ToSession      string   `json:"to_session,omitempty"`
 	Evidence       []string `json:"evidence,omitempty"`
 	ArtifactID     string   `json:"artifact_id,omitempty"`
+	From           string   `json:"from,omitempty"`
+	To             string   `json:"to,omitempty"`
+	Since          int64    `json:"since,omitempty" jsonschema:"unix ms cursor for comment_list"`
 
 	Field        string `json:"field,omitempty" jsonschema:"title goal scope status parent priority kind depends_on labels"`
 	Value        string `json:"value,omitempty"`
@@ -316,7 +320,7 @@ type graphInput struct {
 
 	ID        string      `json:"id,omitempty"`
 	Target    string      `json:"target,omitempty" jsonschema:"single target ID for link mode=replace"`
-	Relation  string      `json:"relation,omitempty" jsonschema:"parent_of, depends_on, follows, justifies, governed_by, implements, documents, blocks, duplicates, relates_to, clones, mentions, tested_by, supersedes, cites, elaborates, contradicts, traces_to, calls, explains, causes, resolves"` //nolint:misspell // relation names are domain terms
+	Relation  string      `json:"relation,omitempty" jsonschema:"parent_of, depends_on, follows, justifies, governed_by, implements, documents, blocks, duplicates, relates_to, clones, mentions, discusses, tested_by, supersedes, cites, elaborates, contradicts, traces_to, calls, explains, causes, resolves"` //nolint:misspell // relation names are domain terms
 	Weight    float64     `json:"weight,omitempty" jsonschema:"edge coupling strength (0.0 = boolean, 1.0 = max; default 0)"`
 	Direction string      `json:"direction,omitempty" jsonschema:"outbound (default) or inbound"`
 	Depth     int         `json:"depth,omitempty" jsonschema:"tree/briefing: max depth"`
