@@ -303,7 +303,12 @@ func collectChildrenStream(ctx context.Context, svc *Service, parentID string, s
 }
 
 func sortAndLimitRows(rows []streamRow, limit int) []streamRow {
-	sort.Slice(rows, func(i, j int) bool { return rows[i].ms < rows[j].ms })
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].ms != rows[j].ms {
+			return rows[i].ms < rows[j].ms
+		}
+		return rows[i].art.ID < rows[j].art.ID
+	})
 	if limit <= 0 {
 		limit = messageStreamLimit
 	}

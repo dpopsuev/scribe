@@ -72,7 +72,7 @@ scribe serve --transport http --addr :8080
 
 **Message stream:** `message_add` / `message_list` (+ `comment_*` aliases) and `cursor_mark` / `cursor_get`. See `help(query=message)`.
 
-**Librarian:** mesh compaction operators. See `help(query=librarian)`.
+**Librarian:** mesh compaction operators (`librarian`, `librarian_pass`). Opt-in ticker: `SCRIBE_LIBRARIAN_INTERVAL=24h` (Go duration or hours; empty/`0` = off). See `help(query=librarian)`.
 
 **Sessions:** `agent.session` / `agent.turn` when `record_session` is on — not the same as MCP HTTP session IDs.
 

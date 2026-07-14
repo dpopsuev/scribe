@@ -107,6 +107,11 @@ var actionFieldSchemas = map[string]map[string]any{
 		"optional": []string{"from", "to", "id", "relation", "text", "status", "force"},
 		"notes":    "mode=merge|split|link|unlink|stale. Edges stamped source=librarian.",
 	},
+	"librarian_pass": {
+		"required": []string{"action"},
+		"optional": []string{"scope", "max_age", "limit", "dry_run", "status"},
+		"notes":    "Marks idle edgeless knowledge.note. Opt-in ticker: SCRIBE_LIBRARIAN_INTERVAL.",
+	},
 	"update": {
 		"required": []string{"action", "id"},
 		"optional": []string{"title", "goal", "status", "priority", "labels", "sections", "sections_delete", "extra", "patch"},

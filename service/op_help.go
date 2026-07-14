@@ -131,9 +131,12 @@ Apps choose labels/IDs; Scribe does not name topics or Discourse.`,
   artifact(action=librarian, mode=link, from=a, to=b, relation=relates_to)
   artifact(action=librarian, mode=unlink, from=a, to=b, relation=relates_to)
   artifact(action=librarian, mode=stale, id=note-old, status=code.stale)
+  artifact(action=librarian_pass, scope=myproj, dry_run=true)
+  artifact(action=librarian_pass, max_age=720h, limit=50)
 
 Background compaction operators — parallel to context-window compaction. Edges stamped
-source=librarian. Not write-time SyncWikilinks; organic mentions stay the write path.`,
+source=librarian. librarian_pass marks long-idle edgeless notes (opt-in ticker:
+SCRIBE_LIBRARIAN_INTERVAL=24h). Not write-time SyncWikilinks; organic mentions stay the write path.`,
 
 	"working_set": `WORKING_SET — session briefing for agents
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	parchment "github.com/dpopsuev/parchment"
 	"github.com/dpopsuev/scribe/service"
@@ -32,6 +33,7 @@ func TestCommentAddList_DiscussesOrdered(t *testing.T) {
 		if _, err := add.Run(ctx, svc, raw); err != nil {
 			t.Fatalf("comment_add %q: %v", text, err)
 		}
+		time.Sleep(2 * time.Millisecond)
 	}
 
 	edges, err := svc.Proto.Store().Neighbors(ctx, task.ID, parchment.RelDiscusses, parchment.Incoming)

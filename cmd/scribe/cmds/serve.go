@@ -162,6 +162,12 @@ func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, webP
 	freshnessTicker := service.NewFreshnessTicker(svc.Proto, 1*time.Hour)
 	defer freshnessTicker.Stop()
 
+	if interval := service.LibrarianIntervalFromEnv(); interval > 0 {
+		libTicker := service.NewLibrarianTicker(svc, interval, service.LibrarianPassOpts{})
+		defer libTicker.Stop()
+		slog.InfoContext(ctx, "librarian ticker enabled", slog.String("interval", interval.String())) //nolint:sloglint // duration display
+	}
+
 	if len(cfg.ScopeConfigs) > 0 {
 		mat := service.NewMaterializer(svc, cfg.ScopeConfigs, cfg.Materialize.Interval())
 		defer mat.Stop()
