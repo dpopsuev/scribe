@@ -4,7 +4,6 @@
   "description": "Native Pi extension for Scribe — typed graph store for AI agents. Exposes scribe_artifact, scribe_graph, scribe_admin tools, a work-graph status widget, and an interactive /scribe browser.",
   "type": "module",
   "keywords": ["pi-package"],
-  "private": true,
   "scripts": {
     "test": "bun test",
     "cli": "bun src/cli.ts"
