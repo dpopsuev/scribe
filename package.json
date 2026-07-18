@@ -1,0 +1,7 @@
+{
+  "name": "scribe-workspace",
+  "private": true,
+  "pi": {
+    "extensions": ["extensions/pi-scribe/src/index.ts"]
+  }
+}

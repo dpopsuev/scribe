@@ -1,0 +1,28 @@
+{
+  "name": "@danypops/pi-scribe",
+  "version": "0.1.0",
+  "description": "Native Pi extension for Scribe — typed graph store for AI agents. Exposes scribe_artifact, scribe_graph, scribe_admin tools, a work-graph status widget, and an interactive /scribe browser.",
+  "type": "module",
+  "keywords": ["pi-package"],
+  "private": true,
+  "scripts": {
+    "test": "bun test",
+    "cli": "bun src/cli.ts"
+  },
+  "pi": {
+    "extensions": ["extension/src/index.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "bun-types": "latest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dpopsuev/scribe.git", "directory": "extensions/pi-scribe"
+  },
+  "files": ["src", "README.md"]
+}
