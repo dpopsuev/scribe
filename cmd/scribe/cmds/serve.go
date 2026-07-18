@@ -225,13 +225,13 @@ func runServe(cmd *cobra.Command, scopes []string, transport, addr, uiAddr, webP
 	defer stop()
 
 	if activeTransport == "http" {
-		return runHTTP(sigCtx, ctx, cmd, srvFactory, store, activeAddr, pprofAddr, enablePprof)
+		return runHTTP(sigCtx, ctx, cmd, srvFactory, store, svc, activeAddr, pprofAddr, enablePprof)
 	}
 	slog.InfoContext(ctx, "serving via stdio")
 	return srv.Run(sigCtx, &sdkmcp.StdioTransport{})
 }
 
-func runHTTP(sigCtx, logCtx context.Context, cmd *cobra.Command, srvFactory func(*http.Request) *sdkmcp.Server, store parchment.Store, addr, pprofAddr string, enablePprof bool) error {
+func runHTTP(sigCtx, logCtx context.Context, cmd *cobra.Command, srvFactory func(*http.Request) *sdkmcp.Server, store parchment.Store, svc *service.Service, addr, pprofAddr string, enablePprof bool) error {
 	handler := sdkmcp.NewStreamableHTTPHandler(
 		srvFactory,
 		&sdkmcp.StreamableHTTPOptions{
@@ -262,6 +262,7 @@ func runHTTP(sigCtx, logCtx context.Context, cmd *cobra.Command, srvFactory func
 		}
 		fmt.Fprintf(w, `{"status":"ok","version":%q,"db_bytes":%d}`, Version, dbSize)
 	})
+	mux.Handle("/api/v1/ops", mcp.RESTHandler(svc))
 	mux.Handle("/", handler)
 
 	httpHandler := requestLogMiddleware(mux)
